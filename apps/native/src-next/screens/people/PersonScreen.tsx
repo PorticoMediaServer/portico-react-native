@@ -61,7 +61,7 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
       <PersonCircle size={96} initials={initials} source={runtime.artwork(person.portraitUrl)} covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/>
       <Text accessibilityRole="header" style={[browseType(theme, 30, 800, -.035), {color: theme.colors.text, marginTop: 12, marginBottom: 4}]}>{person.name}</Text>
       <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: 6}}>
-        {!!person.roles.length && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{new Intl.ListFormat(runtime.text.locale, {type: 'conjunction'}).format(person.roles)}</Text>}
+        {!!person.roles.length && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{defaultI18n.list(person.roles)}</Text>}
         {dates && <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary}]}>{dates}</Text>}
       </View>
     </View>
@@ -148,7 +148,7 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
         <PersonCircle size={260} initials={initials} source={runtime.artwork(person.portraitUrl)}
           covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/>
         <View style={{flex: 1, minWidth: 0}}>
-          {person.roles.length > 0 && <Text style={[browseType(theme, 24, 600), {color: theme.colors.textTertiary}]}>{new Intl.ListFormat(runtime.text.locale, {type: 'conjunction'}).format(person.roles)}</Text>}
+          {person.roles.length > 0 && <Text style={[browseType(theme, 24, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.list(person.roles)}</Text>}
           <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 76, 800, -.035), {color: theme.colors.text, marginTop: 6}]}>{person.name}</Text>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 28, rowGap: 10, marginTop: 10}}>
             {dates && <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{dates}</Text>}

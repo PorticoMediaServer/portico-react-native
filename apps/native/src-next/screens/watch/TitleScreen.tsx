@@ -160,7 +160,6 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     [...new Set(credits.filter(credit => departments.includes(credit.department.toLowerCase())).map(credit => credit.name))];
   const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
   const castNames = [...new Set(credits.filter(credit => ['acting', 'cast'].includes(credit.department.toLowerCase())).map(credit => credit.name))];
-  const listed = new Intl.ListFormat(text.locale ?? 'en-US', {type: 'conjunction'});
   return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
       remember(event.nativeEvent.contentOffset.y);
@@ -201,8 +200,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </View>}
           {!props.watch && overview && <Text numberOfLines={theme.isTV ? 3 : 2} style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 18}]}>{overview}</Text>}
           {!props.watch && theme.isTV && (directors.length > 0 || castNames.length > 0) && <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 24, rowGap: 6, marginTop: 14}}>
-            {directors.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: listed.format(directors)})}</Text>}
-            {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: listed.format(castNames.slice(0, 3))})}</Text>}
+            {directors.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text>}
+            {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: defaultI18n.list(castNames.slice(0, 3))})}</Text>}
           </View>}
         </View>
       </View>
@@ -256,8 +255,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             <Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
             <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/>
             {(directors.length > 0 || writers.length > 0) && <View style={{gap: 2}}>
-              {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: listed.format(directors)})}</Text> : null}
-              {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: listed.format(writers)})}</Text> : null}
+              {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text> : null}
+              {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: defaultI18n.list(writers)})}</Text> : null}
             </View>}
           </View> : null}
         </View>)}

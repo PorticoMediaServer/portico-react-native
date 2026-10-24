@@ -126,3 +126,23 @@ test('a phone episode opens in place under its row from its own detail, with cre
     assert.ok(descendants(tree).some(node => node.type === TitleEpisode && node.props.entry?.id === 'e1'));
   } finally {host.unmount();}
 });
+
+test('title details render without Intl.ListFormat, which this Hermes build does not provide', () => {
+  const entry = {id: 'item', kind: 'movie', title: 'Real film', duration: 5700, progressSeconds: 540};
+  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [],
+    detail: {phase: 'ready', data: {item: entry, facts: {},
+      actions: [{id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}}], personal: {progressSeconds: 540, watched: false},
+      metadata: {genres: [], ratings: [], status: 'available', credits: [
+        {id: 'c1', name: 'Timothée Chalamet', role: 'Paul Atreides', department: 'acting', provider: 'tmdb'},
+        {id: 'c2', name: 'Denis Villeneuve', role: 'Director', department: 'directing', provider: 'tmdb'}]}}}};
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
+  const original = (Intl as any).ListFormat;
+  (Intl as any).ListFormat = undefined;
+  let tree: any;
+  const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+    back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
+  host.mount();
+  try {
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.directedBy', {names: 'Denis Villeneuve'})));
+  } finally {(Intl as any).ListFormat = original; host.unmount();}
+});
