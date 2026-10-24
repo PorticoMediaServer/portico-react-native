@@ -33,6 +33,8 @@ function createComposition(context: NativeShellBootstrapContext) {
     return account.account.role === 'owner' ? 'owner' : account.account.role === 'admin' ? 'administrator' : 'denied';
   };
   const dashboard = new NativeDashboardController(lifetime, admission, {sessions, console: new ConsoleClient(api, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId})});
+  let disposed = false;
+  const dispose = () => {if (disposed) return; disposed = true; unsubscribe(); dashboard.dispose(); lifetime.dispose();};
   return {
     settings: {
       render: (route, runtime) => {
@@ -40,7 +42,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         if (route.kind !== 'shell' || route.destination.kind !== 'settings') throw new Error('native_settings_route_mismatch');
         return <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;
       },
-      dispose: () => {unsubscribe(); dashboard.dispose(); lifetime.dispose();},
+      dispose,
     } satisfies NativeRouteRenderer,
     dashboard: {
       render: (route, runtime) => {
@@ -49,7 +51,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime}
           deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>}/>;
       },
-      dispose: () => {unsubscribe(); dashboard.dispose(); lifetime.dispose();},
+      dispose,
     } satisfies NativeRouteRenderer,
   } as const;
 }
