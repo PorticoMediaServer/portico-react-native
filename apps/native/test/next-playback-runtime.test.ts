@@ -216,9 +216,10 @@ function admittedDownload() {
 
 test('the genuine local maker reaches the same native engine and dock without server playback requests', async () => {
   const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+  const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
   try {
-    await settle(); const before = d.requests.length;
-    const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+    await settle(); assert.equal(d.runtime.queue.getSnapshot().phase, 'ready');
+    const before = d.requests.length;
     const controller = new AbortController();
     await d.runtime.startOffline(local.entry, {signal: controller.signal, isCurrent: () => true}); await settle();
     const snapshot = d.runtime.getSnapshot(), fence = snapshot.fence;
@@ -236,8 +237,7 @@ test('the genuine local maker reaches the same native engine and dock without se
     assert.equal(local.progress.at(-1)?.playId, fence.playId); assert.equal(local.progress.at(-1)?.positionSeconds, 51);
     await d.runtime.onTransition(d.runtime.dock.close(fence)); await settle();
     assert.equal(d.requests.some(request => request.path.includes('/local:') || request.path.includes('/local%3A')), false);
-    offSurface();
-  } finally {d.runtime.dispose();}
+  } finally {offSurface(); d.runtime.dispose();}
 });
 
 test('a late admitted native file cannot replace a competing Play or cross caller/viewer retirement', async () => {
