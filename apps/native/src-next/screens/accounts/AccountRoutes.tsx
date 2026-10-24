@@ -87,7 +87,9 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     finally {starting.current = false;}
   };
   const back = () => {if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
-  useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busy) back(); return true;}); return () => subscription.remove();});
+  const backRef = useRef(back), busyRef = useRef(busy);
+  backRef.current = back; busyRef.current = busy;
+  useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busyRef.current) backRef.current(); return true;}); return () => subscription.remove();}, []);
   if (recovery) return <PhoneProfileRecovery controller={recovery.controller} profileName={recovery.name} username={context.account.account.username}
     onOpen={value => {const id = recovery.id; recovery.controller.dispose(); setRecovery(undefined); setPin(value); void choose(id, value);}}
     onClose={() => {recovery.controller.dispose(); setRecovery(undefined); setPin('');}}/>;
