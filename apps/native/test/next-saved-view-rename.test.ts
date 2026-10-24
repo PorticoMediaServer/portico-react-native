@@ -365,3 +365,35 @@ test('Dispose during a Save only removes local state; the borrowed service finis
     assert.equal(fixture.reads, reads + 1, 'the owner service is still alive and readable');
   } finally {controller.dispose();}
 });
+
+test("two rename presentations sharing one service never consume each other's command or result", async () => {
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']});
+  const first = createNativeSavedViewRenameController({service, resource, current: () => true});
+  const second = createNativeSavedViewRenameController({service, resource, current: () => true});
+  try {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => {release = resolve;});
+    let started!: () => void;
+    const began = new Promise<void>(resolve => {started = resolve;});
+    fixture.patch = async body => {started(); await held; return fixture.succeed(body);};
+    assert.equal(first.setName('First name'), true);
+    assert.equal(second.setName('Second name'), true);
+    const saving = first.save();
+    await began;
+    assert.equal(second.getSnapshot().canSave, false, 'the shared command keeps the other presentation from submitting');
+    assert.equal(await second.save(), false);
+    assert.equal(second.getSnapshot().closed, false);
+    assert.equal(fixture.patchCalls.length, 1);
+    release();
+    assert.equal(await saving, true);
+    assert.equal(first.getSnapshot().closed, true);
+    assert.equal(second.getSnapshot().closed, false, "the first presentation's receipt is not the second acknowledgement");
+    assert.equal(second.getSnapshot().name, 'Second name');
+    assert.equal(second.getSnapshot().canSave, true);
+    assert.equal(await second.save(), true);
+    assert.equal(second.getSnapshot().closed, true);
+    assert.equal(first.getSnapshot().closed, true);
+    assert.equal(fixture.patchCalls.length, 2);
+    assert.notEqual(fixture.requestIds[0], fixture.requestIds[1]);
+  } finally {first.dispose(); second.dispose();}
+});
