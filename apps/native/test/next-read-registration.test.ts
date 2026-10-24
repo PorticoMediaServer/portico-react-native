@@ -33,7 +33,7 @@ test('Read self-registration borrows the confirmed source and retains the same v
   const host = hooks(), f = authorityContext();
   let registered: string | undefined, factory: any;
   const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Platform: {isTV: false}}, './ReadNativeHost': {ReadNativeHost: 'TrustedReadHost'},
+    react: host.react, 'react-native': {Platform: {isTV: false}}, './host-component': {nativeReadHost: () => 'TrustedReadHost'},
   });
   await screenModule(new URL('../src-next/screens/read/register.tsx', import.meta.url), {
     react: host.react, '../../shell/route-registry': {nativeShellRoutes: {registerRoute: (kind: string, create: any) => {registered = kind; factory = create;}}},
@@ -66,7 +66,15 @@ test('Read self-registration borrows the confirmed source and retains the same v
 test('the actual Read renderer refuses creation on TV before mounting a WebView', async () => {
   const host = hooks();
   const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Platform: {isTV: true}}, './ReadNativeHost': {ReadNativeHost: 'TrustedReadHost'},
+    react: host.react, 'react-native': {Platform: {isTV: true}}, './host-component': {nativeReadHost: () => {throw new Error('TV must not resolve a WebView host');}},
   });
   assert.throws(() => createNativeReadRenderer({}, {}, () => {}), /native_read_unavailable/);
+});
+
+test('the actual lazy host module is safe to evaluate on TV without evaluating a WebView package', async () => {
+  const host = hooks();
+  const {nativeReadHost} = await screenModule(new URL('../src-next/screens/read/host-component.ts', import.meta.url), {
+    react: host.react, 'react-native': {Platform: {isTV: true}},
+  });
+  assert.throws(nativeReadHost, /native_read_unavailable/);
 });
