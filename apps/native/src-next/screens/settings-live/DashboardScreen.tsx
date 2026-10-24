@@ -23,7 +23,7 @@ import {nativeDashboardIdentity} from './dashboard-presentation';
 
 /** TV never exposes a mutation, secret, settings document or inferred administrator action. */
 export function NativeDashboardScreen({controller, ports, runtime, deniedFallback}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; deniedFallback: React.ReactNode}) {
-  const theme = useTheme(), t = defaultI18n.t;
+  const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const column = ids.surface('server.pages'), rows = ids.surface('server.dashboard');
