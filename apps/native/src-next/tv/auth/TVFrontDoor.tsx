@@ -19,13 +19,13 @@ function useHeadingMeasurement(text: string, style: TextStyle[], width: number, 
     registration.current?.unregister(); registration.current = undefined; native.current = host;
     if (typeof __DEV__ !== 'undefined' && __DEV__ && host) {
       const {registerNativeHost} = require('../../dev/layout-dump/index') as typeof import('../../dev/layout-dump/index');
-      registration.current = registerNativeHost(host, {kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(input.current.style)});
+      registration.current = registerNativeHost(host, {kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(input.current.style), declaredStyleComplete: true});
     }
   }, []);
   useLayoutEffect(() => {
     input.current = {style};
     if (!registration.current) return;
-    registration.current.update({kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(style)});
+    registration.current.update({kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(style), declaredStyleComplete: true});
     registration.current.invalidateTextLayout(); registration.current.invalidateResolvedStyle();
   }, [text, style, width, height]);
   useLayoutEffect(() => () => {registration.current?.unregister(); registration.current = undefined; native.current = null;}, []);
@@ -57,8 +57,8 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
   const rootStyle = {flex: 1, backgroundColor: theme.colors.ink};
   const wordmarkStyle: ImageStyle = {position: 'absolute', left: 0, top: 72, width: 174, height: 40};
-  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(rootStyle) : undefined});
-  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined});
+  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(rootStyle) : undefined, declaredStyleComplete: typeof __DEV__ !== 'undefined' && __DEV__ ? true : undefined});
+  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined, declaredStyleComplete: typeof __DEV__ !== 'undefined' && __DEV__ ? true : undefined});
   return <View ref={rootObservation.ref} testID="tv-front-door" style={rootStyle}>
     <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
