@@ -560,12 +560,17 @@ export class NativePlaybackRuntime {
     return session;
   }
 
-  private readonly cataloguePort: Pick<V1QueuePlayer, 'playSegments'> = Object.freeze({
+  private readonly cataloguePort = Object.freeze({
     playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => this.playCatalogueSegments(segments, options),
+    enqueueSegments: (segments: readonly SegmentInput[], placement: 'next' | 'end', lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => {
+      const result = this.enqueueTail.then(() => this.enqueueCatalogueSegments(segments, placement, lifetime));
+      this.enqueueTail = result.catch(() => {});
+      return result;
+    },
   });
   /** Borrow the genuine authority-local player. This port has no Home context,
    * selection membership, page expansion or independent queue/session store. */
-  cataloguePlayback = (): Pick<V1QueuePlayer, 'playSegments'> => this.cataloguePort;
+  cataloguePlayback = () => this.cataloguePort;
 
   private async playCatalogueSegments(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
     const {signal, isCurrent} = options;
@@ -595,6 +600,34 @@ export class NativePlaybackRuntime {
       scoped.close();
       if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
     }
+  }
+
+  /** Append segments to the same queue this runtime already plays. The caller's
+   * group/follower authority decides whether the append is offered; the queue,
+   * CAS and adoption stay here and in the one queue owner. */
+  private async enqueueCatalogueSegments(segments: readonly SegmentInput[], placement: 'next' | 'end',
+    lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>): Promise<QueueHeader> {
+    const admitted = () => !lifetime.signal.aborted && this.currentAuthority() && lifetime.isCurrent();
+    const retired = () => Object.assign(new Error('native_catalogue_retired'), {name: 'AbortError'});
+    if (!admitted() || !segments.length) throw retired();
+    const epoch = this.startEpoch, source = this.sourceEpoch;
+    const valid = () => epoch === this.startEpoch && source === this.sourceEpoch && admitted();
+    const scoped = this.selectionScope(lifetime.signal, valid);
+    const client = new QueueClient({send: request => this.http.send({...request, signal: scoped.signal})}, this.o.requestId);
+    const check = () => {if (!valid()) throw retired();};
+    try {
+      this.connect(); check();
+      const held = this.queue.getSnapshot().view?.queue;
+      if (!held) {
+        const created = await client.create(segments, {signal: scoped.signal, retainQueueIds: this.retainedQueueIds()}); check();
+        await this.queue.open(created.queue.id, scoped.signal); check();
+        this.changed(); return created.queue;
+      }
+      let queue = await client.header(held.id, scoped.signal); check();
+      const ordered = placement === 'next' ? [...segments].reverse() : segments;
+      for (const segment of ordered) {check(); queue = (await client.addSegment(queue.id, queue.revision, placement, segment)).queue; check();}
+      await this.queue.refresh(scoped.signal); check(); this.changed(); return queue;
+    } finally {scoped.close();}
   }
 
   /** Play the server-owned whole group, never the screen's loaded preview.

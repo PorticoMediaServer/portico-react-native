@@ -19,6 +19,8 @@ import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-cor
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import type {V1QueuePlayer} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
+import type {QueueHeader} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
 import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
@@ -105,7 +107,12 @@ export interface NativePlaybackAdapter {
   getSnapshot: () => NativePlaybackRuntimeSnapshot;
   start: (input: NativePlaybackStart) => Promise<void>;
   /** The existing queue owner, for a server-named container (album, artist, show). */
-  cataloguePlayback?: () => Pick<V1QueuePlayer, 'playSegments'>;
+  cataloguePlayback?: () => Pick<V1QueuePlayer, 'playSegments'> & Readonly<{
+    /** Append to the one authority-local queue. The caller's lifetime and the active group's
+     * authority are checked before every write and adoption; this is never a second store. */
+    enqueueSegments: (segments: readonly SegmentInput[], placement: 'next' | 'end',
+      lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => Promise<QueueHeader>;
+  }>;
   startVersion: (input: NativePlaybackStart, selection: NativePlaybackVersionSelection) => Promise<void>;
   startOffline?: (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime) => Promise<void>;
   change: (fence: PlaybackFence, choices: PlaybackChoices) => Promise<void>;

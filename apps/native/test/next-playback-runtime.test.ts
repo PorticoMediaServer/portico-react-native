@@ -2267,6 +2267,31 @@ test('non-Home catalogue execution returns the genuine mixed queue and keeps the
   } finally {d.runtime.dispose();}
 });
 
+test('catalogue enqueue appends to the same real queue, not a second store', async () => {
+  const d = fixture(), controller = new AbortController();
+  try {
+    await d.start('movie-current'); const session = d.runtime.getSnapshot().fence!.sessionId;
+    const queue = await d.runtime.cataloguePlayback().enqueueSegments([
+      {source: {container: {kind: 'album', id: 'album-actual'}}}, {source: {items: {ids: ['movie-last']}}},
+    ], 'end', {signal: controller.signal, isCurrent: () => true});
+    await settle();
+    const additions = d.requests.filter(request => request.method === 'POST' && request.path.endsWith('/segments'));
+    assert.deepEqual(additions.map(request => (request.body as any).source), [{container: {kind: 'album', id: 'album-actual'}}, {items: {ids: ['movie-last']}}]);
+    assert.equal(new Set(additions.map(request => request.headers?.['if-match'])).size, 2);
+    assert.ok(additions.every(request => !!request.headers?.['idempotency-key']));
+    assert.equal(queue.id, d.runtime.getSnapshot().session?.queue?.queueId);
+    assert.equal(d.runtime.getSnapshot().fence?.sessionId, session);
+  } finally {d.runtime.dispose();}
+});
+
+test('catalogue enqueue refuses a retired caller before any queue write', async () => {
+  const d = fixture(), controller = new AbortController(); let current = false;
+  try {
+    await assert.rejects(d.runtime.cataloguePlayback().enqueueSegments([{source: {items: {ids: ['movie-last']}}}], 'next', {signal: controller.signal, isCurrent: () => current}), /native_catalogue_retired/);
+    assert.equal(d.requests.some(request => request.method === 'POST' && request.path.endsWith('/segments')), false);
+  } finally {d.runtime.dispose();}
+});
+
 for (const closing of ['signal', 'member'] as const) test(`non-Home catalogue lifetime reaches actual capability preflight: ${closing}`, async () => {
   const d = fixture(), controller = new AbortController(); let current = true;
   try {
