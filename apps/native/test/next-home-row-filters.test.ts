@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {defaultI18n, type MessageId} from '../../../packages/i18n/src';
 import {nativeRowFilterChange, nativeRowFilterField, nativeRowFilterValues} from '../src-next/screens/home/row-filters';
+import {homeBrowseLabel} from '../src-next/screens/home/browse-label';
 import type {BrowseFieldCapability, BrowseNode} from '../../../packages/client-core/src/browse';
 const field: BrowseFieldCapability = {id: 'genre', labelKey: 'browse.field.genre', type: 'enum', operators: ['contains-any', 'contains-all'], controlHint: 'facet-multi-select', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']};
 const now = new Date('2026-10-23T00:00:00Z');
@@ -27,4 +29,13 @@ test('editing a negative-only genre keeps every selected genre excluded', () => 
   const next = nativeRowFilterChange(field, {...control, included: [...control.included, 'Thriller']}, filters, now);
   assert.deepEqual(next, [{not: {field: 'genre', operator: 'contains-any', value: ['Horror', 'Thriller']}}]);
   assert.deepEqual(filters, [{not: {field: 'genre', operator: 'contains-any', value: ['Horror']}}]);
+});
+
+test('Home row vocabulary uses the translator the screen is showing', () => {
+  const words: string[] = [];
+  const i18n = {has: (id: string): id is MessageId => id === 'filter.field.genre', t: (id: MessageId) => {words.push(id); return `GB/${id}`;}};
+  assert.equal(homeBrowseLabel({id: 'genre'}, i18n), 'GB/filter.field.genre');
+  assert.deepEqual(words, ['filter.field.genre'], 'the supplied translator names the row unless the catalogue lacks the word');
+  assert.equal(homeBrowseLabel({id: 'genre'}), defaultI18n.t('filter.field.genre'));
+  assert.throws(() => homeBrowseLabel({id: 'invented-field'}, i18n), /native_browse_copy_unavailable/);
 });

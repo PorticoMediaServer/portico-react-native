@@ -16,14 +16,7 @@ type Source = Readonly<{route: NativeShellRoute; key: number; controller: Native
 /** Authority-local route factory. Registration belongs to this screen module;
  * the shell only binds its factories to the restored context. */
 export function createNativeHomeCustomizeRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer & {dispose: () => void} {
-  const t = defaultI18n.t;
-  const screen = createNativeHomeCustomization(context, {
-    title: t('home.customize.action'), instruction: t(Platform.isTV ? 'next.home.layoutTVInstruction' : 'home.customize.subtitle'),
-    alwaysOn: t('home.customize.alwaysOn'), addView: t('home.customize.addView'), reset: t('action.reset'), save: t('action.save'),
-    conflictTitle: t('next.home.layoutChangedTitle'), conflictBody: t('next.home.layoutChangedBodyCompact'),
-    reload: t('next.home.reloadLayout'), keepEditing: t('next.home.keepEditing'),
-    move: t('next.home.layoutMoveAction'), drop: t('next.home.layoutDropAction'), putBack: t('next.home.layoutPutBackAction'),
-  });
+  const screen = createNativeHomeCustomization(context);
   const unsubscribe = context.navigation.subscribe(screen.reconcile);
   screen.reconcile();
   return {
@@ -35,9 +28,20 @@ export function createNativeHomeCustomizeRenderer(context: NativeShellBootstrapC
   };
 }
 
+/** The drawn customize copy in the translator the runtime currently shows. */
+function customizeCopy(text: NativeShellRuntime['text']): NativeHomeCustomizeCopy {
+  return {
+    title: text.t('home.customize.action'), instruction: text.t(Platform.isTV ? 'next.home.layoutTVInstruction' : 'home.customize.subtitle'),
+    alwaysOn: text.t('home.customize.alwaysOn'), addView: text.t('home.customize.addView'), reset: text.t('action.reset'), save: text.t('action.save'),
+    conflictTitle: text.t('next.home.layoutChangedTitle'), conflictBody: text.t('next.home.layoutChangedBodyCompact'),
+    reload: text.t('next.home.reloadLayout'), keepEditing: text.t('next.home.keepEditing'),
+    move: text.t('next.home.layoutMoveAction'), drop: text.t('next.home.layoutDropAction'), putBack: text.t('next.home.layoutPutBackAction'),
+  };
+}
+
 /** The Home service performs the one revision-checked layout write. Saved is
  * read through its canonical service; choosing a view only edits the draft. */
-export function createNativeHomeCustomization(context: NativeShellBootstrapContext, copy: NativeHomeCustomizeCopy) {
+export function createNativeHomeCustomization(context: NativeShellBootstrapContext) {
   let source: Source | undefined, alive = true, sequence = 0;
   const current = () => alive && context.current() && !!source && context.navigation.getSnapshot().route === source.route;
   const requestId = async (): Promise<string> => NativeModules.PorticoRuntime.newRequestId();
@@ -59,19 +63,20 @@ export function createNativeHomeCustomization(context: NativeShellBootstrapConte
     source = {route, controller, views, summaries, key: ++sequence};
   };
   return {reconcile, owns: (route: NativeShellRoute) => source?.route === route,
-    render: (runtime: NativeShellRuntime) => source && current() ? <Customization key={source.key} source={source} runtime={runtime} copy={copy}
+    render: (runtime: NativeShellRuntime) => source && current() ? <Customization key={source.key} source={source} runtime={runtime}
       close={() => {if (current()) context.navigation.back(context.authority());}}/> : null,
     dispose: () => {alive = false; retire();}};
 }
 
-function Customization({source, runtime, copy, close}: {source: Source; runtime: NativeShellRuntime; copy: NativeHomeCustomizeCopy; close: () => void}) {
+function Customization({source, runtime, close}: {source: Source; runtime: NativeShellRuntime; close: () => void}) {
   const state = useSyncExternalStore(source.controller.subscribe, source.controller.getSnapshot), views = useSyncExternalStore(source.views.subscribe, source.views.getSnapshot);
   useSyncExternalStore(source.summaries.subscribe, source.summaries.getSnapshot);
   useEffect(() => {void source.controller.load();}, [source]);
   useEffect(() => {void source.summaries.load(views.resources);}, [source, views.resources]);
   const retry = () => {void source.views.select({view: 'views'});};
+  const labels = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale}, copy = customizeCopy(runtime.text);
   return state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, () => {void source.controller.load();})}/>
-    : <HomeCustomize summary={view => source.summaries.line(view, defaultI18n)} controller={source.controller} copy={copy} i18n={defaultI18n} onClose={close} onAddView={retry} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
+    : <HomeCustomize summary={view => source.summaries.line(view, labels)} controller={source.controller} copy={copy} i18n={labels} onClose={close} onAddView={retry} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
       views={{items: views.resources, loading: views.loading, error: views.error, retry,
         renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>}}/>;
 }
