@@ -16,6 +16,7 @@ import {OwnerTag} from '../kit/shell';
 import {HomeSelectionBars} from './HomeSelectionBars';
 import {HomeSelectionOverlays} from './HomeSelectionOverlays';
 import {nativeAccountMenu, nativeMenuRouteAvailable} from './account';
+import {libraryScanReadiness} from './library-scan';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
@@ -327,7 +328,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return management ? {...common, owner: true as const, ownerTag, onLibrarySettings: () => open({kind: 'library-settings', libraryId: library.id}), onScan: () => run(async () => {
         if (!context.current()) return; await management.selectLibrary(library.id);
         if (!context.current()) return;
-        if (management.getSnapshot().selected.data?.scope.viewerFence !== context.authority().viewerFence) throw failure('viewer_scope_changed');
+        const read = libraryScanReadiness(management.getSnapshot().selected, library.id);
+        if (!read.ok) throw failure(read.code);
         await management.scan(); const result = management.getSnapshot().mutation;
         if (result.error) throw failure(result.error.code);
       })} : {...common, owner: false as const};
