@@ -1,0 +1,13 @@
+#import <Foundation/Foundation.h>
+#import "PorticoServerTrust.h"
+
+/** Private body driver for the existing queue request/session, with no URL or authority
+ * argument on reads. Swift's byte sequence preserves HTTP body decoding and from-start bytes. */
+@protocol PorticoReadingStreamDriver <NSObject>
+- (void)openWithSession:(NSURLSession *)session request:(NSURLRequest *)request
+              attached:(void (^)(NSURLSessionTask *task))attached
+               headers:(void (^)(NSHTTPURLResponse *response))headers
+               failure:(void (^)(NSError *error))failure NS_SWIFT_NAME(open(session:request:attached:headers:failure:));
+- (void)readWithCompletion:(void (^)(NSData * _Nullable data,BOOL eof,NSError * _Nullable error))completion NS_SWIFT_NAME(read(completion:));
+- (void)cancel;
+@end

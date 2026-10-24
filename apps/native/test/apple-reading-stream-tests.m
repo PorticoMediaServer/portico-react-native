@@ -44,7 +44,7 @@ static void headers(ReadingStreamTask *task,NSInteger status){
  __block NSURLSessionResponseDisposition disposition=-1;
  NSHTTPURLResponse *response=[[NSHTTPURLResponse alloc]initWithURL:[NSURL URLWithString:@"https://server.example/v1/reading/sessions/s-1/source"] statusCode:status HTTPVersion:@"HTTP/1.1" headerFields:@{@"Content-Length":@"2147483648",@"Content-Type":@"application/pdf",@"ETag":@"\"revision\""}];
  [transport URLSession:nil dataTask:task didReceiveResponse:response completionHandler:^(NSURLSessionResponseDisposition value){disposition=value;}];
- check(disposition==NSURLSessionResponseBecomeStream,"stream headers request bounded same-transaction stream conversion");
+ check(disposition==NSURLSessionResponseAllow,"defensive data-task path retains header bounds");
 }
 static void pull(PorticoQueueRequest *request,NSMutableArray *replies,NSMutableArray *errors){
  PorticoReadingStreamRead(request.identifier,owner,^(id value){[replies addObject:value];},^(NSString *code,NSString *message,NSError *error){[errors addObject:code];});
@@ -85,7 +85,7 @@ static void actualPullStream(void) {
  BOOL opened=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
  check(opened&&!state[@"error"]&&[state[@"headers"][@"status"]isEqual:@200],"actual task resolves headers before read");
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
- @synchronized(request){check(!request.completed&&request.streamNativeTask&&request.data.length==0,"real same-request stream conversion keeps no prefetched body window");}
+ @synchronized(request){check(!request.completed&&request.streamDriver&&request.data.length==0,"real same-session byte reader keeps no prefetched body window");}
  NSUInteger received=0,pulls=0;BOOL done=NO,valid=YES;
  while(!done&&pulls++<512){
   @synchronized(state){[state removeObjectForKey:@"read"];}
@@ -116,15 +116,13 @@ int main(void){@autoreleasepool{
  PorticoQueueRequest *request=make();ReadingStreamTask *task=install(request);headers(task,200);
  check(opened==1&&!openRejected&&[opening[@"status"]isEqual:@200]&&[opening[@"headers"] count]==3&&!opening[@"bodyBase64"],"open resolves actual headers only");
  check(request.wire.timeoutInterval==15&&[request.wire.HTTPMethod isEqual:@"GET"]&&!request.wire.HTTPBody&&[[request.wire valueForHTTPHeaderField:@"If-Match"]isEqual:@"\"revision\""],"same deadline, captured precondition and GET request");
- check(task.suspends==0&&task.resumes==0&&request.data.length==0,"headers do not accumulate a paused data-task body");
- // Controlled legacy callbacks below exercise the defensive bounded data-task path.
- request.streamPaused=YES;task.testState=NSURLSessionTaskStateSuspended;
+ check(task.suspends==1&&task.resumes==0&&request.data.length==0,"defensive data-task headers suspend before demand");
  NSMutableArray *replies=[NSMutableArray new],*errors=[NSMutableArray new];
  pull(request,replies,errors);check(!replies.count&&!errors.count&&task.resumes==1,"one pull resumes the existing task");
  pull(request,replies,errors);check(errors.count==1&&[errors.lastObject isEqual:@"queue_transport"]&&task.resumes==1,"second pending pull rejects without replacing first");[errors removeAllObjects];
  NSMutableData *source=[NSMutableData dataWithLength:100000];for(NSUInteger i=0;i<source.length;i++)((uint8_t *)source.mutableBytes)[i]=(uint8_t)i;
  [transport URLSession:nil dataTask:task didReceiveData:source];
- check(replies.count==1&&task.suspends==1&&request.data.length==100000-49152,"one incoming chunk suspends and delivers at most 48KiB");
+ check(replies.count==1&&task.suspends==2&&request.data.length==100000-49152,"one incoming chunk suspends and delivers at most 48KiB");
  NSMutableData *received=[NSMutableData new];
  while(request.data.length){NSDictionary *last=replies.lastObject;check([last[@"done"]isEqual:@NO],"buffered bytes never claim EOF");[received appendData:[[NSData alloc]initWithBase64EncodedString:last[@"bodyBase64"] options:0]];pull(request,replies,errors);}
  [received appendData:[[NSData alloc]initWithBase64EncodedString:replies.lastObject[@"bodyBase64"] options:0]];
