@@ -6,7 +6,7 @@ import type {Library} from '../../../../../packages/client-core/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {BrowseNode} from '../../../../../packages/client-core/src/browse';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {libraryTabs} from '../../../../../packages/client-core/src/presentation/library-tabs';
+import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {AmbientArt} from '../../kit/artwork';
@@ -119,8 +119,8 @@ export function LibraryCompactHeader({switcher, menu, wash, children, onLibrarie
 /** The pivot strip: it scrolls on a phone because Music and Audiobooks have more
  * pivots than fit (phone-app 15a), and stays one drawn row on TV. */
 export function LibraryTabs({items, selected, enabled, disabled, regionId, leftEdge, phone, onSelect, onFocusTab}: {
-  items: readonly Readonly<{id: string; label: MessageId}>[]; selected: string; enabled: boolean; disabled?: boolean;
-  regionId: string; leftEdge: string; phone: boolean; onSelect: (id: string) => void; onFocusTab?: (id: string) => void;
+  items: readonly Readonly<{id: LibraryTabId; label: MessageId}>[]; selected: string; enabled: boolean; disabled?: boolean;
+  regionId: string; leftEdge: string; phone: boolean; onSelect: (id: LibraryTabId) => void; onFocusTab?: (id: LibraryTabId) => void;
 }) {
   const theme = useTheme();
   const strip = items.map(tab => <Focusable key={tab.id} focusId={tab.id} accessibilityRole="tab" accessibilityLabel={defaultI18n.t(tab.label)}
