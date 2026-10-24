@@ -48,7 +48,8 @@ private final class ReadingBytePolicy: NSObject, URLSessionTaskDelegate {
 }
 
 /** No independent client: this driver receives the queue's session and captured request.
- * Own data is at most one 48KiB pull; task cancellation also covers opening headers. */
+ * Own data is at most one 48KiB pull. The same cancellation covers metadata resolution,
+ * including Foundation's wait for the first available body byte or end of body. */
 @objc(PorticoReadingByteStream)
 final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
     private let lock = NSLock()
