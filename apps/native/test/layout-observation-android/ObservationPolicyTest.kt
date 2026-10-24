@@ -73,6 +73,44 @@ fun main() {
   verify(LayoutObservationPolicy.uniform(listOf<Int?>(400, null)) == null)
   verify(LayoutObservationPolicy.uniform(listOf<Int?>(null, null)) == null)
   verify(LayoutObservationPolicy.uniform(emptyList<Int>()) == null)
+  verify(LayoutObservationPolicy.fontStyle(false, 0.0) == "normal")
+  verify(LayoutObservationPolicy.fontStyle(true, 0.0) == "italic")
+  verify(LayoutObservationPolicy.fontStyle(null, 0.0) == null)
+  for (skew in listOf(-0.25, 0.25, Double.NaN, Double.POSITIVE_INFINITY)) {
+    verify(LayoutObservationPolicy.fontStyle(false, skew) == null)
+    verify(LayoutObservationPolicy.fontStyle(true, skew) == null)
+  }
+  verify(LayoutObservationPolicy.uniform(listOf(LayoutObservationPolicy.fontStyle(false, 0.0), LayoutObservationPolicy.fontStyle(true, 0.0))) == null)
+  verify(kotlin.math.abs(LayoutObservationPolicy.letterSpacing(-0.045, 88.0, 1.0)!! + 3.96) < 0.0000001)
+  verify(kotlin.math.abs(LayoutObservationPolicy.letterSpacing(0.1, 126.0, 3.0)!! - 4.2) < 0.0000001)
+  verify(LayoutObservationPolicy.letterSpacing(0.0, 126.0, 3.0) == 0.0)
+  verify(LayoutObservationPolicy.letterSpacing(0.5, 48.0, 3.0) == LayoutObservationPolicy.letterSpacing(1.0, 24.0, 3.0))
+  for (bad in listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY)) {
+    verify(LayoutObservationPolicy.letterSpacing(0.1, bad, 3.0) == null)
+    verify(LayoutObservationPolicy.letterSpacing(0.1, 88.0, bad) == null)
+  }
+  verify(LayoutObservationPolicy.letterSpacing(Double.NaN, 88.0, 3.0) == null)
+  verify(LayoutObservationPolicy.letterSpacing(Double.MAX_VALUE, 88.0, 3.0) == null)
+  verify(LayoutObservationPolicy.decoration(false, false) == "none")
+  verify(LayoutObservationPolicy.decoration(true, false) == "underline")
+  verify(LayoutObservationPolicy.decoration(false, true) == "line-through")
+  verify(LayoutObservationPolicy.decoration(true, true) == "underline line-through")
+  verify(LayoutObservationPolicy.noTextShadow(0.0, true, true))
+  verify(!LayoutObservationPolicy.noTextShadow(0.0, false, true))
+  verify(!LayoutObservationPolicy.noTextShadow(0.0, true, false))
+  for (radius in listOf(-1.0, 0.1, Double.NaN, Double.POSITIVE_INFINITY)) verify(!LayoutObservationPolicy.noTextShadow(radius, true, true))
+  verify(LayoutObservationPolicy.ImageMechanism.entries.map { it.code }.toSet() == setOf("fit-xy", "fit-x", "fit-y", "fit-start", "fit-center", "fit-end", "center",
+    "center-inside", "center-crop", "focus-crop", "fit-bottom-start", "matrix"))
+  class CustomScale {
+    override fun equals(other: Any?) = true
+    override fun hashCode() = 0
+  }
+  val knownScale = CustomScale()
+  val scales = listOf(knownScale to LayoutObservationPolicy.ImageMechanism.FIT_CENTER)
+  verify(LayoutObservationPolicy.imageMechanism(knownScale, scales) == "fit-center")
+  verify(LayoutObservationPolicy.imageMechanism(CustomScale(), scales) == null)
+  verify(LayoutObservationPolicy.imageMechanism(null, scales) == null)
+  verify(LayoutObservationPolicy.imageMechanism(knownScale, emptyList()) == null)
   val box = doubleArrayOf(105.0, 210.0, 1275.0, 2742.0)
   val mappedOrigin = doubleArrayOf(105.0, 210.0)
   val nativeOrigin = doubleArrayOf(15.0, 72.0)

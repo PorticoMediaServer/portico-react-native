@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from zipfile import ZipFile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--scratch', type=Path, required=True)
@@ -60,7 +61,14 @@ try:
         subprocess.run(['java', '-Xmx768m', '-cp', os.pathsep.join(map(str, sorted(compiler))),
                         'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-jvm-target', '17',
                         '-classpath', os.pathsep.join(map(str, classpath)), '-d', str(output), *map(str, files)], check=True, timeout=120)
-    compile(work / 'bridge.jar', [source, config], [stdlib, annotations, android_jar, rn_jars[0]])
+    fresco_version = re.search(r'^fresco\s*=\s*"([^"]+)"', (native / 'node_modules/react-native/gradle/libs.versions.toml').read_text(), re.M).group(1)
+    fresco_jars = []
+    for name in ['drawee', 'ui-core', 'fbcore']:
+        jar = work / (name + '.jar')
+        with ZipFile(artifact('com.facebook.fresco', name, fresco_version, '.aar')) as aar:
+            jar.write_bytes(aar.read('classes.jar'))
+        fresco_jars.append(jar)
+    compile(work / 'bridge.jar', [source, config], [stdlib, annotations, android_jar, rn_jars[0], *fresco_jars])
     print('Production observation bridge: actual Android SDK' + sdk_version + '/RN' + rn_version + ' compile PASS', flush=True)
     tests = native / 'test/layout-observation-android/ObservationPolicyTest.kt'
     compile(work / 'policy.jar', [policy, tests], [stdlib, annotations])
