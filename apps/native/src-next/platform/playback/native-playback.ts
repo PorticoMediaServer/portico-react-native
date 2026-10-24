@@ -31,6 +31,7 @@ import {AutomaticQuality, fixedQualities, fixedQualityOf, qualityRequest, type F
 import {PlaybackApiError, idempotencyKey, type V1Http, type V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import type {MediaPlayer, PlayerEvent, PlayerObservation, PlayerSource, PlayerState} from '../../../../../packages/client-core/src/playback-v1/port';
+import {parseObservedPlayback, type ObservedPlayback} from '../../../../../packages/client-core/src/playback-v1/observed-playback';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import {PlaybackSessionController, SessionsClient, type SessionChange, type StartOptions, type StartTarget, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import {toPlaybackSession} from '../../../../../packages/client-core/src/playback-v1/session-shape';
@@ -47,6 +48,8 @@ export type EngineFact = Readonly<{
   binding?: Readonly<{sessionId?: unknown; generation?: unknown}>;
   /** What the engine measured of the connection, and how much it holds ahead of the picture. */
   throughputKbps?: unknown; bufferedSeconds?: unknown; droppedFrames?: unknown;
+  /** Actual current renderer snapshot only, never a source plan or capability. */
+  observedPlayback?: unknown;
 }>;
 
 /** Ends this device caused itself: a queue move replaced the session, or the title played out. */
@@ -101,12 +104,13 @@ class ObservedEngine implements MediaPlayer {
   get state(): PlayerState | undefined { return this.reading?.generation === this.generation ? this.reading.state : undefined; }
 
   /** A reading from the engine for `generation`. Older generations are dropped by the controller's own gate. */
-  report(generation: number, state: PlayerState, positionMs: number, cause: 'time' | 'state' | 'seeked', extra: Readonly<{bufferedMs?: number; bandwidthKbps?: number; droppedFrames?: number}> = {}): void {
+  report(generation: number, state: PlayerState, positionMs: number, cause: 'time' | 'state' | 'seeked', extra: Readonly<{bufferedMs?: number; bandwidthKbps?: number; droppedFrames?: number; observedPlayback?: ObservedPlayback}> = {}): void {
     const observation: PlayerObservation = Object.freeze({
       generation, state, positionMs: Math.max(0, Math.round(positionMs)), rate: this.rate,
       ...(extra.bufferedMs !== undefined ? {bufferedMs: extra.bufferedMs} : {}),
       ...(extra.bandwidthKbps !== undefined ? {bandwidthKbps: extra.bandwidthKbps} : {}),
       ...(extra.droppedFrames !== undefined ? {droppedFrames: extra.droppedFrames} : {}),
+      ...(extra.observedPlayback !== undefined ? {observedPlayback: extra.observedPlayback} : {}),
       ...(this.audioTrackId !== undefined ? {audioTrackId: this.audioTrackId} : {}),
       ...(this.subtitleTrackId !== undefined ? {subtitleTrackId: this.subtitleTrackId} : {}),
     });
@@ -262,9 +266,13 @@ export class NativePlayback {
   engineFact(fact: EngineFact): void {
     const held = this.controller.getSnapshot().session;
     const sessionId = fact.binding?.sessionId, generation = finite(fact.binding?.generation);
-    if (this.disposed || !held || sessionId !== held.id || generation === undefined) return;
+    if (this.disposed || !held || sessionId !== held.id || generation === undefined || generation !== held.presentation.generation) return;
+    let observedPlayback: ObservedPlayback | undefined;
+    try {observedPlayback = parseObservedPlayback(fact.observedPlayback);}
+    catch {observedPlayback = Object.freeze({});} // Invalid output must not interrupt progress or lease renewal.
     const position = finite(fact.position);
     const extra = {
+      ...(observedPlayback !== undefined ? {observedPlayback} : {}),
       ...(finite(fact.bufferedSeconds) !== undefined ? {bufferedMs: Math.max(0, Math.round(finite(fact.bufferedSeconds)! * 1000))} : {}),
       ...(finite(fact.throughputKbps) !== undefined && finite(fact.throughputKbps)! > 0 ? {bandwidthKbps: Math.round(finite(fact.throughputKbps)!)} : {}),
       ...(finite(fact.droppedFrames) !== undefined ? {droppedFrames: Math.max(0, Math.round(finite(fact.droppedFrames)!))} : {}),
@@ -298,7 +306,7 @@ export class NativePlayback {
       }
       case 'ended':
         this.lastState = 'ended';
-        this.engine.report(generation, 'ended', (position ?? (this.controller.getSnapshot().observation?.positionMs ?? 0) / 1000) * 1000, 'state');
+        this.engine.report(generation, 'ended', (position ?? (this.controller.getSnapshot().observation?.positionMs ?? 0) / 1000) * 1000, 'state', extra);
         return;
     }
   }
