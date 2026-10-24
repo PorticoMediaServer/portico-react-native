@@ -34,7 +34,7 @@ test('genre navigation retains its exact source through Title and Back, then ret
   const unavailable = (): never => {throw new Error('unexpected_headless_genre_port');};
   const context: NativeShellBootstrapContext = {
     current: () => true, session: () => session, authority: () => authority, navigation,
-    api: new HttpLocalApi('https://fixture.invalid', async () => unavailable()),
+    api: new HttpLocalApi('https://fixture.invalid', '', async () => unavailable()),
     subscribeAuthority: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
     get home() {return unavailable();}, get events() {return unavailable();}, preferences: unavailable, subscribePreferences: unavailable,
     get appVersion() {return unavailable();}, get serverName() {return unavailable();}, get playback() {return unavailable();},
