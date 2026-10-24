@@ -1,6 +1,7 @@
 /** Produces the public fidelity contract; validation/comparison stay in server tools/fidelity. */
 import {measureNativeHost, relativeToRoot, type HostRect, type NativeHostReader} from './native-host.ts';
 import type {NativeMeasurementRegistry} from './registry.ts';
+import type {NativeObservedHost, NativeTreeObserver} from './native-observer.ts';
 
 export type NativeViewport = Readonly<{width: number; height: number; deviceScaleFactor: number}>;
 export type NativeScreenDiagnostics = Readonly<{fontScale?: number}>;
@@ -11,6 +12,8 @@ export type NativeCaptureOptions = Readonly<{
   registry: NativeMeasurementRegistry;
   /** Actual platform metadata only; never used for measurement arithmetic. */
   diagnostics?: NativeScreenDiagnostics;
+  observe?: NativeTreeObserver;
+  isCurrent?: () => boolean;
   /** Explicit public semantic ID to frame anchor; unlisted IDs are not serialized. */
   anchors?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
@@ -59,13 +62,75 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   const nodes = new Map<string, Node>();
   const childRecords = new Map<string, Element[]>();
   const anchors = new Map<string, string[]>();
+  const childrenByHost = new Map<object, object[]>(), childErrors = new Map<object, string>();
+  const discovered: object[] = [], seen = new Set<object>(), pending: Node[] = [root];
+  while (pending.length && discovered.length < 2000) {
+    if (signal?.aborted) break;
+    const node = pending.pop()!;
+    if (seen.has(node)) {missing('root', 'elements', 'native tree repeats a host'); continue;}
+    seen.add(node);
+    if (node.isConnected === false || node.nodeType === 3) continue;
+    discovered.push(node);
+    const observed = registry.read(node), tag = typeof node.nodeName === 'string' ? node.nodeName : '';
+    const opaque = /TextInput|EditText|UITextField|SecureText|Image|SVG/i.test(tag)
+      || observed?.kind === 'input' || observed?.kind === 'image';
+    const children: object[] = [];
+    if (!opaque) {
+      try {
+        const value = node.childNodes;
+        if (value && typeof value === 'object' && Symbol.iterator in value) {
+          for (const child of value as Iterable<unknown>) {
+            if (children.length >= 2000) {childErrors.set(node, 'native child list exceeds capture bound'); break;}
+            if (typeof child === 'object' && child !== null && (child as Node).nodeType !== 3) children.push(child);
+          }
+        } else childErrors.set(node, 'public native childNodes traversal is unavailable');
+      } catch {childErrors.set(node, 'public native childNodes traversal failed');}
+    }
+    childrenByHost.set(node, children);
+    for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
+  }
+  if (pending.length) missing('root', 'elements', 'native tree exceeds capture bound');
+  let native: ReadonlyMap<object, NativeObservedHost> = new Map();
+  let scopeCurrent: (() => boolean) | undefined;
+  if (options.observe) {
+    if (!options.isCurrent) throw new Error('A current public fixture guard is required for native observation.');
+    const fixtures = discovered.filter(host => {
+      const facts = registry.read(host);
+      return facts?.kind === 'view' && ['accounts-welcome', 'tv-front-door'].includes(facts.semanticId ?? '');
+    });
+    if (fixtures.length !== 1) missing('root', 'nativeObservation', 'a unique registered public fixture root is required');
+    else {
+      const fixture = fixtures[0], semanticId = registry.read(fixture)!.semanticId;
+      scopeCurrent = () => options.isCurrent!() && registry.read(fixture)?.semanticId === semanticId
+        && (root as Node).isConnected !== false && (fixture as Node).isConnected !== false;
+      if (!scopeCurrent()) throw new Error('The public native fixture retired before observation.');
+      native = await options.observe({root, fixture, hosts: discovered, signal, isCurrent: scopeCurrent});
+      if (signal?.aborted || !scopeCurrent()) throw new Error('The public native fixture retired during observation.');
+    }
+  }
+  const rootGap = unavailable.find(item => item.element === 'root' && item.property === 'fullViewport');
+  const rootWindow = native.get(root)?.windowRect;
+  let nativeWindowCoordinatesVerified = false;
+  if (rootWindow && scopeCurrent) {
+    const readback = await measureNativeHost({measureInWindow: (root as Node).measureInWindow?.bind(root)}, {signal});
+    if (signal?.aborted || !scopeCurrent()) throw new Error('The public native fixture retired during coordinate readback.');
+    const sameRect = (left: HostRect, right: HostRect) => left.x === right.x && left.y === right.y
+      && sameNativeExtent(left.width, right.width) && sameNativeExtent(left.height, right.height);
+    nativeWindowCoordinatesVerified = !!rootBox && 'rect' in readback && sameRect(rootBox, rootWindow)
+      && sameRect(readback.rect, rootWindow) && registry.revision() === revision;
+    if (rootGap) rootGap.reason += `; native windowRect source=${native.get(root)?.windowRectSource}, raw=${JSON.stringify(rootWindow)}; same-host measureInWindow readback=${'rect' in readback ? JSON.stringify(readback.rect) : 'unavailable'}; coordinate relationship=${nativeWindowCoordinatesVerified ? 'verified window agreement' : 'unknown'}`;
+  }
   const walk = async (node: Node, parent: string | null, id: string): Promise<void> => {
     if (signal?.aborted) {missing('root', 'captureState', 'capture cancelled'); return;}
     if (elements.length >= 2000) {missing('root', 'elements', 'native tree exceeds capture bound'); return;}
     if (node.isConnected === false || node.nodeType === 3) return;
+    if (mounted.has(node)) return;
     mounted.add(node);
     nodes.set(id, node);
     const observed = registry.read(node);
+    const snapshot = native.get(node);
+    const unavailableReason = (property: string, fallback: string) => snapshot?.unavailable[property]
+      ?? snapshot?.unavailable.nativeObservation ?? fallback;
     const tag = typeof node.nodeName === 'string' && /^[A-Za-z][A-Za-z0-9:_-]{0,100}$/.test(node.nodeName) ? node.nodeName : 'unknown';
     if (tag === 'unknown') missing(id, 'tag', 'public native node name is unavailable');
     const input = /TextInput|EditText|UITextField|SecureText/i.test(tag) || observed?.kind === 'input';
@@ -74,32 +139,26 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     const measured = node === root ? measuredRoot : await measureNativeHost(node, {signal});
     const box = rootBox && 'rect' in measured ? relativeToRoot(measured.rect, rootBox) : undefined;
     if (!box) missing(id, 'box', 'native host bounds unavailable');
-    let children: object[] = [];
-    // Inputs and image slots are opaque. Never visit input internals or image source/asset props.
-    if (!input && !image) {
-      try {
-        const childrenValue = node.childNodes;
-        if (childrenValue && typeof childrenValue === 'object' && Symbol.iterator in childrenValue) {
-          for (const child of childrenValue as Iterable<unknown>) {
-            if (children.length >= 2000) {missing(id, 'children', 'native child list exceeds capture bound'); break;}
-            if (typeof child === 'object' && child !== null) children.push(child);
-          }
-        } else missing(id, 'children', 'public native childNodes traversal is unavailable');
-      } catch {missing(id, 'children', 'public native childNodes traversal failed');}
-    }
+    const children = childrenByHost.get(node) ?? [];
+    if (childErrors.has(node)) missing(id, 'children', childErrors.get(node)!);
     const elementChildren = children.filter(child => (child as Node).nodeType !== 3);
     const mapped = observed?.semanticId && options.anchors ? Object.getOwnPropertyDescriptor(options.anchors, observed.semanticId)?.value : undefined;
     const frame = typeof mapped === 'string' && /^[A-Za-z0-9._:-]{1,256}$/.test(mapped) ? mapped : undefined;
     if (frame) anchors.set(frame, [...(anchors.get(frame) ?? []), id]);
+    const opacity = snapshot ? snapshot.effectiveOpacity : observed?.effectiveOpacity;
+    const background = snapshot ? snapshot.effectiveBackgroundColor : observed?.effectiveBackgroundColor;
     const record: Element = {id, parent, frame: frame ?? null, tag, role: observed?.role ?? null,
-      leaf: elementChildren.length === 0, box, style: observed?.measuredStyle ?? {}, focused: null,
-      effectiveOpacity: observed?.effectiveOpacity ?? null,
-      effectiveBackgroundColor: observed?.effectiveBackgroundColor,
+      leaf: elementChildren.length === 0, box, style: snapshot ? snapshot.style : observed?.measuredStyle ?? {}, focused: null,
+      effectiveOpacity: opacity ?? null,
+      effectiveBackgroundColor: background,
       diagnostics: {flattenedStyle: observed?.flattenedStyle ?? {}}};
-    if (record.effectiveOpacity === null) missing(id, 'effectiveOpacity', 'current native paint opacity has not been observed');
-    if (!record.effectiveBackgroundColor) missing(id, 'effectiveBackgroundColor', 'ancestor-composited native background has not been observed');
+    if (record.effectiveOpacity === null) missing(id, 'effectiveOpacity', unavailableReason('effectiveOpacity', 'current native paint opacity has not been observed'));
+    if (!record.effectiveBackgroundColor) missing(id, 'effectiveBackgroundColor', unavailableReason('effectiveBackgroundColor', 'ancestor-composited native background has not been observed'));
+    if (snapshot) for (const property of ['backgroundColor', 'borderRadius', 'boxShadow']) {
+      if (typeof snapshot.style[property] !== 'string') missing(id, property, unavailableReason(property, 'native paint property is unavailable'));
+    }
     const visiblePaint = box && rootBox && box.width > 0 && box.height > 0 && box.x < rootBox.width && box.y < rootBox.height
-      && box.x + box.width > 0 && box.y + box.height > 0 && observed?.effectiveOpacity !== undefined && observed.effectiveOpacity > 0;
+      && box.x + box.width > 0 && box.y + box.height > 0 && opacity !== undefined && opacity > 0;
     if (!input && text) {
       if (!visiblePaint) {
         missing(id, 'ownText', 'visible native paint has not been observed; hidden/unverified text is not exported');
@@ -110,15 +169,19 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
       } else {
         record.ownText = observed.lines.map(line => line.text).join('');
         // Local onTextLayout runs cannot establish an ancestor's actual animated transform.
-        const windowRuns = await registry.measureTextRectangles(node, signal);
+        const windowRuns = snapshot ? nativeWindowCoordinatesVerified ? snapshot.textRects : undefined
+          : await registry.measureTextRectangles(node, signal);
         if (rootBox && windowRuns && windowRuns.length === observed.lines.length) {
           const rects = windowRuns.map(line => relativeToRoot(line, rootBox));
           record.textRects = rects;
-        } else missing(id, 'textRects', 'current native window text runs are not observed; host boxes are not text runs');
+        } else missing(id, 'textRects', snapshot && !nativeWindowCoordinatesVerified
+          ? 'native window text runs cannot be mapped to the selected host API until same-attachment coordinate agreement is established'
+          : unavailableReason('textLineRects', 'current native window text runs are not observed; host boxes are not text runs'));
         if (record.ownText) strings.push({id: `${id}:text:0`, owner: id, frame: frame ?? null, kind: 'text', text: record.ownText, rects: record.textRects, style: record.style});
       }
       for (const property of ['fontFamily', 'fontSize', 'fontWeight', 'color']) {
-        if (typeof (record.style as Record<string, unknown>)[property] !== 'string') missing(id, property, 'resolved native font/paint fact is not available');
+        if (typeof (record.style as Record<string, unknown>)[property] !== 'string') missing(id, property,
+          unavailableReason(property === 'color' ? 'textColor' : property, 'resolved native font/paint fact is not available'));
       }
     } else record.ownText = '';
     if (input) {
@@ -139,9 +202,11 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   if (rootBox) await walk(root, null, 'root');
   for (const element of elements) {
     const node = nodes.get(element.id)!;
-    const focused = registry.actualFocus(node, mounted);
+    const snapshot = native.get(node);
+    const focused = snapshot ? snapshot.focused : registry.actualFocus(node, mounted);
     element.focused = focused ?? null;
-    if (focused === undefined) missing(element.id, 'focused', 'no native focus event for this mounted capture epoch');
+    if (focused === undefined) missing(element.id, 'focused', snapshot?.unavailable.isFocused
+      ?? snapshot?.unavailable.nativeObservation ?? 'no native focus event for this mounted capture epoch');
   }
   for (const element of [...elements].reverse()) {
     const children = childRecords.get(element.id) ?? [];

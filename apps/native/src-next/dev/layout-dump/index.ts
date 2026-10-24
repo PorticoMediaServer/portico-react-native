@@ -1,6 +1,9 @@
 /** Import/require this module only in DEV branches. It reads no auth, props or asset state. */
 import {collectNativeScreen, type NativeViewport, type NativeScreenDiagnostics} from './collect.ts';
 import {createNativeMeasurementRegistry, type HostFacts} from './registry.ts';
+import type {NativeTreeObserver} from './native-observer.ts';
+export {createAndroidNativeTreeObserver} from './native-observer.ts';
+export type {NativeTreeObserver} from './native-observer.ts';
 export type {HostFacts, HostRegistration, NativeTextLine, ResolvedStyle} from './registry.ts';
 export type {NativeViewport, NativeScreenDiagnostics} from './collect.ts';
 
@@ -10,6 +13,7 @@ export type NativeLayoutDumpOptions = Readonly<{
   root: () => object | null;
   viewport: () => NativeViewport;
   diagnostics?: () => NativeScreenDiagnostics;
+  observe?: NativeTreeObserver;
   platform: 'android' | 'ios' | 'tvos';
   anchors?: Readonly<Record<string, string>>;
 }>;
@@ -44,7 +48,8 @@ export function installNativeLayoutDump(options: NativeLayoutDumpOptions): Nativ
       pending.add(controller);
       try {
         const measured = await collectNativeScreen({root, viewport: options.viewport(), platform: options.platform,
-          anchors: options.anchors, diagnostics: options.diagnostics?.(), registry, signal: controller.signal});
+          anchors: options.anchors, diagnostics: options.diagnostics?.(), registry, signal: controller.signal,
+          observe: options.observe, isCurrent: () => !disposed && options.root() === root});
         if (controller.signal.aborted) throw new Error('Native layout capture was cancelled or reached its deadline.');
         if (disposed || options.root() !== root) throw new Error('Native root changed before capture completed.');
         return measured;

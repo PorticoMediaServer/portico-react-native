@@ -2,11 +2,11 @@
 export const nativeObservationProperties = [
   'isFocused', 'effectiveOpacity', 'backgroundColor', 'effectiveBackgroundColor',
   'borderRadius', 'boxShadow', 'textColor', 'fontFamily', 'fontSize', 'fontWeight',
-  'lineHeight', 'textLineRects',
+  'lineHeight', 'textLineRects', 'windowRect',
 ] as const;
 export type NativeObservationProperty = typeof nativeObservationProperties[number];
 export type NativeObservedRect = Readonly<{x: number; y: number; width: number; height: number}>;
-export type NativeObservationValue = boolean | number | string | readonly NativeObservedRect[];
+export type NativeObservationValue = boolean | number | string | NativeObservedRect | readonly NativeObservedRect[];
 export type NativeObservationFact = Readonly<{value: NativeObservationValue; source: string}> | Readonly<{unavailable: string}>;
 export type NativeHostFacts = Readonly<Record<NativeObservationProperty, NativeObservationFact>>;
 export type NativeObservationBatch = Readonly<{
@@ -72,13 +72,15 @@ function fact(property: NativeObservationProperty, raw: unknown): NativeObservat
   const missing = own(raw, 'unavailable');
   if (typeof missing === 'string') return unavailable(reasons.has(missing) ? missing : 'invalid-native-fact');
   const source = own(raw, 'source'), value = own(raw, 'value');
-  if (typeof source !== 'string' || !/^android\.[A-Za-z0-9_.-]{1,120}$/.test(source)) return unavailable('invalid-native-fact');
+  if (typeof source !== 'string' || !/^android\.[A-Za-z0-9_.+\-]{1,150}$/.test(source)) return unavailable('invalid-native-fact');
   let accepted: NativeObservationValue | undefined;
   switch (property) {
     case 'isFocused': if (typeof value === 'boolean') accepted = value; break;
     case 'effectiveOpacity': if (finite(value) && value >= 0 && value <= 1) accepted = value; break;
     case 'backgroundColor': case 'effectiveBackgroundColor': case 'textColor': if (rgba(value)) accepted = value; break;
-    case 'fontFamily': if (safeString(value) && !/^android\.graphics\.Typeface@/i.test(value)) accepted = value; break;
+    // A raw system label is not associated typographic-name metadata. The
+    // checked native implementation currently withholds every family fact.
+    case 'fontFamily': return unavailable('font-family-unavailable');
     case 'fontSize': case 'lineHeight': if (finite(value) && value > 0) accepted = value; break;
     case 'fontWeight': if (finite(value) && Number.isInteger(value) && value >= 1 && value <= 1000) accepted = value; break;
     case 'borderRadius': if (finite(value) && value >= 0) accepted = value; break;
@@ -86,10 +88,11 @@ function fact(property: NativeObservationProperty, raw: unknown): NativeObservat
       if (safeString(value, 512) && (value === 'none' || /^(?:[\d\s.,()%+\-]|px|rgba|rgb|inset)+$/.test(value))) accepted = value;
       break;
     case 'textLineRects': accepted = rectangles(value); break;
+    case 'windowRect': accepted = rectangles([value])?.[0]; break;
   }
   return accepted === undefined ? unavailable('invalid-native-fact') : Object.freeze({value: accepted, source});
 }
-function decode(raw: unknown, request: NativeObservationRequest, ids: readonly number[]): NativeObservationBatch {
+function decode(raw: unknown, request: Pick<NativeObservationRequest, 'rootReactTag' | 'fixtureReactTag'>, ids: readonly number[]): NativeObservationBatch {
   if (!object(raw) || own(raw, 'version') !== 1 || own(raw, 'unit') !== 'dp'
       || own(raw, 'rootReactTag') !== request.rootReactTag || own(raw, 'fixtureReactTag') !== request.fixtureReactTag) {
     throw new NativeObservationError('invalid-response');
@@ -111,26 +114,27 @@ function decode(raw: unknown, request: NativeObservationRequest, ids: readonly n
 
 /** Cancellation retires publication; it does not claim to interrupt a queued native UI turn. */
 export async function requestNativeObservations(request: NativeObservationRequest): Promise<NativeObservationBatch> {
+  const {rootReactTag, fixtureReactTag, bridge, isCurrent, signal} = request;
   const ids = Object.freeze([...request.hostReactTags]);
-  if (!tag(request.rootReactTag) || !tag(request.fixtureReactTag) || ids.length === 0 || ids.length > 2000
+  if (!tag(rootReactTag) || !tag(fixtureReactTag) || rootReactTag === fixtureReactTag || ids.length === 0 || ids.length > 2000
       || ids.some(id => !tag(id)) || new Set(ids).size !== ids.length) throw new NativeObservationError('invalid-request');
-  const current = () => {try {return request.isCurrent();} catch {return false;}};
+  const current = () => {try {return isCurrent();} catch {return false;}};
   const guard = () => {
-    if (request.signal?.aborted) throw new NativeObservationError('cancelled');
+    if (signal?.aborted) throw new NativeObservationError('cancelled');
     if (!current()) throw new NativeObservationError('scope-changed');
   };
   guard();
   let abort: (() => void) | undefined;
   try {
-    const pending = Promise.resolve().then(() => {guard(); return request.bridge.observe(request.rootReactTag, request.fixtureReactTag, ids);});
+    const pending = Promise.resolve().then(() => {guard(); return bridge.observe(rootReactTag, fixtureReactTag, ids);});
     const cancelled = new Promise<never>((_resolve, reject) => {
       abort = () => reject(new NativeObservationError('cancelled'));
-      request.signal?.addEventListener('abort', abort, {once: true});
-      if (request.signal?.aborted) abort();
+      signal?.addEventListener('abort', abort, {once: true});
+      if (signal?.aborted) abort();
     });
-    const raw = request.signal ? await Promise.race([pending, cancelled]) : await pending;
+    const raw = signal ? await Promise.race([pending, cancelled]) : await pending;
     guard();
-    const result = decode(raw, request, ids);
+    const result = decode(raw, {rootReactTag, fixtureReactTag}, ids);
     guard();
     return result;
   } catch (error) {
@@ -138,6 +142,6 @@ export async function requestNativeObservations(request: NativeObservationReques
     guard();
     throw new NativeObservationError('native-error');
   } finally {
-    if (abort) request.signal?.removeEventListener('abort', abort);
+    if (abort) signal?.removeEventListener('abort', abort);
   }
 }
