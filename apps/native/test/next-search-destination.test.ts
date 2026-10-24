@@ -150,7 +150,9 @@ test('pause stops the real debounce and an interrupted draft resumes without rec
     destination.setText('draft'); destination.pause();
     await new Promise<void>(resolve => setTimeout(resolve, 280)); assert.equal(calls.length, 0);
     destination.resume(); await tick();
-    assert.equal(calls.length, 1); assert.equal(new URL(calls[0], 'https://test.invalid').searchParams.get('record'), '0');
+    assert.equal(calls.length, 1); assert.notEqual(new URL(calls[0], 'https://test.invalid').searchParams.get('record'), '1');
+    assert.equal(destination.getSnapshot().search.query?.record, false);
+    assert.equal(destination.getSnapshot().search.data?.query.recorded, false);
     assert.equal(destination.getSnapshot().search.query?.q, 'draft');
     assert.equal(destination.getSnapshot().groups[0].items[0].id, 'actual-result');
   } finally {destination.dispose();}
