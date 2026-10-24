@@ -78,6 +78,10 @@ Failed scope captures carry only an allowlisted adapter boundary: before native,
 after native, after decode, or native scope rejection while JS is still current.
 The boundary does not expose native errors or identify which native guard failed;
 all currentness and publication checks remain in force.
+If the checked native rejection also supplies `userInfo.nativeObservationStage`,
+only the agreed operation name (with optional `-exception`) survives in the
+sanitized failure. Unknown values and getters are ignored, and stale JS scope
+prevents reading that field at all. No native error text or view identity escapes.
 Native paint does not fall back to diagnostic styles or stale registered paint.
 Unassociated family labels remain unavailable; they never become a requested CSS
 family chain or an observed typographic identity.

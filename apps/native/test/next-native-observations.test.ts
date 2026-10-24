@@ -103,6 +103,37 @@ test('scope failure boundaries preserve every currentness fence without exportin
   assert.equal(rawReads, 0);
 });
 
+test('native scope stages accept only the agreed scalar userInfo while JS remains current', async () => {
+  const stages = ['admission', 'ui-current', 'root-resolve', 'root-attachment', 'root-walk',
+    'pre-observation-scope', 'observation', 'post-observation-scope', 'response'];
+  let reads = 0;
+  for (const stage of stages.flatMap(value => [value, `${value}-exception`])) {
+    await assert.rejects(requestNativeObservations({...request(response()), bridge: {observe: async () => {
+      throw {code: 'layout_observation_scope', userInfo: {nativeObservationStage: stage,
+        get props() {reads++; throw new Error('private native detail');}},
+      get message() {reads++; throw new Error('private native detail');}};
+    }}}), (error: unknown) => failure('scope-changed')(error)
+      && (error as NativeObservationError).boundary === 'native-scope-rejected-while-js-current'
+      && (error as NativeObservationError).nativeObservationStage === stage);
+  }
+  for (const userInfo of [undefined, null, 'observation', {nativeObservationStage: '/private/detail'},
+    {nativeObservationStage: 'root-resolve-exception-extra'}, {nativeObservationStage: 1},
+    {get nativeObservationStage() {reads++; throw new Error('private native detail');}}]) {
+    await assert.rejects(requestNativeObservations({...request(response()), bridge: {observe: async () => {
+      throw {code: 'layout_observation_scope', userInfo};
+    }}}), (error: unknown) => failure('scope-changed')(error)
+      && (error as NativeObservationError).nativeObservationStage === undefined);
+  }
+  let live = true;
+  await assert.rejects(requestNativeObservations({...request(response()), isCurrent: () => live, bridge: {observe: async () => {
+    live = false;
+    throw {code: 'layout_observation_scope', get userInfo() {reads++; return {nativeObservationStage: 'observation'};}};
+  }}}), (error: unknown) => failure('scope-changed')(error)
+    && (error as NativeObservationError).boundary === 'js-after-native'
+    && (error as NativeObservationError).nativeObservationStage === undefined);
+  assert.equal(reads, 0);
+});
+
 test('fixture retirement and abort discard native results and fence the queued call', async () => {
   let live = true, settle!: (raw: unknown) => void, calls = 0;
   const pending = requestNativeObservations({...request(response()), isCurrent: () => live,

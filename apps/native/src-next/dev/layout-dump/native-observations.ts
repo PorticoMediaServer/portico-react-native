@@ -27,8 +27,13 @@ export type NativeObservationRequest = Readonly<{
 }>;
 type Failure = 'invalid-request' | 'invalid-response' | 'scope-changed' | 'cancelled' | 'native-error';
 type FailureBoundary = 'js-before-native' | 'js-after-native' | 'js-after-decode' | 'native-scope-rejected-while-js-current';
+const nativeStages = ['admission', 'ui-current', 'root-resolve', 'root-attachment', 'root-walk',
+  'pre-observation-scope', 'observation', 'post-observation-scope', 'response'] as const;
+type NativeStage = typeof nativeStages[number];
+type NativeObservationStage = NativeStage | `${NativeStage}-exception`;
 export class NativeObservationError extends Error {
-  constructor(readonly code: Failure, readonly boundary?: FailureBoundary) {super(`Native observation unavailable: ${code}`);}
+  constructor(readonly code: Failure, readonly boundary?: FailureBoundary,
+    readonly nativeObservationStage?: NativeObservationStage) {super(`Native observation unavailable: ${code}`);}
 }
 
 const object = (value: unknown): value is object => typeof value === 'object' && value !== null;
@@ -142,7 +147,10 @@ export async function requestNativeObservations(request: NativeObservationReques
     if (error instanceof NativeObservationError) throw error;
     guard('js-after-native');
     if (object(error) && own(error, 'code') === 'layout_observation_scope') {
-      throw new NativeObservationError('scope-changed', 'native-scope-rejected-while-js-current');
+      const userInfo = own(error, 'userInfo'), stage = object(userInfo) ? own(userInfo, 'nativeObservationStage') : undefined;
+      const accepted = typeof stage === 'string' && nativeStages.some(name => stage === name || stage === `${name}-exception`)
+        ? stage as NativeObservationStage : undefined;
+      throw new NativeObservationError('scope-changed', 'native-scope-rejected-while-js-current', accepted);
     }
     throw new NativeObservationError('native-error');
   } finally {
