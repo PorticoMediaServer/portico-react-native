@@ -270,7 +270,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       style={{paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 10, paddingBottom: theme.isTV ? 14 : theme.platform === 'phone' ? 0 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
       {applied.map(filter => <Focusable key={filter.id} focusId={filter.id} disabled={!active.visible} accessibilityLabel={defaultI18n.t('next.browse.native.removeFilter', {field: filter.fieldName})}
         onPress={() => destination.setQuery(source.predicates.filter(node => JSON.stringify(node) !== filter.id))}
-        style={{height: theme.isTV ? 52 : 30, borderRadius: theme.isTV ? 14 : theme.platform === 'phone' ? 9 : 17, paddingLeft: theme.isTV ? 20 : 11, paddingRight: theme.platform === 'phone' ? 8 : 7, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.isTV ? alpha(theme.colors.accent, .18) : theme.colors.raisedBright,
+        style={{height: theme.isTV ? 52 : 30, borderRadius: theme.isTV ? 14 : theme.platform === 'phone' ? 9 : 17, paddingLeft: theme.isTV ? 20 : 11, paddingRight: theme.platform === 'phone' ? 8 : 7, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.isTV ? alpha(theme.colors.accent, .18) : theme.platform === 'phone' ? theme.colors.raisedHigh : theme.colors.raisedBright,
           borderWidth: theme.isTV ? 1.5 : 0, borderColor: alpha(theme.colors.accentStrong, .5)}}>
         <Text numberOfLines={1} style={[browseType(theme, theme.isTV ? 20 : 13, 600), {color: theme.colors.text}]}>{filter.label}</Text><Icon name="i-close" size={theme.isTV ? 22 : 14} color={theme.colors.textSecondary}/>
       </Focusable>)}
