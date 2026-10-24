@@ -45,6 +45,30 @@
    ]
   },
   {
+   "id": "npm:@react-native-community/blur@4.4.1",
+   "name": "@react-native-community/blur",
+   "version": "4.4.1",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/react-native-community/react-native-blur",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2022 React Native Community"
+   ]
+  },
+  {
+   "id": "npm:@react-native-masked-view/masked-view@0.3.2",
+   "name": "@react-native-masked-view/masked-view",
+   "version": "0.3.2",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/react-native-masked-view/masked-view#readme",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2015-present, Facebook, Inc."
+   ]
+  },
+  {
    "id": "npm:@react-native-tvos/virtualized-lists@0.83.10-1",
    "name": "@react-native-tvos/virtualized-lists",
    "version": "0.83.10-1",
@@ -105,13 +129,34 @@
    ]
   },
   {
+   "id": "npm:dijkstrajs@1.0.3",
+   "name": "dijkstrajs",
+   "version": "1.0.3",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/tcort/dijkstrajs",
+   "text": 4
+  },
+  {
+   "id": "npm:escape-string-regexp@4.0.0",
+   "name": "escape-string-regexp",
+   "version": "4.0.0",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "sindresorhus/escape-string-regexp",
+   "text": 5,
+   "copyright": [
+    "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
+   ]
+  },
+  {
    "id": "npm:event-target-shim@5.0.1",
    "name": "event-target-shim",
    "version": "5.0.1",
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/mysticatea/event-target-shim",
-   "text": 4,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2015 Toru Nagashima"
    ]
@@ -123,7 +168,7 @@
    "licence": "BSD-3-Clause",
    "group": "packages",
    "url": "https://github.com/mridgway/hoist-non-react-statics",
-   "text": 5,
+   "text": 7,
    "copyright": [
     "Copyright (c) 2015, Yahoo! Inc. All rights reserved."
    ]
@@ -168,7 +213,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/zertosh/nullthrows",
-   "text": 6,
+   "text": 8,
    "copyright": [
     "Copyright (c) 2016 Andres Suarez"
    ]
@@ -180,9 +225,21 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/then/promise",
-   "text": 7,
+   "text": 9,
    "copyright": [
     "Copyright (c) 2014 Forbes Lindesay"
+   ]
+  },
+  {
+   "id": "npm:qrcode@1.5.4",
+   "name": "qrcode",
+   "version": "1.5.4",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "http://github.com/soldair/node-qrcode",
+   "text": 8,
+   "copyright": [
+    "Copyright (c) 2012 Ryan Day"
    ]
   },
   {
@@ -216,7 +273,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://docs.swmansion.com/react-native-gesture-handler/",
-   "text": 4,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2016 Software Mansion <swmansion.com>"
    ]
@@ -234,13 +291,25 @@
    ]
   },
   {
+   "id": "npm:react-native-qrcode-svg@6.3.22",
+   "name": "react-native-qrcode-svg",
+   "version": "6.3.22",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/Expensify/react-native-qrcode-svg#readme",
+   "text": 6,
+   "copyright": [
+    "Copyright (c) 2016 JerryShen"
+   ]
+  },
+  {
    "id": "npm:react-native-reanimated@4.6.0",
    "name": "react-native-reanimated",
    "version": "4.6.0",
    "licence": "MIT",
    "group": "packages",
    "url": "https://docs.swmansion.com/react-native-reanimated",
-   "text": 4,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2016 Software Mansion <swmansion.com>"
    ]
@@ -255,6 +324,18 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2019 Th3rd Wave"
+   ]
+  },
+  {
+   "id": "npm:react-native-svg@15.15.5",
+   "name": "react-native-svg",
+   "version": "15.15.5",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/software-mansion/react-native-svg",
+   "text": 6,
+   "copyright": [
+    "Copyright (c) [2015-2016] [Horcrux]"
    ]
   },
   {
@@ -279,6 +360,18 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2019 Nicolas Charpentier"
+   ]
+  },
+  {
+   "id": "npm:react-native-webview@16.0.0",
+   "name": "react-native-webview",
+   "version": "16.0.0",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/react-native-webview/react-native-webview#readme",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2015-present, Facebook, Inc."
    ]
   },
   {
@@ -336,7 +429,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "github/fetch",
-   "text": 8,
+   "text": 10,
    "copyright": [
     "Copyright (c) 2014-2023 GitHub, Inc."
    ]
@@ -348,7 +441,7 @@
    "licence": "GPL-3.0-or-later",
    "group": "engine",
    "url": "https://codeload.github.com/jellyfin/jellyfin-ffmpeg/tar.gz/refs/tags/v8.1.3-1",
-   "text": 9
+   "text": 11
   },
   {
    "id": "engine:freetype@2.15.0",
@@ -357,7 +450,7 @@
    "licence": "FTL",
    "group": "engine",
    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
-   "text": 10
+   "text": 12
   },
   {
    "id": "engine:fribidi@1.0.17",
@@ -366,7 +459,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.17/fribidi-1.0.17.tar.xz",
-   "text": 11
+   "text": 13
   },
   {
    "id": "engine:harfbuzz@14.6.0",
@@ -375,7 +468,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.6.0/harfbuzz-14.6.0.tar.xz",
-   "text": 12
+   "text": 14
   },
   {
    "id": "engine:libass@0.17.5",
@@ -384,7 +477,7 @@
    "licence": "ISC",
    "group": "engine",
    "url": "https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz",
-   "text": 13,
+   "text": 15,
    "copyright": [
     "Copyright (C) 2006-2016 libass contributors"
    ]
@@ -396,36 +489,12 @@
    "licence": "Zlib",
    "group": "engine",
    "url": "https://github.com/adah1972/libunibreak/releases/download/libunibreak_8_0/libunibreak-8.0.tar.gz",
-   "text": 14,
+   "text": 16,
    "copyright": [
     "Copyright (C) Wu Yongwei <wuyongwei at gmail dot com>",
     "Copyright (C) Tom Hacohen <tom at stosb dot com>",
     "Copyright (C) Petr Filipsky <philodej at gmail dot com>",
     "Copyright (C) Andreas Röver <roever at users dot sf dot net>"
-   ]
-  },
-  {
-   "id": "native-npm:@react-native-community/blur@4.4.1",
-   "name": "@react-native-community/blur",
-   "version": "4.4.1",
-   "licence": "MIT",
-   "group": "apple",
-   "url": "https://github.com/react-native-community/react-native-blur",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2022 React Native Community"
-   ]
-  },
-  {
-   "id": "native-npm:@react-native-masked-view/masked-view@0.3.2",
-   "name": "@react-native-masked-view/masked-view",
-   "version": "0.3.2",
-   "licence": "MIT",
-   "group": "apple",
-   "url": "https://github.com/react-native-masked-view/masked-view",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2015-present, Facebook, Inc."
    ]
   },
   {
@@ -435,7 +504,7 @@
    "licence": "Boost Software License",
    "group": "apple",
    "url": "http://www.boost.org",
-   "text": 15
+   "text": 17
   },
   {
    "id": "pod:DoubleConversion@1.1.6",
@@ -444,7 +513,7 @@
    "licence": "MIT",
    "group": "apple",
    "url": "https://github.com/google/double-conversion",
-   "text": 16,
+   "text": 18,
    "copyright": [
     "Copyright 2006-2011, the V8 project authors. All rights reserved."
    ]
@@ -456,7 +525,7 @@
    "licence": "MIT",
    "group": "apple",
    "url": "https://github.com/fastfloat/fast_float",
-   "text": 17
+   "text": 19
   },
   {
    "id": "pod:fmt@12.1.0",
@@ -465,7 +534,7 @@
    "licence": "MIT",
    "group": "apple",
    "url": "https://github.com/fmtlib/fmt",
-   "text": 18,
+   "text": 20,
    "copyright": [
     "Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors"
    ]
@@ -477,7 +546,7 @@
    "licence": "Google",
    "group": "apple",
    "url": "https://github.com/google/glog",
-   "text": 19,
+   "text": 21,
    "copyright": [
     "Copyright (c) 2008, Google Inc. All rights reserved."
    ]
@@ -513,7 +582,7 @@
    "licence": "Apache License, Version 2.0",
    "group": "apple",
    "url": "https://github.com/facebook/folly",
-   "text": 20
+   "text": 22
   },
   {
    "id": "pod:react-native@0.83.10-1",
@@ -533,36 +602,9 @@
    "licence": "MIT",
    "group": "apple",
    "url": "https://github.com/software-mansion/react-native-screens",
-   "text": 4,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2018 Software Mansion <swmansion.com>"
-   ]
-  },
-  {
-   "id": "native-npm:react-native-svg@15.15.5",
-   "name": "react-native-svg",
-   "version": "15.15.5",
-   "licence": "MIT",
-   "group": "apple",
-   "url": "https://github.com/software-mansion/react-native-svg",
-   "text": 4,
-   "copyright": [
-    "Copyright (c) [2015-2016] [Horcrux]"
-   ]
-  },
-  {
-   "id": "native-npm:react-native-webview@16.0.0",
-   "name": "react-native-webview",
-   "version": "16.0.0",
-   "licence": "MIT",
-   "group": "apple",
-   "url": "https://github.com/react-native-webview/react-native-webview",
-   "only": [
-    "ios"
-   ],
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2015-present, Facebook, Inc."
    ]
   },
   {
@@ -572,7 +614,7 @@
    "licence": "BSD-3-Clause",
    "group": "apple",
    "url": "https://github.com/facebookincubator/SocketRocket",
-   "text": 21,
+   "text": 23,
    "copyright": [
     "Copyright (c) 2016-present, Facebook, Inc. All rights reserved."
    ]
@@ -583,7 +625,7 @@
    "licence": "ISC",
    "group": "fonts",
    "url": "https://lucide.dev",
-   "text": 22,
+   "text": 24,
    "copyright": [
     "Copyright (c) 2026 Lucide Icons and Contributors"
    ]
@@ -594,7 +636,7 @@
    "licence": "OFL-1.1",
    "group": "fonts",
    "url": "https://github.com/googlefonts/manrope",
-   "text": 23,
+   "text": 25,
    "copyright": [
     "Copyright 2018 The Manrope Project Authors (https://github.com/googlefonts/manrope)"
    ]
@@ -605,6 +647,8 @@
   "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
+  "```\nDijkstra path-finding functions. Adapted from the Dijkstar Python project.\n\nCopyright (C) 2008\n  Wyatt Baldwin <self@wyattbaldwin.com>\n  All rights reserved\n\nLicensed under the MIT license.\n\n  http://www.opensource.org/licenses/mit-license.php\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n```",
+  "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
   "Software License Agreement (BSD License)\n========================================\n\n----------------------------------------------------\n\nRedistribution and use of this software in source and binary forms, with or\nwithout modification, are permitted provided that the following conditions are\nmet:\n\n  * Redistributions of source code must retain the above copyright notice, this\n    list of conditions and the following disclaimer.\n  * Redistributions in binary form must reproduce the above copyright notice,\n    this list of conditions and the following disclaimer in the documentation\n    and/or other materials provided with the distribution.\n  * Neither the name of Yahoo! Inc. nor the names of YUI's contributors may be\n    used to endorse or promote products derived from this software without\n    specific prior written permission of Yahoo! Inc.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR\nANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON\nANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
@@ -630,7 +674,7 @@
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/ios/Podfile.lock": "8248330026f0efd324e35ab616ef26268cf6742ea42ee89a767ed6ac33a6286c",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
-  "apps/native/licences/js-ios.txt": "e9d48f139ff0b13e65dcc430c0ba89b8d1859ca283bcf2423779ac9d665f1d35",
+  "apps/native/licences/js-ios.txt": "d557acb8501d8a77ef35c77a4ac753b62c1c0c195dee9a57734acb5e1bb70565",
   "apps/native/licences/native-npm.json": "32589e75c42e8f92eff1f4b3f23081078d12372572b89824e6ac5d5a95233259",
   "apps/native/package-lock.json": "8362012e85e0723ae7f98d2f8064aa18a2568048ab4ab3339c96ea8b4b320e49",
   "apps/native/tvos/Podfile.lock": "65d04db2b6c90f2527019878b03d0633fc1498a38a85abb6a89890bdfe2a54fc",

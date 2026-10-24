@@ -5,6 +5,8 @@ import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/l
 import {NativeScreenLifetime} from './lifetime';
 import {createNativeSettingsController} from './settings-controller';
 import {NativeLiveController} from './live-controller';
+import {nativeGuideMemory} from './guide-memory';
+import {nativeScreenServices} from '../native-screen-services';
 import {NativeDashboardController, type NativeDashboardAdmission} from './dashboard-controller';
 import {NativeTogetherController} from './together-controller';
 import {NativeTogetherMedia} from './together-media';
@@ -31,7 +33,7 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const raw = localV1Http(context.api);
   const sessions = new AdminSessionsClient({send: request => lifetime.request(signal => raw.send({...request, signal}), request.signal)}, ports.requestId);
   const settings = createNativeSettingsController(lifetime, api, context.preferences());
-  const live = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const live = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone, {port: nativeGuideMemory(context.session()?.viewer, lifetime), reportError: error => nativeScreenServices(context).reportError(error)});
   const recordings = createNativeRecordingsController(lifetime, api, ports.dvrRequestId);
   const together = new NativeTogetherController(lifetime, ports.together);
   const togetherMedia = new NativeTogetherMedia(lifetime, api);
