@@ -173,6 +173,26 @@ test('diagnostics cannot supply measured paint/font facts and invalidation does 
   assert.equal(registry.read(node)?.effectiveOpacity, undefined);
 });
 
+test('capture marks complete current declarations without projecting them over observed facts', async () => {
+  const child = host('RN:View', {x: 10, y: 20, width: 100, height: 40});
+  const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844}, [child]);
+  const registry = createNativeMeasurementRegistry();
+  setNativeObservation(child, {style: {backgroundColor: 'rgba(1, 2, 3, 1)'}, effectiveOpacity: .9});
+  for (const complete of [true, false, undefined]) {
+    registry.register(child, {kind: 'view', flattenedStyle: {backgroundColor: '#edf5fa', opacity: .25},
+      declaredStyleComplete: complete});
+    const measured = await collectTestScene({root, registry, platform: 'android',
+      viewport: {width: 390, height: 844, deviceScaleFactor: 3}});
+    const node = measured.elements.find(element => element.id === 'root.0')!;
+    const diagnostics = node.diagnostics as Record<string, unknown>;
+    assert.deepEqual(diagnostics.flattenedStyle, {backgroundColor: '#edf5fa', opacity: .25});
+    assert.deepEqual(diagnostics.declaredStyle, complete ? {source: 'theme-resolved-stylesheet', complete: true} : undefined);
+    assert.equal((node.style as Record<string, unknown>).backgroundColor, 'rgba(1, 2, 3, 1)');
+    assert.equal(node.effectiveOpacity, .9);
+    assert.deepEqual(node.box, {x: 10, y: 20, width: 100, height: 40});
+  }
+});
+
 test('actual native focus events are lease/epoch bound; stale blur never clears a newer host', () => {
   const registry = createNativeMeasurementRegistry(), first = {}, second = {}, mounted = new Set([first, second]);
   const a = registry.register(first, {kind: 'view'}), b = registry.register(second, {kind: 'view'});

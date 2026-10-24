@@ -131,6 +131,7 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     const opacity = snapshot?.effectiveOpacity;
     const background = snapshot?.effectiveBackgroundColor;
     const diagnostics: Record<string, unknown> = {flattenedStyle: observed?.flattenedStyle ?? {},
+      ...(observed?.declaredStyleComplete ? {declaredStyle: {source: 'theme-resolved-stylesheet', complete: true}} : {}),
       ...(projected.windowRect ? {nativeWindowRect: projected.windowRect} : {}),
       ...('rect' in measured ? {publicMeasurement: {api: measured.source, rect: measured.rect}} : {})};
     const record: Element = {id, parent, frame: frame ?? null, tag, role: observed?.role ?? null,

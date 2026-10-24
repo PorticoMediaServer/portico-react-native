@@ -5,6 +5,16 @@ The validator, comparator, colour math, calibration and tolerances remain there;
 they are not copied into this application. Private references and adapters stay
 outside public source and app packages.
 
+Complete, current theme-resolved `StyleSheet.flatten` declarations are accepted
+paint evidence under the shared declared-style policy. The owning primitive sets
+`HostFacts.declaredStyleComplete: true` only for its final evaluated style.
+The capture keeps curated scalar input in `diagnostics.flattenedStyle` and marks
+it with `diagnostics.declaredStyle: {source: 'theme-resolved-stylesheet', complete: true}`.
+The shared `prepareNativeDeclarations` comparison helper projects that evidence
+on a clone; this producer does not copy its normalization or compositing math.
+Partial, stale, unregistered or unsafe declarations never invent omitted defaults.
+Native window geometry, actual text runs and focus remain observed facts.
+
 The App owner installs **one** `installNativeLayoutDump(options)` in a DEV-only
 branch, giving it a live whole-screen host getter, actual logical window width
 and height, actual device pixel ratio, platform, and an explicit public semantic
