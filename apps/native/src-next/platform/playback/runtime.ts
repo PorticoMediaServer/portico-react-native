@@ -611,16 +611,19 @@ export class NativePlaybackRuntime {
    * remain on the captured generation/revision and must never adopt its reply. */
   readSession = async (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime): Promise<Session | undefined> => {
     if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
-    const original = this.currentSession(), queue = this.queue.getSnapshot().view?.queue, start = this.startEpoch;
+    const original = this.currentSession(), queue = this.queue.getSnapshot().view?.queue, start = this.startEpoch, route = this.o.api.getRouteSnapshot();
     if (!original || original.kind !== 'vod' || original.role !== 'local' || original.state === 'ended' || original.end || !queue || original.queue?.queueId !== queue.id
-      || original.queue.entryId !== fence.entryId || original.versionId !== fence.sourceId) return;
+      || original.queue.entryId !== fence.entryId || original.versionId !== fence.sourceId || queue.currentEntryId !== fence.entryId
+      || queue.currentPlaybackId !== original.id || route && route.phase !== 'ready') return;
     const current = () => {
-      const session = this.currentSession(), live = this.fence(), heldQueue = this.queue.getSnapshot().view?.queue;
+      const session = this.currentSession(), live = this.fence(), heldQueue = this.queue.getSnapshot().view?.queue, liveRoute = this.o.api.getRouteSnapshot();
       return this.currentAuthority() && this.startEpoch === start && !lifetime.signal.aborted && lifetime.isCurrent()
         && !!live && sameFence(live, fence) && session?.id === original.id && session.revision === original.revision
-        && heldQueue?.id === queue.id && heldQueue.revision === queue.revision;
+        && heldQueue?.id === queue.id && heldQueue.revision === queue.revision && heldQueue.currentEntryId === fence.entryId
+        && heldQueue.currentPlaybackId === original.id && (route ? liveRoute?.phase === 'ready' && liveRoute.revision === route.revision && liveRoute.origin === route.origin : liveRoute === null);
     };
     const scoped = this.selectionScope(lifetime.signal, current);
+    const unroute = this.o.api.subscribeRoute(() => {if (!current()) scoped.close();});
     try {
       if (!current()) return;
       const fresh = await new SessionsClient(this.http, this.o.timers).get(original.id, scoped.signal);
@@ -633,7 +636,7 @@ export class NativePlaybackRuntime {
     } catch (error) {
       if (scoped.signal.aborted || !current()) return;
       throw error;
-    } finally { scoped.close(); }
+    } finally { unroute(); scoped.close(); }
   };
 
   private currentSession(): Session | undefined {
