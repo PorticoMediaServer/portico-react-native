@@ -1,8 +1,10 @@
 import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingItem} from '../../../../../packages/client-core/src';
+import {GeneratedCover} from '../../kit/artwork';
 import {PosterCard} from '../../kit/cards';
 import {Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
@@ -48,6 +50,8 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
         title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/> : null}
       {state.items.length > 0 ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap, marginBottom: 12}}>
         {state.items.map(item => <PosterCard key={item.id} testID={`reading-item-${item.id}`} title={item.title} width={width}
+          artworkFallback={<View accessible={false} importantForAccessibility="no-hide-descendants"><GeneratedCover title={item.title}
+            author={item.author?.value} tint={generatedCoverTint(item.title)} width={width} height={width * 1.5}/></View>}
           caption={item.author ? [{id: 'author', text: item.author.value, role: 'context'}] : []} disabled={!item.inventoryAvailable}
           onNavigate={() => open(item)}/>)}
       </View> : null}
