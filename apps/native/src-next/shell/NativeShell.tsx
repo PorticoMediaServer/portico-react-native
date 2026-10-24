@@ -155,5 +155,6 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {runtime.renderWatch && <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>{runtime.renderWatch()}</View>}
     {runtime.renderRoutes()}
     {runtime.renderSelection()}
+    {runtime.renderDownloads?.()}
   </View>;
 }
