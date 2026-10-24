@@ -356,6 +356,7 @@ test('native Info uses only fresh canonical report/observation facts and never a
   const d = fixture(); await d.start('movie');
   try {
     const held = d.runtime.getSnapshot(), fence = held.fence!, names = infoWords(), path = encodedRoutePath('get_playback_session', {id: fence.sessionId});
+    const readsBefore = d.requests.filter(request => request.method === 'GET' && request.path === path).length;
     let observed: ObservedPlayback | undefined, report = true;
     d.respond(async request => {
       if (request.method !== 'GET' || request.path !== path) return;
@@ -383,7 +384,7 @@ test('native Info uses only fresh canonical report/observation facts and never a
     assert.equal(await readNativePlaybackInfo(d.runtime, fence, names.words, lifetime), undefined, 'missing report never falls back to prior data/options');
     assert.equal(d.runtime.getSnapshot().session, held.session, 'Info never adopts the GET response');
     assert.ok(Object.isFrozen(unknownOutput)); assert.ok(Object.isFrozen(unknownOutput?.comparison));
-    assert.equal(d.requests.filter(request => request.method === 'GET' && request.path === path).length, 3, 'every read is fresh');
+    assert.equal(d.requests.filter(request => request.method === 'GET' && request.path === path).length - readsBefore, 3, 'every read is fresh');
   } finally {d.runtime.dispose();}
 });
 
