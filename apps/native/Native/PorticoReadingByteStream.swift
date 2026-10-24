@@ -1,22 +1,26 @@
 import Foundation
 
 private actor ReadingByteBody {
-    private var iterator: URLSession.AsyncBytes.AsyncIterator
+    private var iterator: URLSession.AsyncBytes.AsyncIterator?
     private var eof = false
+    private var retired = false
 
     init(_ bytes: URLSession.AsyncBytes) { iterator = bytes.makeAsyncIterator() }
 
     func read() async throws -> (Data, Bool) {
         if eof { return (Data(), true) }
-        var current = iterator
+        guard !retired, var current = iterator else { throw CancellationError() }
         var data = Data(capacity: 49_152)
         while data.count < 49_152 {
             guard let byte = try await current.next() else { eof = true; break }
             data.append(byte)
         }
+        guard !retired else { throw CancellationError() }
         iterator = current
         return (data, eof)
     }
+
+    func retire() { retired = true; iterator = nil }
 }
 
 /** The task delegate forwards the existing certificate policy and never redirects.
@@ -75,52 +79,53 @@ final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
                     }
                     let current = self.locked {
                         guard !self.closed else { return false }
-                        self.task = bytes.task; self.body = ReadingByteBody(bytes); return true
+                        self.task = bytes.task; self.body = ReadingByteBody(bytes); self.opening = nil; return true
                     }
                     guard current else { bytes.task.cancel(); return }
                     attached(bytes.task); headers(http)
                 } catch {
-                    if !self.locked({ self.closed }) { failure(error) }
+                    if self.locked({ self.opening = nil; return !self.closed }) { failure(error) }
                 }
             }
         }
     }
 
     func read(completion: @escaping (Data?, Bool, Error?) -> Void) {
-        let opener = locked { () -> Task<Void, Never>? in
-            guard !closed, !readPending, let opening else { return nil }
-            readPending = true; return opening
+        let source = locked { () -> (ReadingByteBody?, Task<Void, Never>?)? in
+            guard !closed, !readPending, body != nil || opening != nil else { return nil }
+            readPending = true; return (body, opening)
         }
-        guard let opener else {
+        guard let source else {
             completion(nil, false, NSError(domain: "PorticoReadingStream", code: 3, userInfo: [NSLocalizedDescriptionKey: "network_stream_retired"]))
             return
         }
         let pending = Task { [weak self] in
             guard let self else { return }
             do {
-                await opener.value
-                guard let active = self.locked({ self.closed ? nil : self.body }) else {
+                if source.0 == nil { await source.1?.value }
+                guard let active = source.0 ?? self.locked({ self.closed ? nil : self.body }) else {
                     if !self.locked({ self.closed }) {
                         throw NSError(domain: "PorticoReadingStream", code: 3, userInfo: [NSLocalizedDescriptionKey: "network_stream_retired"])
                     }
                     return
                 }
                 let (data, eof) = try await active.read()
-                let current = self.locked { self.readPending = false; return !self.closed }
+                let current = self.locked { self.readPending = false; self.reading = nil; return !self.closed }
                 if current { completion(data, eof, nil) }
             } catch {
-                let current = self.locked { self.readPending = false; return !self.closed }
+                let current = self.locked { self.readPending = false; self.reading = nil; return !self.closed }
                 if current { completion(nil, false, error) }
             }
         }
-        locked { if closed { pending.cancel() } else { reading = pending } }
+        locked { if closed { pending.cancel() } else if readPending { reading = pending } }
     }
 
     func cancel() {
-        let pending = locked { () -> (Task<Void, Never>?, Task<Void, Never>?, URLSessionTask?) in
-            closed = true; let pending = (opening, reading, task)
+        let pending = locked { () -> (Task<Void, Never>?, Task<Void, Never>?, URLSessionTask?, ReadingByteBody?) in
+            closed = true; let pending = (opening, reading, task, body)
             opening = nil; reading = nil; task = nil; body = nil; return pending
         }
         pending.0?.cancel(); pending.1?.cancel(); pending.2?.cancel()
+        if let body = pending.3 { Task { await body.retire() } }
     }
 }
