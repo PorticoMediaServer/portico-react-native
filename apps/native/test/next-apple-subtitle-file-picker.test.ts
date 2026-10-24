@@ -87,3 +87,46 @@ test('Apple enforces the native text limit without decoding or storing a second 
   const over = await port({...native(),pick:async () => file({data:Buffer.alloc(4*1024*1024+1).toString('base64')})});
   await assert.rejects(over!.pick(signal()),generic);
 });
+
+test('the actual Apple factory injects only the installed platform picker into its existing runtime', async () => {
+  for (const kind of ['handheld', 'tv', 'missing'] as const) {
+    let picks = 0, callerPicks = 0;
+    const platform = {OS: 'ios', isTV: kind === 'tv', Version: 27};
+    const actual = await port(kind === 'missing' ? {} : {...native(), pick: async () => {picks++;return file();}}, async () => 'factory-request', platform);
+    let captured: any;
+    const runtime = {installSnapshotCapture() {}};
+    const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.ios.tsx', import.meta.url), {
+      react: {default: {}},
+      'react-native': {
+        NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'playback-request'}},
+        NativeEventEmitter: class {addListener() {return {remove() {}};}},
+        Platform: platform, UIManager: {hasViewManagerConfig: () => true}, requireNativeComponent: () => 'PorticoPlayer',
+        AppState: {addEventListener: () => ({remove() {}})},
+      },
+      '../../../../../packages/client-core/src/playback-v1/options': {CapabilityPublisher: class {async publish() {}}},
+      '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
+      '../../../../../packages/client-core/src/presentation/service-text': {serviceText},
+      './engine-choice': {parseEngineFeatures: () => ({})},
+      './capability-document.ios': {deviceCapabilityDocument: () => ({})},
+      './NativeListeningAdapter': {},
+      './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},
+      './scope-http': {PlaybackScopeHttp: class {dispose() {}}},
+      './subtitle-file-picker.ios': {appleSubtitleFilePicker: actual},
+      '../video-snapshot': {createVideoSnapshotCapture: () => ({})},
+    });
+    const adapter = createNativeShellPlaybackAdapter({
+      appVersion: 'test', api: {}, session: () => ({viewer: {authority: 'local', profileId: 'profile'}}),
+      authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'}),
+      settings: () => ({engine: 'native'}), subscribeSettings: () => () => {},
+      subtitleFilePicker: {pick: async () => {callerPicks++;return file();}},
+    });
+    assert.strictEqual(adapter.runtime, runtime);
+    assert.strictEqual(captured.subtitleFilePicker, actual);
+    assert.equal(picks, 0, 'factory construction must not open the native picker');
+    if (kind === 'handheld') assert.deepEqual(await captured.subtitleFilePicker.pick(signal()), file());
+    else assert.equal(captured.subtitleFilePicker, undefined, 'TV/missing native bridge never inherit a caller-supplied picker');
+    assert.equal(picks, kind === 'handheld' ? 1 : 0);
+    assert.equal(callerPicks, 0);
+    captured.disposeCapabilities();
+  }
+});
