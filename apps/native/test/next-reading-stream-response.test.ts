@@ -113,7 +113,7 @@ test('canonical captured facade accepts first-byte metadata and native pulls wit
   const session = await client.open({itemId: 'item', sourceId: 'source'}); await session.headPDF();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'ReadableStream'); assert.ok(descriptor);
   try {
-    Object.defineProperty(globalThis, 'ReadableStream', {...descriptor, value: undefined});
+    Object.defineProperty(globalThis, 'ReadableStream', {configurable: true, writable: true, value: undefined});
     const opening = session.openSequential(); await until(() => opens === 1); assert.equal(reads, 0);
     firstByte(); const stream = await opening; assert.equal(reads, 0);
     const reader = stream.getReader(); assert.deepEqual((await reader.read()).value, Uint8Array.of(0, 255, 128));
