@@ -219,9 +219,17 @@ function PendingBar({count, busy, runtime, onDiscard, onSave}: {count: number; b
 }
 
 /** Frame 17a: a new rule from a series the guide really lists, for a permitted profile. */
-function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources: readonly LiveSource[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
+export function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy?: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources?: readonly LiveSource[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
-  const allowed = policy.owners.filter(value => recordingAllowed(value.owner, policy.grants));
+  const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
+  useEffect(() => {
+    if (!open || policy && sources) return;
+    let active = true;
+    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
+    return () => {active = false;};
+  }, [open, policy, sources, controller]);
+  const effectivePolicy = policy ?? ownPolicy, effectiveSources = sources ?? ownSources ?? [];
+  const allowed = effectivePolicy ? effectivePolicy.owners.filter(value => recordingAllowed(value.owner, effectivePolicy.grants)) : [];
   const [name, setName] = useState(''), [owner, setOwner] = useState(''), [sourceId, setSourceId] = useState(''), [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
   const [series, setSeries] = useState<readonly RecordingSeries[]>([]), [anchor, setAnchor] = useState(''), [newOnly, setNewOnly] = useState(false);
   const [before, setBefore] = useState<number | null>(null), [after, setAfter] = useState<number | null>(null), [priority, setPriority] = useState('0'), [keepKey, setKeepKey] = useState('default');
@@ -229,7 +237,7 @@ function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange,
   const cancel = useRef<View>(null);
   useEffect(() => {
     if (!open) return;
-    setName(''); setOwner(allowed[0] ? recordingOwnerKey(allowed[0].owner) : ''); setSourceId(sources[0]?.id ?? ''); setDay(new Date().toISOString().slice(0, 10));
+    setName(''); setOwner(allowed[0] ? recordingOwnerKey(allowed[0].owner) : ''); setSourceId(effectiveSources[0]?.id ?? ''); setDay(new Date().toISOString().slice(0, 10));
     setSeries([]); setAnchor(''); setNewOnly(false); setBefore(null); setAfter(null); setPriority('0'); setKeepKey('default'); setError(undefined); setBusy(false);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -239,6 +247,7 @@ function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange,
     void controller.guideSeries(day, sourceId).then(value => {if (active) {setSeries(value); setAnchor('');}}, failure => {if (active) setError(failure);}).finally(() => {if (active) setLoading(false);});
     return () => {active = false;};
   }, [open, day, sourceId, controller]);
+  if (!effectivePolicy) return null;
   const chosen = series.find(value => value.key === anchor), chosenOwner = allowed.find(value => recordingOwnerKey(value.owner) === owner);
   const kept: KeepPolicy | null = keepKey === 'default' ? null : keepKey === 'keep-all' ? {mode: 'keep-all', keepCount: 0, keepDays: 0, keepUntilWatched: false} : keepKey === 'keep-count' ? {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false} : {mode: 'keep-days', keepCount: 0, keepDays: 30, keepUntilWatched: false};
   const ready = !!chosenOwner && name.trim().length > 0 && !!chosen && recordingGuideRoute(day, sourceId) !== null;
@@ -247,7 +256,7 @@ function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange,
     setBusy(true); setError(undefined);
     try {
       await controller.createRule({owner: chosenOwner.owner, anchor: chosen.anchor, kind: 'series', name: name.trim(), match: chosen.seriesId, sourceId: chosen.anchor.sourceId, enabled: chosen.recordAvailable,
-        options: {prePaddingMs: before, postPaddingMs: after, keepPolicy: kept, newEpisodesOnly: newOnly, priority: Math.round(Number(priority) || 0), folderTemplate: ''}}, policy.grants);
+        options: {prePaddingMs: before, postPaddingMs: after, keepPolicy: kept, newEpisodesOnly: newOnly, priority: Math.round(Number(priority) || 0), folderTemplate: ''}}, effectivePolicy!.grants);
       onSaved();
     } catch (failure) {setError(failure);}
     finally {setBusy(false);}
@@ -260,7 +269,7 @@ function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange,
       <TextField testID="live-owner-new-rule-name" label={t('web.recordingRules.ruleName')} value={name} maxLength={160} onChangeText={setName}/>
       <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
       {!allowed.length && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.allowFirst')}</Text>}
-      <Select testID="live-owner-new-rule-source" label={t('live.guideSource')} value={sourceId} options={sources.map(value => ({value: value.id, label: value.name}))} onValueChange={value => {setSourceId(value); setAnchor('');}}/>
+      <Select testID="live-owner-new-rule-source" label={t('live.guideSource')} value={sourceId} options={effectiveSources.map(value => ({value: value.id, label: value.name}))} onValueChange={value => {setSourceId(value); setAnchor('');}}/>
       <TextField testID="live-owner-new-rule-day" label={t('web.recordingRules.guideDate')} value={day} maxLength={10} autoCapitalize="none" onChangeText={value => {setDay(value); setAnchor('');}}/>
       {!recordingGuideRoute(day, sourceId) && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.validDate')}</Text>}
       {loading && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.recordingRules.readingGuide')}</Text>}

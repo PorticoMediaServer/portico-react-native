@@ -130,7 +130,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const empty = !state.loading && state.sources.length === 0;
   const managesServer = ports.context.account.account.role === 'owner';
   if (ownerOpen) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} onClose={() => {setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
-  if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
+  if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} owner={owner} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
   return <Screen title={!theme.isTV && !phone ? t('search.chip.liveTV') : undefined} style={theme.isTV ? {paddingTop: 56, paddingRight: 8} : phone ? {paddingTop: insets.top + (landscape ? 0 : 14)} : undefined}>
     <View onLayout={event => setWidth(event.nativeEvent.layout.width - insetLeft - insetRight)} style={{flex: 1, paddingLeft: insetLeft, paddingRight: insetRight}}>
       {compact && <View style={{flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 20, marginBottom: 12, minHeight: 38}}>
