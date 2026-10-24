@@ -230,10 +230,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/>
           : <>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-            <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" onPress={() => setSeasonsOpen(true)}>{currentSeasonLabel}</Button>
-            {seasonProgress ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{seasonProgress}</Text> : null}
+            <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" style={{flexShrink: 0}} onPress={() => setSeasonsOpen(true)}>{currentSeasonLabel}</Button>
+            {seasonProgress ? <Text numberOfLines={1} style={[theme.type.caption, {color: theme.colors.textTertiary, flexShrink: 1}]}>{seasonProgress}</Text> : null}
             <View style={{flex: 1}}/>
-            <Chip variant="facet" selected={snapshot.place.hideWatched} onSelectedChange={value => {void controller.hideWatched(value).catch(props.reportError);}}>{t('next.controls.hideWatched')}</Chip>
             {props.owner && <Button testID="watch-show-settings-open" variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => setSettingsOpen(true)}/>}
           </View>
           {episodes.map(entry => {
@@ -287,7 +286,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       </View>
     </ScrollView>{header}
     {!theme.isTV && workspace && <NativeSeasonsSheet open={seasonsOpen} onOpenChange={setSeasonsOpen} seasons={snapshot.seasons} total={workspace.seasonTotalCount ?? snapshot.seasons.length}
-      selectedId={workspace.selected.seasonId ?? null} onSelect={id => {void controller.season(id).catch(props.reportError);}} onMore={() => {void controller.moreSeasons().catch(props.reportError);}}/>}
+      selectedId={workspace.selected.seasonId ?? null} onSelect={id => {void controller.season(id).catch(props.reportError);}} onMore={() => {void controller.moreSeasons().catch(props.reportError);}}
+      hideWatched={snapshot.place.hideWatched} onHideWatched={value => {void controller.hideWatched(value).catch(props.reportError);}}/>}
     {!theme.isTV && workspace && props.owner && <NativeShowSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} showTitle={workspace.show.title}
       episode={snapshot.episodes[0]} settings={workspace.settings} busy={settingsBusy} onSave={value => {
         setSettingsBusy(true);

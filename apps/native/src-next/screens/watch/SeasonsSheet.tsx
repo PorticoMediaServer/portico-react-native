@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {WorkspaceSeason} from '../../../../../packages/client-core/src/show-workspace';
-import {Button, Focusable, TextField} from '../../kit/controls';
+import {Button, Focusable, Switch, TextField} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {BottomSheet} from '../../kit/overlays';
 import {useTheme} from '../../kit/theme';
@@ -15,6 +15,8 @@ export type NativeSeasonsSheetProps = Readonly<{
   selectedId: string | null;
   onSelect: (seasonId: string) => void;
   onMore?: () => void;
+  hideWatched: boolean;
+  onHideWatched: (value: boolean) => void;
 }>;
 
 /** phone-detail frame 5: the season sheet. Jump to leads on a long show, then
@@ -45,6 +47,9 @@ export function NativeSeasonsSheet(props: NativeSeasonsSheetProps) {
         </View>
         <Button variant="glass" size="small" onPress={go}>{t('title.go')}</Button>
       </View>}
+      <View style={{marginHorizontal: 16, marginBottom: 6}}>
+        <Switch variant="compact" checked={props.hideWatched} onCheckedChange={props.onHideWatched} testID="watch-seasons-hide-watched">{t('next.controls.hideWatched')}</Switch>
+      </View>
       <ScrollView ref={scroll} onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         if (props.onMore && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) props.onMore();}} scrollEventThrottle={64}>
         {props.seasons.map(season => {
