@@ -1359,7 +1359,10 @@ internal class PorticoMpvController(private val context: Context) {
     val same = style == captionStyle
     captionStyle = style
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
-    val (text, box) = PorticoMpvSupport.captionColors(context, style)
+    // This increment applies profile colour on the app's plain cue view only.
+    // Preserve the core renderer's existing fallback until rich-track styling
+    // and keepStyling are composed together; never recolour an authored ASS file.
+    val (text, box) = PorticoMpvSupport.captionColors(context, style, applyProfileColour = false)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
     core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
     val edge = android.graphics.Color.alpha(box) < 77

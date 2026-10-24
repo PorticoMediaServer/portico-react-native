@@ -338,9 +338,10 @@ internal object PorticoMpvSupport {
     return try { if (manager != null && usesSystemCaptionStyle(style, manager.isEnabled)) manager.userStyle else null } catch (_: Exception) { null }
   }
 
-  fun captionColors(context: Context, style: Map<*, *>?): Pair<Int, Int> {
+  fun captionColors(context: Context, style: Map<*, *>?, applyProfileColour: Boolean = true): Pair<Int, Int> {
     val system = systemCaptionStyle(context, style)
-    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else captionForeground(style)
+    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor
+      else if (applyProfileColour) captionForeground(style) else android.graphics.Color.WHITE
     val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
       else when (styleBackground(style)) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
     return text to box
