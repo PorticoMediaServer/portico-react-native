@@ -14,7 +14,7 @@ export type NativeOfflineSource = Readonly<{
   /** Owner, artifact and receipt validity, independent of the screen that opened the file. */
   current: () => boolean;
 }>;
-export type NativeOfflinePlaybackDevice = Pick<OfflineDownloads, 'getSnapshot' | 'localMedia' | 'playabilityReason' | 'recordProgress'>;
+export type NativeOfflinePlaybackDevice = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'localMedia' | 'playabilityReason' | 'recordProgress'>;
 const ownerKey = (owner: NativeOfflineOwner) => JSON.stringify([owner.authority, owner.serverId, owner.accountId, owner.profileId, owner.sessionFamilyId]);
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\u0000-\u001f\u007f]/.test(value);
 const unavailable = () => new Error(serviceText('downloads.offline.notPlayableHere'));

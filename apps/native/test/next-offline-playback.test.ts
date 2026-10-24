@@ -15,7 +15,8 @@ function setup() {
   const media: LocalMedia = {entryId:'copy',itemId:'movie',playId:'play_actual-journal',fileUrl:'file:///private/Downloads/copy/movie.mp4',durationSeconds:600,startSeconds:42};
   let load: () => Promise<LocalMedia> = async () => media;
   const progress: LocalProgress[] = [], network: string[] = [];
-  const owner = new NativeOfflinePlayback(() => session, {getSnapshot:() => snapshot,playabilityReason:() => reason,localMedia:() => load(),recordProgress:value => progress.push(value)});
+  const listeners = new Set<() => void>();
+  const owner = new NativeOfflinePlayback(() => session, {getSnapshot:() => snapshot,subscribe:listener => {listeners.add(listener);return () => {listeners.delete(listener);};},playabilityReason:() => reason,localMedia:() => load(),recordProgress:value => progress.push(value)});
   const inner: PlaybackApi = {createPlayback:async id => {network.push('create:'+id);throw new Error('unexpected network start');},progressPlayback:async id => {network.push('progress:'+id);},stopPlayback:async id => {network.push('stop:'+id);}};
   return {owner,entry,media,progress,network,api:owner.wrap(inner),getSession:() => session,setSession:(value:LocalSession|undefined) => {session=value;},setEntries:(entries: readonly OfflineEntry[]) => {snapshot={...snapshot,entries};},setReason:(value:typeof reason) => {reason=value;},setLoad:(value:typeof load) => {load=value;}};
 }

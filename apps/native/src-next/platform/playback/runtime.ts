@@ -208,7 +208,11 @@ export class NativePlaybackRuntime {
   }
   private currentAuthority(): boolean { return !this.retired && this.authorityMatches(); }
   private active(): boolean { if (!this.currentAuthority()) { this.dispose(); return false; } return true; }
-  private matches(fence: PlaybackFence): boolean { return this.active() && !!this.snapshot.fence && sameFence(this.snapshot.fence, fence); }
+  private matches(fence: PlaybackFence): boolean {
+    if (!this.active() || !this.snapshot.fence || !sameFence(this.snapshot.fence, fence)) return false;
+    const live = fence.kind === 'local' ? this.fence() : fence;
+    return !!live && sameFence(live, fence);
+  }
   private request = async <T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => {
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Invalid playback request method.');
     return (await call(this.http, {path, method: method as V1Request['method'], body, signal})).body as T;
@@ -219,6 +223,7 @@ export class NativePlaybackRuntime {
     this.connected = true;
     this.offs.push(this.path.bind(this.playback, () => this.queue));
     this.offs.push(this.playback.subscribe(() => this.changed()));
+    if (this.o.offlineDevice) this.offs.push(this.o.offlineDevice.subscribe(() => {if (this.active()) this.changed();}));
     this.offs.push(this.queue.subscribe(() => this.changed()));
     this.offs.push(this.path.subscribeSessions(() => this.changed()));
     this.offs.push(this.queue.connect());

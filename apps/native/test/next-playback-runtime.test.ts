@@ -209,9 +209,9 @@ function admittedDownload() {
   let serial = 0;
   const media: LocalMedia = {entryId: entry.id, itemId: entry.itemId, playId: 'play_fixture', fileUrl: 'file:///private/Downloads/copy/movie.mp4', durationSeconds: 600, startSeconds: 42};
   let load = async (): Promise<LocalMedia> => ({...media, playId: `play_fixture${++serial}`});
-  const progress: LocalProgress[] = [];
-  const device: NativeOfflinePlaybackDevice = {getSnapshot: () => snapshot, localMedia: () => load(), playabilityReason: () => null, recordProgress: value => {progress.push(value);}};
-  return {entry, media, progress, device, load: (next: typeof load) => {load = next;}, entries: (entries: readonly OfflineEntry[]) => {snapshot = {...snapshot, entries};}};
+  const progress: LocalProgress[] = [], listeners = new Set<() => void>();
+  const device: NativeOfflinePlaybackDevice = {getSnapshot: () => snapshot, subscribe: listener => {listeners.add(listener);return () => {listeners.delete(listener);};}, localMedia: () => load(), playabilityReason: () => null, recordProgress: value => {progress.push(value);}};
+  return {entry, media, progress, device, load: (next: typeof load) => {load = next;}, entries: (entries: readonly OfflineEntry[]) => {snapshot = {...snapshot, entries};for (const listener of listeners) listener();}, get subscriptions() {return listeners.size;}};
 }
 
 test('the genuine local maker reaches the same native engine and dock without server playback requests', async () => {
@@ -256,6 +256,76 @@ test('a late admitted native file cannot replace a competing Play or cross calle
       if (retire === 'play') assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-next');
     } finally {d.runtime.dispose();}
   }
+});
+
+test('a parked local bookmark reopens paused on the same Surface and only explicit Play can resume it', async () => {
+  const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+  const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+  try {
+    await settle();
+    await d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true}); await settle();
+    const original = d.runtime.getSnapshot(), fence = original.fence!;
+    d.engine.position = 73; d.engine.emit('time'); await settle();
+    await d.start('song-next');
+    assert.equal(d.runtime.dock.getSnapshot().resumeVideo?.fence.kind, 'local');
+    const before = d.engine.commands.length;
+    const restored = await d.runtime.restoreBookmark(fence, false); await settle();
+    assert.equal(restored?.kind, 'local'); assert.notEqual(restored?.sessionId, fence.sessionId);
+    const snapshot = d.runtime.getSnapshot();
+    assert.equal(snapshot.playback.intent, 'paused'); assert.equal(snapshot.playback.positionSeconds, 73);
+    assert.equal(snapshot.lease, original.lease); assert.equal(snapshot.dock.local?.queue, null);
+    if (!restored || restored.kind !== 'local') throw new Error('missing genuine restored local source');
+    assert.equal(restored.playId, 'play_fixture2');
+    const commands = d.engine.commands.slice(before).filter(command => command.binding.sessionId === restored.sessionId);
+    assert.ok(commands.length > 0); assert.ok(commands.every(command => !command.playing), 'restore never transiently plays');
+    await d.runtime.toggle(restored); await settle(); assert.equal(d.runtime.getSnapshot().playback.intent, 'playing');
+    assert.equal(d.requests.some(request => request.path.includes('/local:') || request.path.includes('/local%3A')), false);
+  } finally {offSurface(); d.runtime.dispose();}
+});
+
+test('local Retry retains its live caller context and never falls into the device queue', async () => {
+  const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+  const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+  try {
+    await settle();
+    await d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true}); await settle();
+    const original = d.runtime.getSnapshot(); d.runtime.playback.fail(original.playback.intentId, 'fixture_failure'); await settle();
+    await d.runtime.replay(original.fence!); await settle();
+    const retry = d.runtime.getSnapshot(); assert.equal(retry.fence?.kind, 'local');
+    assert.notEqual(retry.fence?.sessionId, original.fence?.sessionId);
+    assert.equal(retry.fence?.kind === 'local' ? retry.fence.playId : undefined, 'play_fixture1');
+    assert.equal(retry.playback.phase, 'ready'); assert.equal(retry.lease, original.lease);
+    assert.equal(d.requests.some(request => request.method === 'POST' && /\/playback\/sessions$/.test(request.path)), false);
+  } finally {offSurface(); d.runtime.dispose();}
+});
+
+test('withdrawn device admission removes the local fence and refuses retained controls', async () => {
+  const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+  const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+  try {
+    await settle();
+    await d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true}); await settle();
+    const fence = d.runtime.getSnapshot().fence!;
+    assert.equal(local.subscriptions, 1);
+    local.entries([]); await settle();
+    assert.equal(d.runtime.getSnapshot().fence, undefined);
+    const before = d.engine.commands.length;
+    await d.runtime.toggle(fence); await d.runtime.seek(fence, 100); await settle();
+    assert.equal(d.engine.commands.slice(before).some(command => command.playing), false);
+  } finally {offSurface(); d.runtime.dispose(); assert.equal(local.subscriptions, 0);}
+});
+
+test('a background server queue refresh cannot adopt over the accepted local source', async () => {
+  const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+  const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+  try {
+    await d.start('movie-server');
+    await d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true}); await settle();
+    const original = d.runtime.getSnapshot();
+    await d.runtime.queue.refresh(); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.session?.id, original.playback.session?.id);
+    assert.equal(d.runtime.getSnapshot().fence?.kind, 'local');
+  } finally {offSurface(); d.runtime.dispose();}
 });
 
 test('a fresh fenced VOD session read uses the genuine endpoint without adopting or replanning', async () => {
