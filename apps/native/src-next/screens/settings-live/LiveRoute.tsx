@@ -9,6 +9,7 @@ import {nativeScreenServices} from '../native-screen-services';
 import {createNativeRecordingsController} from './recordings-controller';
 import {NativeLiveScreen} from './LiveScreen';
 import {NativeLiveOwnerController} from './live-owner-controller';
+import {nativeSettingsRequestId} from './settings-ports';
 
 export function createNativeLiveRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const lifetime = new NativeScreenLifetime(context);
@@ -22,7 +23,7 @@ export function createNativeLiveRenderer(context: NativeShellBootstrapContext): 
     render: (route, runtime) => {
       lifetime.assert();
       if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch');
-      return <NativeLiveScreen ports={{context, dvrRequestId}} controller={controller} recordings={recordings} owner={owner} runtime={runtime}/>;
+      return <NativeLiveScreen ports={{context, dvrRequestId, requestId: nativeSettingsRequestId}} controller={controller} recordings={recordings} owner={owner} runtime={runtime}/>;
     },
     dispose: () => {owner.dispose(); controller.dispose(); recordings.dispose(); lifetime.dispose();},
   };

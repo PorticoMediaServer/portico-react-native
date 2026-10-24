@@ -31,7 +31,7 @@ import {NativeLivePhonePicker} from './LivePhonePicker';
 import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
 import type {NativeLiveOwnerController} from './live-owner-controller';
 
-export function NativeLiveScreen({controller, recordings, owner, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; owner: NativeLiveOwnerController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId'>; runtime: NativeShellRuntime}) {
+export function NativeLiveScreen({controller, recordings, owner, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; owner: NativeLiveOwnerController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId' | 'requestId'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), guide = controller.guide;
   const data = useSyncExternalStore(guide.subscribe, guide.getSnapshot);

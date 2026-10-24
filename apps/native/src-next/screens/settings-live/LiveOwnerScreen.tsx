@@ -16,11 +16,12 @@ import type {NativeRecordingsController} from './recordings-controller';
 import {AddSourceSheet, DiscoverSheet} from './LiveOwnerSheets';
 import {ChannelMapSheet, SourceSettingsSheet} from './LiveOwnerSettingsSheets';
 import {NativeRecordingOwner} from './LiveOwnerRecording';
+import {NativeLibraryChannelsPanel} from './server/LibraryChannelsPanel';
 
 
 /** Settings › Server › Live TV & Channels: the owner's real sources and recordings.
  * Every read and write is the server's; a row never shows a change it did not accept. */
-export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, onClose}: {controller: NativeLiveOwnerController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime; onClose: () => void}) {
+export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, onClose}: {controller: NativeLiveOwnerController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'requestId'>; runtime: NativeShellRuntime; onClose: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [tab, setTab] = useState('sources');
@@ -55,7 +56,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
         <Text accessibilityRole="header" style={[shellType(32, 800, 36.8, -.035), {color: theme.colors.text}]}>{t('settings.server.live')}</Text>
         <ServerHeader variant="phone" serverName={ports.context.serverName} viewerRole={role} audience="owner" testID="live-owner-server"/>
       </View>
-      <Tabs testID="live-owner-tabs" value={tab} onValueChange={setTab} items={[{value: 'sources', label: t('settings.server.liveSources')}, {value: 'recording', label: t('settings.server.recording')}]}/>
+      <Tabs testID="live-owner-tabs" value={tab} onValueChange={setTab} items={[{value: 'sources', label: t('settings.server.liveSources')}, {value: 'recording', label: t('settings.server.recording')}, {value: 'channels', label: t('settings.server.libraryChannels')}]}/>
       {tab === 'sources'
         ? <View style={{paddingHorizontal: 20, paddingTop: 18, gap: 22}}>
           <Text style={[shellType(14), {color: theme.colors.textSecondary, lineHeight: 21}]}>{t('web.liveTv.sourcesLede')}</Text>
@@ -97,6 +98,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
           </View>
           <LiveDefaultsSection controller={controller} runtime={runtime}/>
         </View>
+        : tab === 'channels' ? <NativeLibraryChannelsPanel ports={ports} runtime={runtime}/>
         : <NativeRecordingOwner controller={controller} recordings={recordings} runtime={runtime} sources={sources}/>}
     </ScrollView>
     <Menu open={menu !== undefined} onOpenChange={value => {if (!value) setMenu(undefined);}} title={menu?.name} anchorRef={menuOpener} presentation="sheet" items={menuItems} testID="live-owner-menu"/>
