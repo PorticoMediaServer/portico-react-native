@@ -8,12 +8,12 @@ import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
 import {Icon} from '../../../kit/Icon';
-import {StateView} from '../../../kit/states';
 import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
+import {MusicErrorView} from './MusicErrorView';
 
 const t = defaultI18n.t;
 type Actions = Pick<NativeEntryActions, 'menu'>;
@@ -145,7 +145,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
         {facts.length ? <Facts facts={facts}/> : null}
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false}/></View>
-      {snapshot.phase === 'error' ? <StateView variant="inline" {...runtime.error(snapshot.error, () => {void controller.load();})} style={{margin: 20}}/> : null}
+      {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View> : null}
     </ScrollView>
     <PhoneHeader title={title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
@@ -173,7 +173,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
         {facts.length ? <Facts facts={facts} strongFirst={false}/> : null}
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore/></View>
-      {snapshot.phase === 'error' ? <StateView variant="inline" {...runtime.error(snapshot.error, () => {void controller.load();})} style={{margin: 20}}/> : null}
+      {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 18}}>
         <Text style={[browseType(theme, phoneMusicGeometry.sectionLabel, 700), {color: theme.colors.textTertiary, marginHorizontal: 20, marginBottom: 8}]}>{t('music.topSongs')}</Text>
         <SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/>

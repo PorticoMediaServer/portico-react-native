@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 
 const song = (id: string, track: number, duration: number, title: string) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
 const albumEntry = {id: 'album-1', libraryId: 'music', kind: 'album', title: 'DAMN.', artist: {id: 'artist-1', name: 'Kendrick Lamar'}, year: 2017, posterUrl: '/v1/items/a/art/poster'};
@@ -13,10 +14,10 @@ class Builder {
   sort(field: string, direction: string) { this.body.sort = [{field, direction}]; return this; }
   cursor(value: string) { this.body.cursor = value; return this; }
   limit(value: number) { this.body.limit = value; return this; }
-  build() { return this.body; }
+  build() { return {pivot: 'songs', ...this.body}; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
   const calls: any[] = [], browseBodies: any[] = [];
@@ -24,16 +25,22 @@ async function controller(entry: any, options: Fixture = {}) {
   const api = {request: async (path: any, _method?: any, body?: any) => {
     if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: options.maximumLimit ?? 200}};
     if (String(path).startsWith('browse:')) {
+      const failure = options.browseError?.();
+      if (failure) throw failure;
       browseBodies.push(JSON.parse(JSON.stringify(body)));
       const pageSize = options.pageSize ?? songs.length;
       const start = body?.cursor ? Number(body.cursor) : 0;
       const rows = songs.slice(start, start + pageSize);
       const nextCursor = start + pageSize < total ? String(start + pageSize) : '';
       options.onPage?.(start);
-      return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: 'r', hasMore: nextCursor !== '', nextCursor}, entries: rows};
+      return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: options.revision?.(start) ?? 'r', hasMore: nextCursor !== '', nextCursor, ...(options.lowerBound ? {totalIsLowerBound: true} : {})}, entries: rows};
     }
     if (String(path).includes('albums')) return {albums, nextCursor: ''};
-    if (String(path).includes('similar')) return {data: {entries: similar}};
+    if (String(path).includes('similar')) {
+      const failure = options.similarError?.();
+      if (failure) throw failure;
+      return {data: {entries: similar}};
+    }
     if (String(path).includes('/personal-state')) return {favorite: true};
     throw new Error(`unexpected ${path}`);
   }};
@@ -92,7 +99,40 @@ test('album songs respect the server page cap and continue with the cursor', asy
   assert.equal(state.songDurationSeconds, 27000);
   assert.deepEqual(browseBodies.map(body => body.limit), [100, 100]);
   assert.deepEqual(browseBodies.map(body => body.cursor ?? null), [null, '100']);
+  assert.deepEqual(browseBodies[0], {pivot: 'songs', query: {field: 'memberOf', operator: 'equals', value: 'album-1'},
+    sort: [{field: 'groupOrder', direction: 'asc'}], limit: 100});
   value.dispose();
+});
+
+test('a plain songs failure publishes a safe code and retries the same page', async () => {
+  let fail = true;
+  const {value} = await controller(albumEntry, {songs: [song('song-1', 1, 180, 'Come Together')],
+    browseError: () => fail ? new Error('transport') : undefined});
+  await value.load();
+  assert.equal(value.getSnapshot().phase, 'error');
+  assert.equal((value.getSnapshot().error as any).code, 'music_album_songs_unavailable');
+  fail = false;
+  await value.load();
+  assert.equal(value.getSnapshot().phase, 'ready');
+  assert.equal(value.getSnapshot().songs.length, 1);
+  value.dispose();
+});
+
+test('a failed More like this rail does not blank the album or its songs', async () => {
+  const {value} = await controller(albumEntry, {songs: [song('song-1', 1, 180, 'Come Together')],
+    similarError: () => new Error('rail failed')});
+  await value.load();
+  assert.equal(value.getSnapshot().phase, 'ready');
+  assert.deepEqual(value.getSnapshot().songs.map(entry => entry.id), ['song-1']);
+  assert.deepEqual(value.getSnapshot().similar, []);
+  value.dispose();
+});
+
+test('the music failure copy names the title and offers a real retry, never Home', () => {
+  const presented = presentError(Object.assign(new Error('x'), {code: 'music_album_songs_unavailable'}), 'detail');
+  assert.equal(presented.title, 'This title couldn’t load');
+  assert.equal(presented.action, 'try-again');
+  assert.notEqual(presented.body, 'Something went wrong. Try again.');
 });
 
 test('a retired album lifetime sends no second cursor page', async () => {
@@ -103,6 +143,54 @@ test('a retired album lifetime sends no second cursor page', async () => {
   await value.load();
   assert.equal(browseBodies.length, 1);
   assert.notEqual(value.getSnapshot().phase, 'ready');
+  value.dispose();
+});
+
+test('album membership follows every server page in canonical order', async () => {
+  const many = [song('song-a', 1, 180, 'Disc one'), song('song-b', 2, 181, 'Disc one, two'), song('song-c', 1, 182, 'Disc two'), song('song-d', 2, 183, 'Disc two, two'), song('song-e', 3, 184, 'Disc two, three')];
+  const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 5, pageSize: 2, maximumLimit: 2});
+  const ids = await value.albumMembership();
+  assert.deepEqual(ids, ['song-a', 'song-b', 'song-c', 'song-d', 'song-e']);
+  assert.deepEqual(browseBodies.map(body => body.cursor ?? null), [null, '2', '4']);
+  assert.deepEqual(browseBodies.map(body => body.limit), [2, 2, 2]);
+  assert.deepEqual(browseBodies[0].query, {field: 'memberOf', operator: 'equals', value: 'album-1'});
+  assert.deepEqual(browseBodies[0].sort, [{field: 'groupOrder', direction: 'asc'}]);
+  value.dispose();
+});
+
+test('album membership refuses a source that changes between pages instead of returning a subset', async () => {
+  const many = Array.from({length: 4}, (_, index) => song(`song-${index}`, index + 1, 180, `Track ${index + 1}`));
+  const {value} = await controller(albumEntry, {songs: many, total: 4, pageSize: 2, maximumLimit: 2, revision: start => start === 0 ? 'r1' : 'r2'});
+  await assert.rejects(value.albumMembership(), (error: any) => error.code === 'album_membership_changed');
+  value.dispose();
+});
+
+test('album membership refuses a lower bound or a short server page', async () => {
+  const many = [song('song-0', 1, 180, 'A'), song('song-1', 2, 181, 'B')];
+  const bounded = await controller(albumEntry, {songs: many, total: 9, pageSize: 2, maximumLimit: 2, lowerBound: true});
+  await assert.rejects(bounded.value.albumMembership(), (error: any) => error.code === 'album_membership_incomplete');
+  bounded.value.dispose();
+  const short = await controller(albumEntry, {songs: many, total: 3, pageSize: 2, maximumLimit: 2});
+  await assert.rejects(short.value.albumMembership(), (error: any) => error.code === 'album_membership_incomplete');
+  short.value.dispose();
+});
+
+test('album membership refuses a non-song or duplicate member instead of a leaf subset', async () => {
+  const mixed = await controller(albumEntry, {songs: [song('song-0', 1, 180, 'A'), {...song('movie-1', 2, 181, 'B'), kind: 'movie'}], total: 2});
+  await assert.rejects(mixed.value.albumMembership(), (error: any) => error.code === 'album_membership_incomplete');
+  mixed.value.dispose();
+  const duplicate = await controller(albumEntry, {songs: [song('song-0', 1, 180, 'A'), song('song-0', 2, 181, 'A again')], total: 2});
+  await assert.rejects(duplicate.value.albumMembership(), (error: any) => error.code === 'album_membership_incomplete');
+  duplicate.value.dispose();
+});
+
+test('album membership stops sending when the destination retires', async () => {
+  const many = Array.from({length: 4}, (_, index) => song(`song-${index}`, index + 1, 180, `Track ${index + 1}`));
+  let live = true;
+  const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 4, pageSize: 2, maximumLimit: 2, current: () => live,
+    onPage: start => {if (start === 0) live = false;}});
+  await assert.rejects(value.albumMembership(), (error: any) => error.name === 'AbortError');
+  assert.equal(browseBodies.length, 1);
   value.dispose();
 });
 

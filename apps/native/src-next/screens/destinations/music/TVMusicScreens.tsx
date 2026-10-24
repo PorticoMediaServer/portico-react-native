@@ -9,11 +9,11 @@ import {Button} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {browseType} from '../../../kit/browse/presentation';
-import {StateView} from '../../../kit/states';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
+import {MusicErrorView} from './MusicErrorView';
 
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen'>;
 const factLine = (text: string) => Object.freeze([{id: 'caption', text, role: 'value' as const}]);
@@ -44,7 +44,7 @@ function SectionHeading({title, detail, left, top, width}: {title: string; detai
   </View>;
 }
 
-function ActionBar({controller, entry, runtime, actions, focusId, style}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; focusId: string; style: React.ComponentProps<typeof View>['style']}) {
+function ActionBar({controller, entry, runtime, actions, focusId, style, onPlaylist}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; focusId: string; style: React.ComponentProps<typeof View>['style']; onPlaylist?: () => void}) {
   const theme = useTheme(), play = useRef<NativeView>(null), more = useRef<NativeView>(null);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const run = (work: Promise<unknown>) => { void work.catch(runtime.reportError); };
@@ -55,6 +55,7 @@ function ActionBar({controller, entry, runtime, actions, focusId, style}: {contr
     <Button testID={`music-shuffle-${encodeURIComponent(entry.id)}`} variant="glass" icon="i-shuffle" onPress={() => run(controller.play(undefined, true))} accessibilityLabel={shuffleLabel}>{t('title.shuffle')}</Button>
     <Button testID={`music-favorite-${encodeURIComponent(entry.id)}`} variant="glass" iconOnly icon={snapshot.favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(snapshot.favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites')}
       accessibilityState={{checked: snapshot.favorite}} onPress={() => run(controller.toggleFavorite())}/>
+    {onPlaylist && <Button testID={`music-playlist-${encodeURIComponent(entry.id)}`} variant="glass" iconOnly icon="i-listplus" accessibilityLabel={t('entry.addToPlaylist')} onPress={onPlaylist}/>}
     <Button ref={more} testID={`music-more-${encodeURIComponent(entry.id)}`} variant="glass" iconOnly icon="i-more" accessibilityLabel={t('card.more', {title: entry.title})}
       accessibilityState={{expanded: actions.isMenuOpen(entry)}} onPress={() => actions.menu(entry, more)}/>
   </View>;
@@ -85,7 +86,7 @@ function AlbumCard({album, runtime, actions, openEntry, width = 200, caption}: {
 }
 
 /** tv-more6: the album page at ten feet. Header facts and track order are the server's; the queue is the album's own. */
-export function TVAlbumScreen({controller, entry, runtime, actions, openEntry}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void}) {
+export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, onPlaylist}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onPlaylist?: () => void}) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
   const playingId = playback?.playback.itemId;
   const art = runtime.artwork(entry.posterUrl);
@@ -104,8 +105,8 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry}: 
         <View style={{position: 'absolute', left: 760, top: 336, flexDirection: 'row', alignItems: 'center', gap: 26, zIndex: 2}}>
           {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, 24, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
         </View>
-        <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} style={{position: 'absolute', left: 760, top: 410}}/>
-        {snapshot.phase === 'error' && <StateView variant="inline" {...runtime.error(snapshot.error, () => {void controller.load();})} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}
+        <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} onPlaylist={onPlaylist} style={{position: 'absolute', left: 760, top: 410}}/>
+        {snapshot.phase === 'error' && <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}
         <TrackList songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" style={{position: 'absolute', left: 724, top: 520, width: 1118, zIndex: 2}}/>
         <SectionHeading title={t('music.moreLikeThis')} detail={t('music.moreLikeThisHint')} left={200} top={896}/>
         <View style={{position: 'absolute', left: 200, top: 954, flexDirection: 'row', gap: 32, zIndex: 2}}>
