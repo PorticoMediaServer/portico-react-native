@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {directoryFailure, directoryOfflineBody, directoryRows} from '../src-next/screens/accounts/directory-chooser';
+import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from '../src-next/screens/accounts/directory-chooser';
 import {defaultI18n} from '../../../packages/i18n/src';
 import type {HostedServer, ServerPresence} from '../../../packages/client-core/src';
 
@@ -67,4 +67,9 @@ test('only actual connection failures become chooser states; other refusals keep
   }
   assert.equal(directoryFailure(stale, new TypeError('Failed to fetch'), now), 'unreachable');
   assert.equal(directoryFailure(recent, Object.assign(new Error('x'), {code: 'timeout'}), now), 'waiting');
+});
+
+test('the waiting schedule starts at 20 seconds and doubles to five minutes', () => {
+  assert.deepEqual([nextRetryDelay(20), nextRetryDelay(40), nextRetryDelay(80), nextRetryDelay(160), nextRetryDelay(300), nextRetryDelay(600)],
+    [40, 80, 160, 300, 300, 300]);
 });
