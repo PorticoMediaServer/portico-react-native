@@ -212,6 +212,8 @@ internal object PorticoAppVisibility {
  */
 internal object PorticoMpvFonts {
   private val ORDINARY = listOf("Roboto-Regular.ttf", "RobotoStatic-Regular.ttf", "NotoSans-Regular.ttf", "DroidSans.ttf")
+  private val SERIF = listOf("NotoSerif-Regular.ttf", "NotoSerif-VF.ttf", "DroidSerif-Regular.ttf")
+  private val MONO = listOf("DroidSansMono.ttf", "RobotoMono-Regular.ttf", "NotoSansMono-Regular.ttf")
   private val EAST_ASIAN = listOf("NotoSansCJK-Regular.ttc", "NotoSansCJKjp-Regular.otf", "NotoSansSC-Regular.otf", "DroidSansFallback.ttf")
   private val EAST_ASIAN_LANGUAGES = setOf("ja", "zh", "ko", "yue", "cmn")
 
@@ -262,6 +264,24 @@ internal object PorticoMpvFonts {
    */
   fun ordinaryFamily(): String = ordinary()?.takeIf { it.length() <= FALLBACK_BYTES }?.let { familyName(it) } ?: "sans-serif"
 
+  data class CaptionFace(val file: File, val family: String)
+
+  /** libass's request family comes from an actual bounded installed file's name
+   * table. This is not an observed/canonical typography identity or a CSS name. */
+  fun captionFace(font: String, find: (List<String>) -> File? = ::systemFont): CaptionFace? = try {
+    val names = when (font) { "serif" -> SERIF; "mono" -> MONO; else -> emptyList() }
+    val file = if (names.isEmpty()) null else find(names)
+    if (file == null || !file.isFile || !file.canRead() || file.length() !in 1..FALLBACK_BYTES) null
+    else familyName(file)?.let { CaptionFace(file, it) }
+  } catch (_: Exception) { null }
+
+  // Two fixed public OS face choices, resolved once; no media-derived paths.
+  private val captionFaces by lazy { listOf("serif", "mono").associateWith { captionFace(it) } }
+  private val captionOrdinary by lazy { ordinaryFamily() }
+
+  fun captionFamily(style: Map<*, *>?): String =
+      if (style?.get("useSystemCaptionStyle") == false) captionFaces[(style["font"] as? String) ?: ""]?.family ?: captionOrdinary else captionOrdinary
+
   private fun systemFont(names: List<String>): File? {
     for (name in names) File("/system/fonts", name).let { if (it.isFile && it.canRead()) return it }
     return null
@@ -292,7 +312,9 @@ internal object PorticoMpvFonts {
     val face = if (base in EAST_ASIAN_LANGUAGES) systemFont(EAST_ASIAN) else SCRIPTS[base]?.let { scriptFont(it) }
     // A new track starts the chain again: the ordinary face and the language's.
     resetFallbacks(context)
-    listOfNotNull(ordinary(), face).forEach { addFallback(context, it) }
+    // libass reads a font directory when it opens a track. Preload these two
+    // bounded faces too, so a later style change need not reopen the source.
+    (listOfNotNull(ordinary(), face) + captionFaces.values.mapNotNull { it?.file }).forEach { addFallback(context, it) }
     link(context, face ?: ordinary() ?: return)
   }
 

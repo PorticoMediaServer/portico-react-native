@@ -39,6 +39,40 @@ class PorticoMpvFontsTest {
     }
   }
 
+  @Test
+  fun aCaptionFamilyComesFromTheSelectedBoundedFileNeverTheChoiceLabel() {
+    val file = File.createTempFile("caption-face", ".ttf")
+    try {
+      file.writeBytes(sfnt(listOf(Triple(3, 0x409, "Installed Caption Family"))))
+      for ((choice, expectedFile) in mapOf("serif" to "NotoSerif-Regular.ttf", "mono" to "DroidSansMono.ttf")) {
+        val face = PorticoMpvFonts.captionFace(choice) { names ->
+          assertEquals(expectedFile, names.first())
+          assertTrue(names.all { !it.contains('/') && !it.contains('\\') })
+          file
+        }
+        assertEquals(file, face?.file)
+        assertEquals("Installed Caption Family", face?.family)
+      }
+      for (choice in listOf("default", "rounded", "../unknown.ttf", "https://unknown/font.ttf"))
+        assertNull(PorticoMpvFonts.captionFace(choice) { error("Unrecognized choice must not resolve a file") })
+    } finally { file.delete() }
+  }
+
+  @Test
+  fun absentMalformedUnreadableAndOversizedCaptionFilesStayUnavailable() {
+    val file = File.createTempFile("caption-invalid", ".ttf")
+    try {
+      assertNull(PorticoMpvFonts.captionFace("serif") { null })
+      assertNull(PorticoMpvFonts.captionFace("mono") { throw java.io.IOException("unavailable") })
+      file.writeBytes(ByteArray(4))
+      assertNull(PorticoMpvFonts.captionFace("serif") { file })
+      java.io.RandomAccessFile(file, "rw").use { it.setLength(8_000_001) }
+      assertNull(PorticoMpvFonts.captionFace("mono") { file })
+      file.delete()
+      assertNull(PorticoMpvFonts.captionFace("serif") { file })
+    } finally { file.delete() }
+  }
+
   /** A font file with one table, `name`, holding family names (ID 1) as (platform, language, text). */
   private fun sfnt(names: List<Triple<Int, Int, String>>): ByteArray {
     val strings = ByteArrayOutputStream()
