@@ -89,7 +89,7 @@ test('Guide restores committed source choices across real controller lifetimes w
 
 test('late initial memory merges a newer field choice on the current source; retired read cannot publish or request Guide', async () => {
   const lifecycle = owner(), lifetime = new NativeScreenLifetime(lifecycle), stored = deferred<ReadonlyMap<string, NativeGuideChoice>>(), requests: string[] = [], writes: unknown[] = [];
-  const controller = new NativeLiveController(lifetime, directory(requests), 'UTC', {port: {read: () => stored.promise, write: async (entry, choice) => {writes.push({entry, choice});}}, reportError: assert.fail});
+  const controller = new NativeLiveController(lifetime, directory(requests), 'UTC', {port: {read: () => stored.promise, write: async (entry, choice) => {writes.push({entry, choice});}}, reportError: (error: unknown) => {throw error;}});
   const loading = controller.loadSources(); controller.select(source); controller.chooseView('list'); await tick();
   assert.deepEqual(requests, []);
   stored.resolve(new Map([[nativeGuideEntryKey(source), {view: 'guide', sort: 'name'}]])); await loading;
@@ -97,7 +97,7 @@ test('late initial memory merges a newer field choice on the current source; ret
   assert.equal(writes.length, 1);
   controller.dispose(); lifetime.dispose();
   const other = owner(), ended = new NativeScreenLifetime(other), late = deferred<ReadonlyMap<string, NativeGuideChoice>>(), after: string[] = [];
-  const stale = new NativeLiveController(ended, directory(after), 'UTC', {port: {read: () => late.promise, write: async () => {}}, reportError: assert.fail});
+  const stale = new NativeLiveController(ended, directory(after), 'UTC', {port: {read: () => late.promise, write: async () => {}}, reportError: (error: unknown) => {throw error;}});
   const pending = stale.loadSources(); other.revoke(); late.resolve(new Map()); await pending;
   assert.deepEqual(after, []); assert.equal(stale.getSnapshot().view, undefined); stale.dispose();
 });
