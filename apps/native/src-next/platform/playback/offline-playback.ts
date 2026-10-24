@@ -1,11 +1,11 @@
 import type {LocalSession, PlaybackApi, PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {localPlaybackFence, type LocalPlaybackFence} from '../../../../../packages/player-core/src';
+import {localPlaybackFence, type LocalPlaybackFence, type LocalPlaybackScope} from '../../../../../packages/player-core/src';
 import {isLocalSession, LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
 import type {OfflineDownloads, OfflineEntry} from '../../../platform/offline-downloads';
 
 /** Captured from the genuine installation session, never a server queue/controller scope. */
-export type NativeOfflineOwner = Readonly<Pick<LocalSession['viewer'], 'authority' | 'serverId' | 'accountId' | 'profileId'> & {sessionFamilyId: string}>;
+export type NativeOfflineOwner = LocalPlaybackScope;
 export type NativeOfflineSource = Readonly<{
   owner: NativeOfflineOwner; entryId: string; itemId: string; preparationId: string;
   artifact: Readonly<{sha256: string; bytes: number}>; media: LocalMedia;
@@ -33,7 +33,7 @@ export class NativeOfflinePlayback {
   }
   owner(): NativeOfflineOwner | undefined {
     const session = this.session(), viewer = session?.viewer;
-    if (!session || !viewer || !['local', 'hosted'].includes(viewer.authority)
+    if (!session || !viewer || viewer.authority !== 'local' && viewer.authority !== 'hosted'
       || ![viewer.serverId, viewer.accountId, viewer.profileId, session.sessionFamilyId].every(text)) return;
     return Object.freeze({authority: viewer.authority, serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId, sessionFamilyId: session.sessionFamilyId});
   }
