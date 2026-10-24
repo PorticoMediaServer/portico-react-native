@@ -25,6 +25,11 @@ export type ButtonProps = Omit<FocusableProps, 'children'> & {
 
 export type ResumeButtonProps = ButtonProps & {progress: number; remaining?: React.ReactNode};
 type ButtonContentProps = ButtonProps & {progress?: number; remaining?: React.ReactNode};
+function ButtonFill({style, semanticId}: {style: StyleProp<ViewStyle>; semanticId?: string}) {
+  const observation = useNativeObservation<View>({kind: 'view', semanticId,
+    flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(style) : undefined, declaredStyleComplete: true});
+  return <View ref={observation.ref} style={style} />;
+}
 const paddingKeys = ['padding', 'paddingHorizontal', 'paddingVertical', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'paddingStart', 'paddingEnd', 'paddingBlock', 'paddingBlockStart', 'paddingBlockEnd', 'paddingInline', 'paddingInlineStart', 'paddingInlineEnd'] as const;
 
 const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonContent({
@@ -46,7 +51,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   const labelStyle = [theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle];
   const labelId = props.testID ?? props.focusId;
   const labelObservation = useNativeObservation<Text>({kind: 'text', semanticId: labelId ? `${labelId}/label` : undefined,
-    flattenedStyle: StyleSheet.flatten(labelStyle)}, undefined, children);
+    flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(labelStyle) : undefined, declaredStyleComplete: true}, undefined, children);
   const slop = minimumHitSlop(height, theme.isTV);
   const fraction = progress === undefined ? undefined : progressFraction(progress);
   const inline = theme.isTV && fraction !== undefined;
@@ -61,7 +66,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
       androidGlass ? styles.androidHost : undefined]}>
     {state => {
       const suppliedStyle = StyleSheet.flatten(typeof style === 'function' ? style(state) : style);
-      const fill = <View style={[StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />;
+      const fill = <ButtonFill semanticId={labelId ? `${labelId}/face` : undefined} style={[StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />;
       const content = <View pointerEvents="none" style={[styles.content, {gap: suppliedStyle?.columnGap ?? suppliedStyle?.gap ?? geometry.gap}]}>
         {icon || loading !== undefined ? <View style={{width: glyphSize, height: glyphSize, alignItems: 'center', justifyContent: 'center'}}>
           {loading ? <ActivityIndicator size={glyphSize} color={glyphColor} /> : icon ? <Icon name={icon} size={glyphSize} color={glyphColor} /> : null}
