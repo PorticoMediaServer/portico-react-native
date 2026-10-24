@@ -6,6 +6,7 @@ import type {LibraryContentApi} from '../../../packages/client-core/src/library-
 import {NativeLibraryFilterDraft} from '../src-next/screens/library/filters.ts';
 import {libraryFilterChange, libraryFilterField} from '../src-next/screens/library/filter-controls.ts';
 import {libraryAppliedFilters} from '../src-next/screens/library/applied-filters.ts';
+import {rangePresets, activeRangePreset} from '../../../packages/client-core/src/presentation/browse-toolbar.ts';
 
 const scope = {serverId: 'server', viewerId: JSON.stringify(['local', 'account', 'profile'])};
 const library = {id: 'actual-movies', name: 'Movies', kind: 'movie'};
@@ -28,6 +29,32 @@ const filterCapabilities: BrowseCapabilities = {...capabilities,
     {id: 'year', labelKey: 'filter.field.year', type: 'number', operators: ['in'], controlHint: 'number-range', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']},
     {id: 'decade', labelKey: 'filter.field.year', type: 'number', operators: ['in'], controlHint: 'facet-multi-select', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']}],
 };
+
+test('native staged Save view preserves canonical relative dates and leaves absolute definitions absolute', async () => {
+  const date = {id: 'dateAdded', labelKey: 'filter.field.dateAdded', type: 'date', operators: ['between', 'within-last-days'],
+    controlHint: 'date-range', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']} as const;
+  const datedPivot = {...pivot, filters: [...pivot.filters, date.id]};
+  const dated: BrowseCapabilities = {...capabilities, pivots: [datedPivot], resolvedPivot: datedPivot,
+    fields: [...capabilities.fields, date], surfaces: capabilities.surfaces.map(surface => ({...surface, filters: [...surface.filters, date.id]}))};
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, body?: unknown) =>
+    (path.includes('capabilities') ? dated : page(body as BrowseRequestBody, 3)) as T};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  try {
+    await destination.load();
+    const presets = rangePresets(date, new Date('2026-10-24T12:00:00Z'));
+    const recent = presets.find(preset => preset.id === 'last-30')!;
+    assert.deepEqual(recent.predicates, [{field: 'dateAdded', operator: 'within-last-days', value: 30}]);
+    const captured = destination.captureSavedView({predicates: recent.predicates, sort: {field: 'title', direction: 'asc'}});
+    assert.deepEqual(captured.query, recent.predicates[0]);
+    assert.equal(Object.isFrozen(captured.query), true);
+    const reopened = JSON.parse(JSON.stringify(captured));
+    assert.equal(activeRangePreset(rangePresets(date, new Date('2027-01-01T12:00:00Z')), [reopened.query]), 'last-30');
+    const absolute = {field: 'dateAdded', operator: 'between', value: ['2026-09-24T12:00:00Z', '2026-10-24T12:00:00Z']} as const;
+    const old = destination.captureSavedView({predicates: [absolute], sort: {field: 'title', direction: 'asc'}});
+    assert.deepEqual(old.query, absolute);
+    assert.equal(activeRangePreset(presets, [absolute]), undefined, 'existing absolute dates are never migrated into a relative preset');
+  } finally {destination.dispose();}
+});
 
 test('Save view captures the real staged query and sort independently of later Library edits', async () => {
   const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, body?: unknown) =>

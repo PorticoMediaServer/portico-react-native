@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {Linking} from 'react-native';
 import {AccountEntry} from '../screens/accounts/AccountEntry';
 import {nativeMeasurementLaunch, type NativeMeasurementLaunch} from './measurement-launch';
@@ -35,13 +35,24 @@ export function NativePublicMeasurementGate({renderNormal, install}: Readonly<{
   install: (isPublicCurrent: () => boolean) => () => void;
 }>) {
   const launch = useNativePublicMeasurementLaunch(), current = useRef(launch), live = useRef(false);
+  const welcome = useMemo(() => ({retired: false}), [launch]);
+  const retirement = useRef<{welcome: typeof welcome; dispose: () => void} | undefined>(undefined);
+  const onStageChange = useMemo(() => (stage: string) => {
+    if (stage === 'welcome') return;
+    welcome.retired = true;
+    if (retirement.current?.welcome === welcome) retirement.current.dispose();
+  }, [welcome]);
   current.current = launch;
   useLayoutEffect(() => {live.current = true; return () => {live.current = false;};}, []);
   useLayoutEffect(() => {
-    if (!launch.ready || launch.selection.kind !== 'public') return;
-    return install(() => live.current && current.current === launch && launch.selection.kind === 'public');
-  }, [install, launch]);
+    if (!launch.ready || launch.selection.kind !== 'public' || welcome.retired) return;
+    const dispose = install(() => live.current && current.current === launch && !welcome.retired && launch.selection.kind === 'public');
+    let disposed = false;
+    const retire = () => {if (!disposed) {disposed = true; dispose();}};
+    retirement.current = {welcome, dispose: retire};
+    return retire;
+  }, [install, launch, welcome]);
   if (!launch.ready || launch.selection.kind === 'refused') return null;
   if (launch.selection.kind === 'normal') return renderNormal();
-  return <AccountEntry key={launch.revision} initialStage="welcome" initialAddress="" onComplete={noPublicAdmission}/>;
+  return <AccountEntry key={launch.revision} initialStage="welcome" initialAddress="" onStageChange={onStageChange} onComplete={noPublicAdmission}/>;
 }

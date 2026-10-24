@@ -19,6 +19,7 @@ export function installNativePublicMeasurement(root: () => object | null, isCurr
       return {width: window.width, height: window.height, deviceScaleFactor: PixelRatio.get()};
     },
     platform: Platform.OS === 'android' ? 'android' : Platform.isTV ? 'tvos' : 'ios',
+    anchors: {'accounts-welcome-portico': 'primary-action', 'tv-front-door-portico': 'primary-action'},
   });
   if (!owner) throw new Error('The DEV native collector is unavailable.');
   const command = Object.freeze({capture: (options?: Parameters<NativeLayoutDump['capture']>[0]) => owner.capture(options)});
