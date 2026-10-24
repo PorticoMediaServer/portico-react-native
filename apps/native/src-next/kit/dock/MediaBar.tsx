@@ -13,7 +13,7 @@ import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {BlurView} from '../../platform/native-blur';
 import {selectionHaptic} from '../../platform/haptics';
-import {commandAllowed, dockCommand, dockSourceIdentity, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo, validRect} from './model';
+import {commandAllowed, dockCommand, dockSourceIdentity, mediumDockMetrics, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo, validRect} from './model';
 import {alpha, DockFacts, dockStyles as s, dockType} from './visual';
 import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMorphController} from './types';
 
@@ -168,7 +168,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const button = (type: DockAction, icon: IconName, name: string, size = 22, close = false, skip = false) => {
     const enabled = commandAllowed(occupant, type);
     return <Focusable key={type} accessibilityRole="button" accessibilityLabel={name} disabled={!enabled} focusRadius={20}
-      hitSlop={{top: 2, bottom: 2, left: 0, right: 0}} style={[s.phoneButton, close && s.close, {opacity: enabled ? 1 : .32}]} onPress={() => skip ? seekBack() : act(type)}>
+      hitSlop={{top: 2, bottom: 2, left: 0, right: 0}} style={[s.phoneButton, theme.platform === 'tablet' && s.mediumButton, close && s.close, {opacity: enabled ? 1 : .32}]} onPress={() => skip ? seekBack() : act(type)}>
       <Icon name={icon} size={size} color={close ? theme.colors.textSecondary : theme.colors.text}/>
       {skip && <Text accessible={false} style={[dockType(theme, 8.5, 700), {position: 'absolute', color: theme.colors.text, top: 15}]}>{p.skipBackSeconds}</Text>}
     </Focusable>;
@@ -184,9 +184,9 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   ];
   return <>
     <GestureDetector gesture={gestures}><Animated.View ref={bar} testID={testID} onLayout={onLayout} style={[{shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: menu ? 24 : 14}, shadowOpacity: .85, shadowRadius: 15}, animated, style]}>
-      <View style={[s.phone, theme.platform === 'tablet' && s.medium, wide && s.video, {backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
+      <View style={[s.phone, wide && s.video, theme.platform === 'tablet' && s.medium, {backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
         <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>
-        <Focusable ref={opener} focusTreatment="none" style={[s.body, {gap: wide ? 11 : 12}]} accessible={!connecting && !terminal} accessibilityRole={connecting || terminal ? undefined : 'button'} accessibilityLabel={connecting || terminal ? undefined : label}
+        <Focusable ref={opener} focusTreatment="none" style={[s.body, {gap: theme.platform === 'tablet' ? mediumDockMetrics.gap : wide ? 11 : 12}]} accessible={!connecting && !terminal} accessibilityRole={connecting || terminal ? undefined : 'button'} accessibilityLabel={connecting || terminal ? undefined : label}
           onPress={() => act(remote ? 'open-remote' : 'expand')} onLongPressAction={!remote ? heldMenu : undefined} delayLongPress={500}
           onPressIn={beginHold}
           onPressOut={endHold}

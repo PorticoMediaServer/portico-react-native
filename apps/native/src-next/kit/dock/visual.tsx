@@ -2,6 +2,7 @@ import React from 'react';
 import {StyleSheet, Text, View, type TextStyle} from 'react-native';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 import {nativeType, useTheme, type Theme} from '../theme';
+import {mediumDockMetrics} from './model';
 
 export const alpha = (color: string, opacity: number) => `${color.slice(0, 7)}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
 export const dockType = (theme: Theme, size: number, weight: 400 | 500 | 600 | 700 | 800, tracking = 0, lineHeight: number | 'normal' = 'normal'): TextStyle => nativeType({size, weight, tracking, lineHeight}, theme.textScale);
@@ -26,7 +27,8 @@ export const dockStyles = StyleSheet.create({
   fill: {position: 'absolute', inset: 0},
   center: {alignItems: 'center', justifyContent: 'center'},
   phone: {height: 62, borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingLeft: 9, paddingRight: 6, gap: 12, overflow: 'hidden'},
-  medium: {height: 66},
+  medium: {height: mediumDockMetrics.height, gap: mediumDockMetrics.gap},
+  mediumButton: {width: mediumDockMetrics.button, height: mediumDockMetrics.button, borderRadius: mediumDockMetrics.button / 2},
   video: {paddingLeft: 7, gap: 11},
   art: {width: 44, height: 44, borderRadius: 7, overflow: 'hidden'},
   videoArt: {width: 80, height: 45, borderRadius: 7, overflow: 'hidden'},
