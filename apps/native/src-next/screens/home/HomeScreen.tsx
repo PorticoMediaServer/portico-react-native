@@ -50,6 +50,11 @@ export function homeRowSubtitle(theme: Theme) {
   return theme.layoutMode === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
 }
 
+/** kit.css draws the phone scroll 96 px deep over an 84 px bar; other platforms keep their padding. */
+export function homeContentBottom(theme: Theme, bottomInset: number): number {
+  return bottomInset + (theme.isTV ? 96 : theme.layoutMode === 'phone' ? 12 : 24);
+}
+
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
 export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange}: {
   runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; heroObscured?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
@@ -204,7 +209,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       void runtime.home.revalidate().catch(runtime.reportError).finally(() => {if (current()) setRefreshing(false);});
     }}/>}
     onContentSizeChange={(_, height) => {contentHeight.current = height;}} onScrollBeginDrag={vertical.stop}
-    showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: bottomInset + (theme.isTV ? 96 : 24)}}>
+    showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: homeContentBottom(theme, bottomInset)}}>
     <View style={{height: homeHeroBlock(theme, heroHeight, !!preview)}}>
       {/* tv-focus frames1..3: the real spotlight controls stay mounted for native
           Up guides while the preview covers them. Focus restores the spotlight. */}

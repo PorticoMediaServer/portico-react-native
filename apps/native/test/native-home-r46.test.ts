@@ -30,6 +30,7 @@ test('phone Home rows take the drawn 28 px rhythm while the hero keeps its own h
   assert.deepEqual(home.homeRowSpacing(phoneTheme), {marginTop: 28});
   assert.equal(home.homeHeroBlock(phoneTheme, 560, false), 560);
   assert.equal(home.homeRowSubtitle(phoneTheme).fontSize, 13, 'phone-app.html .phone .row-head .sub is 13 px');
+  assert.equal(home.homeContentBottom(phoneTheme, 84), 96, 'kit.css .ph-scroll ends 96 px over the 84 px bar');
   // Other platforms keep their shipped values.
   assert.deepEqual(home.homeRowSpacing(tvTheme), {marginBottom: 30});
   assert.deepEqual(home.homeRowSpacing(desktopTheme), {marginBottom: 18});
@@ -38,6 +39,8 @@ test('phone Home rows take the drawn 28 px rhythm while the hero keeps its own h
   assert.equal(home.homeHeroBlock(desktopTheme, 560, false), 520);
   assert.equal(home.homeRowSubtitle(tvTheme).fontSize, tvTheme.type.rowSubtitle.fontSize);
   assert.equal(home.homeRowSubtitle(desktopTheme).fontSize, desktopTheme.type.rowSubtitle.fontSize);
+  assert.equal(home.homeContentBottom(tvTheme, 0), 96);
+  assert.equal(home.homeContentBottom(desktopTheme, 0), 24);
 });
 
 test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV paint is unchanged', async () => {
@@ -104,11 +107,13 @@ test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row
     renderHomeEmpty: () => null, error: () => ({}),
   };
   const {HomeScreen} = await homeModule(phoneTheme, rows, h.react);
-  const tree = h.render(() => HomeScreen({runtime, authority}));
+  const tree = h.render(() => HomeScreen({runtime, authority, bottomInset: 84}));
   const wrappers = descendants(tree).filter(node => node.type === 'View' && node.props.onLayout);
   assert.equal(wrappers.length, 2);
   for (const wrapper of wrappers) assert.deepEqual(wrapper.props.style, {marginTop: 28}, 'phone-app.html .phone .row margin-top 28');
   assert.equal(descendants(tree).filter(node => node.type === 'View' && node.props.style?.height === 560).length, 1, 'hero block is the drawn 560 px');
+  const scroller = descendants(tree).find(node => node.type === 'ScrollView');
+  assert.equal(scroller.props.contentContainerStyle.paddingBottom, 96, 'drawn end padding over the 84 px bar');
   const row = descendants(tree).find(node => node.type === 'Row');
   assert.equal(row.props.subtitle.type, 'Text');
   assert.equal(row.props.subtitle.props.style[0].fontSize, 13);
