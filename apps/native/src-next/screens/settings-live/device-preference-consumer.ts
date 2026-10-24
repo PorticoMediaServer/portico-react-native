@@ -1,6 +1,7 @@
 import type {CompositeId} from '../../../../../packages/client-core/src/presentation/settings-structure';
-import type {SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
+import {settingsBinding, readSettingsBinding, settingsBindingPatch, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import {nativeServerPreferences, type NativeServerPreferences} from '../../platform/server-preferences';
 import {bindNativeDevicePreferences} from '../settings/device-preference-bindings';
 
 export type NativeDevicePreferenceValue = string | boolean;
@@ -47,14 +48,43 @@ export function nativeDevicePreferences(context: NativeShellBootstrapContext): N
   const existing = bound.get(context);
   if (existing) return existing;
   const preferences = bindNativeDevicePreferences(context);
+  let server: NativeServerPreferences | undefined;
+  // The drawn device switch is a profile-device preference, never a fifth
+  // installation record key. Borrow the already-installed source only on use.
+  const motion = () => {
+    try {server ??= nativeServerPreferences(context);} catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'unsupported') return;
+      throw error;
+    }
+    const snapshot = server.getSnapshot(), binding = settingsBinding('appearance.motion');
+    if (!binding || binding.form !== 'preferences' || binding.fields || binding.scope !== 'profile-device') return;
+    const value = readSettingsBinding(binding, {preferences: snapshot});
+    const document = snapshot.documents.find(item => item.scope === binding.scope);
+    if (!value || !document || value.effective !== 'follow' && value.effective !== 'reduce') return;
+    return {source: server, snapshot, binding, document, value};
+  };
   const facade: NativeDevicePreferences = Object.freeze({
     read: id => {
+      if (id === 'reduceMotion') {const current = motion(); return current ? current.value.effective === 'reduce' : undefined;}
       const row = rows[id];
       if (!row) return undefined;
       const value: SettingsBindingValue | undefined = preferences.read(row.row);
       return value ? row.shown(value.current) : undefined;
     },
     write: async (id, value) => {
+      if (id === 'reduceMotion') {
+        const current = motion();
+        if (!current) throw unsupported();
+        if (typeof value !== 'boolean') throw new Error('Invalid setting value.');
+        const {source, snapshot, binding, document} = current;
+        const patch = settingsBindingPatch(binding, value ? 'reduce' : 'follow', {preferences: snapshot});
+        const written = patch.values[binding.key];
+        if (patch.form !== 'preferences' || Object.keys(patch.values).length !== 1 || written !== 'follow' && written !== 'reduce') throw unsupported();
+        await source.applyPreferences('profile-device', snapshot.deviceClass, document.revision, {[binding.key]: written});
+        const confirmed = motion();
+        if (!confirmed) throw new Error('native_device_preference_unreadable');
+        return confirmed.value.effective === 'reduce';
+      }
       const row = rows[id];
       if (!row) throw unsupported();
       const confirmed: SettingsBindingValue = await preferences.write(row.row, row.asked(value));
