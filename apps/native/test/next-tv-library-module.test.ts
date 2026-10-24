@@ -55,6 +55,14 @@ test('TV Library requires a real summary of the same captured definition and sav
     input.controller.setName('Edited actual name'); await input.controller.save();
     assert.equal(posts.length, 1); assert.deepEqual(posts[0].definition, definition); assert.equal(posts[0].name, 'Edited actual name');
     assert.equal(outlet.props.store.getSnapshot(), undefined, 'only the actual saved receipt closes the keyboard');
+    suggestedName = '🎬'.repeat(150);
+    actions.saveView(destination, draft);
+    assert.equal(outlet.props.store.getSnapshot().controller.getSnapshot().name, suggestedName, 'the 200-character bound counts Unicode characters, not UTF-16 units');
+    outlet.props.onBack(); assert.equal(outlet.props.store.getSnapshot(), undefined);
+    suggestedName = 'a'.repeat(201);
+    actions.saveView(destination, draft);
+    assert.equal(outlet.props.store.getSnapshot().controller.getSnapshot().name, '', 'over-limit suggestions start empty without truncating or inventing a name');
+    outlet.props.onBack(); assert.equal(posts.length, 1, 'Back from naming is not a save');
     suggestedName = undefined;
     actions.saveView(destination, draft);
     const pending = outlet.props.store.getSnapshot();

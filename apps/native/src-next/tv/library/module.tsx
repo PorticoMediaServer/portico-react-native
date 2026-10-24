@@ -75,7 +75,7 @@ export function createNativeTVLibraryModule(context: NativeShellBootstrapContext
           const definition = actual.captureSavedView(draft), capabilities = actual.getSnapshot().capabilities, revision = context.navigation.getSnapshot().revision;
           if (!capabilities) throw Object.assign(new Error('native_saved_view_capabilities_unavailable'), {code: 'invalid_response'});
           const suggestion = bindings.suggestName(definition, capabilities);
-          const suggestedName = suggestion !== undefined && suggestion.length <= 200 ? suggestion : '';
+          const suggestedName = suggestion !== undefined && Array.from(suggestion).length <= 200 ? suggestion : '';
           closeNaming();
           const controller = new NativeLibrarySaveView({api: context.api, scope: lifetime.scope, definition, requestId: common.requestId,
             current: () => !disposed && lifetime.current() && activation.getSnapshot().visible && context.navigation.getSnapshot().revision === revision,
