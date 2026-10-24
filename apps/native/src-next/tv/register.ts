@@ -7,6 +7,7 @@ import '../screens/library/register';
 import '../screens/library/OverviewRoute';
 // App.tsx loads this only for handsets; the TV rail's Search needs it too.
 import '../screens/search/register';
+import '../screens/people/register';
 import '../screens/settings-live/LiveRoute';
 import '../screens/settings-live/TogetherRoute';
 import '../screens/destinations/music/register';
