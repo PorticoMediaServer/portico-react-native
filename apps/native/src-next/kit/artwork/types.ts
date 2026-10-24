@@ -67,6 +67,10 @@ export type AmbientArtProps = Readonly<{
   /** Fixed foreground bounds and stationary masks; transforms belong to foregroundStyle. */
   foregroundFrameStyle?: StyleProp<ViewStyle>;
   foregroundStyle?: StyleProp<AnimatedStyle<ViewStyle>>;
+  /** The drawn foreground width as a fraction of the surface; absent keeps the role's own column. */
+  foregroundFraction?: number;
+  /** The drawn fade into ink on one edge of the foreground only; absent keeps the existing scrims. */
+  foregroundFade?: 'left';
   /** Fires after the foreground decoded, or after ambient decode when there is no foreground. */
   onReady?: (source: ArtworkSource) => void;
   /** Actual foreground Image failure or scheduler exhaustion; ambient failure only without foreground. */

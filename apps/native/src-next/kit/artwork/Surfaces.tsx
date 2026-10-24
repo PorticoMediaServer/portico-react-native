@@ -74,7 +74,7 @@ function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false, tv
 }
 
 /** Continuous ambient wash and independently sharp foreground, with Q43's cheap TV representation. */
-export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundFrameStyle, foregroundStyle, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
+export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundFrameStyle, foregroundStyle, foregroundFraction, foregroundFade, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
   const theme = useTheme();
   const reduce = useReducedMotion();
   const fallbackOpacity = useRef(new Animated.Value(1)).current;
@@ -119,9 +119,10 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
         }}
         blurRadius={allowLiveBlur ? wash ? 12 : 8 : undefined}/>
     </View>)}
-    {foreground ? <View style={[{position: 'absolute', top: 0, right: 0, height: '100%', width: phone ? '100%' : `${foregroundWidth * 100}%`}, foregroundFrameStyle]}>
+    {foreground ? <View style={[{position: 'absolute', top: 0, right: 0, height: '100%',
+      width: foregroundFraction !== undefined ? `${foregroundFraction * 100}%` : phone ? '100%' : `${foregroundWidth * 100}%`}, foregroundFrameStyle]}>
       {maskedHero ? <ArtworkAlphaMask leftOpaqueAt={theme.spec.hero.mask.leftOpaqueAt} bottomOpaqueAt={theme.spec.hero.mask.bottomOpaqueAt}>{sharp}</ArtworkAlphaMask>
-        : <>{sharp}<ArtScrims phone={phone} side={!phone} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/></>}
+        : <>{sharp}<ArtScrims phone={phone} side={!phone || foregroundFade === 'left'} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/></>}
     </View> : null}
     <ArtScrims phone={phone} side={false} bottomAt={wash ? 1 : cover ? 0.7 : 0.42} tvSide={maskedHero}/>
   </View>;
