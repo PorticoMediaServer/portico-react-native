@@ -196,6 +196,60 @@ function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number |
   });
 }
 
+test('a fresh fenced VOD session read uses the genuine endpoint without adopting or replanning', async () => {
+  const d = fixture(); await d.start('movie');
+  try {
+    const held = d.runtime.getSnapshot(), fence = held.fence!;
+    const before = d.requests.length, commands = d.engine.commands.length;
+    const session = await d.runtime.readSession(fence, {signal: new AbortController().signal, isCurrent: () => true});
+    assert.equal(session?.id, held.session?.id); assert.equal(session?.revision, held.session?.revision);
+    assert.equal(session?.presentation.generation, fence.generation);
+    assert.deepEqual(d.requests.slice(before).map(request => [request.method, request.path]), [['GET', encodedRoutePath('get_playback_session', {id: fence.sessionId})]]);
+    assert.equal(d.runtime.getSnapshot().session, held.session, 'GET never adopts a session');
+    assert.equal(d.engine.commands.length, commands, 'GET never replans the native source');
+  } finally {d.runtime.dispose();}
+});
+
+test('session reads discard late responses after caller retirement, viewer replacement or competing Play', async () => {
+  for (const retire of ['abort', 'member', 'family', 'play'] as const) {
+    const d = fixture(); await d.start('movie');
+    try {
+      const fence = d.runtime.getSnapshot().fence!, controller = new AbortController(); let current = true;
+      const path = encodedRoutePath('get_playback_session', {id: fence.sessionId});
+      let release!: () => void, entered!: () => void;
+      const started = new Promise<void>(resolve => {entered = resolve;});
+      d.intercept(request => request.method === 'GET' && request.path === path ? new Promise<void>(resolve => {release = resolve; entered();}) : Promise.resolve());
+      const pending = d.runtime.readSession(fence, {signal: controller.signal, isCurrent: () => current});
+      await started;
+      if (retire === 'abort') controller.abort();
+      else if (retire === 'member') current = false;
+      else if (retire === 'family') d.family('replacement-family');
+      else await d.start('movie-next');
+      release(); assert.equal(await pending, undefined, retire);
+      if (retire === 'play') assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-next');
+    } finally {d.runtime.dispose();}
+  }
+});
+
+test('fresh session reads refuse mismatched response revision, source, generation or occurrence', async () => {
+  for (const mismatch of ['revision', 'source', 'generation', 'occurrence'] as const) {
+    const d = fixture(); await d.start('movie');
+    try {
+      const held = d.runtime.getSnapshot(), fence = held.fence!, path = encodedRoutePath('get_playback_session', {id: fence.sessionId});
+      d.respond(async request => {
+        if (request.method !== 'GET' || request.path !== path) return;
+        const response = await d.server.handle(request), body = response.body as Record<string, unknown>;
+        return {...response, body: {...body,
+          ...(mismatch === 'revision' ? {revision: '999'} : mismatch === 'source' ? {versionId: 'other-version'}
+            : mismatch === 'generation' ? {presentation: {...body.presentation as object, generation: fence.generation + 1}}
+            : {queue: {...body.queue as object, entryId: 'other-occurrence'}})}};
+      });
+      assert.equal(await d.runtime.readSession(fence, {signal: new AbortController().signal, isCurrent: () => true}), undefined, mismatch);
+      assert.equal(d.runtime.getSnapshot().session, held.session);
+    } finally {d.runtime.dispose();}
+  }
+});
+
 test('the app-local strict transport guards native controller adoption and never restarts an ended session', async () => {
   for (const retire of ['signal', 'member'] as const) {
     const d = fixture(), controller = new AbortController(); let current = true;

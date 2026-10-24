@@ -36,6 +36,7 @@ export type NativePlaybackVersionSelection = Readonly<{
   expectedFence: PlaybackFence | undefined;
 }>;
 export type NativeExternalPresentationLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+export type NativePlaybackReadLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{
   dockBounds?: NativePlaybackBounds; expandedBounds?: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean;
@@ -100,6 +101,8 @@ export interface NativePlaybackAdapter {
   chooseQuality: (fence: PlaybackFence, quality: QualityOption) => Promise<void>;
   setRate: (fence: PlaybackFence, rate: number) => void;
   subtitleControls: (fence: PlaybackFence) => NativePlaybackSubtitleControls | undefined;
+  /** Fresh read only; never adopts/replans the session or fabricates report facts. */
+  readSession?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<Session | undefined>;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   Surface: ComponentType<NativePlaybackSurfaceProps>;

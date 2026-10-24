@@ -36,7 +36,7 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativeExternalPresentationLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativeExternalPresentationLifetime, NativePlaybackReadLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
@@ -606,6 +606,34 @@ export class NativePlaybackRuntime {
     }
     finally { if (epoch === this.startEpoch) { this.preparing = false; this.changed(); } }
   }
+
+  /** Info reads borrow the actual queue occurrence. Unlike a replan, a read must
+   * remain on the captured generation/revision and must never adopt its reply. */
+  readSession = async (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime): Promise<Session | undefined> => {
+    if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
+    const original = this.currentSession(), queue = this.queue.getSnapshot().view?.queue, start = this.startEpoch;
+    if (!original || original.kind !== 'vod' || original.end || !queue || original.queue?.queueId !== queue.id
+      || original.queue.entryId !== fence.entryId || original.versionId !== fence.sourceId) return;
+    const current = () => {
+      const session = this.currentSession(), live = this.fence(), heldQueue = this.queue.getSnapshot().view?.queue;
+      return this.currentAuthority() && this.startEpoch === start && !lifetime.signal.aborted && lifetime.isCurrent()
+        && !!live && sameFence(live, fence) && session?.id === original.id && session.revision === original.revision
+        && heldQueue?.id === queue.id && heldQueue.revision === queue.revision;
+    };
+    const scoped = this.selectionScope(lifetime.signal, current);
+    try {
+      if (!current()) return;
+      const fresh = await new SessionsClient(this.http, this.o.timers).get(original.id, scoped.signal);
+      if (!current() || fresh.id !== original.id || fresh.revision !== original.revision || fresh.kind !== 'vod' || fresh.end
+        || fresh.itemId !== original.itemId || fresh.versionId !== original.versionId
+        || fresh.presentation.generation !== fence.generation || fresh.queue?.queueId !== queue.id
+        || fresh.queue.entryId !== fence.entryId) return;
+      return fresh;
+    } catch (error) {
+      if (scoped.signal.aborted || !current()) return;
+      throw error;
+    } finally { scoped.close(); }
+  };
 
   private currentSession(): Session | undefined {
     const held = this.playback.getSnapshot().session;
