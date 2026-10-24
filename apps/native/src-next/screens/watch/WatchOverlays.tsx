@@ -15,6 +15,7 @@ import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchOverlay, NativeWatchPresenters} from './presenters';
+import {NativeVersionChooser} from './VersionChooser';
 
 const named = (entry: NativeWatchOverlay['capture']['entry']) => entry.displayTitle ?? entry.title;
 
@@ -85,15 +86,15 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
 
 export function NativeWatchOverlays({presenters, runtime, common}: {presenters: NativeWatchPresenters; runtime: NativeShellRuntime; common: NativeScreenServices}) {
   const value = useSyncExternalStore(presenters.subscribe, presenters.getSnapshot), t = defaultI18n.t;
-  if (!value || !presenters.current(value.capture)) return null;
+  if (!value || !presenters.overlayCurrent(value)) return null;
+  if (value.phase === 'versions') return <NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(id);}} close={presenters.close}/>;
   if (value.phase === 'file-info') return <FileInfoSurface value={value} presenters={presenters}/>;
-  if (value.phase !== 'menu' && value.phase !== 'file-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
-  if (value.phase === 'file-pending') return null;
+  if (value.phase !== 'menu' && value.phase !== 'file-pending' && value.phase !== 'versions-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
+  if (value.phase === 'file-pending' || value.phase === 'versions-pending') return null;
   const entry = value.capture.entry, art = runtime.artwork(entry.posterUrl), subject = named(entry);
   const kindKey = entry.kind === 'movie' ? 'search.kind.movie' : entry.kind === 'show' ? 'search.kind.show' : entry.kind === 'artist' ? 'search.kind.artist' : entry.kind === 'album' ? 'search.kind.album' : undefined;
   const items: MenuEntry[] = [{id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}}];
-  // Different version is added only by the separately composed genuine
-  // destination. This presenter never installs an optimistic command.
+  if (value.actions?.differentVersion) items.unshift({id: 'different-version', label: t('next.overlays.differentVersion'), icon: 'i-film', onSelect: () => {void presenters.differentVersion(value);}});
   return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}
     onOpenChange={open => {if (!open) presenters.closeMenu(value);}}/>;
