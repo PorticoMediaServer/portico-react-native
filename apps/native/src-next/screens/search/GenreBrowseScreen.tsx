@@ -34,9 +34,9 @@ const labels: BrowseLabels = {field: label, sort: label, quick: label};
 
 /** A genuine across-video Browse source. The header/filter/grid parts are the
  * current Library composition; no Library('*') or local genre expansion exists. */
-export function GenreBrowseScreen({name, value, destination, activation, runtime, actions, onBack}: Readonly<{
+export function GenreBrowseScreen({name, value, destination, activation, runtime, actions, owner, onBack}: Readonly<{
   name: string; value: string; destination: NativeGenreBrowseDestination; activation: NativeDestinationActivationPort;
-  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; onBack: () => void;
+  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; owner: boolean; onBack: () => void;
 }>) {
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
@@ -57,22 +57,22 @@ export function GenreBrowseScreen({name, value, destination, activation, runtime
         style={{width: 38, height: 38, justifyContent: 'center', alignItems: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable></View>
       <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 8}]}>{name}</Text>
     </View>
-    {state.phase === 'ready' && state.capabilities && state.sort && state.collection ? <GenreGrid destination={destination} runtime={runtime} actions={actions}
+    {state.phase === 'ready' && state.capabilities && state.sort && state.collection ? <GenreGrid destination={destination} runtime={runtime} actions={actions} owner={owner}
       openFilters={() => {if (active.visible) setFilters(destination.createFilters());}} filtersOpen={!!filters}/>
       : state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, destination.retry)}/>
       : <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 160} width={dimensions.width} totalCount={9} columns={3}/>}
-    {filters && state.capabilities && state.sort && <GenreFilters draft={filters} capabilities={state.capabilities} sort={state.sort} fixed={fixed} runtime={runtime} labels={labels} onClose={() => setFilters(undefined)}/>}
+    {filters && state.capabilities && state.sort && <GenreFilters draft={filters} capabilities={state.capabilities} sort={state.sort} fixed={fixed} runtime={runtime} owner={owner} labels={labels} onClose={() => setFilters(undefined)}/>}
   </View>;
 }
 
-function GenreGrid({destination, runtime, actions, openFilters, filtersOpen}: Readonly<{
-  destination: NativeGenreBrowseDestination; runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; openFilters: () => void; filtersOpen: boolean;
+function GenreGrid({destination, runtime, actions, owner, openFilters, filtersOpen}: Readonly<{
+  destination: NativeGenreBrowseDestination; runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; owner: boolean; openFilters: () => void; filtersOpen: boolean;
 }>) {
   const theme = useTheme(), dimensions = useWindowDimensions(), source = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const collection = source.collection!, state = useSyncExternalStore(collection.subscribe, collection.getSnapshot), grid = useRef<WindowedGridHandle>(null);
   useSyncExternalStore(actions.menuState.subscribe, actions.menuState.getSnapshot);
-  const model = useMemo(() => browseToolbarModel(source.capabilities!, source.capabilities!.library.kind, source.predicates, source.sort!, {...runtime.text, textEntry: true, owner: false}),
-    [runtime.text, source.capabilities, source.predicates, source.sort]);
+  const model = useMemo(() => browseToolbarModel(source.capabilities!, source.capabilities!.library.kind, source.predicates, source.sort!, {...runtime.text, textEntry: true, owner}),
+    [owner, runtime.text, source.capabilities, source.predicates, source.sort]);
   const [first, setFirst] = useState(destination.getMemory().firstVisibleIndex), offset = useRef(destination.getMemory().offset);
   const width = theme.platform === 'phone' ? (dimensions.width - 16 - 30 - 20) / 3 : 148;
   const pageSubscribe = useCallback((listener: () => void) => collection.subscribePage(collection.pageOf(first), listener), [collection, first]);

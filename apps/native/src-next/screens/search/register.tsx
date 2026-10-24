@@ -80,7 +80,7 @@ export function createNativeHandheldSearchModule(context: NativeShellBootstrapCo
       return <>
         {[...roots.values()].map(entry => <SearchHost key={entry.key} entry={entry} runtime={runtime}/>)}
         {[...genres.values()].map(entry => <GenreBrowseScreen key={entry.key} name={entry.route.label} value={entry.route.value} destination={entry.controller.source}
-          activation={entry.controller.activation} runtime={runtime} actions={entry.actions} onBack={() => back(entry.route)}/>)}
+          activation={entry.controller.activation} runtime={runtime} actions={entry.actions} owner={context.session()?.viewer.role === 'owner'} onBack={() => back(entry.route)}/>)}
         {[...all.values()].map(entry => <AllHost key={entry.key} entry={entry} runtime={runtime} navigation={context.navigation} back={() => back(entry.route)}/>)}
       </>;
     },

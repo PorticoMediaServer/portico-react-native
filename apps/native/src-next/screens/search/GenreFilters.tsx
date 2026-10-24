@@ -15,14 +15,14 @@ import {libraryFilterChange, libraryFilterField} from '../library/filter-control
 
 /** The existing filter-sheet parts, backed by the real across-video source.
  * It has no fabricated Library snapshot or unsupported saved-view mutation. */
-export function GenreFilters({draft, capabilities, sort, fixed, runtime, labels, onClose}: Readonly<{
+export function GenreFilters({draft, capabilities, sort, fixed, runtime, labels, owner, onClose}: Readonly<{
   draft: NativeLibraryFilterDraft; capabilities: BrowseCapabilities; sort: BrowseSortSelection; fixed: readonly BrowseNode[];
-  runtime: NativeShellRuntime; labels: BrowseLabels; onClose: () => void;
+  runtime: NativeShellRuntime; labels: BrowseLabels; owner: boolean; onClose: () => void;
 }>) {
   const theme = useTheme(), state = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
   const [openFields, setOpenFields] = useState<readonly string[]>([]), [failure, setFailure] = useState<unknown>(), [now] = useState(() => new Date());
   const model = useMemo(() => browseToolbarModel(capabilities, capabilities.library.kind, state.predicates, sort,
-    {...runtime.text, owner: false, textEntry: true}), [capabilities, state.predicates, sort, runtime.text]);
+    {...runtime.text, owner, textEntry: true}), [capabilities, state.predicates, sort, runtime.text, owner]);
   const fields = Object.fromEntries(model.groups.flatMap(group => group.fields.map(field =>
     [field.id, libraryFilterField(field, state.predicates, state.facets[field.id], now)]))) as Readonly<Record<string, FilterFieldState>>;
   const prefix = JSON.stringify(['search-genre-filters', runtime.getSnapshot().authority, fixed]);
