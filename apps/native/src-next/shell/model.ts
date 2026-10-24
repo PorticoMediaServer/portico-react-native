@@ -72,8 +72,10 @@ export function shellLayout(width: number, height: number, isTV: boolean): Shell
     return {kind: 'tv', panel: 'side', tabs: false, rail: false, scale, left: (width - 1920 * scale) / 2, top: (height - 1080 * scale) / 2, width: 1920, height: 1080};
   }
   // foldable1/tablet: 600-1023 uses the 84 pt rail, never the phone tab bar.
-  const kind: ShellLayout['kind'] = width < 600 ? 'phone' : width < 1024 ? 'tablet' : 'desktop';
-  return {kind, panel: width < 600 ? 'bottom' : 'side', tabs: kind === 'phone', rail: kind === 'tablet', scale: 1, left: 0, top: 0, width, height};
+  // A phone in landscape is wider than 600 but short: phone-guide 2 draws the
+  // phone chrome (tab bar, no rail) there, so a short window keeps the phone shell.
+  const kind: ShellLayout['kind'] = width < 600 || width < 1024 && height < 600 ? 'phone' : width < 1024 ? 'tablet' : 'desktop';
+  return {kind, panel: kind === 'phone' ? 'bottom' : 'side', tabs: kind === 'phone', rail: kind === 'tablet', scale: 1, left: 0, top: 0, width, height};
 }
 
 /** The 84-point drawn bar includes the ordinary bottom safe area. Larger insets extend it. */

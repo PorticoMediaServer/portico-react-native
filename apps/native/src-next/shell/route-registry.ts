@@ -90,7 +90,15 @@ export class NativeShellRouteRegistry {
       // not hide valid playback or skip its topmost panel's Back handling.
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       renderRetained: runtime => current() ? [...instances.values()].map(value => value.renderRetained?.(runtime)) : null,
-      renderOverlays: runtime => current() ? [...instances.values()].map(value => value.renderOverlays?.(runtime)) : null,
+      // The Watch menu host is one authority-local instance shared with the watch
+      // outlet. A cold Saved card's More needs that instance even when no title,
+      // channel or watch route has rendered yet; the host itself renders nothing
+      // without a current surface.
+      renderOverlays: runtime => {
+        if (!current()) return null;
+        if (this.watch && context.session()) instance(this.watch);
+        return [...instances.values()].map(value => value.renderOverlays?.(runtime));
+      },
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current() && context.navigation.allows(route)) renderer(route)?.scrollToTop?.(route);},
       dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},
