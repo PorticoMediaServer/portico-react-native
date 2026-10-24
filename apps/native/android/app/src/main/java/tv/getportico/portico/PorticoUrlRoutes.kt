@@ -177,7 +177,9 @@ internal object PorticoUrlRoutes {
     // MainActivity calls this same filter before both initial and warm RN delivery.
     // Release never evaluates this exception, including malformed-attempt handling.
     val measurement = if (BuildConfig.DEBUG) debugMeasurementRoute(data.toString(), data.host) else null
-    val route = measurement?.let { Uri.parse(it) } ?: when (data.scheme) {
+    // DEV only: the in-app gallery host reaches the DEV Kit. A release build never evaluates it.
+    val kit = if (BuildConfig.DEBUG && data.scheme == "portico" && data.host == "kit") data else null
+    val route = measurement?.let { Uri.parse(it) } ?: kit ?: when (data.scheme) {
       "portico" -> data.takeIf { allows(it) }
       "https" -> route(data)
       else -> null
