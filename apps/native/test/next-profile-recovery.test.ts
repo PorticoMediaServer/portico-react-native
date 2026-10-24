@@ -189,3 +189,58 @@ test('a Hosted account change during the challenge retires the returned proof wi
   assert.deepEqual(temp, ['temporary:/v1/sessions/current']);
   flow.dispose();
 });
+
+test('a second reset during proof cleanup cannot use the selected family', async () => {
+  let account = true, release: (() => void) | undefined, started: () => void = () => {};
+  const start = new Promise<void>(done => {started = done;});
+  const selected: string[] = [], temp: string[] = [];
+  const selectedApi = {baseUrl: 'https://server.test', request: async (path: string) => {selected.push(path); return {};}} as unknown as HttpLocalApi;
+  const temporary = {request: async (path: string) => {
+    temp.push(path);
+    if (path === '/v1/sessions/current' && !release) {started(); await new Promise<void>(done => {release = done;});}
+  }} as unknown as HttpLocalApi;
+  const flow = new NativeProfileRecovery({api: selectedApi, snapshot: snapshot(false), profileId: 'alex', selectedFamilyId: 'current-family', kind: 'portico', authorityCurrent: () => true,
+    temporary: () => temporary,
+    portico: async () => ({hosted: {request: async () => ({})} as never, origin: 'https://hosted.test', accountCurrent: () => account}),
+    signIn: async () => signedIn() as never});
+  await flow.portico(); assert.equal(flow.getSnapshot().phase, 'pin');
+  account = false;
+  const first = flow.reset('2468');
+  await start;
+  assert.equal(flow.getSnapshot().phase, 'portico'); assert.equal(flow.getSnapshot().busy, false);
+  await flow.reset('1357');
+  assert.deepEqual(selected, [], 'a reset never falls through to the selected app family');
+  release!(); await first;
+  assert.deepEqual(temp, ['/v1/sessions/current']);
+  assert.notEqual(flow.getSnapshot().phase, 'done');
+  flow.dispose();
+});
+
+test('a late proof cleanup does not overwrite a successor attempt', async () => {
+  let account = true, release: (() => void) | undefined, started: () => void = () => {}, deletes = 0;
+  const start = new Promise<void>(done => {started = done;});
+  const selected: string[] = [], temp: string[] = [];
+  const selectedApi = {baseUrl: 'https://server.test', request: async (path: string) => {selected.push(path); return {};}} as unknown as HttpLocalApi;
+  const temporary = {request: async (path: string) => {
+    temp.push(path);
+    if (path === '/v1/sessions/current' && deletes++ === 0) {started(); await new Promise<void>(done => {release = done;});}
+  }} as unknown as HttpLocalApi;
+  const flow = new NativeProfileRecovery({api: selectedApi, snapshot: snapshot(false), profileId: 'alex', selectedFamilyId: 'current-family', kind: 'portico', authorityCurrent: () => true,
+    temporary: () => temporary,
+    portico: async () => ({hosted: {request: async () => ({})} as never, origin: 'https://hosted.test', accountCurrent: () => account}),
+    signIn: async () => signedIn() as never});
+  await flow.portico(); assert.equal(flow.getSnapshot().phase, 'pin');
+  account = false;
+  const first = flow.reset('2468');
+  await start;
+  assert.equal(flow.getSnapshot().phase, 'portico');
+  account = true;
+  await flow.portico(); assert.equal(flow.getSnapshot().phase, 'pin');
+  release!(); await first;
+  assert.equal(flow.getSnapshot().phase, 'pin', 'late cleanup does not overwrite the successor');
+  await flow.reset('1357');
+  assert.equal(flow.getSnapshot().phase, 'done');
+  assert.deepEqual(selected, []);
+  assert.deepEqual(temp, ['/v1/sessions/current', '/v1/direct/profiles/alex/pin-reset', '/v1/sessions/current']);
+  flow.dispose();
+});
