@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from 'react';
-import {AppState, Text, View, type StyleProp, type ViewStyle} from 'react-native';
+import {AppState, Text, View, type StyleProp, type TextStyle, type ViewStyle} from 'react-native';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming, type SharedValue, type WithTimingConfig} from 'react-native-reanimated';
 import {heroSpec} from '@portico/design';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
@@ -31,6 +31,10 @@ export type HeroProps<T extends HeroCandidate> = {
   showOverview?: boolean;
   height?: number;
   copyTop?: number;
+  /** A drawn sideways composition: the copy sits at this inset and width, left aligned, over a hero whose artwork owns the other side. Every number comes from the frame. */
+  copySide?: Readonly<{inset: number; width: number; bottom: number}>;
+  /** The drawn lockup column for one composition, as one coherent size/lineHeight/tracking triple. */
+  lockupStyle?: StyleProp<TextStyle>;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -82,23 +86,25 @@ function CopyPart({identity, step, stagger, translate, timing, children}: {ident
 }
 
 /** One actual copy/control tree keeps native TV focus while the artwork layers crossfade. */
-function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, reducedMotion}: CopyProps<T>) {
+function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, copySide, lockupStyle, reducedMotion}: CopyProps<T>) {
   const theme = useTheme(), motion = useMotion();
   const reduced = motion.reduce || !!reducedMotion;
   const phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone'), tv = variant === 'tv' || (!variant && theme.isTV);
   const timing = useMemo(() => ({...motion.timing('standard'), duration: reduced ? heroSpec.rotation.reducedMs : fade === 'hero' ? heroSpec.rotation.copyMs : theme.motion.standard}), [fade, motion, reduced, theme.motion.standard]);
   // kit.css draws .actions at 12 px (18 px under .tv); the phone/tablet spec column said 10.
   const actionsGap = theme.isTV ? 18 : 12;
+  const side = !!copySide;
   const partProps = {identity: entry.id, stagger: reduced || fade !== 'hero' ? 0 : heroSpec.rotation.copyStaggerMs, translate: reduced || tv || phone ? 0 : heroSpec.rotation.copyTranslate, timing};
   let step = 0;
-  return <View style={{position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.gutter,
-    right: phone ? theme.layout.gutter.phone : undefined, width: phone ? undefined : tv ? heroSpec.copy.width.tv : heroSpec.copy.width.web,
-    top: copyTop ?? (tv ? 220 : undefined), bottom: copyTop !== undefined || tv ? undefined : phone ? heroSpec.copy.homeBottom.phone : heroSpec.copy.homeBottom.web}}>
-    {(renderReason || entry.reason) ? <CopyPart {...partProps} step={step++}>{renderReason ? renderReason(entry) : <Text style={[theme.type.eyebrow, {includeFontPadding: false, textAlign: phone ? 'center' : 'left', color: theme.colors.accentStrong, marginBottom: phone ? 8 : tv ? 16 : 14}]}>{entry.reason}</Text>}</CopyPart> : null}
-    <CopyPart {...partProps} step={step++}><Lockup title={entry.title} long={entry.long} variant={variant} lines={phone ? 2 : undefined} style={{textAlign: phone ? 'center' : 'left', marginBottom: phone ? 10 : tv ? 22 : 20}} /></CopyPart>
-    {(renderMetadata || entry.facts?.length) ? <CopyPart {...partProps} step={step++}><View style={{marginBottom: phone ? 18 : tv ? 18 : 16}}>{renderMetadata ? renderMetadata(entry) : <HeroMetadata facts={entry.facts ?? []} centered={phone} />}</View></CopyPart> : null}
+  return <View style={copySide ? {position: 'absolute', left: copySide.inset, right: undefined, width: copySide.width, top: undefined, bottom: copySide.bottom}
+    : {position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.gutter,
+      right: phone ? theme.layout.gutter.phone : undefined, width: phone ? undefined : tv ? heroSpec.copy.width.tv : heroSpec.copy.width.web,
+      top: copyTop ?? (tv ? 220 : undefined), bottom: copyTop !== undefined || tv ? undefined : phone ? heroSpec.copy.homeBottom.phone : heroSpec.copy.homeBottom.web}}>
+    {(renderReason || entry.reason) ? <CopyPart {...partProps} step={step++}>{renderReason ? renderReason(entry) : <Text style={[theme.type.eyebrow, {includeFontPadding: false, textAlign: side ? 'left' : phone ? 'center' : 'left', color: theme.colors.accentStrong, marginBottom: phone ? 8 : tv ? 16 : 14}]}>{entry.reason}</Text>}</CopyPart> : null}
+    <CopyPart {...partProps} step={step++}><Lockup title={entry.title} long={entry.long} variant={variant} lines={phone ? 2 : undefined} style={[{textAlign: side ? 'left' : phone ? 'center' : 'left', marginBottom: phone ? 10 : tv ? 22 : 20}, lockupStyle]} /></CopyPart>
+    {(renderMetadata || entry.facts?.length) ? <CopyPart {...partProps} step={step++}><View style={{marginBottom: phone ? 18 : tv ? 18 : 16}}>{renderMetadata ? renderMetadata(entry) : <HeroMetadata facts={entry.facts ?? []} centered={side ? false : phone} />}</View></CopyPart> : null}
     {showOverview && !phone && entry.overview ? <CopyPart {...partProps} step={step++}><Text numberOfLines={tv ? 2 : 3} style={[theme.type.synopsis, {includeFontPadding: false, color: theme.colors.textSecondary, maxWidth: tv ? 800 : 540, marginBottom: tv ? 30 : 28}]}>{entry.overview}</Text></CopyPart> : null}
-    <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: phone ? 'center' : 'flex-start', gap: actionsGap}}>{renderActions(entry)}</View></CopyPart>
+    <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: side ? 'flex-start' : phone ? 'center' : 'flex-start', gap: actionsGap}}>{renderActions(entry)}</View></CopyPart>
     {renderAfterCopy && <CopyPart {...partProps} step={step}>{renderAfterCopy(entry)}</CopyPart>}
   </View>;
 }
@@ -207,7 +213,7 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
       cancelAnimation(run.animation);
     };
   }, [canRotate, candidates.length, change, rotation, motion, progress]);
-  const dots = candidates.length > 1 ? <View style={{marginTop: tv ? 34 : heroSpec.phoneDots.marginTop, flexDirection: 'row', justifyContent: phone ? 'center' : 'flex-start', gap: tv ? 10 : heroSpec.phoneDots.gap}}>
+  const dots = candidates.length > 1 ? <View style={{marginTop: tv ? 34 : heroSpec.phoneDots.marginTop, flexDirection: 'row', justifyContent: props.copySide || !phone ? 'flex-start' : 'center', gap: tv ? 10 : heroSpec.phoneDots.gap}}>
     {candidates.map((candidate, i) => tv ? <View key={candidate.id} style={{width: i === index ? 34 : 10, height: 10, borderRadius: 5, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}47`}} /> : <Focusable testID={testID ? focusTestID(testID, JSON.stringify(['candidate', candidate.id])) : undefined} focusTreatment="none" key={candidate.id} accessibilityRole="button" accessibilityLabel={candidate.title} accessibilityState={{selected: i === index}} onPress={() => change(i)} hitSlop={8}>
       <View style={{width: i === index ? heroSpec.phoneDots.activeWidth : heroSpec.phoneDots.size, height: heroSpec.phoneDots.size, borderRadius: 3, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}4D`}} />
     </Focusable>)}
