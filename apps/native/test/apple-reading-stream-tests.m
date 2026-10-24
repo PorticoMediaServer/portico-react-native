@@ -109,6 +109,39 @@ static void actualPullStream(BOOL chunked) {
  check(serverClosed&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real peer, request and admission close");
 }
 
+static void actualCancel(NSUInteger mode) {
+ int listener=socket(AF_INET,SOCK_STREAM,0);struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+ check(listener>=0&&bind(listener,(struct sockaddr *)&address,sizeof(address))==0&&listen(listener,1)==0,"cancellation listener");
+ socklen_t length=sizeof(address);getsockname(listener,(struct sockaddr *)&address,&length);
+ dispatch_semaphore_t accepted=dispatch_semaphore_create(0),release=dispatch_semaphore_create(0);dispatch_group_t served=dispatch_group_create();
+ __block BOOL disconnected=NO;
+ dispatch_group_async(served,dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+  int peer=accept(listener,NULL,NULL);if(peer<0)return;int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
+  struct timeval timeout={3,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+  char request[8192]={0};ssize_t count=0;while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
+  dispatch_semaphore_signal(accepted);
+  if(mode!=1){const char *header="HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));}
+  dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC));
+  char byte;disconnected=recv(peer,&byte,1,0)==0;shutdown(peer,SHUT_RDWR);close(peer);
+ });
+ NSObject *realOwner=[NSObject new];NSMutableDictionary *state=[NSMutableDictionary new];
+ NSString *url=[NSString stringWithFormat:@"http://127.0.0.1:%u/v1/reading/sessions/cancel/source",ntohs(address.sin_port)];
+ PorticoQueueRequest *request=PorticoReadingStreamRequest(NSUUID.UUID.UUIDString,url,@{},realOwner,^(id value){@synchronized(state){state[@"headers"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+ [PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_stream_busy"];
+ BOOL began=dispatch_semaphore_wait(accepted,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0;
+ check(began,"real connection opened before cancellation");
+ if(mode!=1){
+  check(waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}})&&!state[@"error"],"real cancellation response headers");
+  PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+  @synchronized(request){check(request.streamResolve!=nil&&!request.completed,"real body pull pending without upstream bytes");}
+ }
+ if(mode==3)[PorticoQueueTransport cancelOwnedBy:realOwner];else cancel(request);
+ dispatch_semaphore_signal(release);
+ check(waitFor(^BOOL{@synchronized(state){return state[@"error"]!=nil;}})&&[state[@"error"]isEqual:@"cancelled"]&&!state[@"read"],"real cancellation rejects rather than reporting EOF");
+ close(listener);BOOL closed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC))==0;
+ check(closed&&disconnected&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real opening/read/owner cancellation closes peer and admission");
+}
+
 int main(void){@autoreleasepool{
  transport=[PorticoQueueTransport new];owner=[NSObject new];
  for(NSString *url in @[@"https://server.example/v1/reading/sessions/s/source?x=1",@"https://server.example/v1/reading/sessions/s/assets",@"https://server.example/v1/reading/sessions/s/pages/0",@"https://server.example/v1/reading/sessions/s/%73ource",@"https://server.example/v1/system",@"file:///v1/reading/sessions/s/source",@"https://user:pass@server.example/v1/reading/sessions/s/source",@"https://server.example/v1/reading/sessions/s/source#f"]){
@@ -170,5 +203,6 @@ int main(void){@autoreleasepool{
  pull(request,replies,errors);check(!followed&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"same transport refuses redirects after headers");
  check(PorticoQueueActive==0&&PorticoQueueReads==0&&!PorticoQueueRequests.count,"all admission slots/handles released exactly once");
  for(NSUInteger attempt=0;attempt<10;attempt++)actualPullStream(attempt%2==1);
+ for(NSUInteger mode=1;mode<=3;mode++)actualCancel(mode);
  printf("Apple Reading pull stream: %lu checks passed\n",(unsigned long)checks);return 0;
 }}
