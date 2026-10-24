@@ -81,7 +81,9 @@ static void pausedSource(uint64_t total,BOOL chunked,BOOL consumeFirst){
  PorticoReadingStreamRead(request.identifier,owner,^(id value){bodyReturned=YES;},^(NSString *c,NSString *m,NSError *e){failure=c;});
  check([failure isEqual:@"cancelled"]&&!bodyReturned,"same-id/owner cancellation cannot become fake EOF");
  close(listener);BOOL closed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC))==0;
- check(closed&&waitFor(^BOOL{return task.state==NSURLSessionTaskStateCompleted;}),"paused transfer task and peer close on cancellation");
+ BOOL taskClosed=waitFor(^BOOL{return task.state==NSURLSessionTaskStateCompleted;});
+ if(!closed||!taskClosed)fprintf(stderr,"Paused cancellation peerClosed=%d taskClosed=%d taskState=%lu class=%s\n",closed,taskClosed,(unsigned long)task.state,NSStringFromClass(task.class).UTF8String);
+ check(closed&&taskClosed,"paused transfer task and peer close on cancellation");
  check(request.completed&&!request.data&&!request.response&&!request.wire&&!request.streamDriver&&!PorticoQueueRequests.count&&PorticoQueueActive==0&&PorticoQueueReads==0,"cancellation releases retained data, authority-bearing request and all admission");
 }
 
