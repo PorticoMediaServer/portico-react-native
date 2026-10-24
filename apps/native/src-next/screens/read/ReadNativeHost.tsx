@@ -55,6 +55,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         // must still reach the captured guest after this authority has ended.
         initialProgress, current, send: message => {view.current?.injectJavaScript(readerDelivery(message));},
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
+      // The guest may handshake before the post-render activity effect runs.
+      host.current.setActive(callbacks.current.active);
       setState({url});
     })().catch(() => {if (current()) {setState({failed: true});} void dispose().catch(() => {});});
     return () => {if (closeRef.current === dispose) closeRef.current = undefined; void dispose().catch(() => {});};
