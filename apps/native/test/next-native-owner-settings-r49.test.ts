@@ -33,7 +33,7 @@ test('Ruling 4 route facts name Original, Repackaged and Converted with its heig
 test('a stream card carries only the session facts the server supplied', () => {
   const view = ownerStreamView(session(), env);
   assert.equal(view.title, 'Spirited Away');
-  assert.deepEqual(view.facts.map(part => part.text), ['Away from home', 'Converted to 1080p', '8 Mb/s']);
+  assert.deepEqual(view.facts.map(part => part.text), ['Away from home', 'Converted to 1080p', '8.0 Mb/s']);
   assert.equal(view.position?.text, 'At 53:45 of 2:05:00');
   assert.equal(view.progress, 0.43);
   assert.equal(view.paused, false);
@@ -60,7 +60,7 @@ test('Health keeps the measured sentence and degrades honestly', () => {
   assert.equal(healthy.facts.degraded, false);
   assert.equal(healthy.status, 'Running normally');
   assert.match(healthy.line, /^Up for 6d 0h/);
-  assert.match(healthy.line, /free$/);
+  assert.match(healthy.line, /free ·/);
   assert.match(healthy.line, /Database /);
   const degraded = ownerHealthLine(measurement({database: {state: 'unavailable', value: null}}), undefined, t);
   assert.equal(degraded.facts.degraded, true);
@@ -78,8 +78,8 @@ function reading(overrides: Partial<TelemetryReading> = {}): TelemetryReading {
   const points = (values: number[]) => values.map((v, index) => ({t: 1_000 + index * 1_000, v}));
   return {
     period: '1h', timeZone: 'UTC', from: '2026-10-24T15:00:00.000Z', until: '2026-10-24T16:00:00.000Z', buckets: [], window: '1h', observedAt: 1_000,
-    status: {cpu: {status: 'available', value: 18}, memory: {status: 'unavailable', value: 0}, netOut: {status: 'available', value: 14_000_000}} as TelemetryReading['status'],
-    series: {cpu: points([10, 18, 6]), netOut: points([8_000_000, 14_000_000])} as TelemetryReading['series'],
+    status: {cpu: {status: 'available', value: 18}, memory: {status: 'unavailable', value: 0}, netOut: {status: 'available', value: 14 * 1024 * 1024}} as TelemetryReading['status'],
+    series: {cpu: points([10, 18, 6]), netOut: points([8_000_000, 14 * 1024 * 1024])} as TelemetryReading['series'],
     ...overrides,
   };
 }
