@@ -336,7 +336,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         if (result.error) throw failure(result.error.code);
       })} : {...common, owner: false as const};
     },
-    error: (error, retry) => feedback.error(error, retry, 'home'),
+    error: (error, retry, context = 'home') => feedback.error(error, retry, context),
     reportError, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
