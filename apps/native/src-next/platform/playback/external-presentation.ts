@@ -11,9 +11,9 @@ export function sameNativePresentation(a: NativeBinding, b: NativeBinding): bool
  * This is an external-presentation acknowledgement, never a timeline fact. */
 export function nativeExternalPresentationBinding(fact: unknown, current: NativeBinding | undefined): NativeBinding | null | undefined {
   if (!object(fact) || !Object.prototype.hasOwnProperty.call(fact, 'externalPresentationBinding')) return undefined;
-  const value = fact.externalPresentationBinding;
-  if (!current || !object(fact.binding) || !object(value) || Object.keys(value).length !== fields.length) return null;
-  if (fields.some(field => value[field] !== current[field] || fact.binding[field] !== current[field])) return null;
+  const value = fact.externalPresentationBinding, factBinding = fact.binding;
+  if (!current || !object(factBinding) || !object(value) || Object.keys(value).length !== fields.length) return null;
+  if (fields.some(field => value[field] !== current[field] || factBinding[field] !== current[field])) return null;
   if (typeof value.lease !== 'string' || !value.lease || value.lease.length > 256
     || typeof value.sessionId !== 'string' || !value.sessionId || value.sessionId.length > 256
     || typeof value.itemId !== 'string' || !value.itemId || value.itemId.length > 256
