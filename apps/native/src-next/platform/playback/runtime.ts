@@ -164,7 +164,7 @@ export class NativePlaybackRuntime {
         if (state.session.mode === 'local') {
           const url = this.offline?.mediaUrl(state.session);
           if (url) return url;
-          this.playback.fail(state.intentId, serviceText('downloads.offline.notPlayableHere')); return '';
+          if (state.phase !== 'error') this.playback.fail(state.intentId, serviceText('downloads.offline.notPlayableHere')); return '';
         }
         try { return options.api.mediaUrl(state.session.streamUrl); }
         catch { this.playback.fail(state.intentId, serviceText('queuePlayer.startFailed')); return ''; }

@@ -268,12 +268,16 @@ test('a parked local bookmark reopens paused on the same Surface and only explic
     d.engine.position = 73; d.engine.emit('time'); await settle();
     await d.start('song-next');
     assert.equal(d.runtime.dock.getSnapshot().resumeVideo?.fence.kind, 'local');
+    assert.deepEqual(d.runtime.dock.getSnapshot().resumeVideo?.fence, fence);
     const before = d.engine.commands.length;
     const restored = await d.runtime.restoreBookmark(fence, false); await settle();
-    assert.equal(restored?.kind, 'local'); assert.notEqual(restored?.sessionId, fence.sessionId);
+    const after = d.runtime.getSnapshot();
+    assert.equal(restored?.kind, 'local', JSON.stringify({phase: after.playback.phase, intent: after.playback.intent, sessionId: after.playback.session?.id, fence: after.fence}));
+    assert.notEqual(restored?.sessionId, fence.sessionId);
     const snapshot = d.runtime.getSnapshot();
     assert.equal(snapshot.playback.intent, 'paused'); assert.equal(snapshot.playback.positionSeconds, 73);
-    assert.equal(snapshot.lease, original.lease); assert.equal(snapshot.dock.local?.queue, null);
+    assert.ok(snapshot.lease); assert.throws(() => d.runtime.attachSurface({}), /already mounted/);
+    d.runtime.setSurfaceTag(owner, 71); assert.equal(snapshot.dock.local?.queue, null);
     if (!restored || restored.kind !== 'local') throw new Error('missing genuine restored local source');
     assert.equal(restored.playId, 'play_fixture2');
     const commands = d.engine.commands.slice(before).filter(command => command.binding.sessionId === restored.sessionId);
@@ -294,7 +298,9 @@ test('local Retry retains its live caller context and never falls into the devic
     const retry = d.runtime.getSnapshot(); assert.equal(retry.fence?.kind, 'local');
     assert.notEqual(retry.fence?.sessionId, original.fence?.sessionId);
     assert.equal(retry.fence?.kind === 'local' ? retry.fence.playId : undefined, 'play_fixture1');
-    assert.equal(retry.playback.phase, 'ready'); assert.equal(retry.lease, original.lease);
+    assert.equal(retry.playback.phase, 'ready'); assert.ok(retry.lease);
+    // A failed decoder may acquire a fresh lease; the actual Surface owner/tag remains.
+    assert.throws(() => d.runtime.attachSurface({}), /already mounted/); d.runtime.setSurfaceTag(owner, 71);
     assert.equal(d.requests.some(request => request.method === 'POST' && /\/playback\/sessions$/.test(request.path)), false);
   } finally {offSurface(); d.runtime.dispose();}
 });
