@@ -1,4 +1,6 @@
 import type {ComponentType} from 'react';
+import type {OfflineEntry} from '../../../platform/offline-downloads';
+import type {NativeOfflinePlaybackDevice} from './offline-playback';
 import type {HttpLocalApi, LocalSession, PlaybackSnapshot} from '../../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {EventsClient} from '../../../../../packages/client-core/src/playback-v1/events';
@@ -37,6 +39,7 @@ export type NativePlaybackVersionSelection = Readonly<{
 }>;
 export type NativeExternalPresentationLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackReadLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+export type NativeOfflinePlaybackLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{
   dockBounds?: NativePlaybackBounds; expandedBounds?: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean;
@@ -82,6 +85,8 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   nativeListening?: NativeListeningV1Control;
   capabilitiesReady: () => Promise<void>;
   disposeCapabilities: () => void;
+  /** Borrow the existing authority-owned device connection; never connect/adopt a second one. */
+  offlineDevice?: NativeOfflinePlaybackDevice;
   timers?: Timers;
   /** Optional actual destination binding. Its absence removes Cast from capabilities and API. */
   openDestinations?: (fence: PlaybackFence) => Promise<void>;
@@ -97,6 +102,7 @@ export interface NativePlaybackAdapter {
   getSnapshot: () => NativePlaybackRuntimeSnapshot;
   start: (input: NativePlaybackStart) => Promise<void>;
   startVersion: (input: NativePlaybackStart, selection: NativePlaybackVersionSelection) => Promise<void>;
+  startOffline?: (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime) => Promise<void>;
   change: (fence: PlaybackFence, choices: PlaybackChoices) => Promise<void>;
   chooseQuality: (fence: PlaybackFence, quality: QualityOption) => Promise<void>;
   setRate: (fence: PlaybackFence, rate: number) => void;

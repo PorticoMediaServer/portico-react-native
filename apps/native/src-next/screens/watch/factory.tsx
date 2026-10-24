@@ -9,7 +9,8 @@ import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/l
 import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {NativePlaybackAdapter, NativePlaybackStart, NativePlaybackVersionSelection} from '../../platform/playback/types';
+import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackStart, NativePlaybackVersionSelection} from '../../platform/playback/types';
+import type {PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import type {NativeShellNavigation} from '../../shell/routes';
@@ -20,6 +21,7 @@ import {NativeTitleStarts} from './title-starts';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
 import {readNativeFileInfo, type NativeFileInfo} from './file-info';
+import {readNativePlaybackInfo} from './playback-info';
 import {nativeWatchTracks} from './track-identity';
 import {nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeVersionChooserController} from './version-destination';
@@ -74,7 +76,7 @@ const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | unde
 
 /** Explicit descriptors and disposal for the genuine assembly; importing never registers a route. */
 export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
-  const controllers = new Map<string, NativeTitleController>(), controllerSubscriptions = new Map<string, () => void>(), requests = new Map<AbortController, NativeWatchCapture>();
+  const controllers = new Map<string, NativeTitleController>(), controllerSubscriptions = new Map<string, () => void>(), requests = new Map<AbortController, () => boolean>();
   const options = new PlaybackOptionsClient(localV1Http(ports.api)), controls = new NativeWatchControls(ports.isTV);
   const destinations = new Set<NativeVersionChooserController>();
   let disposed = false;
@@ -85,7 +87,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
   const update = () => {
     starts.invalidate();
     for (const destination of destinations) if (!destination.isCurrent()) {destination.dispose(); destinations.delete(destination);}
-    for (const [request, captured] of requests) if (!current(captured)) request.abort();
+    for (const [request, valid] of requests) if (!valid()) request.abort();
     const source = ports.playback.getSnapshot();
     controls.source(alive() && sameAuthority(source.authority, ports.authority) && !source.retired ? source.fence : undefined,
       {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});
@@ -100,11 +102,19 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const value = Object.freeze({entry, current: entryCurrent, authority: ports.authority, routeRevision: ports.navigation.getSnapshot().revision, expectedFence: ports.playback.getSnapshot().fence});
     return current(value) ? value : undefined;
   };
-  const request = async <T,>(captured: NativeWatchCapture, run: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> => {
-    if (!current(captured)) return;
-    const controller = new AbortController(); requests.set(controller, captured);
-    try {const result = await run(controller.signal); return !controller.signal.aborted && current(captured) ? result : undefined;}
-    finally {requests.delete(controller);}
+  const request = async <T,>(captured: NativeWatchCapture | (() => boolean), run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T | undefined> => {
+    const valid = typeof captured === 'function' ? captured : () => current(captured);
+    if (signal?.aborted || !valid()) return;
+    const controller = new AbortController(), abort = () => controller.abort(); requests.set(controller, valid);
+    signal?.addEventListener('abort', abort, {once: true});
+    try {const result = await run(controller.signal); return !controller.signal.aborted && valid() ? result : undefined;}
+    finally {requests.delete(controller); signal?.removeEventListener('abort', abort);}
+  };
+  const readPlaybackInfo = (fence: PlaybackFence, words: PlaybackInfoWords, lifetime: NativePlaybackReadLifetime) => {
+    const revision = ports.navigation.getSnapshot().revision;
+    const valid = () => alive() && !lifetime.signal.aborted && lifetime.isCurrent()
+      && sameAuthority(ports.navigation.getSnapshot().authority, ports.authority) && ports.navigation.getSnapshot().revision === revision;
+    return request(valid, signal => readNativePlaybackInfo(ports.playback, fence, words, {signal, isCurrent: valid}), lifetime.signal);
   };
   const createTitleController = (key: string, entry: ContentEntry, body = false): NativeTitleController => {
     let owner: NativeTitleController;
@@ -221,6 +231,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     controls,
     menu,
     fileInfo,
+    readPlaybackInfo,
     versions,
     capture,
     isCurrent: current,

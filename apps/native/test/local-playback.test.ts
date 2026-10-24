@@ -20,7 +20,8 @@ function setup(journal?: {entries: unknown[]}) {
   };
   const local = new LocalPlayback(p => progress.push(p));
   const store = journal ?? {entries: []};
-  // As in the app: the device queue is required for server plays, and a journal is kept.
+  // As in the app: server plays require the device queue and server recovery
+  // journal; actual local progress belongs to the explicit app-local owner.
   const api = local.wrap(inner);
   const service = new PlaybackService(api, () => 'r' + Math.random(), {
     queueRequired: true,
@@ -119,13 +120,30 @@ test('an engine failure on a local file fails at once (no route escalation to re
   assert.deepEqual(x.server, []);
 });
 
-test('local ids from a journal replayed after a restart never reach the server', async () => {
+test('a server recovery record retains server custody even when its ID looks local', async () => {
   const store = {entries: [{id: 'local:dl9:3', checkpoint: {generation: 1, sequence: 4, positionSeconds: 77, state: 'paused'}}]};
   const x = setup(store);
   await x.service.startRecovery();
   await tick(); await tick(); await tick();
-  assert.deepEqual(x.server, []);
-  assert.deepEqual(x.progress, [], 'the offline journal already holds that position');
+  assert.deepEqual(x.server, ['progress local:dl9:3', 'stop local:dl9:3']);
+  assert.deepEqual(x.progress, [], 'spelling cannot claim an app-local journal owner');
+});
+
+test('genuine local progress never enters the server recovery journal', async () => {
+  const x = setup(); await playing(x, 77); x.service.pause();
+  await tick(); await tick();
+  assert.ok(x.progress.length > 0); assert.deepEqual(x.store.entries, []);
+  x.service.leave(); await tick(); await tick(); assert.deepEqual(x.server, []);
+});
+
+test('base transport methods always preserve server custody, including an ID known to the local owner', async () => {
+  const x = setup(), session = x.local.session(media)();
+  const payload = {generation: 1, sequence: 1, positionSeconds: 17, state: 'paused' as const};
+  await x.api.progressPlayback(session.id, payload); await x.api.stopPlayback(session.id);
+  await x.api.reportPlayerFailure?.(session.id, 'decode_error', '', 17);
+  await x.api.markerSkipped?.(session.id, {markerId: 'marker', mode: 'manual', positionMs: 17000});
+  assert.deepEqual(x.server, [`progress ${session.id}`, `stop ${session.id}`, `failure ${session.id}`, `skip ${session.id}`]);
+  assert.deepEqual(x.progress, []); x.service.leave();
 });
 
 test('a play from the server after a download still goes to the server', async () => {

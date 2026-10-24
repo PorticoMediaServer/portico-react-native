@@ -7,6 +7,7 @@ import {releaseDock, validRect} from '../src-next/kit/dock/model.ts';
 import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {offlineDownloads} from '../platform/offline-downloads.ts';
 
 // Runs the real factory/Surface and PlayerMorph with controlled native hosts,
 // external-store delivery and animation callbacks. This is prop/lifecycle proof;
@@ -52,7 +53,8 @@ async function surfaceFixture(os = 'android') {
     './engine-choice': {chooseEngine() {}, parseEngineFeatures: () => ({})},
     './engine-media': {planEngineOf() {}, requiredSubtitleRendering() {}},
     './capability-document': {deviceCapabilityDocument: () => ({})},
-    './NativeListeningAdapter': {}, './runtime': {NativePlaybackRuntime: class {constructor() {return runtime;}}},
+    '../../../platform/offline-downloads': {offlineDownloads},
+    './NativeListeningAdapter': {}, './runtime': {NativePlaybackRuntime: class {constructor(options: {offlineDevice: unknown}) {assert.equal(options.offlineDevice, offlineDownloads); return runtime;}}},
     './scope-http': {PlaybackScopeHttp: class {}}, '../video-snapshot': {createVideoSnapshotCapture: () => ({})},
   });
   const adapter = createNativeShellPlaybackAdapter({

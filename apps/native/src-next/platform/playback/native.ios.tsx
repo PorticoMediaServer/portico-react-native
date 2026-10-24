@@ -11,6 +11,7 @@ import type {NativeBinding, NativePlaybackTransport} from './NativePlaybackCoord
 import {NativePlaybackRuntime} from './runtime';
 import {PlaybackScopeHttp} from './scope-http';
 import {appleSubtitleFilePicker} from './subtitle-file-picker.ios';
+import {offlineDownloads} from '../../../platform/offline-downloads';
 import {createVideoSnapshotCapture} from '../video-snapshot';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeOptions, NativePlaybackSurfaceProps} from './types';
 
@@ -76,8 +77,11 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     bearer: () => options.session()?.accessToken ?? '', id: requestId,
     subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
   }) : undefined;
+  // Local playback uses the existing device owner only when its native file port is installed.
+  const offlineDevice = !Platform.isTV && offlineDownloads.getSnapshot().supported
+    && typeof NativeModules.PorticoDownloads?.localFile === 'function' ? options.offlineDevice ?? offlineDownloads : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, subtitleFilePicker: appleSubtitleFilePicker, pictureInPictureControls: true, engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, pictureInPictureControls: true, engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'native' ? nativeTransport : undefined, choose: () => 'native'}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
@@ -99,6 +103,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   }
   return {
     runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, startVersion: runtime.startVersion, selectionPlayback: runtime.selectionPlayback, Surface,
+    ...(offlineDevice ? {startOffline: runtime.startOffline} : {}),
     change: runtime.change, chooseQuality: runtime.chooseQuality, setRate: runtime.setRate,
     subtitleControls: fence => runtime.subtitleControls(fence), readSession: runtime.readSession,
     prepareExternalPresentation: runtime.prepareExternalPresentation, requestPictureInPicture: runtime.requestPictureInPicture,

@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import {compileFunction} from 'node:vm';
 import {dirname, join} from 'node:path';
 import {screenModule} from './screen-harness.mjs';
+import {offlineDownloads} from '../../platform/offline-downloads.ts';
 import * as model from '../../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../../src-next/kit/dock/morph-fence.ts';
 import {playerPostureCrossFadeMs} from '../../src-next/platform/layout/player-presentation.ts';
@@ -84,6 +85,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     '../../../../../packages/client-core/src/presentation/service-text': {serviceText: key => key},
     './engine-choice': {chooseEngine() {}, parseEngineFeatures: () => ({})}, './engine-media': {planEngineOf() {}, requiredSubtitleRendering() {}},
     './capability-document': {deviceCapabilityDocument: () => ({})}, './NativeListeningAdapter': {},
+    '../../../platform/offline-downloads': {offlineDownloads},
     './runtime': {NativePlaybackRuntime: class {constructor() {return runtime;}}}, './scope-http': {PlaybackScopeHttp: class {}},
     '../video-snapshot': {createVideoSnapshotCapture: () => ({cancel() {}, dispose() {}})}});
   const adapter = createNativeShellPlaybackAdapter({appVersion: 'test', api: {},

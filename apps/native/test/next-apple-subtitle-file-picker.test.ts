@@ -112,6 +112,7 @@ test('the actual Apple factory injects only the installed platform picker into i
       './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},
       './scope-http': {PlaybackScopeHttp: class {dispose() {}}},
       './subtitle-file-picker.ios': {appleSubtitleFilePicker: actual},
+      '../../../platform/offline-downloads': {offlineDownloads: {getSnapshot: () => ({supported: false})}},
       '../video-snapshot': {createVideoSnapshotCapture: () => ({})},
     });
     const adapter = createNativeShellPlaybackAdapter({
