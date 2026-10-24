@@ -827,8 +827,8 @@ export async function standardHomeApp({
       await new Promise(done => setTimeout(done, 0));
     if (errors.length) throw errors[0];
   };
-  const mount = async () => {
-    exports.render(React.createElement(App), 77, undefined, true, {
+  const mount = async (appProps = {}) => {
+    exports.render(React.createElement(App, appProps), 77, undefined, true, {
       onUncaughtError: error => errors.push(error),
       onCaughtError: error => errors.push(error),
       onRecoverableError: error => errors.push(error),
