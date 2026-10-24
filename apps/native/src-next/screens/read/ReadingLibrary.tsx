@@ -13,6 +13,7 @@ import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {nativeScreenServices} from '../native-screen-services';
 import {NativeReadingLibrary} from './reading-library';
 
 export type NativeReadingLibraryScreenProps = Readonly<{
@@ -28,6 +29,7 @@ export type NativeReadingLibraryScreenProps = Readonly<{
 export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProps) {
   const {context, runtime, libraryId, title, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const controller = useMemo(() => new NativeReadingLibrary(context, libraryId), [context, libraryId]);
+  const services = useMemo(() => nativeScreenServices(context), [context]);
   useEffect(() => {void controller.load().catch(runtime.reportError); return () => controller.dispose();}, [controller, runtime]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const columns = dimensions.width >= 700 ? 4 : 3, gap = 12, inset = 20;
@@ -44,7 +46,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     <ScrollView contentContainerStyle={{padding: inset, paddingBottom: insets.bottom + 40}}
       onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.more().catch(runtime.reportError);}} scrollEventThrottle={64}>
-      {state.phase === 'error' ? <StateView variant="inline" {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);})}/> : null}
+      {state.phase === 'error' ? <StateView variant="inline" {...services.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/> : null}
       {state.phase === 'loading' && state.items.length === 0 ? <Text style={[browseType(theme, 14, 500), {color: theme.colors.textTertiary}]}>{defaultI18n.t('status.loading')}</Text> : null}
       {state.phase === 'ready' && state.items.length === 0 ? <StateView testID="reading-library-empty" variant="inline"
         title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/> : null}
