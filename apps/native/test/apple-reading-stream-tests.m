@@ -58,7 +58,10 @@ static BOOL waitFor(BOOL (^ready)(void)) {
 }
 /** Real NSURLSession data/delegate scheduling and suspension, without a device,
  * auth state or TLS claim. The loopback peer generates bytes, never stores a PDF. */
-static void actualPullStream(void) {
+static BOOL sendAll(int peer,const void *bytes,NSUInteger length) {
+ NSUInteger sent=0;while(sent<length){ssize_t next=send(peer,(const uint8_t *)bytes+sent,length-sent,0);if(next<=0)return NO;sent+=(NSUInteger)next;}return YES;
+}
+static void actualPullStream(BOOL chunked) {
  int listener=socket(AF_INET,SOCK_STREAM,0);check(listener>=0,"loopback socket");
  struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
  check(bind(listener,(struct sockaddr *)&address,sizeof(address))==0&&listen(listener,1)==0,"private ephemeral loopback listener");
@@ -70,11 +73,12 @@ static void actualPullStream(void) {
   struct timeval timeout={5,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(peer,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
   char request[8192]={0};ssize_t count=0;
   while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
-  const char *header="HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: 2097152\r\nConnection: close\r\n\r\n";
+  const char *header=chunked?"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n":"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: 2097152\r\nConnection: close\r\n\r\n";
   if(strstr(request,"GET /v1/reading/sessions/live/source HTTP/1.1")&&!strstr(request,"Range:")){
-   send(peer,header,strlen(header),0);unsigned char bytes[16384];for(NSUInteger i=0;i<sizeof(bytes);i++)bytes[i]=(uint8_t)i;
+   sendAll(peer,header,strlen(header));unsigned char bytes[16384];for(NSUInteger i=0;i<sizeof(bytes);i++)bytes[i]=(uint8_t)i;
    NSUInteger sent=0;
-   while(sent<2097152){ssize_t next=send(peer,bytes+sent%sizeof(bytes),MIN(sizeof(bytes)-sent%sizeof(bytes),2097152-sent),0);if(next<=0)break;sent+=(NSUInteger)next;}
+   while(sent<2097152){if(chunked&&!sendAll(peer,"4000\r\n",6))break;if(!sendAll(peer,bytes,sizeof(bytes)))break;sent+=sizeof(bytes);if(chunked&&!sendAll(peer,"\r\n",2))break;}
+   if(chunked&&sent==2097152)sendAll(peer,"0\r\n\r\n",5);
   }
   shutdown(peer,SHUT_RDWR);close(peer);
  });
@@ -165,6 +169,6 @@ int main(void){@autoreleasepool{
  __block BOOL followed=YES;[transport URLSession:nil task:task willPerformHTTPRedirection:nil newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://elsewhere.example"]] completionHandler:^(NSURLRequest *next){followed=next!=nil;}];
  pull(request,replies,errors);check(!followed&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"same transport refuses redirects after headers");
  check(PorticoQueueActive==0&&PorticoQueueReads==0&&!PorticoQueueRequests.count,"all admission slots/handles released exactly once");
- for(NSUInteger attempt=0;attempt<10;attempt++)actualPullStream();
+ for(NSUInteger attempt=0;attempt<10;attempt++)actualPullStream(attempt%2==1);
  printf("Apple Reading pull stream: %lu checks passed\n",(unsigned long)checks);return 0;
 }}

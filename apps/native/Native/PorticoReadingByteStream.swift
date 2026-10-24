@@ -52,6 +52,7 @@ final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
     private var reading: Task<Void, Never>?
     private var body: ReadingByteBody?
     private var task: URLSessionTask?
+    private var policy: ReadingBytePolicy?
     private var readPending = false
 
     private func locked<T>(_ operation: () -> T) -> T {
@@ -62,10 +63,11 @@ final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
               headers: @escaping (HTTPURLResponse) -> Void, failure: @escaping (Error) -> Void) {
         locked {
             guard !closed, opening == nil else { return }
+            let policy = ReadingBytePolicy(attached: attached, failure: failure)
+            self.policy = policy
             opening = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let policy = ReadingBytePolicy(attached: attached, failure: failure)
                     let (bytes, response) = try await session.bytes(for: request, delegate: policy)
                     guard let http = response as? HTTPURLResponse else {
                         bytes.task.cancel()
