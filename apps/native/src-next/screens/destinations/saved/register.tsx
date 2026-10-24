@@ -1,9 +1,9 @@
 import React from 'react';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import type {SavedRoute} from '../../../../../../packages/client-core/src/saved';
-import type {NativeShellBootstrapContext} from '../../../../shell/bootstrap';
-import {nativeShellRoutes, type NativeRouteRenderer} from '../../../../shell/route-registry';
-import {nativeEntryRoute, type NativeShellRoute} from '../../../../shell/routes';
+import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
+import {nativeShellRoutes, type NativeRouteRenderer} from '../../../shell/route-registry';
+import {nativeEntryRoute, type NativeShellRoute} from '../../../shell/routes';
 import {createNativeEntryActions} from '../entry-actions';
 import {createNativeTVSavedDestination} from './model';
 import {TVSavedScreen} from './TVSavedScreen';

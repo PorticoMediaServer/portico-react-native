@@ -6,9 +6,9 @@ import {
 import {getContainerState, setContainerFlag, type ContainerState} from '../../../../../../packages/client-core/src/container-state';
 import {encodedRoutePath} from '../../../../../../packages/contracts/src/routes';
 import {unreadableServerResponse} from '../../../../../../packages/client-core/src/server-messages';
-import type {NativeShellBootstrapContext} from '../../../../shell/bootstrap';
-import type {NativeShellPlaybackAdapter} from '../../../../shell/playback';
-import {nativeDestinationLifetime} from '../../lifetime';
+import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
+import type {NativeShellPlaybackAdapter} from '../../../shell/playback';
+import {nativeDestinationLifetime} from '../lifetime';
 
 export type MusicAlbumRow = Readonly<{id: string; libraryId: string; title: string; artist?: Readonly<{id: string; name: string}>; year?: number; posterUrl?: string}>;
 export type MusicPageEntry = Readonly<{kind: 'album' | 'artist'; entry: ContentEntry}>;

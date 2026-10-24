@@ -1,6 +1,6 @@
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
-import type {NativeShellBootstrapContext} from '../../../../shell/bootstrap';
-import {nativeShellRoutes, type NativeRouteRenderer} from '../../../../shell/route-registry';
+import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
+import {nativeShellRoutes, type NativeRouteRenderer} from '../../../shell/route-registry';
 import {nativeDestinationLifetime} from '../lifetime';
 import {createNativeEntryActions} from '../entry-actions';
 import {NativeTVMusicController} from './model';

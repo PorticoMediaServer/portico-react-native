@@ -2,16 +2,16 @@ import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
-import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model';
+import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
 import type {HistoryPeriod, SavedListFilter, SavedListSort, SavedRoute} from '../../../../../../packages/client-core/src/saved';
-import {Artwork} from '../../kit/artwork';
-import {Button, Chip, Focusable} from '../../kit/controls';
-import {PosterCard, SquareCard} from '../../kit/cards';
-import {Dialog, Menu} from '../../kit/overlays';
-import {StateView} from '../../kit/states';
-import {browseType} from '../../kit/browse/presentation';
-import {useTheme} from '../../kit/theme';
-import type {NativeShellRuntime} from '../../shell/runtime';
+import {Artwork} from '../../../kit/artwork';
+import {Button, Chip, Focusable} from '../../../kit/controls';
+import {PosterCard, SquareCard} from '../../../kit/cards';
+import {Dialog, Menu} from '../../../kit/overlays';
+import {StateView} from '../../../kit/states';
+import {browseType} from '../../../kit/browse/presentation';
+import {useTheme} from '../../../kit/theme';
+import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
@@ -140,7 +140,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;
-  const directory = tab === 'playlists' || tab === 'collections' || tab === 'views';
+  const directoryView = tab === 'playlists' || tab === 'collections' || tab === 'views' ? tab : undefined;
   const body = snapshot.phase === 'error' ? <StateView variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
     : snapshot.phase !== 'ready' ? null
       : tab === 'history' ? (snapshot.entries.length ? <View>
@@ -160,8 +160,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       <View style={{paddingHorizontal: 200}}>
         <SavedTVTabs destination={tabsDestination} reportError={runtime.reportError} authority={authority} activation={activation} contentRegionId={ids.savedGrid}/>
       </View>
-      {directory ? <View style={{height: 860, paddingTop: 12}}>
-        <SavedTVDirectory view={tab} destination={controller.source(tab)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
+      {directoryView ? <View style={{height: 860, paddingTop: 12}}>
+        <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
           enabled regionId={ids.savedGrid} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
       </View> : <>
