@@ -1,5 +1,6 @@
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {HomeDocument, HomeRow} from '../../../../../packages/client-core/src/home';
+import {homeRowPresentation} from '../../../../../packages/client-core/src/presentation/home-spotlight';
 import {cardText, type CardSubject, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {ShellAuthority} from '../../shell/model';
 
@@ -29,6 +30,14 @@ export function platformRows(document: HomeDocument, platform: 'phone' | 'tv', r
 export function pageAtVisibleEnd(row: HomeRow, last: number, preload = 3): boolean {
   const count = row.live?.channels.length ?? row.collection?.members.length ?? row.entries.length;
   return !!row.nextCursor && last >= Math.max(0, count - preload);
+}
+
+/** A drawn row needs something under its heading: cards, channels or a collection banner.
+ * A heading over nothing is never drawn, and a cursor alone draws nothing to page from. */
+export function homeRowHasContent(row: HomeRow): boolean {
+  if (row.collection) return true;
+  if (row.live) return row.live.channels.length > 0;
+  return homeRowPresentation(row).cards.length > 0;
 }
 
 /** A continuation may be a show with an explicit server-selected episode target. */

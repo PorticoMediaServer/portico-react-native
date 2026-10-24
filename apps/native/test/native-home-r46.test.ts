@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n, type I18n} from '../../../packages/i18n/src';
 import {homeRowPresentation, homeSpotlightModels} from '../../../packages/client-core/src/presentation/home-spotlight';
+import {homeRowHasContent} from '../src-next/screens/home/model';
 import {serverTextLabel} from '../../../packages/client-core/src/presentation/server-text';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
@@ -72,6 +73,33 @@ test('the medium window draws the two foldable hero compositions at their author
   assert.deepEqual({...home.mediumHeadingStyle}, {fontSize: 21});
 });
 
+test('a row with nothing under its heading is not drawn at all', async () => {
+  const entry = {id: 'new-movie', libraryId: 'movies', kind: 'movie', title: 'Toy Story 5', playback: {itemId: 'new-movie'}};
+  const rows = [
+    {id: 'continue', kind: 'continue', artworkShape: 'landscape', title: 'Continue Watching', entries: [], nextCursor: ''},
+    {id: 'new_movies', kind: 'new', artworkShape: 'poster', title: 'New on your server', entries: [entry], nextCursor: ''},
+    {id: 'live_now', kind: 'live', artworkShape: 'landscape', title: 'On now', entries: [], live: {observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: []}},
+    {id: 'more', kind: 'new', artworkShape: 'poster', title: 'More coming', entries: [], nextCursor: 'page-2'},
+  ];
+  assert.equal(homeRowHasContent(rows[0]), false, 'a profile with no history keeps no Continue Watching heading');
+  assert.equal(homeRowHasContent(rows[1]), true);
+  assert.equal(homeRowHasContent(rows[2]), false, 'a live row with no channels draws no heading either');
+  assert.equal(homeRowHasContent(rows[3]), false, 'a cursor alone draws nothing, so its heading goes too');
+  const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
+  const runtime = {
+    home: {subscribe() {}, getSnapshot: () => ({document: {rows, spotlight: [], serverId: 'actual', viewerFence: 'viewer'}, phase: 'ready'}), more() {}, revalidate: async () => {}, retry: async () => {}},
+    getSnapshot: () => ({authority, libraries: [], selectionActive: false}), selection: () => ({}), text: {t: defaultI18n.t, locale: 'en-US'},
+    registerScrollToTop: () => () => {}, artwork: () => undefined, ambient: () => undefined, setHomeWindow() {}, playback: undefined,
+    actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {}}, reportError() {}, onArtworkError() {}, renderHomeEmpty: () => null, error: () => ({}),
+  };
+  const {HomeScreen} = await homeModule(phoneTheme, rows, h.react);
+  const tree = h.render(() => HomeScreen({runtime, authority, bottomInset: 84}));
+  const drawn = descendants(tree).filter(node => node.type === 'Row');
+  assert.deepEqual(drawn.map(node => node.props.title), ['New on your server']);
+  assert.equal(labels(tree).includes('Continue Watching'), false);
+  assert.equal(labels(tree).includes('On now'), false);
+});
+
 test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV paint is unchanged', async () => {
   const facts = [{id: 'year', text: '2001', role: 'value'}, {id: 'genres', text: 'Animation, Family', role: 'supplement'},
     {id: 'duration', text: '2 h 5 min', role: 'value'}];
@@ -122,7 +150,7 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../platform/home-action-diagnostics': {homeActionDiagnostics: {action() {}}},
     '../../kit/theme': {useTheme: typeof theme === 'function' ? theme : () => theme}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
     './HomeHeroFacts': {HomeHeroFacts: 'HomeHeroFacts', HomeRemoteHint: 'HomeRemoteHint'},
-    './model': {authorizedHome: (value: unknown) => value, platformRows: () => rows, homeCardText: () => ({title: 'x'}), homePlayTarget: () => undefined, pageAtVisibleEnd: () => false},
+    './model': {authorizedHome: (value: unknown) => value, platformRows: () => rows, homeRowHasContent, homeCardText: () => ({title: 'x'}), homePlayTarget: () => undefined, pageAtVisibleEnd: () => false},
   });
 }
 
@@ -131,7 +159,9 @@ test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row
   const rows = [
     {id: 'continue', kind: 'continue', artworkShape: 'landscape', title: 'Continue Watching', subtitleText: {fallback: 'In progress'}, entries: [entry], nextCursor: '', total: 1, start: 0, limit: 1},
     {id: 'on_now', kind: 'live', artworkShape: 'landscape', title: 'On now', subtitleText: {fallback: 'Synthetic Live TV'}, entries: [], nextCursor: '', total: 0, start: 0, limit: 0,
-      live: {observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: []}},
+      live: {observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: [
+        {channel: {id: 'channel-1', sourceId: 'source-1', name: 'Channel One', number: 1, mark: {}, programmes: []}, source: {name: 'Synthetic Live TV'}},
+      ]}},
   ];
   const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
   const runtime = {
