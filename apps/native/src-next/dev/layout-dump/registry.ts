@@ -1,4 +1,5 @@
 /** Curated DEV observations, never a raw props/Fiber/state inspection surface. */
+import type {HostRect} from './native-host.ts';
 export type HostKind = 'view' | 'text' | 'input' | 'image';
 export type ScalarStyle = Readonly<Record<string, string | number>>;
 export type HostFacts = Readonly<{
@@ -30,6 +31,8 @@ export type HostRegistration = Readonly<{
   update(facts: HostFacts): void;
   recordResolvedStyle(facts: ResolvedStyle): void;
   recordTextLayout(lines: unknown): void;
+  /** Actual current window-space native runs; never a Text host-box fallback. */
+  observeTextRectangles(reader?: () => Promise<unknown>): void;
   invalidateTextLayout(): void;
   invalidateResolvedStyle(): void;
   recordNativeFocus(focused: boolean): void;
@@ -117,7 +120,7 @@ function metadata(facts: HostFacts): HostObservation {
 
 /** Registration leases fence ref replacement, unmount and capture-epoch retirement. */
 export function createNativeMeasurementRegistry() {
-  type Record = {host: object; epoch: number; observation: HostObservation};
+  type Record = {host: object; epoch: number; observation: HostObservation; textRectangles?: () => Promise<unknown>};
   let epoch = 1;
   let revision = 0;
   let records = new WeakMap<object, Record>();
@@ -147,6 +150,11 @@ export function createNativeMeasurementRegistry() {
           if (!current(record) || record.observation.kind !== 'text') return;
           replace({lines: textLines(lines)});
         },
+        observeTextRectangles(reader?: () => Promise<unknown>) {
+          if (!current(record) || record.observation.kind !== 'text') return;
+          record.textRectangles = reader;
+          revision++;
+        },
         invalidateTextLayout() {if (current(record)) replace({lines: undefined});},
         invalidateResolvedStyle() {
           if (current(record)) replace({measuredStyle: Object.freeze({}), effectiveOpacity: undefined, effectiveBackgroundColor: undefined});
@@ -169,6 +177,30 @@ export function createNativeMeasurementRegistry() {
       });
     },
     read(host: object): HostObservation | undefined {return records.get(host)?.observation;},
+    async measureTextRectangles(host: object, signal?: AbortSignal): Promise<readonly HostRect[] | undefined> {
+      const record = records.get(host), reader = record?.textRectangles;
+      if (!record || !current(record) || record.observation.kind !== 'text' || !reader || signal?.aborted) return undefined;
+      let abort: (() => void) | undefined;
+      try {
+        const pending = Promise.resolve().then(reader);
+        const stopped = new Promise<undefined>(resolve => {
+          abort = () => resolve(undefined);
+          signal?.addEventListener('abort', abort, {once: true});
+          if (signal?.aborted) abort();
+        });
+        const raw = signal ? await Promise.race([pending, stopped]) : await pending;
+        if (!current(record) || record.textRectangles !== reader || signal?.aborted || !Array.isArray(raw) || raw.length > 256) return undefined;
+        const rects: HostRect[] = [];
+        for (const line of raw) {
+          if (!object(line)) return undefined;
+          const x = data(line, 'x'), y = data(line, 'y'), width = data(line, 'width'), height = data(line, 'height');
+          if (!finite(x) || !finite(y) || !finite(width) || !finite(height) || width < 0 || height < 0) return undefined;
+          rects.push(Object.freeze({x, y, width, height}));
+        }
+        return Object.freeze(rects);
+      } catch {return undefined;}
+      finally {if (abort) signal?.removeEventListener('abort', abort);}
+    },
     actualFocus(host: object, mounted: ReadonlySet<object>): boolean | undefined {
       if (!focused || !current(focused) || !mounted.has(focused.host)) return undefined;
       return focused.host === host;

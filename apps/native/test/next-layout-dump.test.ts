@@ -86,13 +86,14 @@ test('inputs never accept text layout or export native input internals', async (
   assert.deepEqual(measured.strings, []);
 });
 
-test('actual Text line rectangles use measured origins; transformed host bounds are not glyph bounds', async () => {
+test('only observed native window Text rectangles become text ranges; host boxes never substitute', async () => {
   const registry = createNativeMeasurementRegistry();
   const text = host('RN:Text', {x: 20, y: 40, width: 100, height: 30});
   const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844}, [text]);
   const textLease = registry.register(text, {kind: 'text', semanticId: 'public-title', role: 'header'});
   textLease.recordTextLayout([{x: 2, y: 3, width: 70, height: 24, text: 'Public title', capHeight: 17}]);
   textLease.recordResolvedStyle(paint);
+  textLease.observeTextRectangles(async () => [{x: 22, y: 43, width: 70, height: 24}]);
   textLease.recordNativeFocus(true);
   registry.register(root, {kind: 'view'}).recordResolvedStyle({effectiveOpacity: 1, effectiveBackgroundColor: 'rgb(7, 16, 24)'});
   const options = {root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const, registry, anchors: {'public-title': 'title'}};
@@ -102,10 +103,28 @@ test('actual Text line rectangles use measured origins; transformed host bounds 
   assert.deepEqual(measured.elements[1].textRects, [{x: 22, y: 43, width: 70, height: 24}]);
   assert.equal(measured.elements[1].frame, 'title');
   assert.equal(measured.strings[0].text, 'Public title');
-  text.offsetWidth = 80;
+  textLease.observeTextRectangles(undefined);
   const transformed = await collectNativeScreen(options);
   assert.equal(transformed.elements[1].textRects, undefined);
   assert.ok(transformed.unavailable.some(fact => fact.element === 'root.0' && fact.property === 'textRects'));
+});
+
+test('late window Text observers are retired on unregister or cancellation', async () => {
+  const registry = createNativeMeasurementRegistry(), node = {};
+  const lease = registry.register(node, {kind: 'text'});
+  let resolve: ((value: unknown) => void) | undefined;
+  lease.observeTextRectangles(() => new Promise(done => {resolve = done;}));
+  const controller = new AbortController();
+  const pending = registry.measureTextRectangles(node, controller.signal);
+  await Promise.resolve();
+  controller.abort();
+  assert.equal(await pending, undefined);
+  resolve!([{x: 1, y: 2, width: 3, height: 4}]);
+  const again = registry.measureTextRectangles(node);
+  await Promise.resolve();
+  lease.unregister();
+  resolve!([{x: 1, y: 2, width: 3, height: 4}]);
+  assert.equal(await again, undefined);
 });
 
 test('unobserved paint hides text and never defaults focus or opacity; wrong viewport fails', async () => {
