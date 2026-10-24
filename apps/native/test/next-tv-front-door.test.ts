@@ -15,6 +15,7 @@ async function observationModule() {
     'react-native': {findNodeHandle: (host: {tag: number}) => host.tag}, './focus/useHostRef': hostRef});
 }
 
+const flatten = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value;
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 
 test('the TV front door renders its wordmark and only actual authority-choice callbacks without starting either flow', async () => {
@@ -26,7 +27,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
     const calls: string[] = [], entries: any[] = [], theme = createTheme({isTV: true, width: 1920});
     let dimensions = {width: 1920, height: 1080}, tree: any;
     const {TVFrontDoor} = await screenModule(new URL('../src-next/tv/auth/TVFrontDoor.tsx', import.meta.url), {
-      react: {...React, default: React}, 'react-native': {Image: 'Image', Text: 'Text', View: 'View', useWindowDimensions: () => dimensions},
+      react: {...React, default: React}, 'react-native': {Image: 'Image', Text: 'Text', View: 'View', useWindowDimensions: () => dimensions, StyleSheet: {flatten}},
       '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/controls': {Button: 'Button'},
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: (activation: unknown, address: unknown) => entries.push({activation, address})},
@@ -82,7 +83,6 @@ test('DEV TV heading records only native text events, invalidates changed layout
   let host: ReturnType<typeof createHookHost> | undefined;
   try {
     let dimensions = {width: 1920, height: 1080}, theme = createTheme({isTV: true, width: 1920}), tree: any;
-    const flatten = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value;
     const {TVFrontDoor} = await screenModule(new URL('../src-next/tv/auth/TVFrontDoor.tsx', import.meta.url), {
       react: {...React, default: React}, 'react-native': {Image: 'Image', Text: 'Text', View: 'View', useWindowDimensions: () => dimensions,
         StyleSheet: {flatten}, findNodeHandle: (native: {tag: number}) => native.tag},
@@ -100,7 +100,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     image().props.ref(wordmark);
     assert.equal(registry.read(wordmark)?.kind, 'image');
     assert.equal(registry.read(wordmark)?.semanticId, 'tv-front-door-wordmark');
-    assert.deepEqual(registry.read(wordmark)?.flattenedStyle, {});
+    assert.deepEqual(registry.read(wordmark)?.flattenedStyle, image().props.style, 'registration declares exactly the existing Image style');
     assert.deepEqual(registry.read(wordmark)?.measuredStyle, {}, 'asset contents and paint are not observed by this hook');
     const imageRef = image().props.ref;
     imageRef(replacementWordmark);
@@ -110,7 +110,8 @@ test('DEV TV heading records only native text events, invalidates changed layout
     tree.props.ref(root);
     assert.equal(registry.read(root)?.kind, 'view');
     assert.equal(registry.read(root)?.semanticId, 'tv-front-door');
-    assert.deepEqual(registry.read(root)?.flattenedStyle, {}, 'the root is scope proof, not guessed paint or an anchor');
+    assert.deepEqual(registry.read(root)?.flattenedStyle, {backgroundColor: tree.props.style.backgroundColor}, 'the root declares its actual theme background, not observed paint');
+    assert.deepEqual(registry.read(root)?.measuredStyle, {});
     tree.props.ref(replacementRoot);
     assert.equal(registry.read(root), undefined);
     assert.equal(registry.read(replacementRoot)?.semanticId, 'tv-front-door');
@@ -137,7 +138,11 @@ test('DEV TV heading records only native text events, invalidates changed layout
     assert.equal(registry.read(replacement)?.lines, undefined, 'a replaced native target cannot populate the current lease');
     heading().props.onTextLayout(event(replacement.tag));
     assert.deepEqual(registry.read(replacement)?.lines, observed);
-    theme = {...theme, textScale: 1.25}; await act(() => host!.rerender());
+    theme = {...theme, textScale: 1.25, colors: {...theme.colors, ink: '#010203'}}; await act(() => host!.rerender());
+    assert.equal(tree.props.style.backgroundColor, theme.colors.ink);
+    assert.deepEqual(registry.read(replacementRoot)?.flattenedStyle, {backgroundColor: theme.colors.ink});
+    assert.deepEqual(registry.read(replacementWordmark)?.flattenedStyle, image().props.style);
+    assert.deepEqual(registry.read(replacementRoot)?.measuredStyle, {}, 'declared paint remains separate from native observations');
     assert.equal(registry.read(replacement)?.lines, undefined);
     assert.equal(registry.read(replacement)?.flattenedStyle.fontSize, 110);
     heading().props.onTextLayout(event(replacement.tag));
