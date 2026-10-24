@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 10
     concurrency:
       group: native-merge-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {path: portico-react-native, fetch-depth: 0}
@@ -50,7 +50,7 @@ jobs:
     timeout-minutes: 10
     concurrency:
       group: apple-contracts-${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the URL allowlist and download callback ownership
