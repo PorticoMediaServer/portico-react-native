@@ -87,6 +87,8 @@ function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions,
   const reduced = motion.reduce || !!reducedMotion;
   const phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone'), tv = variant === 'tv' || (!variant && theme.isTV);
   const timing = useMemo(() => ({...motion.timing('standard'), duration: reduced ? heroSpec.rotation.reducedMs : fade === 'hero' ? heroSpec.rotation.copyMs : theme.motion.standard}), [fade, motion, reduced, theme.motion.standard]);
+  // kit.css draws .actions at 12 px (18 px under .tv); the phone/tablet spec column said 10.
+  const actionsGap = theme.isTV ? 18 : 12;
   const partProps = {identity: entry.id, stagger: reduced || fade !== 'hero' ? 0 : heroSpec.rotation.copyStaggerMs, translate: reduced || tv || phone ? 0 : heroSpec.rotation.copyTranslate, timing};
   let step = 0;
   return <View style={{position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.gutter,
@@ -96,7 +98,7 @@ function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions,
     <CopyPart {...partProps} step={step++}><Lockup title={entry.title} long={entry.long} variant={variant} lines={phone ? 2 : undefined} style={{textAlign: phone ? 'center' : 'left', marginBottom: phone ? 10 : tv ? 22 : 20}} /></CopyPart>
     {(renderMetadata || entry.facts?.length) ? <CopyPart {...partProps} step={step++}><View style={{marginBottom: phone ? 18 : tv ? 18 : 16}}>{renderMetadata ? renderMetadata(entry) : <HeroMetadata facts={entry.facts ?? []} centered={phone} />}</View></CopyPart> : null}
     {showOverview && !phone && entry.overview ? <CopyPart {...partProps} step={step++}><Text numberOfLines={tv ? 2 : 3} style={[theme.type.synopsis, {includeFontPadding: false, color: theme.colors.textSecondary, maxWidth: tv ? 800 : 540, marginBottom: tv ? 30 : 28}]}>{entry.overview}</Text></CopyPart> : null}
-    <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: phone ? 'center' : 'flex-start', gap: heroSpec.actions.gap[theme.platform]}}>{renderActions(entry)}</View></CopyPart>
+    <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: phone ? 'center' : 'flex-start', gap: actionsGap}}>{renderActions(entry)}</View></CopyPart>
     {renderAfterCopy && <CopyPart {...partProps} step={step}>{renderAfterCopy(entry)}</CopyPart>}
   </View>;
 }
