@@ -8,7 +8,7 @@ import {formatBytes} from '../../../../../../packages/client-core/src/presentati
 import {alertName, jobName, jobStateName, severityName} from '../../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {duration, jobTone, when} from '../../../../../../packages/client-core/src/server-admin/console-words';
 import {healthFacts, loadValue, measuredLoadTiles, type HealthFacts, type LoadTile} from '../../../../../../packages/client-core/src/server-admin/dashboard';
-import {playedFraction, positionClock, rateMbps} from '../../../../../../packages/client-core/src/server-admin/now-playing';
+import {playedFraction, positionClock, rateMbps, windowRange} from '../../../../../../packages/client-core/src/server-admin/now-playing';
 import {STATE_PERMISSIONS_CODE} from '../../../../../../packages/client-core/src/administration';
 import type {StatTile} from '../../../kit/shell';
 import {nativeDashboardIdentity} from '../dashboard-presentation';
@@ -42,14 +42,39 @@ export type OwnerStreamView = Readonly<{
   progress?: number;
   paused: boolean;
   menuLabel: string;
+  /** The notable row note, or nothing: Converted, Buffering, Paused (owner-dashboard frames 4d–4f). */
+  note?: OwnerStreamNote;
+  /** What the compact row says beside the title: the episode, year, artist, or the channel name. */
+  qualifier?: string;
 }>;
+
+/** Only a notable stream carries a compact row note; the tone draws its amber route dot, amber problem or grey pause. */
+export type OwnerStreamNote = Readonly<{id: 'converted' | 'buffering' | 'paused'; text: string; tone: 'route' | 'problem' | 'paused'}>;
+
+/** At ten streams or fewer the page keeps one full card per stream (frames 2 and 4). */
+export const OWNER_STREAM_CARD_LIMIT = 10;
+/** The compact row's fixed pitch, so the windowed list mounts only the rows near the viewport. */
+export const OWNER_COMPACT_ROW_PX = 64;
+
+/** The routes that mean this stream is being converted now. */
+export function ownerConverting(session: AdminSession): boolean {
+  return [session.decision?.video?.action, session.decision?.audio?.action, session.decision?.subtitles?.action].some(action => action === 'transcode' || action === 'burn');
+}
+
+/** A problem first, then a conversion, then paused: the only notes the frames draw on a row. */
+export function ownerStreamNote(session: AdminSession, t: Translate): OwnerStreamNote | undefined {
+  if (session.problem) return Object.freeze({id: 'buffering', text: t('next.dashboard.buffering'), tone: 'problem'});
+  if (ownerConverting(session)) return Object.freeze({id: 'converted', text: t('next.dashboard.converted'), tone: 'route'});
+  if (session.state === 'paused') return Object.freeze({id: 'paused', text: t('next.dashboard.paused'), tone: 'paused'});
+  return undefined;
+}
 
 const part = (id: string, text: string, role: FactPart['role'] = 'context'): FactPart => Object.freeze({id, text, role});
 
 /** Ruling 4: a stream's route is Original, Repackaged or Converted, never Direct play. */
 export function ownerRouteFact(session: AdminSession, t: Translate): FactPart | undefined {
   const actions = [session.decision?.video?.action, session.decision?.audio?.action, session.decision?.subtitles?.action];
-  if (actions.some(action => action === 'transcode' || action === 'burn')) {
+  if (ownerConverting(session)) {
     const height = session.quality?.maxHeight;
     return part('route', height ? t('next.dashboard.convert', {target: `${height}p`}) : t('next.dashboard.converted'));
   }
@@ -68,7 +93,10 @@ export function ownerStreamView(session: AdminSession, env: OwnerText): OwnerStr
     rate ? part('rate', t('web.nowPlaying.rate', {rate}), 'supplement') : undefined,
   ].filter((value): value is FactPart => value !== undefined);
   const state = session.state === 'paused' ? part('state', t('next.kit.session.paused'), 'status') : session.state === 'playing' ? part('state', t('next.kit.session.playing'), 'status') : session.state === 'buffering' || session.state === 'preparing' ? part('state', t('next.kit.session.starting'), 'status') : undefined;
-  const position = ownerStreamPosition(session, t), progress = playedFraction(session);
+  const position = ownerStreamPosition(session, t), progress = playedFraction(session), note = ownerStreamNote(session, t);
+  // A compact row says only the first qualifier the frames draw after the title: the episode
+  // numbering, the year, or the artist. The card keeps the full identity below its title.
+  const qualifier = identity.secondary[0];
   return Object.freeze({
     id: session.id,
     title: identity.title,
@@ -80,6 +108,8 @@ export function ownerStreamView(session: AdminSession, env: OwnerText): OwnerStr
     ...(progress === undefined ? {} : {progress}),
     paused: session.state === 'paused',
     menuLabel: t('next.dashboard.sessionMenu', {user: session.user || session.profile}),
+    ...(note ? {note} : {}),
+    ...(qualifier ? {qualifier} : {}),
   });
 }
 
@@ -228,9 +258,42 @@ export function ownerUpdatedLabel(observedAt: number | undefined, now: number, t
 
 /** Totals from the loaded page, used only when the server did not publish its own. */
 export function ownerDerivedTotals(sessions: readonly AdminSession[]): OwnerSessionTotals {
-  const converting = sessions.filter(session => [session.decision?.video?.action, session.decision?.audio?.action, session.decision?.subtitles?.action].some(action => action === 'transcode' || action === 'burn')).length;
+  const converting = sessions.filter(session => ownerConverting(session)).length;
   return {streams: sessions.length, paused: sessions.filter(session => session.state === 'paused').length, converting, bandwidthKbps: sessions.reduce((sum, session) => sum + (session.bandwidthKbps || session.bitrateKbps || 0), 0), people: sessions.length, atHome: sessions.filter(session => session.location === 'local').length, away: sessions.filter(session => session.location === 'remote').length};
 }
 
 export const ownerPeopleLine = (totals: OwnerSessionTotals | undefined, t: Translate): string | undefined =>
   totals ? `${t('next.dashboard.peopleCount', {count: totals.people})}${totals.atHome + totals.away > 0 ? ` · ${t('next.dashboard.locations', {home: totals.atHome, away: totals.away})}` : ''}` : undefined;
+
+/**
+ * Past ten streams the cards give way to compact rows (frames 4d–4f). The count is the
+ * server's own totals; a controller that published no totals keeps the cards, because a
+ * page of ten cannot prove there are more.
+ */
+export const ownerUsesCompactRows = (totals: OwnerSessionTotals | undefined): boolean => (totals?.streams ?? 0) > OWNER_STREAM_CARD_LIMIT;
+
+/** One drawn total: Streams with its paused count, Converting with its share, Bandwidth sent. */
+export type OwnerStreamTotal = Readonly<{id: 'streams' | 'converting' | 'bandwidth'; label: string; value: string; unit?: string; note?: string; tone?: 'converting'}>;
+
+/** The three totals count every stream, paused ones included; only the server's own totals are drawn. */
+export function ownerStreamTotals(totals: OwnerSessionTotals, t: Translate): readonly OwnerStreamTotal[] {
+  const share = totals.streams > 0 ? Math.round(totals.converting / totals.streams * 100) : undefined;
+  const rate = totals.bandwidthKbps > 0 ? rateMbps({bandwidthKbps: totals.bandwidthKbps}) : undefined;
+  const tiles: OwnerStreamTotal[] = [
+    {id: 'streams', label: t('next.dashboard.streamsLabel'), value: String(totals.streams), note: t('next.dashboard.streamsPaused', {count: totals.paused})},
+    {id: 'converting', label: t('next.dashboard.converting'), value: String(totals.converting), ...(share === undefined ? {} : {note: t('next.dashboard.convertingShare', {percent: share})}), tone: 'converting'},
+    {id: 'bandwidth', label: t('next.dashboard.bandwidth'), value: rate ?? '0', unit: t('next.dashboard.unit.megabits'), note: t('next.dashboard.sentToViewers')},
+  ];
+  return Object.freeze(tiles);
+}
+
+/** The rows in view plus overscan, at the compact row's fixed pitch. */
+export const ownerCompactWindow = (scrollTop: number, viewport: number, count: number): {first: number; last: number} =>
+  windowRange(scrollTop, viewport, count, OWNER_COMPACT_ROW_PX);
+
+/** Server order is canonical, so pages are appended in the order they arrive and never re-ranked here. */
+export function appendOwnerSessions(current: readonly AdminSession[], page: readonly AdminSession[]): readonly AdminSession[] {
+  const seen = new Set(current.map(session => session.id));
+  const added = page.filter(session => !seen.has(session.id));
+  return added.length ? Object.freeze([...current, ...added]) : current;
+}
