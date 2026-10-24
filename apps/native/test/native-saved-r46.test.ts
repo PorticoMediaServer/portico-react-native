@@ -124,7 +124,7 @@ test('Saved downloads keep the drawn 214 wide on-art card and its progress', asy
   const card = await downloadCard(ready, [ready, {...ready, id: 'ep2'}]);
   const frame = elements(card).find(node => node.type === 'CardFrame')!;
   assert.equal(frame.props.width, 214, 'the frame overrides the shelf card to 214');
-  const artElement = frame.props.children({focused: false, hovered: false, holding: false});
+  const artElement = frame.props.children[0]({focused: false, hovered: false, holding: false});
   const art = elements(artElement);
   assert.equal(artElement.props.height, 214 * 9 / 16);
   assert.equal(artElement.props.radius, theme.spec.card.radius.phone, 'the shared card radius, not a local 8');
@@ -137,7 +137,7 @@ test('Saved downloads keep the drawn 214 wide on-art card and its progress', asy
 
   const downloading = await downloadCard({...ready, state: 'downloading', bytes: 0, bytesDone: 2.1e9});
   const downloadFrame = elements(downloading).find(node => node.type === 'CardFrame')!;
-  const downloadingArt = elements(downloadFrame.props.children({focused: false, hovered: false, holding: false}));
+  const downloadingArt = elements(downloadFrame.props.children[0]({focused: false, hovered: false, holding: false}));
   const progress = downloadingArt.find(node => node.type === 'Progress')!;
   assert.deepEqual({value: progress.props.value, height: progress.props.height, marginTop: flat(progress.props.style).marginTop}, {value: .64, height: 4, marginTop: 10});
   assert.ok(downloadingArt.some(node => node.type === 'Text' && text(node) === 'next.saved.phone.downloading'), 'the drawn Downloading, N% line');
