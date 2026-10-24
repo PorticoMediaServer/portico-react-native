@@ -2,6 +2,7 @@
 #import "PorticoServerTrust.h"
 #import "PorticoSubtitleSelection.h"
 #import "PorticoSubtitlePayload.h"
+#import "PorticoSubtitleClock.h"
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 
 /* One bounded scoped fetch. No ambient credentials, redirect, cookies or URL cache. */
@@ -38,7 +39,6 @@
 - (void)dealloc {[self cancel];}
 @end
 
-static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)n)!=CFBooleanGetTypeID()&&isfinite([n doubleValue])&&[n doubleValue]>=lo&&[n doubleValue]<=hi;}
 @implementation PorticoSubtitleOverlay {
  dispatch_queue_t _queue;PSRenderer *_renderer;NSDictionary *_command;NSString *_source;NSUInteger _epoch;
  NSMutableArray<PSFetch *> *_fetches;BOOL _active,_busy,_loading;NSTimeInterval _authorized,_lastFetch;
@@ -77,6 +77,7 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
  NSDictionary *render=[command[@"render"] isKindOfClass:NSDictionary.class]?command[@"render"]:nil;
  NSString *kind=render[@"kind"];
  if(![@[@"ass",@"pgs",@"vobsub",@"dvb"] containsObject:kind]){if(_active)[self invalidate];return;}
+ if(!PorticoSubtitleOverlayOffsetUS(command)){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
  NSURL *url=[self scoped:render[@"url"] source:source resource:nil];
  if(!url||([kind isEqual:@"vobsub"]&&!PorticoVobSubCompanionURL(render,source,url))){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
  if([_command isEqual:command]&&[_source isEqual:source])return;
@@ -129,10 +130,9 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
  if(_busy)return;int width=(int)llround(pixels.width),height=(int)llround(pixels.height);
  if(width<1||height<1)return;
  double scale=MIN(1,MIN(4096.0/width,2304.0/height));width=(int)llround(width*scale);height=(int)llround(height*scale);
- id raw=_command[@"offsetUs"];double offset=[raw isKindOfClass:NSString.class]?[raw doubleValue]:0;
- double intrinsic=PSNumber(_command[@"render"][@"offsetMs"],-86400000,86400000)?[_command[@"render"][@"offsetMs"] doubleValue]*1000:0;
- BOOL hasFileOffset=PSNumber(_command[@"render"][@"offsetMs"],-86400000,86400000);
- int64_t us=(int64_t)llround(seconds*1000000-(hasFileOffset?intrinsic:offset));
+ NSNumber *offset=PorticoSubtitleOverlayOffsetUS(_command);
+ if(!offset){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
+ int64_t us=(int64_t)llround(seconds*1000000-offset.doubleValue);
  if(us<0){if(self.onImage)self.onImage(nil);return;}
  NSUInteger epoch=_epoch;_busy=YES;
  __weak PorticoSubtitleOverlay *weakSelf=self;
