@@ -21,11 +21,22 @@ private actor ReadingByteBody {
 
 /** The task delegate forwards the existing certificate policy and never redirects.
  * Callback state belongs to the queue request and is protected by that request's lock. */
-private final class ReadingBytePolicy: NSObject, URLSessionTaskDelegate {
+private final class ReadingBytePolicy: NSObject, URLSessionDataDelegate {
     let attached: (URLSessionTask) -> Void
+    let headers: (HTTPURLResponse) -> Void
     let failure: (Error) -> Void
-    init(attached: @escaping (URLSessionTask) -> Void, failure: @escaping (Error) -> Void) {
-        self.attached = attached; self.failure = failure
+    init(attached: @escaping (URLSessionTask) -> Void, headers: @escaping (HTTPURLResponse) -> Void, failure: @escaping (Error) -> Void) {
+        self.attached = attached; self.headers = headers; self.failure = failure
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        attached(dataTask)
+        guard let response = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            failure(NSError(domain: "PorticoReadingStream", code: 2, userInfo: [NSLocalizedDescriptionKey: "network_stream_response_invalid"]))
+            return
+        }
+        headers(response); completionHandler(.allow)
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -63,7 +74,7 @@ final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
               headers: @escaping (HTTPURLResponse) -> Void, failure: @escaping (Error) -> Void) {
         locked {
             guard !closed, opening == nil else { return }
-            let policy = ReadingBytePolicy(attached: attached, failure: failure)
+            let policy = ReadingBytePolicy(attached: attached, headers: headers, failure: failure)
             self.policy = policy
             opening = Task { [weak self] in
                 guard let self else { return }
@@ -87,17 +98,24 @@ final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
     }
 
     func read(completion: @escaping (Data?, Bool, Error?) -> Void) {
-        let active = locked { () -> ReadingByteBody? in
-            guard !closed, !readPending, let body else { return nil }
-            readPending = true; return body
+        let opener = locked { () -> Task<Void, Never>? in
+            guard !closed, !readPending, let opening else { return nil }
+            readPending = true; return opening
         }
-        guard let active else {
+        guard let opener else {
             completion(nil, false, NSError(domain: "PorticoReadingStream", code: 3, userInfo: [NSLocalizedDescriptionKey: "network_stream_retired"]))
             return
         }
         let pending = Task { [weak self] in
             guard let self else { return }
             do {
+                await opener.value
+                guard let active = self.locked({ self.closed ? nil : self.body }) else {
+                    if !self.locked({ self.closed }) {
+                        throw NSError(domain: "PorticoReadingStream", code: 3, userInfo: [NSLocalizedDescriptionKey: "network_stream_retired"])
+                    }
+                    return
+                }
                 let (data, eof) = try await active.read()
                 let current = self.locked { self.readPending = false; return !self.closed }
                 if current { completion(data, eof, nil) }
