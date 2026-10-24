@@ -20,6 +20,10 @@ import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} 
 import type {NativeOfflinePlaybackDevice} from '../src-next/platform/playback/offline-playback.ts';
 import type {OfflineEntry, OfflineSnapshot} from '../platform/offline-downloads.ts';
 import type {LocalMedia, LocalProgress} from '../platform/local-playback.ts';
+import {readNativePlaybackInfo} from '../src-next/screens/watch/playback-info.ts';
+import {committedInfo, infoWords} from './helpers/playback-info.ts';
+import type {ObservedPlayback} from '../../../packages/client-core/src/playback-v1/observed-playback.ts';
+import type {PlaybackInfoWords} from '../../../packages/client-core/src/playback-info-projection.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
 const versionLifetime = (isCurrent: () => boolean = () => true) => ({signal: new AbortController().signal, isCurrent});
@@ -332,6 +336,63 @@ test('a background server queue refresh cannot adopt over the accepted local sou
     assert.equal(d.runtime.getSnapshot().playback.session?.id, original.playback.session?.id);
     assert.equal(d.runtime.getSnapshot().fence?.kind, 'local');
   } finally {offSurface(); d.runtime.dispose();}
+});
+
+test('native Info uses only fresh canonical report/observation facts and never adopts or caches them', async () => {
+  const d = fixture(); await d.start('movie');
+  try {
+    const held = d.runtime.getSnapshot(), fence = held.fence!, names = infoWords(), path = encodedRoutePath('get_playback_session', {id: fence.sessionId});
+    const readsBefore = d.requests.filter(request => request.method === 'GET' && request.path === path).length;
+    let observed: ObservedPlayback | undefined, report = true;
+    d.respond(async request => {
+      if (request.method !== 'GET' || request.path !== path) return;
+      const response = await d.server.handle(request);
+      return {...response, body: {...response.body as object, playbackInfo: report ? committedInfo : undefined, observedPlayback: observed}};
+    });
+    const lifetime = {signal: new AbortController().signal, isCurrent: () => true};
+    const unknownOutput = await readNativePlaybackInfo(d.runtime, fence, names.words, lifetime);
+    assert.equal(unknownOutput?.revision, held.session?.revision); assert.deepEqual(unknownOutput?.fence, fence);
+    const sound = unknownOutput?.comparison.sections.find(section => section.kind === 'sound');
+    assert.equal(sound?.rows.find(row => row.field === 'sampleRate')?.source, '96');
+    assert.equal(sound?.rows.find(row => row.field === 'sampleRate')?.delivered, '48');
+    assert.equal(sound?.rows.some(row => row.field === 'output'), false);
+    assert.equal(sound?.rows.some(row => row.field === 'channels' && /7\.1|stereo/i.test(row.source ?? '')), false);
+    assert.deepEqual(names.outputs, []); assert.deepEqual(names.measured, [undefined]);
+    assert.equal(unknownOutput?.comparison.networkAndBitrate, undefined, 'estimated bitrate is not measured delivery');
+    observed = {audio: {handling: 'pcm', codec: 'pcm', channels: 2, sampleRate: 44100}, deliveredBitrateKbps: 1234};
+    const actualOutput = await readNativePlaybackInfo(d.runtime, fence, names.words, lifetime);
+    const actualSound = actualOutput?.comparison.sections.find(section => section.kind === 'sound');
+    assert.deepEqual(names.outputs.at(-1), observed.audio);
+    assert.equal(actualSound?.rows.find(row => row.field === 'output')?.delivered, 'pcm:44100');
+    assert.equal(actualSound?.rows.find(row => row.field === 'sampleRate')?.delivered, '48', 'encoding facts remain committed media facts');
+    assert.equal(actualOutput?.comparison.networkAndBitrate, '1234');
+    report = false; observed = {};
+    assert.equal(await readNativePlaybackInfo(d.runtime, fence, names.words, lifetime), undefined, 'missing report never falls back to prior data/options');
+    assert.equal(d.runtime.getSnapshot().session, held.session, 'Info never adopts the GET response');
+    assert.ok(Object.isFrozen(unknownOutput)); assert.ok(Object.isFrozen(unknownOutput?.comparison));
+    assert.equal(d.requests.filter(request => request.method === 'GET' && request.path === path).length - readsBefore, 3, 'every read is fresh');
+  } finally {d.runtime.dispose();}
+});
+
+test('native Info refuses missing read ports and discards results/errors when its actual owner retires during projection', async () => {
+  const d = fixture(); await d.start('movie');
+  try {
+    const fence = d.runtime.getSnapshot().fence!, names = infoWords(), path = encodedRoutePath('get_playback_session', {id: fence.sessionId});
+    let current = true, fail = false;
+    const lifetime = {signal: new AbortController().signal, isCurrent: () => current};
+    const before = d.requests.length;
+    assert.equal(await readNativePlaybackInfo({getSnapshot: d.runtime.getSnapshot}, fence, names.words, lifetime), undefined);
+    assert.equal(d.requests.length, before);
+    d.respond(async request => {
+      if (request.method !== 'GET' || request.path !== path) return;
+      const response = await d.server.handle(request);
+      return {...response, body: {...response.body as object, playbackInfo: committedInfo}};
+    });
+    const words: PlaybackInfoWords = {...names.words, reason: () => {current = false; if (fail) throw new Error('retired_formatter'); return undefined;}};
+    assert.equal(await readNativePlaybackInfo(d.runtime, fence, words, lifetime), undefined);
+    current = true; fail = true;
+    assert.equal(await readNativePlaybackInfo(d.runtime, fence, words, lifetime), undefined);
+  } finally {d.runtime.dispose();}
 });
 
 test('a fresh fenced VOD session read uses the genuine endpoint without adopting or replanning', async () => {
