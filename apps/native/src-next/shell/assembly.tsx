@@ -17,6 +17,7 @@ import {HomeSelectionBars} from './HomeSelectionBars';
 import {HomeSelectionOverlays} from './HomeSelectionOverlays';
 import {nativeAccountMenu, nativeMenuRouteAvailable} from './account';
 import {libraryScanReadiness} from './library-scan';
+import {NativeDownloadSheet} from '../screens/downloads/DownloadSheet';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
@@ -322,6 +323,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderDestination: destination => render({kind: 'shell', destination}),
     renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
+    renderDownloads: () => <NativeDownloadSheet context={context}/>,
     libraryMenu: library => {
       const common = {read: isReadingLibraryKind(library.kind), onSaveView: () => open({kind: 'library-save-view', libraryId: library.id}),
         onMarkAll: () => open({kind: 'library-mark-all', libraryId: library.id}), onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};
