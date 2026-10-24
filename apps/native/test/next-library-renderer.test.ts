@@ -6,14 +6,23 @@ import {NativeLibraryDestination} from '../src-next/screens/library/model.ts';
 import {NativeLibraryDirectory} from '../src-next/screens/library/directory.ts';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime.ts';
 import {hiddenReadingLibraryOnTV} from '../src-next/screens/read/platform.ts';
+import {nativeDestinationActivation} from '../src-next/shell/routes';
+import * as selection from '../../../packages/client-core/src/selection-model';
 
 test('the Library descriptor requires the actual authorized ID and never supplies a fake selection port', async () => {
   const platform = {isTV: false};
-  const {createNativeLibraryRenderer} = await screenModule(new URL('../src-next/screens/library/index.tsx', import.meta.url), {
+  const {createNativeLibraryPlaySelection} = await screenModule(new URL('../src-next/screens/library/play-selection.ts', import.meta.url), {
+    react: {default: React}, '../../../../../packages/client-core/src/selection-model': selection,
+    '../../shell/routes': {nativeDestinationActivation}, '../destinations/lifetime': {nativeDestinationLifetime},
+    '../native-screen-services': {nativeScreenServices: () => {throw new Error('a renderer must not construct an uninjected selection binding');}},
+  });
+  const {createNativeLibraryRenderer, createNativeLibraryPlaySelection: exportedPlay} = await screenModule(new URL('../src-next/screens/library/index.tsx', import.meta.url), {
     react: {default: React}, 'react-native': {Platform: platform}, './LibraryScreen': {LibraryScreen: 'LibraryScreen'}, './model': {NativeLibraryDestination}, './directory': {NativeLibraryDirectory},
     '../read/platform': {hiddenReadingLibraryOnTV},
     '../destinations/lifetime': {nativeDestinationLifetime},
+    './play-selection': {createNativeLibraryPlaySelection},
   });
+  assert.equal(exportedPlay, createNativeLibraryPlaySelection, 'the barrel exposes the actual headless producer');
   const viewer = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', role: 'owner'};
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'session-epoch', viewerFence: 'home-only-fence'};
   let libraries = [{id: 'real-id', name: 'Movies', kind: 'movie'}], current = true;

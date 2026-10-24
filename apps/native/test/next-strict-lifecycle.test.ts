@@ -1,6 +1,6 @@
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
-import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
+import {tvFocusIds, tvHomeRegionMap, sameDestination} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import test, {type TestContext} from 'node:test';
@@ -255,7 +255,7 @@ async function shellSession(state: ReturnType<typeof lifecycle>, runtime: Native
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}})}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
-    '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': {tvFocusIds},
+    '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': {tvFocusIds, sameDestination},
     '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'}, '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {},
     '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'},
     './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './TVRail': {}, './TVProfileMenu': {}, './NativePlaybackLayer': {}, './DesktopHeader': {},
