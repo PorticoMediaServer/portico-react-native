@@ -5,6 +5,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {ColourBackdrop} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
+import {useNativeObservation} from '../../kit/dev-observation';
 import type {HostRegistration} from '../../dev/layout-dump/index';
 
 const registerNativeHost: typeof import('../../dev/layout-dump/index').registerNativeHost | undefined =
@@ -15,6 +16,7 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
   busy: boolean; error?: React.ReactNode; onPortico: () => void; onLocal: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
+  const welcomeObservation = useNativeObservation<View>({kind: 'view', semanticId: 'accounts-welcome'});
   const title = t('web.signin.welcomeHome'), committedTitle = useRef(title);
   useLayoutEffect(() => {committedTitle.current = title;}, [title]);
   const titleStyle = useMemo(() => [nativeType({size: 42, lineHeight: 43.68, weight: 800, tracking: -.04}, theme.textScale),
@@ -40,7 +42,7 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
     };
   }, [title, titleStyle]);
   useLayoutEffect(() => () => {titleMeasurement?.unregister();}, [titleMeasurement]);
-  return <View testID="accounts-welcome" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View ref={welcomeObservation.ref} testID="accounts-welcome" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
     <ScrollView style={{flex: 1}} contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22, paddingTop: Math.max(70, insets.top)}}>
       <Image source={require('../../../assets/wordmark.png')} accessibilityLabel={t('accounts.brand')} resizeMode="contain"
