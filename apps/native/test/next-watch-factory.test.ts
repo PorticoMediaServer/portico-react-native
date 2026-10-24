@@ -62,7 +62,7 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   };
 }
 
-test('the registered Watch factory aborts its Info read on actual caller, route, authority or factory retirement', async () => {
+test('the Watch factory aborts its Info read on caller, route, authority or factory retirement', async () => {
   for (const retire of ['caller', 'route', 'authority', 'factory'] as const) {
     const result = deferred<undefined>(); let signal: AbortSignal | undefined;
     const d = fixture(true, async (captured, lifetime) => {assert.deepEqual(captured, fence); signal = lifetime.signal; return result.promise;});
