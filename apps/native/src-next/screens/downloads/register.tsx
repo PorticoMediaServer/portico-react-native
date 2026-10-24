@@ -30,7 +30,7 @@ function DownloadsRoute(props: React.ComponentProps<typeof DownloadsScreen>) {
 export const createNativeDownloadsModule: NativeRouteFactory = context => {
   const bound = createNativeDownloadsDevice(context);
   return {
-    render: (route, runtime) => route.kind === 'downloads' ? <DownloadsRoute device={bound.device} runtime={runtime} copy={nativeDownloadsCopy}
+    render: (route, runtime) => route.kind === 'downloads' ? <DownloadsRoute device={bound.device} service={bound.service} runtime={runtime} copy={nativeDownloadsCopy}
       back={() => {if (context.current()) context.navigation.back(context.authority());}}
       openTitle={entry => {
         if (!context.current()) return;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
-import {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from '../src-next/screens/downloads/presentation';
+import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from '../src-next/screens/downloads/presentation';
 import type {OfflineEntry} from '../src-next/platform/offline-downloads';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme';
@@ -116,4 +116,16 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
   holdCard(card.props, false); assert.equal(calls[0], card.props.menuAnchorRef); assert.equal((calls[0] as any).current, nativeHost);
   card.props.onNavigate(); assert.equal(calls[1], 'local-play');
   assert.equal(card.props.onLongPressAction, undefined); assert.equal(card.props.selection, undefined, 'Downloads has no invented selection action');
+});
+
+test('a whole-container request reports capturing, ready-of-total and failed members in drawn words', () => {
+  assert.deepEqual(downloadRequestLines({totalKnown: false, ready: 0, total: 0, failed: 0}), [{key: 'downloads.requestPreparing'}]);
+  assert.deepEqual(downloadRequestLines({totalKnown: true, ready: 3, total: 9, failed: 0}),
+    [{key: 'downloads.requestProgress', values: {ready: 3, total: 9}}]);
+  assert.deepEqual(downloadRequestLines({totalKnown: true, ready: 9, total: 9, failed: 2}), [
+    {key: 'downloads.requestProgress', values: {ready: 9, total: 9}},
+    {key: 'downloads.requestFailed', values: {failed: 2}},
+  ]);
+  assert.equal(defaultI18n.t('downloads.requestProgress', {ready: 3, total: 9}), '3 of 9 ready');
+  assert.equal(defaultI18n.t('downloads.requestPreparing'), 'Finding everything to download…');
 });
