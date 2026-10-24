@@ -22,6 +22,12 @@ run() {
     return "$status"
   fi
 }
+sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+run reading-ios-types xcrun --sdk iphonesimulator swiftc -swift-version 5 \
+  -target "$(uname -m)-apple-ios15.1-simulator" -sdk "$sdk" -typecheck \
+  -module-cache-path "$CLANG_MODULE_CACHE_PATH" \
+  -import-objc-header "$root/Native/PorticoReadingStreamDriver.h" "$root/Native/PorticoReadingByteStream.swift"
+run reading-project plutil -lint "$root/ios/Portico.xcodeproj/project.pbxproj"
 for name in apple-reading-stream-tests apple-reading-stream-prefetch-tests; do
   run "$name-objc" xcrun clang -fobjc-arc -fblocks -c "$root/test/$name.m" -o "$work/$name.o"
   run "$name-swift" xcrun swiftc -swift-version 5 -target "$target" -parse-as-library \

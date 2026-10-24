@@ -2,6 +2,7 @@
 #import <sys/socket.h>
 #import <netinet/in.h>
 #import <unistd.h>
+#import <errno.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wincomplete-implementation"
@@ -137,7 +138,7 @@ static void actualCancel(NSUInteger mode) {
   if(mode!=1){uint8_t initial[49152]={0};sendAll(peer,initial,sizeof(initial));}
   dispatch_semaphore_signal(accepted);
   dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC));
-  char byte;disconnected=recv(peer,&byte,1,0)==0;shutdown(peer,SHUT_RDWR);close(peer);
+  char byte;ssize_t end=recv(peer,&byte,1,0);disconnected=end==0||(end<0&&errno==ECONNRESET);shutdown(peer,SHUT_RDWR);close(peer);
  });
  NSObject *realOwner=[NSObject new];NSMutableDictionary *state=[NSMutableDictionary new];
  NSString *url=[NSString stringWithFormat:@"http://127.0.0.1:%u/v1/reading/sessions/cancel/source",ntohs(address.sin_port)];
@@ -175,7 +176,7 @@ static void actualResponse(NSInteger status,NSString *text,BOOL delayed,BOOL sil
   char header[256];NSUInteger declared=silent?33554432:(status==304?4096:body.length);
   snprintf(header,sizeof(header),"HTTP/1.1 %ld Result\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n",(long)status,(unsigned long)declared);sendAll(peer,header,strlen(header));dispatch_semaphore_signal(headersSent);
   if(delayed||silent)dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,(silent?21:6)*NSEC_PER_SEC));
-  if(silent){char byte;clientClosed=recv(peer,&byte,1,0)==0;}else if(body.length)sendAll(peer,body.bytes,body.length);
+  if(silent){char byte;ssize_t end=recv(peer,&byte,1,0);clientClosed=end==0||(end<0&&errno==ECONNRESET);}else if(body.length)sendAll(peer,body.bytes,body.length);
   shutdown(peer,SHUT_RDWR);close(peer);
  });
  NSObject *realOwner=[NSObject new];NSMutableDictionary *state=[NSMutableDictionary new];
