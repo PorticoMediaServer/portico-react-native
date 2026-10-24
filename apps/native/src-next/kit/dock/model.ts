@@ -92,4 +92,12 @@ export function releaseAside(position: number, velocity: number, width: number):
 export function validRect(rect: {x: number; y: number; width: number; height: number}) {
   return Object.values(rect).every(Number.isFinite) && rect.width > 0 && rect.height > 0;
 }
+/** foldable3f: the medium dock floats at the foot of the content beside the 84 pt
+ * rail, no wider than 540 pt. Compact keeps the phone bar above the tab bar. */
+export type DockBarFrame = Readonly<{left: number; right: number; bottom: number; maxWidth?: number}>;
+export function dockBarFrame(platform: 'phone' | 'tablet' | 'web' | 'tv', bottomInset: number | undefined, safeBottom: number): DockBarFrame {
+  if (platform === 'tablet') return {left: 100, right: 16, bottom: 18, maxWidth: 540};
+  return {left: 8, right: 8, bottom: bottomInset ?? Math.max(84, safeBottom) + 8};
+}
+
 export const GestureRelease = Object.freeze({dock: releaseDock, aside: releaseAside});

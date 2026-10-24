@@ -7,14 +7,14 @@ import {useTheme} from '../theme';
 import {MediaBar} from './MediaBar';
 import {NowPlayingCard} from './NowPlayingCard';
 import {DockNotice} from './DockNotice';
-import {commandAllowed, commandIsCurrent, currentOccupant} from './model';
+import {commandAllowed, commandIsCurrent, currentOccupant, dockBarFrame} from './model';
 import {alpha, dockStyles} from './visual';
 import {useDockPresence} from './useDockPresence';
 import type {DockCommand, DockHostProps, DockRect} from './types';
 
 /** The accepted core picks one occupant. This host neither owns an engine nor fabricates effects. */
 export function DockHost({dock, snapshot, presentation, onAction, bottomInset, visible = true, tvExpanded, onTVExpandedChange, returnFocusRef, onVideoSlot, morph, notice, onNoticeDismiss, style, testID}: DockHostProps) {
-  const theme = useTheme(), safe = useSafeAreaInsets();
+  const theme = useTheme(), safe = useSafeAreaInsets(), frame = dockBarFrame(theme.platform, bottomInset, safe.bottom);
   const [expanded, setExpanded] = useState(false), [menu, setMenu] = useState(false);
   const occupant = useMemo(() => currentOccupant(dock, snapshot, presentation), [dock, snapshot, presentation]);
   const wanted = visible && (!theme.isTV || occupant?.mode === 'music' || occupant?.mode === 'audiobook') ? occupant : null;
@@ -43,7 +43,7 @@ export function DockHost({dock, snapshot, presentation, onAction, bottomInset, v
     <Animated.View pointerEvents={wanted ? 'box-none' : 'none'} style={[dockStyles.fill, presence.style]}>{theme.isTV ? <NowPlayingCard testID={testID} occupant={shown} onAction={action} visible={!!wanted && visible} expanded={!!wanted && tvOpen} onExpandedChange={setTVExpanded} returnFocusRef={returnFocusRef}
       style={{position: 'absolute', top: 44, right: theme.layout.gutter.tvRight}}/> :
       <MediaBar testID={testID} occupant={shown} onAction={action} visible={!!wanted && visible} onMenuOpenChange={setMenu} onVideoSlot={reportVideoSlot} slotAdmission={presence.slotAdmission} isCurrent={interactionCurrent} morph={morph}
-        style={{position: 'absolute', left: 8, right: 8, bottom: bottomInset ?? Math.max(84, safe.bottom) + 8}}/>}</Animated.View>
-    {!theme.isTV && notice && onNoticeDismiss && <DockNotice notice={notice} onAction={action} onDismiss={onNoticeDismiss} bottomOffset={(bottomInset ?? 92) + 62 + 10}/>}
+        style={{position: 'absolute', left: frame.left, right: frame.right, bottom: frame.bottom, ...(frame.maxWidth ? {maxWidth: frame.maxWidth} : {})}}/>}</Animated.View>
+    {!theme.isTV && notice && onNoticeDismiss && <DockNotice notice={notice} onAction={action} onDismiss={onNoticeDismiss} bottomOffset={frame.bottom + (theme.platform === 'tablet' ? 66 : 62) + 10}/>}
   </View>;
 }

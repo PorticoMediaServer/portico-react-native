@@ -26,6 +26,7 @@ export const dockStyles = StyleSheet.create({
   fill: {position: 'absolute', inset: 0},
   center: {alignItems: 'center', justifyContent: 'center'},
   phone: {height: 62, borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingLeft: 9, paddingRight: 6, gap: 12, overflow: 'hidden'},
+  medium: {height: 66},
   video: {paddingLeft: 7, gap: 11},
   art: {width: 44, height: 44, borderRadius: 7, overflow: 'hidden'},
   videoArt: {width: 80, height: 45, borderRadius: 7, overflow: 'hidden'},

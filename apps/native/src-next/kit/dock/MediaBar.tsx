@@ -184,7 +184,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   ];
   return <>
     <GestureDetector gesture={gestures}><Animated.View ref={bar} testID={testID} onLayout={onLayout} style={[{shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: menu ? 24 : 14}, shadowOpacity: .85, shadowRadius: 15}, animated, style]}>
-      <View style={[s.phone, wide && s.video, {backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
+      <View style={[s.phone, theme.platform === 'tablet' && s.medium, wide && s.video, {backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
         <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>
         <Focusable ref={opener} focusTreatment="none" style={[s.body, {gap: wide ? 11 : 12}]} accessible={!connecting && !terminal} accessibilityRole={connecting || terminal ? undefined : 'button'} accessibilityLabel={connecting || terminal ? undefined : label}
           onPress={() => act(remote ? 'open-remote' : 'expand')} onLongPressAction={!remote ? heldMenu : undefined} delayLongPress={500}
