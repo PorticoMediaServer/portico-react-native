@@ -23,6 +23,7 @@ import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeSettingsController} from './settings-controller';
 import type {NativeDevicePreferences} from './device-preference-consumer';
+import {setNativeScreenChromeHidden} from '../../shell/chrome';
 import {Screen, useScreenBack, useScreenEntry} from './Screen';
 import {nativeSettingsActionTarget} from './settings-actions';
 import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
@@ -78,9 +79,14 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     if (page && page.id !== accountPages[0]?.id) {setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
     return false;
   }, [registry, column, rows, page, accountPages, searching]);
+  const compact = !theme.isTV && theme.width < 600;
+  // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
+  useEffect(() => {
+    setNativeScreenChromeHidden('settings-pushed', compact && pushed);
+    return () => setNativeScreenChromeHidden('settings-pushed', false);
+  }, [compact, pushed]);
   useScreenBack(runtime, back, theme.isTV);
   if (!page) throw new Error('native_settings_structure_empty');
-  const compact = !theme.isTV && theme.width < 600;
   // Libraries and Live TV draw their own pages and own their scrolling; they are not
   // stacks of rows inside the generic Settings body.
   const librariesPage = !theme.isTV && page.id === 'libraries';
