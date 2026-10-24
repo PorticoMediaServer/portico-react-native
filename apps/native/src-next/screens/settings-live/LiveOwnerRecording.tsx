@@ -1,10 +1,10 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {recordingOwnerKey, recordingOwnerLabel, recordingAllowed, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice} from '../../../../../packages/client-core/src/server-admin/recording-policy';
+import {recordingAllowed, recordingGuideRoute, recordingOwnerKey, recordingOwnerLabel, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice, type RecordingSeries} from '../../../../../packages/client-core/src/server-admin/recording-policy';
 import {tunerStatus, tunerUseLine} from '../../../../../packages/client-core/src/server-admin/live-words';
 import type {RecordingStorage, StoragePolicy} from '../../../../../packages/client-core/src/dvr';
-import {Button, Focusable, Select, Switch} from '../../kit/controls';
+import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
 import {Dialog, Menu} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
@@ -13,16 +13,18 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeLiveOwnerController} from './live-owner-controller';
 import type {NativeRecordingsController} from './recordings-controller';
 import type {AdminRule, DVRDefaults, DVRDocument, TunerAllocation, TunerView} from './recording-owner-model';
+import type {LiveSource} from './live-owner-model';
+import type {KeepPolicy} from './recording-owner-model';
 
 const paddingChoices = [0, 60, 120, 300, 600, 900];
 const keepModes: readonly DVRDefaults['keepPolicy']['mode'][] = ['keep-all', 'keep-count', 'keep-days'];
 
 /** Recording › tuners, who may record, standing rules, defaults and space. */
-export function NativeRecordingOwner({controller, recordings, runtime}: {controller: NativeLiveOwnerController; recordings: NativeRecordingsController; runtime: NativeShellRuntime}) {
+export function NativeRecordingOwner({controller, recordings, runtime, sources}: {controller: NativeLiveOwnerController; recordings: NativeRecordingsController; runtime: NativeShellRuntime; sources: readonly LiveSource[]}) {
   const theme = useTheme(), t = runtime.text.t;
   const [tuners, setTuners] = useState<TunerView>(), [policy, setPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>();
   const [rules, setRules] = useState<readonly AdminRule[]>(), [settings, setSettings] = useState<DVRDocument>(), [storage, setStorage] = useState<RecordingStorage>();
-  const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [ruleRemove, setRuleRemove] = useState<AdminRule>();
+  const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [ruleRemove, setRuleRemove] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
   const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null);
   const reload = async () => {
     setError(undefined);
@@ -49,7 +51,7 @@ export function NativeRecordingOwner({controller, recordings, runtime}: {control
       {!tuners && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.librarySettings.loading')}</Text>}
     </Section>
     {policy && <Permissions policy={policy} busy={busy} runtime={runtime} onWrite={(owner, enabled, inheritProfiles, revision) => write(`permission:${recordingOwnerKey(owner)}`, () => controller.setPermission(owner, enabled, inheritProfiles, revision))}/>}
-    <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')}>
+    <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')} action={policy && <Button testID="live-owner-new-rule" icon="i-plus" size="small" onPress={() => setNewRule(true)}>{t('web.recordingRules.newRule')}</Button>}>
       {rules?.map(rule => <Focusable key={rule.id} ref={node => {if (node) ruleOpeners.current.set(rule.id, node); else ruleOpeners.current.delete(rule.id);}} testID={`live-owner-rule-${rule.id}`} focusKind="row"
         onPress={() => {ruleMenuOpener.current = ruleOpeners.current.get(rule.id) ?? null; setRuleMenu(rule);}} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
         <View style={{flex: 1, gap: 4}}>
@@ -67,6 +69,8 @@ export function NativeRecordingOwner({controller, recordings, runtime}: {control
       {id: 'separator', separator: true as const},
       {id: 'remove', icon: 'i-trash' as const, label: t('web.recordingRules.remove'), destructive: true, onSelect: () => setRuleRemove(ruleMenu)},
     ] : []}/>
+    {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} open={newRule} onOpenChange={setNewRule}
+      onSaved={() => {setNewRule(false); void reload();}}/>}
     <Dialog open={ruleRemove !== undefined} onOpenChange={value => {if (!value && !busy) setRuleRemove(undefined);}} title={t('web.recordingRules.removeTitle', {name: ruleRemove?.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove"
       footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} loading={busy.startsWith('rule')} onPress={() => {const rule = ruleRemove; if (!rule) return; void write(`rule:${rule.id}`, () => controller.deleteRule(rule)).then(() => {if (controller.lifetime.current()) setRuleRemove(undefined);});}}>{t('web.recordingRules.remove')}</Button><Button variant="glass" disabled={!!busy} onPress={() => setRuleRemove(undefined)}>{t('action.cancel')}</Button></View>}>
       <View/>
@@ -74,10 +78,10 @@ export function NativeRecordingOwner({controller, recordings, runtime}: {control
   </View>;
 }
 
-function Section({title, description, children}: {title: string; description?: string; children: React.ReactNode}) {
+function Section({title, description, children, action}: {title: string; description?: string; children: React.ReactNode; action?: React.ReactNode}) {
   const theme = useTheme();
   return <View style={{gap: 10}}>
-    <Text style={[shellType(13, 700), {color: theme.colors.textTertiary}]}>{title}</Text>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><Text style={[shellType(13, 700), {color: theme.colors.textTertiary, flex: 1}]}>{title}</Text>{action}</View>
     {description && <Text style={[shellType(13), {color: theme.colors.textSecondary, lineHeight: 20}]}>{description}</Text>}
     {children}
   </View>;
@@ -185,4 +189,63 @@ function Storage({storage, busy, runtime, onSave}: {storage: RecordingStorage; b
     </View>
     <Button testID="live-owner-storage-save" loading={busy === 'storage'} disabled={!dirty} onPress={() => onSave(draft)}>{t('action.save')}</Button>
   </Section>;
+}
+
+/** Frame 17a: a new rule from a series the guide really lists, for a permitted profile. */
+function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources: readonly LiveSource[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
+  const theme = useTheme(), t = runtime.text.t;
+  const allowed = policy.owners.filter(value => recordingAllowed(value.owner, policy.grants));
+  const [name, setName] = useState(''), [owner, setOwner] = useState(''), [sourceId, setSourceId] = useState(''), [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [series, setSeries] = useState<readonly RecordingSeries[]>([]), [anchor, setAnchor] = useState(''), [newOnly, setNewOnly] = useState(false);
+  const [before, setBefore] = useState<number | null>(null), [after, setAfter] = useState<number | null>(null), [priority, setPriority] = useState('0'), [keepKey, setKeepKey] = useState('default');
+  const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+  const cancel = useRef<View>(null);
+  useEffect(() => {
+    if (!open) return;
+    setName(''); setOwner(allowed[0] ? recordingOwnerKey(allowed[0].owner) : ''); setSourceId(sources[0]?.id ?? ''); setDay(new Date().toISOString().slice(0, 10));
+    setSeries([]); setAnchor(''); setNewOnly(false); setBefore(null); setAfter(null); setPriority('0'); setKeepKey('default'); setError(undefined); setBusy(false);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open || !sourceId || !recordingGuideRoute(day, sourceId)) {setSeries([]); return;}
+    let active = true;
+    setLoading(true); setError(undefined);
+    void controller.guideSeries(day, sourceId).then(value => {if (active) {setSeries(value); setAnchor('');}}, failure => {if (active) setError(failure);}).finally(() => {if (active) setLoading(false);});
+    return () => {active = false;};
+  }, [open, day, sourceId, controller]);
+  const chosen = series.find(value => value.key === anchor), chosenOwner = allowed.find(value => recordingOwnerKey(value.owner) === owner);
+  const kept: KeepPolicy | null = keepKey === 'default' ? null : keepKey === 'keep-all' ? {mode: 'keep-all', keepCount: 0, keepDays: 0, keepUntilWatched: false} : keepKey === 'keep-count' ? {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false} : {mode: 'keep-days', keepCount: 0, keepDays: 30, keepUntilWatched: false};
+  const ready = !!chosenOwner && name.trim().length > 0 && !!chosen && recordingGuideRoute(day, sourceId) !== null;
+  const save = async () => {
+    if (!ready || !chosen || !chosenOwner) return;
+    setBusy(true); setError(undefined);
+    try {
+      await controller.createRule({owner: chosenOwner.owner, anchor: chosen.anchor, kind: 'series', name: name.trim(), match: chosen.seriesId, sourceId: chosen.anchor.sourceId, enabled: chosen.recordAvailable,
+        options: {prePaddingMs: before, postPaddingMs: after, keepPolicy: kept, newEpisodesOnly: newOnly, priority: Math.round(Number(priority) || 0), folderTemplate: ''}}, policy.grants);
+      onSaved();
+    } catch (failure) {setError(failure);}
+    finally {setBusy(false);}
+  };
+  const paddingOptions = [{value: 'default', label: t('web.recordingRules.default')}, ...[0, 60, 120, 300, 600, 900].map(value => ({value: String(value), label: value ? t('recordings.minutes', {count: value / 60}) : t('recordings.none')}))];
+  return <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={t('web.recordingRules.newTitle')} initialFocusRef={cancel} testID="live-owner-new-rule-sheet"
+    footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={cancel} variant="glass" disabled={busy} onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button><Button variant="primary" loading={busy} disabled={!ready} onPress={() => void save()}>{t('action.save')}</Button></View>}>
+    <View style={{gap: 12}}>
+      {error !== undefined && <StateView testID="live-owner-new-rule-error" {...runtime.error(error, () => setError(undefined))}/>}
+      <TextField testID="live-owner-new-rule-name" label={t('web.recordingRules.ruleName')} value={name} maxLength={160} onChangeText={setName}/>
+      <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
+      {!allowed.length && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.allowFirst')}</Text>}
+      <Select testID="live-owner-new-rule-source" label={t('live.guideSource')} value={sourceId} options={sources.map(value => ({value: value.id, label: value.name}))} onValueChange={value => {setSourceId(value); setAnchor('');}}/>
+      <TextField testID="live-owner-new-rule-day" label={t('web.recordingRules.guideDate')} value={day} maxLength={10} autoCapitalize="none" onChangeText={value => {setDay(value); setAnchor('');}}/>
+      {!recordingGuideRoute(day, sourceId) && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.validDate')}</Text>}
+      {loading && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.recordingRules.readingGuide')}</Text>}
+      <Select testID="live-owner-new-rule-series" label={t('web.recordingRules.seriesFromGuide')} value={anchor} options={[{value: '', label: t('web.recordingRules.chooseProgram')}, ...series.map(value => ({value: value.key, label: t('web.recordingRules.seriesOption', {title: value.title, channel: value.channelName, time: defaultI18n.time(value.startsAt), available: value.recordAvailable ? 'yes' : 'no'})}))]}
+        onValueChange={value => {const picked = series.find(item => item.key === value); setAnchor(value); if (picked) {setName(current => current || picked.title); setNewOnly(false);}}}/>
+      {!loading && !series.length && recordingGuideRoute(day, sourceId) && error === undefined && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.recordingRules.noSeries')}</Text>}
+      {chosen && !chosen.recordAvailable && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.captureUnavailable')}</Text>}
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{t('guide.newOnly')}</Text><Switch testID="live-owner-new-rule-new-only" accessibilityLabel={t('guide.newOnly')} checked={newOnly} onCheckedChange={setNewOnly}/></View>
+      <Select testID="live-owner-new-rule-before" label={t('web.recordingRules.startEarlySeconds')} value={before === null ? 'default' : String(before)} options={paddingOptions} onValueChange={value => setBefore(value === 'default' ? null : Number(value))}/>
+      <Select testID="live-owner-new-rule-after" label={t('web.recordingRules.endLateSeconds')} value={after === null ? 'default' : String(after)} options={paddingOptions} onValueChange={value => setAfter(value === 'default' ? null : Number(value))}/>
+      <TextField testID="live-owner-new-rule-priority" label={t('web.recordingRules.priority')} description={t('web.recordingRules.priorityHelp')} keyboardType="number-pad" value={priority} onChangeText={setPriority}/>
+      <Select testID="live-owner-new-rule-keep" label={t('recordings.keepLabel')} value={keepKey} options={[{value: 'default', label: t('web.recordingRules.useDefaults')}, {value: 'keep-all', label: t('web.logs.everything')}, {value: 'keep-count', label: t('web.recordingRules.latestFew')}, {value: 'keep-days', label: t('web.dvrSettings.keepDays')}]} onValueChange={setKeepKey}/>
+    </View>
+  </Dialog>;
 }

@@ -97,7 +97,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
           </View>
           <LiveDefaultsSection controller={controller} runtime={runtime}/>
         </View>
-        : <NativeRecordingOwner controller={controller} recordings={recordings} runtime={runtime}/>}
+        : <NativeRecordingOwner controller={controller} recordings={recordings} runtime={runtime} sources={sources}/>}
     </ScrollView>
     <Menu open={menu !== undefined} onOpenChange={value => {if (!value) setMenu(undefined);}} title={menu?.name} anchorRef={menuOpener} presentation="sheet" items={menuItems} testID="live-owner-menu"/>
     <Menu open={addMenu} onOpenChange={setAddMenu} title={t('web.liveTv.addSource')} anchorRef={addButton} presentation="sheet" testID="live-owner-add-menu" items={[

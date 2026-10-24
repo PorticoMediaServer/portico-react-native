@@ -8,7 +8,8 @@ import {
   type ChannelMapEdit, type ChannelMapPage, type LiveDefaults, type LiveSource, type LiveSources, type LiveSourceSettings, type LogoImportOutcome, type TunerDiscovery,
 } from './live-owner-model';
 import {parseAdminRules, parseDVRDocument, parseRecordingPolicy, parseTunerView, type AdminRule, type DVRDefaults, type DVRDocument, type RecordingPolicy, type TunerView} from './recording-owner-model';
-import {recordingRulePayload, type RecordingGrant, type RecordingOwner} from '../../../../../packages/client-core/src/server-admin/recording-policy';
+import {recordingGuideRoute, recordingOwnerKey, recordingRulePayload, recordingSeries, type RecordingGrant, type RecordingOwner, type RecordingSeries} from '../../../../../packages/client-core/src/server-admin/recording-policy';
+import {parseChannelGuide} from '../../../../../packages/client-core/src/channel-guide';
 
 export type LiveOwnerSnapshot = Readonly<{
   list?: LiveSources; loading: boolean; busy: boolean; checkedAt?: number; error?: unknown; notice?: string;
@@ -155,6 +156,18 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
   };
   deleteRule = async (rule: AdminRule) => {
     await this.request(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}?expectedRevision=${rule.revision}&operationId=${encodeURIComponent(this.operationId())}`, 'DELETE');
+    await this.load(true);
+  };
+  guideSeries = async (day: string, sourceId: string): Promise<readonly RecordingSeries[]> => {
+    const route = recordingGuideRoute(day, sourceId);
+    if (!route) throw new Error('invalid_guide_date');
+    const query = new URLSearchParams({kind: route.kind, start: route.start, end: route.end, timezone: route.timezone, search: route.search, sourceId: route.sourceId, limit: '30'});
+    const guide = parseChannelGuide(await this.request<unknown>(`/v1/guide?${query.toString()}`), this.lifetime.authority.serverId, route);
+    return recordingSeries(guide);
+  };
+  createRule = async (draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[]) => {
+    const payload = recordingRulePayload(draft, grants, this.operationId());
+    await this.request('/v1/admin/dvr/recording-groups', 'POST', payload);
     await this.load(true);
   };
   dvrSettings = async (): Promise<DVRDocument> => parseDVRDocument(await this.request<unknown>('/v1/admin/dvr/settings'), this.lifetime.authority.serverId);
