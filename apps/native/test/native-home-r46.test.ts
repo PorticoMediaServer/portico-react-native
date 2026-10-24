@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {defaultI18n} from '../../../packages/i18n/src';
-import {homeRowPresentation} from '../../../packages/client-core/src/presentation/home-spotlight';
+import {defaultI18n, type I18n} from '../../../packages/i18n/src';
+import {homeRowPresentation, homeSpotlightModels} from '../../../packages/client-core/src/presentation/home-spotlight';
+import {serverTextLabel} from '../../../packages/client-core/src/presentation/server-text';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
@@ -85,9 +86,9 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/home': {},
     '../../../../../packages/client-core/src/library-content': {},
-    '../../../../../packages/client-core/src/presentation/home-spotlight': {homeRowPresentation, homeSpotlightModels: () => [], homeTitleFactParts: () => []},
+    '../../../../../packages/client-core/src/presentation/home-spotlight': {homeRowPresentation, homeSpotlightModels, homeTitleFactParts: () => []},
     '../../../../../packages/client-core/src/home-selection': {homeEntryCapabilities: () => ({playable: true, details: true, watchlisted: false})},
-    '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: (_: unknown, label: any, fallback = '') => typeof label === 'string' ? label : label?.fallback ?? fallback},
+    '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel},
     '../../../../../packages/client-core/src/presentation/kit-model': {},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {AmbientArt: 'AmbientArt'}, '../../kit/controls': {Button: 'Button'},
     '../../kit/cards': {CollectionBanner: 'CollectionBanner', LiveCard: 'LiveCard', PosterCard: 'PosterCard', RankedCard: 'RankedCard', SquareCard: 'SquareCard', WideCard: 'WideCard'},
@@ -143,4 +144,69 @@ test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row
     currentTheme = theme;
     assert.equal(liveElement.type(liveElement.props).props.subtitle, undefined, `${theme.layoutMode} Live row retains no subtitle`);
   }
+});
+
+
+test('Home replaces server reason/action words when the confirmed translator changes without replacing the document or entries', async () => {
+  const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
+  const entry = {id: 'locale-movie', libraryId: 'movies', kind: 'movie', title: 'Stored source title (Full Cut)', playback: {itemId: 'locale-movie'}};
+  const document = {rows: [], spotlight: [{entry, reason: {kind: 'featured', text: {code: 'next.home.play', fallback: 'Stored reason'}}}], serverId: 'actual', viewerFence: 'viewer'};
+  const translated = (prefix: string): I18n['t'] => (key, values) => `${prefix}/${defaultI18n.t(key, values)}`;
+  let current = translated('CA');
+  const text = {get t() {return current;}, locale: 'en-US'};
+  const runtime = {
+    home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'}), more() {}, revalidate: async () => {}, retry: async () => {}},
+    getSnapshot: () => ({authority, libraries: [], selectionActive: false}), selection: () => ({}), text,
+    registerScrollToTop: () => () => {}, artwork: () => undefined, ambient: () => undefined, setHomeWindow() {}, playback: undefined,
+    actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {}}, reportError() {}, onArtworkError() {}, renderHomeEmpty: () => null, error: () => ({}),
+  };
+  const {HomeScreen} = await homeModule(phoneTheme, [], h.react);
+  const render = () => h.render(() => HomeScreen({runtime, authority, bottomInset: 84}));
+  const first = descendants(render()).find(node => node.type === 'Hero');
+  assert.equal(first.props.candidates[0].reason, 'CA/Play');
+  assert.equal(first.props.candidates[0].primaryLabel, 'CA/Play');
+  current = translated('GB');
+  const next = descendants(render()).find(node => node.type === 'Hero');
+  assert.equal(next.props.candidates[0].reason, 'GB/Play');
+  assert.equal(next.props.candidates[0].primaryLabel, 'GB/Play');
+  assert.equal(next.props.candidates[0].entry, entry);
+  assert.equal(runtime.home.getSnapshot().document, document);
+});
+
+test('TV Home passes the current runtime translator into the focused preview hint', async () => {
+  const h = hooks(), frames: FrameRequestCallback[] = [], previousFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => {frames.push(callback); return frames.length;};
+  try {
+    const authority = {serverId: 'actual', viewerFence: 'viewer'};
+    const entry = {id: 'resume-episode', libraryId: 'tv', kind: 'episode', title: 'Stored episode', playback: {itemId: 'resume-episode'}, progressSeconds: 120};
+    const row = {id: 'continue', kind: 'continue', artworkShape: 'landscape', entries: [entry]};
+    const document = {rows: [row], spotlight: [], serverId: 'actual', viewerFence: 'viewer'};
+    const translated = (prefix: string): I18n['t'] => (key, values) => `${prefix}/${defaultI18n.t(key, values)}`;
+    let current = translated('CA');
+    const text = {get t() {return current;}, locale: 'en-US'};
+    const runtime = {
+      home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'}), more() {}, revalidate: async () => {}, retry: async () => {}},
+      getSnapshot: () => ({authority, libraries: [], selectionActive: false}), selection: () => ({}), text,
+      registerScrollToTop: () => () => {}, artwork: () => undefined, ambient: () => undefined, setHomeWindow() {}, playback: undefined,
+      actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {}}, reportError() {}, onArtworkError() {}, renderHomeEmpty: () => null, error: () => ({}),
+    };
+    const {HomeScreen} = await homeModule(tvTheme, [row], h.react);
+    descendants(h.render(() => HomeScreen({runtime, authority}))).find(node => node.type === 'Row').props.onItemFocus({entry});
+    current = translated('GB');
+    const preview = descendants(h.render(() => HomeScreen({runtime, authority}))).find(node => node.type === 'FocusPreviewHero');
+    assert.ok(preview, 'the focused TV row draws its preview hero');
+    const candidate = {id: entry.id, title: entry.title, entry, target: {...entry, playback: {itemId: entry.id}, progressSeconds: 120}};
+    const hint = preview.props.renderHint(candidate);
+    assert.equal(hint.props.text, text, 'the drawn hint reads the runtime translator, not the module default');
+    assert.equal(hint.props.text.t('next.home.resume'), `GB/${defaultI18n.t('next.home.resume')}`);
+    assert.equal(hint.props.resume, true);
+  } finally {globalThis.requestAnimationFrame = previousFrame;}
+});
+
+test('the actual TV Home keycap hint uses the supplied current translator without changing its native controls', async () => {
+  const {HomeRemoteHint} = await factsModule(tvTheme);
+  const t: I18n['t'] = (key, values) => `GB/${defaultI18n.t(key, values)}`;
+  const view = HomeRemoteHint({resume: true, text: {t}});
+  const words = labels(view);
+  for (const key of ['next.layout.ok', 'next.layout.holdOk', 'next.home.resume', 'next.layout.moreOptions'] as const) assert.ok(words.includes(t(key)));
 });

@@ -331,7 +331,7 @@ test('Home scroll registration follows the move function and runtime rather than
   let anchor = {move: a};
   function port(id: string) {
     let callback: (() => void) | undefined;
-    const runtime = {getSnapshot: () => ({authority, libraries: []}),
+    const runtime = {getSnapshot: () => ({authority, libraries: []}), text: {t: (key: string) => key, locale: 'en-US'},
       home: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'ready'}), load: async () => {}},
       registerScrollToTop: (_destination: unknown, run: () => void) => {
         events.push(`register:${id}`); callback = run;
