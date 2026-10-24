@@ -181,12 +181,12 @@ test('an arrived read error survives pause/resume until the actual retry gesture
   const f = setup(async <T>(path: string) => {
     reads++;
     if (fail) throw Object.assign(new Error('actual read failure'), {status: 503, code: 'unavailable'});
-    return result(path, ['actual-result']) as T;
+    return result(path, ['actual-result'], 'actual-next-cursor') as T;
   });
   try {
     f.destination.setText('matrix'); f.destination.selectGroup('movies'); await tick();
     assert.equal(f.destination.getSnapshot().search.phase, 'ready');
-    fail = true; await f.destination.service.revalidate();
+    fail = true; await f.destination.next('movies');
     const error = f.destination.getSnapshot().search.error; assert.equal(f.destination.getSnapshot().search.phase, 'error'); assert.ok(error);
     f.destination.pause(); f.destination.resume(); await tick();
     assert.equal(reads, 2); assert.deepEqual(f.destination.getSnapshot().search.error, error);
