@@ -40,14 +40,20 @@ async function fixture() {
   } catch (error) {runtime?.dispose(); await app.unmount(); app.disposeLoader(); throw error;}
 }
 
-async function ready(window: ReturnType<typeof createNativePersonCreditWindow>, first: number, last = first) {
-  window.collection.ensureRange(first, last);
-  for (let i = 0; i < 80; i++) {
-    if (window.collection.itemAt(first)) return;
-    if (window.collection.getSnapshot().status === 'error') throw window.collection.getSnapshot().error;
-    await tick();
-  }
-  assert.fail('actual credit page did not arrive');
+function ready(window: ReturnType<typeof createNativePersonCreditWindow>, first: number, last = first, error = false) {
+  return new Promise<void>((resolve, reject) => {
+    let offPage = () => {}, off = () => {};
+    const timer = setTimeout(() => finish(new Error('actual credit page did not settle')), 10000);
+    const finish = (failure?: unknown) => {clearTimeout(timer); offPage(); off(); if (failure) reject(failure); else resolve();};
+    const check = () => {
+      const state = window.collection.getSnapshot();
+      if (state.status === 'error') {finish(error ? undefined : state.error); return;}
+      if (window.collection.itemAt(first)) finish(error ? new Error('unexpected accepted credit page') : undefined);
+    };
+    offPage = window.collection.subscribePage(window.collection.pageOf(first), check);
+    off = window.collection.subscribe(check);
+    window.collection.ensureRange(first, last); check();
+  });
 }
 const credits = (path: string, fence = 'Person-own-fence') => {
   const cursor = new URL(path, 'https://fixture.invalid').searchParams.get('cursor');
@@ -93,8 +99,7 @@ test('Person window refuses a continuation from another revision and publishes n
   try {
     f.reply(async path => credits(path)); await f.source.load(); window = createNativePersonCreditWindow(f.context, f.route, f.source);
     f.reply(async path => credits(path, 'Changed-person-fence'));
-    window.collection.ensureRange(40, 40);
-    for (let i = 0; i < 80 && window.collection.getSnapshot().status !== 'error'; i++) await tick();
+    await ready(window, 40, 40, true);
     assert.equal(window.collection.getSnapshot().status, 'error'); assert.equal(window.collection.itemAt(40), undefined);
     assert.equal(f.source.getSnapshot().phase, 'ready');
   } finally {window?.dispose(); await f.close();}
