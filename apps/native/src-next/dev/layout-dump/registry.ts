@@ -6,8 +6,10 @@ export type HostFacts = Readonly<{
   kind: HostKind;
   semanticId?: string;
   role?: string;
-  /** Already flattened by the owning native primitive; diagnostic input, not observed paint. */
+  /** Final theme-resolved StyleSheet.flatten output from this owning primitive. */
   flattenedStyle?: unknown;
+  /** True only for the complete currently evaluated style, never a partial recipe. */
+  declaredStyleComplete?: boolean;
 }>;
 export type ResolvedStyle = Readonly<{
   /** The supplier must observe/resolve these on the native host, not infer them from input style. */
@@ -23,6 +25,7 @@ export type NativeTextLine = Readonly<{
 export type HostObservation = Readonly<{
   kind: HostKind; semanticId?: string; role?: string;
   flattenedStyle: ScalarStyle;
+  declaredStyleComplete: boolean;
   measuredStyle: ScalarStyle;
   effectiveOpacity?: number;
   effectiveBackgroundColor?: string;
@@ -118,7 +121,9 @@ function metadata(facts: HostFacts): HostObservation {
   return Object.freeze({kind: facts.kind,
     ...(safeText(facts.semanticId) ? {semanticId: facts.semanticId} : {}),
     ...(safeText(facts.role, 80) ? {role: facts.role} : {}),
-    flattenedStyle: curateFlattenedStyle(facts.flattenedStyle), measuredStyle: Object.freeze({})});
+    flattenedStyle: curateFlattenedStyle(facts.flattenedStyle),
+    declaredStyleComplete: facts.declaredStyleComplete === true && object(facts.flattenedStyle) && !Array.isArray(facts.flattenedStyle),
+    measuredStyle: Object.freeze({})});
 }
 
 /** Registration leases fence ref replacement, unmount and capture-epoch retirement. */

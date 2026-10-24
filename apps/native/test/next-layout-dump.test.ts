@@ -121,6 +121,26 @@ test('curated diagnostics never read getters, arbitrary props, URLs, objects or 
   assert.deepEqual(curateFlattenedStyle([raw]), {});
 });
 
+test('complete declared style is explicit current registration evidence, never inferred from a partial style', () => {
+  const registry = createNativeMeasurementRegistry(), node = {};
+  const first = registry.register(node, {kind: 'view', flattenedStyle: {opacity: .5}});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  first.update({kind: 'view', flattenedStyle: {}, declaredStyleComplete: true});
+  assert.equal(registry.read(node)?.declaredStyleComplete, true);
+  first.update({kind: 'view', flattenedStyle: {opacity: .75}});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  for (const flattenedStyle of [undefined, null, [], 'background']) {
+    first.update({kind: 'view', flattenedStyle, declaredStyleComplete: true});
+    assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  }
+  const current = registry.register(node, {kind: 'view', flattenedStyle: {}, declaredStyleComplete: true});
+  first.update({kind: 'view', flattenedStyle: {opacity: 0}});
+  first.unregister();
+  assert.equal(registry.read(node)?.declaredStyleComplete, true);
+  current.unregister();
+  assert.equal(registry.read(node), undefined);
+});
+
 test('diagnostics cannot supply measured paint/font facts and invalidation does not invent defaults', () => {
   const registry = createNativeMeasurementRegistry(), node = {};
   const lease = registry.register(node, {kind: 'text', flattenedStyle: {opacity: .5, fontFamily: 'Input Font', fontSize: 24}});
