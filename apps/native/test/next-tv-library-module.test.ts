@@ -71,6 +71,15 @@ test('TV Library requires a real summary of the same captured definition and sav
     assert.equal(pending.controller.getSnapshot().open, false);
     await pending.controller.save(); assert.equal(posts.length, 1, 'navigation retirement cannot revive the old save');
     assert.equal(membership.current(), false); assert.deepEqual(errors, []);
+    navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'actual'}}, authority);
+    actions.saveView(destination, draft);
+    const removedLibrary = outlet.props.store.getSnapshot();
+    actions.dispose();
+    assert.equal(outlet.props.store.getSnapshot(), undefined, 'retiring the exact library action instance also retires its naming mutation');
+    await removedLibrary.controller.save();
+    actions.saveView(destination, draft);
+    assert.equal(outlet.props.store.getSnapshot(), undefined, 'a retired library instance cannot reopen naming at the same route');
+    assert.equal(posts.length, 1);
   } finally {module.dispose(); module.dispose(); navigation.dispose();}
   assert.equal(disposed, 1);
 });

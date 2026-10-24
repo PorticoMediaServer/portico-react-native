@@ -52,9 +52,10 @@ export function createNativeTVLibraryModule(context: NativeShellBootstrapContext
   const renderer = createNativeLibraryRenderer(context, {
     activation: libraryId => nativeDestinationActivation(context.navigation, {kind: 'library', libraryId}), labels: {field: label, sort: label, quick: label},
     actions: destination => {
+      let active = true, ownedNaming: NativeTVLibraryNaming | undefined;
       const activation = nativeDestinationActivation(context.navigation, {kind: 'library', libraryId: destination.getSnapshot().library.id});
       const actions = createNativeEntryActions(context, {
-        current: () => !disposed && activation.getSnapshot().visible,
+        current: () => active && !disposed && activation.getSnapshot().visible,
         contains: entry => {
           const source = destination.getSnapshot();
           return source.collection?.residentItems().includes(entry) === true || source.discover.appended.some(section => section.entries.includes(entry));
@@ -69,8 +70,12 @@ export function createNativeTVLibraryModule(context: NativeShellBootstrapContext
           return () => {off(); offCollection?.();};
         },
       });
-      return {...actions, saveView: (actual: NativeLibraryDestination, draft: NativeLibraryViewDraft) => {
-        if (disposed || !lifetime.current() || !activation.getSnapshot().visible || actual !== destination || !nativeLibraryCanSave(actual.getSnapshot(), draft)) return;
+      return {...actions, dispose: () => {
+        active = false;
+        if (ownedNaming && naming === ownedNaming) closeNaming();
+        actions.dispose?.();
+      }, saveView: (actual: NativeLibraryDestination, draft: NativeLibraryViewDraft) => {
+        if (!active || disposed || !lifetime.current() || !activation.getSnapshot().visible || actual !== destination || !nativeLibraryCanSave(actual.getSnapshot(), draft)) return;
         try {
           const definition = actual.captureSavedView(draft), capabilities = actual.getSnapshot().capabilities, revision = context.navigation.getSnapshot().revision;
           if (!capabilities) throw Object.assign(new Error('native_saved_view_capabilities_unavailable'), {code: 'invalid_response'});
@@ -78,10 +83,10 @@ export function createNativeTVLibraryModule(context: NativeShellBootstrapContext
           const suggestedName = suggestion !== undefined && Array.from(suggestion).length <= 200 ? suggestion : '';
           closeNaming();
           const controller = new NativeLibrarySaveView({api: context.api, scope: lifetime.scope, definition, requestId: common.requestId,
-            current: () => !disposed && lifetime.current() && activation.getSnapshot().visible && context.navigation.getSnapshot().revision === revision,
+            current: () => active && !disposed && lifetime.current() && activation.getSnapshot().visible && context.navigation.getSnapshot().revision === revision,
             saved: () => closeNaming()});
           controller.setName(suggestedName);
-          naming = Object.freeze({controller, definition, suggestedName}); emit();
+          naming = ownedNaming = Object.freeze({controller, definition, suggestedName}); emit();
         } catch (error) {if (!disposed && lifetime.current()) common.reportError(error, 'library');}
       }};
     },
@@ -91,7 +96,7 @@ export function createNativeTVLibraryModule(context: NativeShellBootstrapContext
     dispose: () => {if (disposed) return; disposed = true; offRoute(); closeNaming(); renderer.dispose?.(); listeners.clear();}};
 }
 
-/** Registration has no default policy, empty-name fallback or phone sheet. */
+/** Registration requires the canonical suggestion and the actual TV keyboard. */
 export function registerNativeTVLibrary(bindings: NativeTVLibraryBindings, registry: NativeShellRouteRegistry = nativeShellRoutes) {
   return registry.registerDestination('library', context => createNativeTVLibraryModule(context, bindings));
 }
