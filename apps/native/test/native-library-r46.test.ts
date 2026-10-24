@@ -56,7 +56,8 @@ async function libraryScreen(width: number, isTV = false) {
 test('the wash is drawn only for the Listen and Read libraries', async () => {
   const {module} = await libraryScreen(390);
   for (const kind of ['movie', 'tv', 'anime', 'collection']) assert.equal(module.libraryWashKind(kind), false, `${kind} stays flat`);
-  for (const kind of ['music', 'audiobook', 'book', 'comic', 'books']) assert.equal(module.libraryWashKind(kind), true, `${kind} draws the wash`);
+  for (const kind of ['music', 'audiobook', 'book', 'comic']) assert.equal(module.libraryWashKind(kind), true, `${kind} draws the wash`);
+  assert.equal(module.libraryWashKind('books'), false, 'the legacy spelling is not a Read kind (shared isReadingLibraryKind)');
 });
 
 test('the phone compact header is one 44 row with the drawn back control and a screen-centred switcher', async () => {
@@ -80,8 +81,8 @@ test('the phone compact header is one 44 row with the drawn back control and a s
   const centre = nodes.find(node => flatten(node.props.style).left === 118 && flatten(node.props.style).right === 118);
   assert.ok(centre, 'the switcher is centred on the screen itself');
   assert.equal(flatten(centre!.props.style).alignItems, 'center');
-  assert.equal(centre!.props.children.props.children, 'SWITCHER');
-  assert.equal(nodes.find(node => flatten(node.props.style).marginLeft === 'auto').props.children, 'MENU');
+  assert.deepEqual(elements(centre!.props.children)[0].props.children, ['SWITCHER']);
+  assert.deepEqual(nodes.find(node => flatten(node.props.style).marginLeft === 'auto').props.children[0], 'MENU');
   assert.equal(tree.props.children.at(-1), 'PIVOTS', 'the pivot strip follows the row');
 
   const washed = flatten(module.LibraryCompactHeader({switcher: 'S', menu: 'M', wash: true, onLibraries: () => {}}).props.style);
@@ -129,7 +130,7 @@ test('the result count has its own 10/20 row on phone and the TV size elsewhere'
   const text = phone[0];
   assert.equal(text.type, 'Text');
   assert.equal(text.props.accessibilityLiveRegion, 'polite');
-  assert.equal(text.props.children, '19 movies');
+  assert.deepEqual(text.props.children, ['19 movies']);
   const style = flatten(text.props.style);
   assert.equal(style.fontSize, 13);
   assert.equal(style.fontWeight, 600);
