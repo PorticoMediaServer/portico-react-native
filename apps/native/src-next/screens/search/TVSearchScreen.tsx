@@ -1,5 +1,5 @@
 import React, {useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
+import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core/src/search';
@@ -27,7 +27,7 @@ const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
 /** Drawn measurements from tv.html#f5 (.sres left/right/.top-r/.meta/.trk) and states.html#f18 (.genres right inset). */
 const resultsLeft = 780;
-const tvSearchR46 = StyleSheet.create({
+const tvSearchR46 = {
   results: {position: 'absolute', left: resultsLeft, right: 0, top: 64, bottom: 0},
   section: {marginTop: 46},
   heading: {flexDirection: 'row', alignItems: 'baseline', gap: 14},
@@ -38,7 +38,7 @@ const tvSearchR46 = StyleSheet.create({
   metaProgress: {width: 160},
   genreClip: {position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 16, overflow: 'hidden'},
   genreCopy: {position: 'absolute', left: 30, bottom: 26},
-});
+} as const;
 export type NativeTVSearchScreenProps = Readonly<{
   destination: NativeSearchDestination; runtime: NativeShellRuntime; activation: NativeDestinationActivationPort;
   explore: NativeSearchExplorePort; actions: NativeSearchActions; selection?: NativeSearchSelectionPort; copy: NativeSearchTVCopy;
@@ -122,7 +122,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   </View>;
 }
 
-function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: NativeSearchGenre; runtime: NativeShellRuntime; width: number; disabled: boolean; onPress: () => void}) {
+export function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: NativeSearchGenre; runtime: NativeShellRuntime; width: number; disabled: boolean; onPress: () => void}) {
   const theme = useTheme(), gradient = useId();
   return <Focusable focusId={`genre:${genre.id}`} testID={`tv-search-genre-${encodeURIComponent(genre.id)}`} disabled={disabled} onPress={onPress}
     accessibilityLabel={genre.name} focusRadius={16} style={{width, height: 200, borderRadius: 16, backgroundColor: theme.colors.raised}}>
@@ -136,7 +136,7 @@ function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: Nativ
 }
 
 /** tv.html#f5 draws the season count as .tv .tag; tagSpec is the canonical tag. */
-function TVSearchTag({children}: {children: React.ReactNode}) {
+export function TVSearchTag({children}: {children: React.ReactNode}) {
   const theme = useTheme(), tag = theme.spec.tag;
   return <View style={{paddingHorizontal: tag.paddingX[theme.platform], paddingVertical: tag.paddingY, borderRadius: tag.radius[theme.platform],
     borderWidth: tag.borderWidth[theme.platform], borderColor: alpha(theme.colors.text, tag.borderAlpha)}}>
@@ -144,7 +144,7 @@ function TVSearchTag({children}: {children: React.ReactNode}) {
   </View>;
 }
 
-function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}: Pick<NativeTVSearchScreenProps, 'runtime' | 'actions'> & {entry: SearchEntry; group: SearchGroup; selection?: ReturnType<NativeSearchSelectionPort['item']>; disabled: boolean}) {
+export function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}: Pick<NativeTVSearchScreenProps, 'runtime' | 'actions'> & {entry: SearchEntry; group: SearchGroup; selection?: ReturnType<NativeSearchSelectionPort['item']>; disabled: boolean}) {
   const theme = useTheme(), anchor = useRef<View>(null), content = media(entry) ? entry : undefined, kind = topResultKindLabel(group);
   const text = content && cardText(homeSubject(content), 'search', runtime.text), title = content?.displayTitle || entry.title;
   const progress = text?.progress, caption = text?.caption.filter(part => part.id !== 'year') ?? [];
