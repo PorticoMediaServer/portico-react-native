@@ -22,6 +22,9 @@ import type {NativeSettingsLivePorts} from './ports';
 import type {NativeSettingsController} from './settings-controller';
 import type {NativeDevicePreferences} from './device-preference-consumer';
 import {Screen, useScreenBack, useScreenEntry} from './Screen';
+import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
+import {ServerHeader} from '../../kit/shell/ServerIdentity';
+import {alpha} from '../../kit/shell/visual';
 
 /** Same icon normalization as settings.html: strip one leading i-, look up, fall back. */
 export function nativeSettingsIcon(name: string): IconName {
@@ -34,6 +37,8 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
+  // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
+  const serverPages = useMemo(() => theme.isTV ? [] : (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'libraries'), [structure, theme.isTV]);
   const [selected, setSelected] = useState(accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
   const [restoreRevision, setRestoreRevision] = useState(0);
@@ -43,7 +48,8 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     if (!found.length) return [];
     return [{...value, sections: value.sections.map(section => ({...section, advanced: false, rows: section.rows.filter(row => found.some(match => !match.rowId || match.rowId === settingsRowId(row)))})).filter(section => section.rows.length)}];
   });
-  const page = accountPages.find(value => value.id === selected) ?? accountPages[0];
+  const serverPage = serverPages.find(value => value.id === selected);
+  const page = serverPage ?? accountPages.find(value => value.id === selected) ?? accountPages[0];
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const column = ids.surface('settings.pages'), rows = ids.surface(`settings.rows.${page?.id ?? ''}`), keyboard = ids.surface('settings.keyboard'), searchField = ids.surface('settings.search');
   const enter = useScreenEntry(theme.isTV && page ? {regionId: column, childId: accountPages[0].id} : undefined, controller.lifetime.current);
@@ -58,6 +64,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   if (!page) throw new Error('native_settings_structure_empty');
   const compact = !theme.isTV && theme.width < 600;
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
+  const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
   return <Screen>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
       {(!compact || !pushed) && <View style={{width: compact ? '100%' : theme.isTV ? searching ? 500 : 480 : 280}}>
@@ -74,6 +81,13 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
                 <Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18}/><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text}]}>{t(value.title)}</Text>
               </Focusable>)}
             </FocusRegion>}
+          {!theme.isTV && serverPages.length > 0 && <View style={{marginHorizontal: 16, marginTop: 20, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.accentStrong, .28)}}>
+            <ServerHeader serverName={ports.serverName()} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone"/>
+            {serverPages.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
+              <View style={{width: 30, height: 30, borderRadius: 8, backgroundColor: alpha(theme.colors.accent, .16), alignItems: 'center', justifyContent: 'center'}}><Icon name={nativeSettingsIcon(value.icon)} size={18} color={theme.colors.accentStrong}/></View>
+              <Text numberOfLines={1} style={[shellType(15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text><Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
+            </Focusable>)}
+          </View>}
         </ScrollView>}
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
