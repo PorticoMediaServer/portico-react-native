@@ -17,6 +17,9 @@ import type {Marker} from '../../../packages/client-core/src/playback-v1/types.t
 import type {NativeSubtitleFilePicker} from '../src-next/platform/playback/subtitle-file-upload.ts';
 import {externalSubtitlePreparation} from '../src-next/platform/playback/engine-media.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} from '../src-next/shell/watch-outlet.ts';
+import type {NativeOfflinePlaybackDevice} from '../src-next/platform/playback/offline-playback.ts';
+import type {OfflineEntry, OfflineSnapshot} from '../platform/offline-downloads.ts';
+import type {LocalMedia, LocalProgress} from '../platform/local-playback.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
 const versionLifetime = (isCurrent: () => boolean = () => true) => ({signal: new AbortController().signal, isCurrent});
@@ -62,7 +65,7 @@ class Engine implements NativePlaybackTransport {
 
 const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
 const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
-function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker, features: EngineFeatures = nativeEngineFeatures, pictureControls = false) {
+function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker, features: EngineFeatures = nativeEngineFeatures, pictureControls = false, offlineDevice?: NativeOfflinePlaybackDevice) {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
@@ -135,7 +138,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     events: {on(type, listener) { const set = eventListeners.get(type) ?? new Set(); set.add(listener); eventListeners.set(type, set); return () => { set.delete(listener); }; }, onResync(listener) { resyncListeners.add(listener); return () => { resyncListeners.delete(listener); }; }},
     settings: () => settings, subscribeSettings: listener => { settingsListeners.add(listener); return () => { settingsListeners.delete(listener); }; },
     requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: 'native', choose: () => 'native', transport: () => engine},
-    engineFeatures: () => features, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker, ...(pictureControls ? {pictureInPictureControls: true as const} : {}),
+    engineFeatures: () => features, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker, offlineDevice, ...(pictureControls ? {pictureInPictureControls: true as const} : {}),
     timers: {
       setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, run: () => { timers.delete(id); fn(); }}); return id; },
       clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
@@ -195,6 +198,65 @@ function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number |
     return subtitleResponse(d, request);
   });
 }
+
+/** Controlled output of the verified device boundary. These binding tests do not
+ * establish native receipt/signature or file-system verification. */
+function admittedDownload() {
+  const entry: OfflineEntry = {id: 'copy', itemId: 'movie', kind: 'movie', libraryId: 'library', title: 'Movie', subtitle: '', quality: 'original', artworkUrl: '', state: 'ready', error: '', waiting: '', held: false, bytes: 10, bytesDone: 10, addedAt: 1, onServer: false, changedOnServer: false,
+    receipt: {receiptId: 'receipt', algorithm: 'ed25519', keyId: 'key', payload: 'fixture', signature: 'fixture', revision: 1,
+      claims: {kind: 'portico.download-receipt', version: '1', receiptId: 'receipt', keyId: 'key', viewer: {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile'}, itemId: 'movie', preparationId: 'preparation', quality: 'original', qualityLabel: 'Original', artifact: {sha256: 'a'.repeat(64), bytes: 10}, issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2100-01-01T00:00:00Z'}}};
+  let snapshot: OfflineSnapshot = {supported: true, ready: true, entries: [entry], settings: {wifiOnly: true, deleteWatched: false, autoNext: false, limitBytes: 0}, freeBytes: 100, usedBytes: 10, otherBytes: 0, pendingProgress: 0};
+  let serial = 0;
+  const media: LocalMedia = {entryId: entry.id, itemId: entry.itemId, playId: 'play_fixture', fileUrl: 'file:///private/Downloads/copy/movie.mp4', durationSeconds: 600, startSeconds: 42};
+  let load = async (): Promise<LocalMedia> => ({...media, playId: `play_fixture${++serial}`});
+  const progress: LocalProgress[] = [];
+  const device: NativeOfflinePlaybackDevice = {getSnapshot: () => snapshot, localMedia: () => load(), playabilityReason: () => null, recordProgress: value => {progress.push(value);}};
+  return {entry, media, progress, device, load: (next: typeof load) => {load = next;}, entries: (entries: readonly OfflineEntry[]) => {snapshot = {...snapshot, entries};}};
+}
+
+test('the genuine local maker reaches the same native engine and dock without server playback requests', async () => {
+  const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+  try {
+    await settle(); const before = d.requests.length;
+    const owner = {}, offSurface = d.runtime.retainSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+    const controller = new AbortController();
+    await d.runtime.startOffline(local.entry, {signal: controller.signal, isCurrent: () => true}); await settle();
+    const snapshot = d.runtime.getSnapshot(), fence = snapshot.fence;
+    assert.equal(fence?.kind, 'local'); assert.equal(snapshot.playback.session?.id, 'local:copy:1');
+    assert.equal(snapshot.playback.positionSeconds, 42); assert.equal(snapshot.dock.local?.queue, null);
+    assert.equal(snapshot.session, undefined); assert.equal(snapshot.options, undefined);
+    assert.equal(d.engine.commands.at(-1)?.source, local.media.fileUrl);
+    assert.deepEqual(d.requests.slice(before), [], 'local source/detail/subtitle routing never asks the server');
+    if (!fence || fence.kind !== 'local') throw new Error('missing genuine local fence');
+    assert.deepEqual(fence.playback.scope, {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', sessionFamilyId: 'family'});
+    assert.equal(fence.playId, 'play_fixture1'); assert.equal(fence.artifact.sha256, 'a'.repeat(64));
+    controller.abort(); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.session?.id, snapshot.playback.session?.id, 'closing the accepted action never stops the source');
+    d.engine.position = 51; d.engine.emit('time'); await d.runtime.toggle(fence); await settle();
+    assert.equal(local.progress.at(-1)?.playId, fence.playId); assert.equal(local.progress.at(-1)?.positionSeconds, 51);
+    await d.runtime.onTransition(d.runtime.dock.close(fence)); await settle();
+    assert.equal(d.requests.some(request => request.path.includes('/local:') || request.path.includes('/local%3A')), false);
+    offSurface();
+  } finally {d.runtime.dispose();}
+});
+
+test('a late admitted native file cannot replace a competing Play or cross caller/viewer retirement', async () => {
+  for (const retire of ['abort', 'member', 'family', 'play'] as const) {
+    const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
+    try {
+      await d.start('movie-original'); let release!: (media: LocalMedia) => void, current = true;
+      local.load(() => new Promise(resolve => {release = resolve;}));
+      const controller = new AbortController();
+      const pending = d.runtime.startOffline(local.entry, {signal: controller.signal, isCurrent: () => current});
+      await settle(2);
+      if (retire === 'abort') controller.abort(); else if (retire === 'member') current = false;
+      else if (retire === 'family') d.family('replacement'); else await d.start('movie-next');
+      release(local.media); await assert.rejects(pending, {name: 'AbortError'}); await settle();
+      assert.equal(d.engine.commands.some(command => command.source === local.media.fileUrl), false, retire);
+      if (retire === 'play') assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-next');
+    } finally {d.runtime.dispose();}
+  }
+});
 
 test('a fresh fenced VOD session read uses the genuine endpoint without adopting or replanning', async () => {
   const d = fixture(); await d.start('movie');

@@ -112,6 +112,20 @@ test('current receipt expiry or owner loss drops progress before it reaches the 
   await x.api.progressPlayback(session.id,observed); assert.equal(x.progress.length,0); assert.deepEqual(x.network,[]);
 });
 
+test('retirement withholds the file immediately but permits only a still-current final journal checkpoint', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true), session = source.session();
+  x.owner.dispose();
+  assert.equal(x.owner.mediaUrl(session), undefined); assert.equal(x.owner.fence(session, 1), undefined);
+  assert.throws(source.session); await assert.rejects(x.owner.prepare(x.entry, () => true));
+  await x.api.progressPlayback(session.id, {...observed, sequence: 1});
+  assert.equal(x.progress.length, 0);
+  await x.api.progressPlayback(session.id, {...observed, sequence: 2, state: 'paused'});
+  assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.state, 'paused');
+  x.setSession({...x.getSession()!, sessionFamilyId: 'replacement'});
+  await x.api.progressPlayback(session.id, {...observed, sequence: 3, state: 'ended'});
+  assert.equal(x.progress.length, 1); assert.deepEqual(x.network, []);
+});
+
 test('same-artifact receipt renewal stays usable; disposal and nonlocal addresses cannot admit playback', async () => {
   const x = setup(), source = await x.owner.prepare(x.entry,() => true);
   x.setEntries([{...x.entry,receipt:{...x.entry.receipt!,revision:2,payload:'renewed',signature:'renewed'}}]);

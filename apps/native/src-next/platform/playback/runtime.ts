@@ -28,6 +28,8 @@ import {NativePlaybackCoordinator, type NativeBinding} from './NativePlaybackCoo
 import {nativeExternalPresentationBinding, sameNativePresentation} from './external-presentation';
 import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
+import {NativeOfflinePlayback, type NativeOfflineSource} from './offline-playback';
+import type {OfflineEntry} from '../../../platform/offline-downloads';
 import {captionStyle} from './caption-style';
 import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
 import {uploadPickedSubtitle} from './subtitle-file-upload';
@@ -36,12 +38,12 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativeExternalPresentationLifetime, NativePlaybackReadLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativeExternalPresentationLifetime, NativePlaybackReadLifetime, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
 const audioKind = (kind: string | undefined) => kind === 'song' || kind === 'track' || kind === 'audiobook_file' || kind === 'audiobook';
-const kindOf = (kind: string | undefined): DockPlayback['kind'] => kind === 'song' || kind === 'track' ? 'music' : kind === 'audiobook_file' || kind === 'audiobook' ? 'audiobook' : 'video';
+const kindOf = (kind: string | undefined): 'video' | 'music' | 'audiobook' => kind === 'song' || kind === 'track' ? 'music' : kind === 'audiobook_file' || kind === 'audiobook' ? 'audiobook' : 'video';
 const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubject => {
   const item = detail?.item, episode = item?.episode;
   const card: CardSubject = {
@@ -53,7 +55,7 @@ const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubj
   const kind = kindOf(entry.kind);
   return {kind: kind === 'video' || kind === 'live' ? 'video' : kind, item: card};
 };
-type Bookmark = Readonly<{playback: DockPlayback; entry?: ContentEntry; subject?: PlaybackSubject; queueId?: string; entryId?: string; channel?: ChannelReference}>;
+type Bookmark = Readonly<{playback: DockPlayback; entry?: ContentEntry; subject?: PlaybackSubject; queueId?: string; entryId?: string; channel?: ChannelReference; offline?: NativeOfflineSource}>;
 type SourceDetail = {
   service: DetailService; sourceEpoch: number; sourceKey: string;
   intentId: number; sessionId: string; generation: number; itemId: string; libraryId: string;
@@ -75,6 +77,8 @@ export class NativePlaybackRuntime {
   private readonly scope: QueueScope;
   private readonly http: PlaybackScopeHttp;
   private readonly optionsClient: PlaybackOptionsClient;
+  private readonly offline?: NativeOfflinePlayback;
+  private offlineSource?: NativeOfflineSource;
   private snapshot: NativePlaybackRuntimeSnapshot;
   private listeners = new Set<() => void>();
   private offs: (() => void)[] = [];
@@ -83,6 +87,7 @@ export class NativePlaybackRuntime {
   private startEpoch = 0;
   private versionMenuEpoch = 0;
   private startController?: AbortController;
+  private offlineLifetimeOff?: () => void;
   private selectionControllers = new Set<AbortController>();
   private enqueueTail: Promise<unknown> = Promise.resolve();
   private channelControl?: V1ChannelControl;
@@ -144,16 +149,22 @@ export class NativePlaybackRuntime {
     this.http = new PlaybackScopeHttp(localV1Http(options.api), () => this.currentAuthority(), (request, response) => this.retiredStart(request, response));
     this.optionsClient = new PlaybackOptionsClient(this.http);
     this.path = new NativePlayback({http: this.http, key: options.requestId, timers: options.timers});
-    this.playback = new PlaybackService(this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
+    if (options.offlineDevice) this.offline = new NativeOfflinePlayback(options.session, options.offlineDevice);
+    this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
     this.queue = new V1QueuePlayer({http: this.http, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
       transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
       retainQueueIds: () => this.retainedQueueIds()});
     // Video completion remains held for the later player. Music follows the server's real policy.
     this.queue.setCompletionPolicy(({kind}) => audioKind(kind) ? 'advance' : 'hold');
-    this.dock = new PlaybackDock(this.scope);
+    this.dock = new PlaybackDock(this.scope, this.offline?.owner());
     this.coordinator = new NativePlaybackCoordinator(this.playback, options.transport, options.requestId,
       state => {
         if (!state.session) return '';
+        if (state.session.mode === 'local') {
+          const url = this.offline?.mediaUrl(state.session);
+          if (url) return url;
+          this.playback.fail(state.intentId, serviceText('downloads.offline.notPlayableHere')); return '';
+        }
         try { return options.api.mediaUrl(state.session.streamUrl); }
         catch { this.playback.fail(state.intentId, serviceText('queuePlayer.startFailed')); return ''; }
       }, fact => this.acceptFact(fact), options.engines);
@@ -239,6 +250,7 @@ export class NativePlaybackRuntime {
   private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
     this.externalController?.abort(); this.pictureBinding = undefined;
+    this.offlineLifetimeOff?.(); this.offlineLifetimeOff = undefined;
     this.startController?.abort();
     for (const controller of [...this.selectionControllers]) {
       if (controller.signal === retainScope) continue;
@@ -478,6 +490,44 @@ export class NativePlaybackRuntime {
     }
   };
 
+  /** Opens the actual verified device file through this same player. No server
+   * options, queue creation or source URL is supplied by the screen. */
+  startOffline = async (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime): Promise<void> => {
+    const admitted = () => !lifetime.signal.aborted && this.currentAuthority() && lifetime.isCurrent();
+    const retired = () => Object.assign(new Error('cancelled'), {name: 'AbortError'});
+    if (!admitted()) throw retired();
+    if (!this.offline) throw new Error(serviceText('downloads.offline.notPlayableHere'));
+    const epoch = this.beginOperation(), controller = new AbortController(); this.startController = controller;
+    const abort = () => controller.abort();
+    lifetime.signal.addEventListener('abort', abort, {once: true});
+    const unfollow = () => lifetime.signal.removeEventListener('abort', abort); this.offlineLifetimeOff = unfollow;
+    const current = () => epoch === this.startEpoch && !controller.signal.aborted && admitted();
+    const scoped = this.selectionScope(controller.signal, current);
+    let accepted = false;
+    try {
+      const source = await this.offline.prepare(entry, current);
+      if (!current()) throw retired();
+      if (!['movie', 'episode', 'video', 'song', 'track', 'audiobook_file', 'audiobook'].includes(source.metadata.kind ?? '')) throw new Error(serviceText('downloads.offline.notPlayableHere'));
+      this.rememberCurrent(); await this.queue.cancel();
+      if (!current() || !source.current()) throw retired();
+      this.offlineSource = source; this.entry = undefined; this.options = undefined;
+      const kind = kindOf(source.metadata.kind);
+      this.subject = {kind, item: {id: source.itemId, title: source.metadata.title, kind: source.metadata.kind}};
+      this.expanded = !audioKind(source.metadata.kind);
+      this.preparing = true;
+      await this.playback.playLocal(source.itemId, source.session, undefined, {signal: controller.signal, isCurrent: current});
+      const session = this.playback.getSnapshot().session;
+      accepted = !!session && this.offlineSource === source && !!this.offline.mediaUrl(session);
+    } catch (error) {
+      if (!current()) throw retired();
+      throw error;
+    } finally {
+      scoped.close();
+      if (!accepted) {unfollow(); controller.abort(); if (this.offlineLifetimeOff === unfollow) this.offlineLifetimeOff = undefined;}
+      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+    }
+  };
+
   private readonly cataloguePort: Pick<V1QueuePlayer, 'playSegments'> = Object.freeze({
     playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => this.playCatalogueSegments(segments, options),
   });
@@ -657,8 +707,9 @@ export class NativePlaybackRuntime {
       || data.item.id !== binding.itemId || data.item.libraryId !== binding.libraryId || data.scope.viewerFence !== binding.responseFence) return;
     return data;
   }
-  private fence(): QueuePlaybackFence | ChannelPlaybackFence | undefined {
+  private fence(): PlaybackFence | undefined {
     const state = this.playback.getSnapshot(), session = this.currentSession(), view = this.queue.getSnapshot().view;
+    if (state.session?.mode === 'local') return this.offline?.fence(state.session, state.playbackRun);
     if (state.channel && state.session && state.session.generation > 0 && state.playbackRun > 0) {
       const reference = state.channel, common = {kind: 'channel' as const, playback: {scope: this.scope, run: state.playbackRun}, sessionId: state.session.id, generation: state.session.generation, channelId: reference.channelId, channelGeneration: reference.generation};
       return reference.kind === 'live-source'
@@ -672,10 +723,11 @@ export class NativePlaybackRuntime {
       sourceId: session.versionId, entryId: session.queue.entryId, generation: state.session.generation,
       ...(episode?.showId ? {showId: episode.showId} : {}), ...(episode?.seasonId ? {seasonId: episode.seasonId} : {})});
   }
-  private local(fence: QueuePlaybackFence | ChannelPlaybackFence): DockPlayback {
+  private local(fence: PlaybackFence): DockPlayback {
     const state = this.playback.getSnapshot(), queue = this.queue.getSnapshot().view?.queue;
     const common = {positionSeconds: state.positionSeconds, playing: state.intent === 'playing' && state.phase !== 'error' && state.phase !== 'ended', expanded: this.expanded};
     if (fence.kind === 'channel') return {...common, fence, kind: 'live', queue: null};
+    if (fence.kind === 'local') return {...common, fence, kind: kindOf(this.offlineSource?.metadata.kind), queue: null};
     // A building window is not a completed server-authoritative queue projection.
     let readyQueue: DockPlayback['queue'] = null;
     if (queue) { try { readyQueue = parseQueueSnapshot(queue, this.scope); } catch { /* Keep the validated v1 window in snapshot.queue; never invent a stricter projection. */ } }
@@ -727,10 +779,10 @@ export class NativePlaybackRuntime {
     const session = this.currentSession();
     const previous = this.bookmarks.get(playback.fence.sessionId);
     const state = this.playback.getSnapshot(), fence = playback.fence;
-    const current = state.session?.id === fence.sessionId && (fence.kind === 'channel' || this.entry?.id === fence.itemId);
+    const current = state.session?.id === fence.sessionId && (fence.kind === 'channel' || fence.kind === 'local' && this.offlineSource?.entryId === fence.entryId || this.entry?.id === fence.itemId);
     this.bookmarks.set(playback.fence.sessionId, {playback, entry: current ? this.entry : previous?.entry, subject: current ? this.subject : previous?.subject,
       queueId: playback.queue?.id ?? (session?.id === playback.fence.sessionId ? session.queue?.queueId : previous?.queueId),
-      ...(fence.kind === 'queue' ? {entryId: fence.entryId} : {channel: current ? state.channel : previous?.channel})});
+      ...(fence.kind === 'queue' ? {entryId: fence.entryId} : fence.kind === 'local' ? {offline: current ? this.offlineSource : previous?.offline} : {channel: current ? state.channel : previous?.channel})});
     while (this.bookmarks.size > 8) this.bookmarks.delete(this.bookmarks.keys().next().value!);
   }
   private retainedQueueIds(): readonly string[] {
@@ -765,6 +817,7 @@ export class NativePlaybackRuntime {
     if (!key) { if (!this.preparing && this.playback.getSnapshot().phase === 'idle') { this.entry = undefined; this.subject = undefined; } return; }
     const controller = new AbortController(); this.sourceController = controller;
     const state = this.playback.getSnapshot(), itemId = state.itemId!, session = this.currentSession();
+    if (state.session?.mode === 'local') {this.options = undefined; return;}
     if (state.channel) return; // Live references are never catalogue/subtitle endpoint IDs.
     if (this.entry?.id !== itemId) { this.entry = undefined; this.subject = undefined; }
     else this.subject = subjectOf(this.entry);
@@ -825,6 +878,10 @@ export class NativePlaybackRuntime {
     }
     const baseRate = this.local(fence).kind === 'audiobook' ? settings.audiobookRate : this.local(fence).kind === 'music' ? 1 : settings.videoRate;
     const rate = this.choices.get('speed', fence.playback, baseRate);
+    if (fence.kind === 'local') {
+      this.coordinator.setOptions(rate, null, {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
+      return;
+    }
     this.path.setRate(rate);
     const session = this.currentSession(), plan = this.subtitleService?.getSnapshot().plan;
     this.path.setTracks(session?.presentation.audioTrackId, session?.presentation.subtitle?.trackId ?? null);
@@ -979,6 +1036,11 @@ export class NativePlaybackRuntime {
   replay = async (fence: PlaybackFence): Promise<void> => {
     if (!this.matches(fence)) return;
     if (fence.kind === 'channel') { this.channelControl?.retry(); return; }
+    if (fence.kind === 'local') {
+      if (this.playback.getSnapshot().phase === 'error') await this.playback.retry();
+      else {this.playback.seek(0); this.playback.resume();}
+      return;
+    }
     if (this.playback.hasNativeOwner() && this.o.nativeListening) await this.o.nativeListening.action('retry', 0);
     else await this.queue.playItem(fence.itemId, 0);
   };
@@ -1307,7 +1369,7 @@ export class NativePlaybackRuntime {
     this.detailOff?.(); this.detailOff = undefined;
     this.detail?.service.dispose(); this.detail = undefined;
     for (const off of this.offs.splice(0).reverse()) off();
-    this.coordinator.stop(); this.queue.dispose(); this.playback.leave(); this.path.dispose();
+    this.coordinator.stop(); this.queue.dispose(); this.playback.leave(); this.path.dispose(); this.offline?.dispose();
     void this.o.nativeListening?.detach(true).catch(() => {});
     this.o.disposeCapabilities();
     this.dock.reset(this.scope); this.bookmarks.clear(); this.entry = undefined; this.subject = undefined; this.options = undefined;

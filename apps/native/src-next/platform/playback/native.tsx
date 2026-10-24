@@ -14,6 +14,7 @@ import {NativePlaybackRuntime} from './runtime';
 import {PlaybackScopeHttp} from './scope-http';
 import {createVideoSnapshotCapture} from '../video-snapshot';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeOptions, NativePlaybackSurfaceProps} from './types';
+import {offlineDownloads} from '../../../platform/offline-downloads';
 
 const names = {native: {module: 'PorticoPlaybackModule', fact: 'PorticoPlaybackFact', view: 'PorticoPlayer'}, mpv: {module: 'PorticoMpvPlaybackModule', fact: 'PorticoMpvPlaybackFact', view: 'PorticoMpvPlayer'}} as const;
 type EngineModule = NativeListeningBridge & {
@@ -85,7 +86,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
   }) : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
       const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
