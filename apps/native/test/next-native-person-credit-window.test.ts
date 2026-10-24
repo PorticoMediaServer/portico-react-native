@@ -40,7 +40,7 @@ async function fixture() {
   } catch (error) {runtime?.dispose(); await app.unmount(); app.disposeLoader(); throw error;}
 }
 
-function ready(window: ReturnType<typeof createNativePersonCreditWindow>, first: number, last = first, error = false) {
+function ready(window: ReturnType<typeof createNativePersonCreditWindow>, first: number, last = first, error = false, request = true) {
   return new Promise<void>((resolve, reject) => {
     let offPage = () => {}, off = () => {};
     const timer = setTimeout(() => finish(new Error('actual credit page did not settle')), 10000);
@@ -52,13 +52,15 @@ function ready(window: ReturnType<typeof createNativePersonCreditWindow>, first:
     };
     offPage = window.collection.subscribePage(window.collection.pageOf(first), check);
     off = window.collection.subscribe(check);
-    window.collection.ensureRange(first, last); check();
+    if (request) window.collection.ensureRange(first, last);
+    check();
   });
 }
 const credits = (path: string, fence = 'Person-own-fence') => {
   const cursor = new URL(path, 'https://fixture.invalid').searchParams.get('cursor');
   const start = cursor ? Number(cursor.slice('opaque-'.length)) : 0;
-  return page(undefined, start, Math.min(40, 320 - start), start + 40 < 320 ? `opaque-${start + 40}` : '', fence);
+  const nextCursor = start + 40 < 320 ? `opaque-${start + 40}` : '';
+  return {...page(undefined, start, Math.min(40, 320 - start), nextCursor, fence), pageInfo: {total: 320, nextCursor}};
 };
 
 test('Person sparse credits borrow one arrived page and follow only real continuation tokens', async () => {
@@ -71,8 +73,9 @@ test('Person sparse credits borrow one arrived page and follow only real continu
     const old = window.collection.itemAt(0)!.media;
     assert.equal(window.contains(old), true); assert.equal(window.contains({...old}), false);
     await ready(window, 200).catch(error => {throw new Error(`${error.message}; fixture reads=${f.reads.map(read => new URL(read.path, 'https://fixture.invalid').search).join('|')}; window=${JSON.stringify(window!.collection.getSnapshot())}; resident=${JSON.stringify(window!.collection.resident())}`);});
+    await ready(window, 240, 240, false, false); // Existing collection direction-prefetch, without moving interest.
     const paths = f.reads.slice(1).map(read => new URL(read.path, 'https://fixture.invalid'));
-    assert.deepEqual(paths.map(url => url.searchParams.get('cursor')), ['opaque-40', 'opaque-80', 'opaque-120', 'opaque-160', 'opaque-200']);
+    assert.deepEqual(paths.map(url => url.searchParams.get('cursor')), ['opaque-40', 'opaque-80', 'opaque-120', 'opaque-160', 'opaque-200', 'opaque-240']);
     assert.ok(paths.every(url => !url.searchParams.has('offset') && url.searchParams.get('limit') === '40'));
     assert.equal(window.collection.itemAt(200)!.media.id, 'credit-200');
     assert.equal(window.collection.getSnapshot().total, 320); assert.ok(window.collection.resident().items <= 200);
