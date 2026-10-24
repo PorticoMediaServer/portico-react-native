@@ -42,10 +42,20 @@ work = Path(tempfile.mkdtemp(prefix='transport-', dir=args.scratch))
 try:
     jar = work / 'transport-test.jar'
     source = native / 'android/app/src/main/java/tv/getportico/portico/native/PorticoTransport.kt'
+    surface = (source.parent / 'PorticoRuntime.kt').read_text()
+    start = surface.index('  @ReactMethod\n  fun networkStreamOpen(')
+    end = surface.index('  @ReactMethod\n  fun openNetworkStream(', start)
+    methods = surface[start:end]
+    if methods.count('@ReactMethod') != 2:
+        raise RuntimeError('Unexpected native Reading method boundary')
+    # Compile the actual two methods, not a hand-maintained policy copy. The
+    # temporary class supplies only the RN base-class/value boundary for JVM IO.
+    runtime_surface = work / 'RuntimeSurface.kt'
+    runtime_surface.write_text('package tv.getportico.portico.native\nimport com.facebook.react.bridge.*\ninternal class RuntimeSurface {\n' + methods + '\n}\n')
     fixtures = sorted((native / 'test/reading-stream-android').glob('*.kt'))
     subprocess.run(['java', '-Xmx768m', '-cp', os.pathsep.join(map(str, sorted(compiler))),
                     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-jvm-target', '17',
-                    '-classpath', os.pathsep.join(map(str, runtime + [annotations])), '-d', str(jar), str(source), *map(str, fixtures)], check=True)
+                    '-classpath', os.pathsep.join(map(str, runtime + [annotations])), '-d', str(jar), str(source), str(runtime_surface), *map(str, fixtures)], check=True)
     subprocess.run(['java', '-Xmx256m', '-cp', os.pathsep.join(map(str, [jar] + runtime)),
                     'tv.getportico.portico.native.TransportTestKt'], check=True, timeout=75)
 finally:

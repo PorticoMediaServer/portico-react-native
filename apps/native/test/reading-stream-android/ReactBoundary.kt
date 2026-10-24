@@ -1,5 +1,6 @@
 package com.facebook.react.bridge
 
+annotation class ReactMethod
 interface Promise {fun resolve(value: Any?); fun reject(code: String, message: String?)}
 enum class ReadableType {String, Null}
 interface ReadableMapKeySetIterator {fun hasNextKey(): Boolean; fun nextKey(): String}

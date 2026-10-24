@@ -74,20 +74,27 @@ private class Server: AutoCloseable {
   override fun close() {bodyAllowed.countDown(); listener.close(); for (socket in sockets) socket.close(); executor.shutdownNow()}
 }
 
-private val owner = Any()
+private val owner = RuntimeSurface()
 private val headers = HeaderMap(mapOf("Authorization" to "Bearer throwaway-native-test", "If-Match" to "\"${"a".repeat(64)}\""))
 private fun open(server: Server, id: String, source: String = "normal"): Result {
-  val target = PorticoTransport.target("${server.origin}/v1/reading/sessions/$source/source")!!
-  val request = PorticoTransport.request(target, "GET", headers, null)!!
-  return Result().also {PorticoTransport.submit(owner, id, request, 49152, "queue_transport", "busy", it, binary = true, streaming = true)}
+  return Result().also {owner.networkStreamOpen(id, "${server.origin}/v1/reading/sessions/$source/source", headers, it)}
 }
-private fun pull(id: String) = Result().also {PorticoTransport.readStream(owner, id, it)}
+private fun pull(id: String) = Result().also {owner.networkStreamRead(id, it)}
 private fun bytes(result: BridgeMap): ByteArray = java.util.Base64.getDecoder().decode(result.values["bodyBase64"] as String)
 private fun done(result: BridgeMap) = result.values["done"] as Boolean
 
 fun main() {
   var cases = 0
   try {
+    Server().use {server ->
+      val base = "${server.origin}/v1/reading/sessions/source/source"
+      for ((id, url) in listOf("" to base, "x".repeat(129) to base, "asset" to base.replace("/source/source", "/source/assets"),
+          "query" to "$base?path=other", "fragment" to "$base#other", "credentials" to base.replace("http://", "http://user:password@"))) {
+        Result().also {owner.networkStreamOpen(id, url, headers, it)}.failure("queue_transport")
+      }
+      Result().also {owner.networkStreamOpen("range", base, HeaderMap(mapOf("rAnGe" to "bytes=0-9")), it)}.failure("queue_transport")
+      check(server.requests.get() == 0); cases++
+    }
     for (source in listOf("normal", "chunked")) Server().use {server ->
       val opened = open(server, "complete-$source", source).value(); check(opened.values["status"] == 200)
       val digest = MessageDigest.getInstance("SHA-256"); var count = 0
@@ -100,6 +107,7 @@ fun main() {
     Server().use {server ->
       open(server, "cancel", "held").value(); check(server.headersPublished.await(1, TimeUnit.SECONDS))
       open(server, "overlap").failure("queue_transport")
+      Result().also {RuntimeSurface().networkStreamRead("cancel", it)}.failure("cancelled")
       val pending = pull("cancel"); pull("cancel").failure("queue_transport")
       PorticoTransport.cancel("cancel"); pending.failure("cancelled"); pull("cancel").failure("cancelled")
       open(server, "recovered").value(); PorticoTransport.cancel("recovered"); check(server.requests.get() == 2); cases++
