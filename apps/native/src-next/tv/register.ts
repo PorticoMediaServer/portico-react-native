@@ -4,6 +4,7 @@ import '../screens/home/CustomizeRoute';
 import '../screens/home/SeeAllRoute';
 import '../screens/settings-live/LiveRoute';
 import '../screens/settings-live/TogetherRoute';
+import './library/register';
 import {createNativeWatchBindings, registerNativeWatch} from '../screens/watch';
 
 registerNativeWatch(createNativeWatchBindings);
