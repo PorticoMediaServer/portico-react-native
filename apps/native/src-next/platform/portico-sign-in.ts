@@ -2,6 +2,7 @@ import {NativeModules} from 'react-native';
 import {MFARequiredError, parseAccountReturn, parseNativeAccountContinuation,
   type HostedAccountClient, type IdentityProvider, type IdentityTransaction, type NativeAccountContinuation, type Registration} from '../../../../packages/client-core/src/hosted-security';
 import type {HostedSession} from '../../../../packages/client-core/src';
+import {routePath as hostedPath, routeBody as hostedBody} from '../../../../packages/contracts/src/hosted/routes';
 import {nativeAccounts} from './accounts';
 import {hostedUrl} from './account-authority';
 
@@ -55,6 +56,13 @@ export class NativePorticoSignIn {
     const challenge = this.continuation?.mfa;
     if (!challenge) throw new Error('native_factor_missing');
     return this.authenticate(signal => this.api().mfa(challenge, code, signal));
+  }
+  /** Account help sends one reset link; the new password is chosen on that page,
+   * on any device. The service answers the same way whether or not it matched. */
+  async forgot(username: string, contactAddress: string) {
+    return this.api().request(hostedPath('account_recovery_request'), 'POST',
+      hostedBody('account_recovery_request', {username: username.trim().toLowerCase(), contactAddress: contactAddress.trim(),
+        requestId: await this.bridge.newRequestId()}), this.abort.signal);
   }
   async provider(provider: IdentityProvider) {
     const nativeApple = provider === 'apple' && this.nativeApple;

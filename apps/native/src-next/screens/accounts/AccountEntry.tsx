@@ -22,7 +22,7 @@ import {hostedUrl} from '../../platform/account-authority';
 import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 
-export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
+export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
 type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
 type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'} | RequiredSetup;
 const t = defaultI18n.t;
@@ -88,6 +88,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setError(undefined); setStage(initialStage);};
   const back = () => {
     if (stage === 'profile-forgot-pin') {setCode(''); setError(undefined); setStage('profile-pin'); return;}
+    // Account help returns to the Portico Account form that opened it, not the front door.
+    if (stage === 'forgot' || stage === 'forgot-sent') {setPassword(''); setError(undefined); setStage('portico'); return;}
     if (theme.isTV && stage === 'profile-pin') {setCode(''); setProfile(undefined); setError(undefined); setStage('profiles'); return;}
     if (Platform.isTV && (stage === 'tv-credentials' || stage === 'factor' || stage === 'tv-required-setup')) {void run(returnToTVCode); return;}
     if (stage === initialStage) onBack?.(); else reset();
@@ -141,6 +143,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     if (Platform.isTV) return startTV('portico');
     account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
     const available = await next.prepare(); if (lifetime.current) {setOptions(available); setStage('portico');}
+  };
+  const requestReset = async () => {
+    await account.current!.forgot(username, email);
+    if (lifetime.current) {setPassword(''); setCode(''); setStage('forgot-sent');}
   };
   const inspect = async (origin = address) => {
     operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV});
@@ -244,7 +250,17 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       const tx = await account.current!.provider(value.id); setTransaction(tx);
       if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {await account.current!.finishProvider(); await directory();} else setStage('provider');
     });}}>{t(value.id === 'google' ? 'auth.signInWithGoogle' : 'auth.signInWithApple')}</Button>)}
-    {options?.registration && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('register');}}>{t('auth.createAccount')}</Button>}</View>);
+    {options?.registration && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('register');}}>{t('auth.createAccount')}</Button>}
+    {options?.recovery !== false && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('forgot');}}>{t('auth.forgotPassword')}</Button>}
+    <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('address');}}>{t('accounts.signIn.local')}</Button></View>);
+  if (stage === 'forgot') return layout(t('auth.forgotPasswordTitle'), t('auth.resetLinkLede'),
+    fields(field(t('auth.username'), username, setUsername), field(t('auth.email'), email, setEmail)),
+    action('request-reset', t('auth.resetLinkAction'), requestReset, !username.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())),
+    <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 4}]}>{t('auth.privacySameAnswer')}</Text>);
+  if (stage === 'forgot-sent') return layout(t('auth.checkEmail'), t('auth.resetLinkSent'),
+    <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 16}]}>{t('auth.privacySameAnswer')}</Text>,
+    action('back-to-sign-in', t('auth.backToSignIn'), async () => {if (lifetime.current) setStage('portico');}),
+    <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 10}]}>{t('auth.noPasswordForSocial')}</Text>);
   if (stage === 'register') return layout(t('auth.createYourAccount'), undefined, fields(field(t('auth.username'), username, setUsername), field(t('auth.yourName'), name, setName), field(t('auth.email'), email, setEmail), field(t('auth.password'), password, setPassword, true)),
     action('register', t('auth.createAccount'), async () => {const value = await account.current!.register(username, name, password, email); setPassword(''); setMasked(value.maskedAddress); setStage('verify');}, !username || !name || !password || !email));
   if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
