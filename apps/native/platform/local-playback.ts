@@ -45,22 +45,28 @@ export class LocalPlayback {
     };
   }
 
-  wrap(inner: PlaybackApi): PlaybackApi {
+  wrap(inner: PlaybackApi): PlaybackApi & {readonly localPlayback: Pick<PlaybackApi, 'stopPlayback' | 'progressPlayback'>} {
     const local = (id: string) => this.sessions.get(id);
-    return {
+    const progressPlayback: PlaybackApi['progressPlayback'] = (id, payload) => {
+      const media = local(id);
+      if (!media) return Promise.resolve();
+      this.sink({entryId: media.entryId, itemId: media.itemId, playId: media.playId, positionSeconds: Math.max(0, payload.positionSeconds), durationSeconds: media.durationSeconds, state: payload.state, ended: payload.state === 'ended'});
+      return Promise.resolve();
+    };
+    // Engine ownership closes the file. Keep its bounded mapping for the
+    // service's already-captured final journal checkpoint; never call a server.
+    const stopPlayback: PlaybackApi['stopPlayback'] = () => Promise.resolve();
+    const wrapped: PlaybackApi = {
       createPlayback: (itemId, requestId, signal) => inner.createPlayback(itemId, requestId, signal),
       progressPlayback: (id, payload) => {
         if (!isLocalSession(id)) return inner.progressPlayback(id, payload);
         // A local id never reaches the server, even one replayed from the journal after a restart
         // (its file mapping is gone then, and the offline journal already holds its position).
-        const media = local(id);
-        if (!media) return Promise.resolve();
-        this.sink({entryId: media.entryId, itemId: media.itemId, playId: media.playId, positionSeconds: Math.max(0, payload.positionSeconds), durationSeconds: media.durationSeconds, state: payload.state, ended: payload.state === 'ended'});
-        return Promise.resolve();
+        return progressPlayback(id, payload);
       },
       stopPlayback: (id, signal) => {
         // The mapping stays (bounded) so a checkpoint flushed after the stop is still recorded.
-        return isLocalSession(id) ? Promise.resolve() : inner.stopPlayback(id, signal);
+        return isLocalSession(id) ? stopPlayback(id, signal) : inner.stopPlayback(id, signal);
       },
       // A download is what it is: no server can deliver it another way.
       ...(inner.reportPlayerFailure ? {reportPlayerFailure: (id: string, code: Parameters<NonNullable<PlaybackApi['reportPlayerFailure']>>[1], detail: string, positionSeconds: number) => (isLocalSession(id) ? Promise.resolve({escalates: false}) : inner.reportPlayerFailure!(id, code, detail, positionSeconds))} : {}),
@@ -68,5 +74,6 @@ export class LocalPlayback {
       ...(inner.markerSkipped ? {markerSkipped: (id: string, skipped: Parameters<NonNullable<PlaybackApi['markerSkipped']>>[1]) => (isLocalSession(id) ? Promise.resolve() : inner.markerSkipped!(id, skipped))} : {}),
       ...(inner.onServerEnded ? {onServerEnded: (listener: Parameters<NonNullable<PlaybackApi['onServerEnded']>>[0]) => inner.onServerEnded!(listener)} : {}),
     };
+    return Object.assign(wrapped, {localPlayback: Object.freeze({progressPlayback, stopPlayback})});
   }
 }
