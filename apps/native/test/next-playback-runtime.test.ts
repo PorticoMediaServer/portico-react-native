@@ -233,7 +233,7 @@ test('the genuine local maker reaches the same native engine and dock without se
     assert.equal(fence.playId, 'play_fixture1'); assert.equal(fence.artifact.sha256, 'a'.repeat(64));
     controller.abort(); await settle();
     assert.equal(d.runtime.getSnapshot().playback.session?.id, snapshot.playback.session?.id, 'closing the accepted action never stops the source');
-    d.engine.position = 51; d.engine.emit('time'); await d.runtime.toggle(fence); await settle();
+    d.engine.position = 51; d.engine.emit('progress'); await d.runtime.toggle(fence); await settle();
     assert.equal(local.progress.at(-1)?.playId, fence.playId); assert.equal(local.progress.at(-1)?.positionSeconds, 51);
     await d.runtime.onTransition(d.runtime.dock.close(fence)); await settle();
     assert.equal(d.requests.some(request => request.path.includes('/local:') || request.path.includes('/local%3A')), false);
@@ -265,7 +265,7 @@ test('a parked local bookmark reopens paused on the same Surface and only explic
     await settle();
     await d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true}); await settle();
     const original = d.runtime.getSnapshot(), fence = original.fence!;
-    d.engine.position = 73; d.engine.emit('time'); await settle();
+    d.engine.position = 73; d.engine.emit('progress'); await settle();
     await d.start('song-next');
     assert.equal(d.runtime.dock.getSnapshot().resumeVideo?.fence.kind, 'local');
     assert.deepEqual(d.runtime.dock.getSnapshot().resumeVideo?.fence, fence);
@@ -281,7 +281,7 @@ test('a parked local bookmark reopens paused on the same Surface and only explic
     if (!restored || restored.kind !== 'local') throw new Error('missing genuine restored local source');
     assert.equal(restored.playId, 'play_fixture2');
     const commands = d.engine.commands.slice(before).filter(command => command.binding.sessionId === restored.sessionId);
-    assert.ok(commands.length > 0); assert.ok(commands.every(command => !command.playing), 'restore never transiently plays');
+    assert.ok(commands.length > 0); assert.ok(commands.every(command => command.paused === true), 'restore never transiently plays');
     await d.runtime.toggle(restored); await settle(); assert.equal(d.runtime.getSnapshot().playback.intent, 'playing');
     assert.equal(d.requests.some(request => request.path.includes('/local:') || request.path.includes('/local%3A')), false);
   } finally {offSurface(); d.runtime.dispose();}
@@ -317,7 +317,7 @@ test('withdrawn device admission removes the local fence and refuses retained co
     assert.equal(d.runtime.getSnapshot().fence, undefined);
     const before = d.engine.commands.length;
     await d.runtime.toggle(fence); await d.runtime.seek(fence, 100); await settle();
-    assert.equal(d.engine.commands.slice(before).some(command => command.playing), false);
+    assert.equal(d.engine.commands.length, before, 'withdrawn-source controls cannot send a native command');
   } finally {offSurface(); d.runtime.dispose(); assert.equal(local.subscriptions, 0);}
 });
 
