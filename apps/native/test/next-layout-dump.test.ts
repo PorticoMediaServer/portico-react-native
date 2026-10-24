@@ -136,6 +136,11 @@ test('complete declared style is explicit current registration evidence, never i
   const unsafe: Record<string, unknown> = {backgroundColor: 'url(https://example.invalid/private.png)'};
   first.update({kind: 'view', flattenedStyle: unsafe, declaredStyleComplete: true});
   assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  for (const flattenedStyle of [{borderTopLeftRadius: 12}, {borderStyle: 'dashed'},
+    {boxShadow: [{offsetX: 0, offsetY: 2, blurRadius: 3, color: '#000'}]}]) {
+    first.update({kind: 'view', flattenedStyle, declaredStyleComplete: true});
+    assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  }
   Object.defineProperty(unsafe, 'opacity', {get() {throw new Error('Style getter was read.');}});
   first.update({kind: 'view', flattenedStyle: unsafe, declaredStyleComplete: true});
   assert.equal(registry.read(node)?.declaredStyleComplete, false);

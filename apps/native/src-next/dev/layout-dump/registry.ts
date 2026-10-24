@@ -63,6 +63,17 @@ const fontAndLayoutInputs = new Set<string>([
   'width', 'height', 'maxWidth', 'maxHeight', 'padding', 'paddingHorizontal', 'paddingVertical',
   'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
 ]);
+// These paint mechanisms are not represented by this scalar evidence adapter.
+// Their presence must not be silently replaced by an omitted/default property.
+const unrepresentedPaintInputs = [
+  'borderStyle', 'borderCurve', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+  'borderStartWidth', 'borderEndWidth', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+  'borderStartColor', 'borderEndColor', 'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius',
+  'borderBottomRightRadius', 'borderTopStartRadius', 'borderTopEndRadius', 'borderBottomStartRadius', 'borderBottomEndRadius',
+  'borderStartStartRadius', 'borderStartEndRadius', 'borderEndStartRadius', 'borderEndEndRadius',
+  'boxShadow', 'filter', 'mixBlendMode', 'backgroundImage', 'outlineColor', 'outlineOffset', 'outlineStyle', 'outlineWidth',
+  'textDecorationColor', 'textDecorationStyle',
+] as const;
 const object = (value: unknown): value is object => typeof value === 'object' && value !== null;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const safeText = (value: unknown, maximum = 256): value is string => typeof value === 'string' && value.length > 0
@@ -92,7 +103,10 @@ export function curateFlattenedStyle(value: unknown): ScalarStyle {
 function completeDeclaredInput(raw: unknown, curated: ScalarStyle): boolean {
   if (!object(raw) || Array.isArray(raw)) return false;
   // A dropped unsafe/getter value must not become an omitted RN default later.
-  return scalarInputs.every(key => {
+  return unrepresentedPaintInputs.every(key => {
+    const property = Object.getOwnPropertyDescriptor(raw, key);
+    return !property || 'value' in property && property.value === undefined;
+  }) && scalarInputs.every(key => {
     const property = Object.getOwnPropertyDescriptor(raw, key);
     return !property || 'value' in property && (property.value === undefined || key in curated);
   }) && (['shadowOffset', 'textShadowOffset'] as const).every(key => {
