@@ -30,3 +30,10 @@ export function nativeProgrammeCaption(programme: GuideProgram | undefined, onNo
   if (!end) return [];
   return !isTV && onNow ? [text.t('guide.ends', {time: end})] : start ? [text.t('guide.range', {start, end})] : [];
 }
+
+/** The next-programme line uses the same resolved Guide clock as its row. */
+export function nativeGuideNext(programme: GuideProgram | undefined, clock: (at: number) => string | undefined, text: Pick<I18n, 't'>): string | undefined {
+  if (!programme) return;
+  const time = clock(programme.start);
+  return time ? text.t('guide.next', {title: programme.title, time}) : undefined;
+}
