@@ -10,6 +10,7 @@
 abort-controller@3.0.0	node_modules/abort-controller
 base64-js@1.5.1	node_modules/base64-js
 dijkstrajs@1.0.3	node_modules/dijkstrajs
+escape-string-regexp@4.0.0	node_modules/escape-string-regexp
 event-target-shim@5.0.1	node_modules/event-target-shim
 hoist-non-react-statics@3.3.2	node_modules/hoist-non-react-statics
 invariant@2.2.4	node_modules/invariant
@@ -27,6 +28,7 @@ react-native-safe-area-context@5.9.1	node_modules/react-native-safe-area-context
 react-native-svg@15.15.5	node_modules/react-native-svg
 react-native-tvos@0.83.10-1	node_modules/react-native
 react-native-url-polyfill@4.0.0	node_modules/react-native-url-polyfill
+react-native-webview@16.0.0	node_modules/react-native-webview
 react-native-worklets@0.12.2	node_modules/react-native-worklets
 react@19.2.8	node_modules/react
 regenerator-runtime@0.13.11	node_modules/regenerator-runtime

@@ -5,6 +5,7 @@
 #import "PorticoSubtitleSelection.h"
 #import "PorticoSubtitleOverlay.h"
 #import "PorticoPlaybackObservation.h"
+#import "PorticoPresentationReadiness.h"
 #import <UIKit/UIKit.h>
 #import <AVKit/AVKit.h>
 #import <sys/utsname.h>
@@ -373,6 +374,9 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 
  if(!self.onFact||!_binding||!_lease||_routeSuspended||((_routeResume||_routeSeeking||_routeFailed)&&![fact[@"type"] isEqual:@"error"]))return;
  fact[@"itemInstanceId"]=_itemInstanceId?:@"";fact[@"binding"]=_binding;fact[@"factSequence"]=@(++_factSequence);fact[@"lastCommandRevision"]=@(_commandRevision);fact[@"seeking"]=@((BOOL)(_seeking||[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]));
+ // Source/display/seek/route settlement is acknowledged by the actual native getter,
+ // independently of ready/firstFrame and of AVKit's eventual PiP request outcome.
+ fact[@"externalPresentationBinding"]=PorticoExternalPresentationBindingFact(self.externalPresentationBinding,fact[@"binding"],_lease);
  self.onFact(fact);
 }
 - (NSDictionary *)scopedAudio:(id)value binding:(NSDictionary *)binding {
