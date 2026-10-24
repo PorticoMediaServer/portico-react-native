@@ -8,6 +8,7 @@ import {nativeGuideMemory} from './guide-memory';
 import {nativeScreenServices} from '../native-screen-services';
 import {createNativeRecordingsController} from './recordings-controller';
 import {NativeLiveScreen} from './LiveScreen';
+import {NativeLiveOwnerController} from './live-owner-controller';
 
 export function createNativeLiveRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const lifetime = new NativeScreenLifetime(context);
@@ -15,13 +16,15 @@ export function createNativeLiveRenderer(context: NativeShellBootstrapContext): 
   const dvrRequestId = async () => {lifetime.assert(); return [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join('');};
   const controller = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone, {port: nativeGuideMemory(context.session()?.viewer, lifetime), reportError: error => nativeScreenServices(context).reportError(error)});
   const recordings = createNativeRecordingsController(lifetime, api, dvrRequestId);
+  const operationId = () => [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const owner = new NativeLiveOwnerController(lifetime, api, operationId);
   return {
     render: (route, runtime) => {
       lifetime.assert();
       if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch');
-      return <NativeLiveScreen ports={{context, dvrRequestId}} controller={controller} recordings={recordings} runtime={runtime}/>;
+      return <NativeLiveScreen ports={{context, dvrRequestId}} controller={controller} recordings={recordings} owner={owner} runtime={runtime}/>;
     },
-    dispose: () => {controller.dispose(); recordings.dispose(); lifetime.dispose();},
+    dispose: () => {owner.dispose(); controller.dispose(); recordings.dispose(); lifetime.dispose();},
   };
 }
 

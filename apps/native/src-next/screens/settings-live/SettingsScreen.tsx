@@ -25,6 +25,10 @@ import {Screen, useScreenBack, useScreenEntry} from './Screen';
 import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
 import {ServerHeader} from '../../kit/shell/ServerIdentity';
 import {alpha} from '../../kit/shell/visual';
+import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
+import {NativeLiveOwnerController} from './live-owner-controller';
+import {createNativeRecordingsController} from './recordings-controller';
+import {nativeRouteCrypto} from '../../platform/server-connections';
 
 /** Same icon normalization as settings.html: strip one leading i-, look up, fall back. */
 export function nativeSettingsIcon(name: string): IconName {
@@ -37,11 +41,19 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
+  const managesServer = ports.context.account.account.role === 'owner';
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
-  const serverPages = useMemo(() => theme.isTV ? [] : (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'libraries'), [structure, theme.isTV]);
+  const serverPages = useMemo(() => theme.isTV ? [] : (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'libraries' || managesServer && value.id === 'live'), [structure, theme.isTV, managesServer]);
   const [selected, setSelected] = useState(accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
   const [restoreRevision, setRestoreRevision] = useState(0);
+  const liveControllers = useMemo(() => {
+    if (!managesServer || theme.isTV) return undefined;
+    const lifetime = controller.lifetime;
+    const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => ports.context.api.request<T>(path, method, body, next), signal)};
+    return {owner: new NativeLiveOwnerController(lifetime, api, () => [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join('')), recordings: createNativeRecordingsController(lifetime, api, ports.dvrRequestId)};
+  }, [controller, ports, managesServer, theme.isTV]);
+  useEffect(() => () => {liveControllers?.owner.dispose(); liveControllers?.recordings.dispose();}, [liveControllers]);
   const matches = searchSettings({headings: structure.headings.filter(value => value.id === 'account')}, query, t);
   const matchingPages = accountPages.flatMap(value => {
     const found = matches.filter(match => match.address === value.id);
@@ -63,9 +75,11 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   useScreenBack(runtime, back, theme.isTV);
   if (!page) throw new Error('native_settings_structure_empty');
   const compact = !theme.isTV && theme.width < 600;
-  // Libraries draws its own page (list, one library, Add library) and owns its scrolling;
-  // it is not a stack of rows inside the generic Settings body.
+  // Libraries and Live TV draw their own pages and own their scrolling; they are not
+  // stacks of rows inside the generic Settings body.
   const librariesPage = !theme.isTV && page.id === 'libraries';
+  const livePage = !theme.isTV && page.id === 'live' && liveControllers !== undefined;
+  const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
   return <Screen>
@@ -95,9 +109,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
         {compact && <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t('action.back')}</Button>}
-        {!(theme.isTV && searching) && !librariesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {!(theme.isTV && searching) && !librariesPage && !livePage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
             {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}

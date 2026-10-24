@@ -1,4 +1,4 @@
-import {DVRClient, type DeletePreview, type DVRPage, type DVRSummary, type DVRView, type Recording, type RecordingDetail, type RecordingDraft, type RecordingGroups, type RecordingOptions, type RecordingRule, type RecordingStorage, type RuleConfig} from '../../../../../packages/client-core/src/dvr';
+import {DVRClient, type DeletePreview, type DVRPage, type DVRSummary, type DVRView, type Recording, type RecordingDetail, type RecordingDraft, type RecordingGroups, type RecordingOptions, type RecordingRule, type RecordingStorage, type RuleConfig, type StoragePolicy} from '../../../../../packages/client-core/src/dvr';
 import type {ChannelApi} from '../../../../../packages/client-core/src/channel-guide';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
 
@@ -7,7 +7,7 @@ export type NativeRecordingsSnapshot = Readonly<{
   query: NativeRecordingQuery; page?: DVRPage; groups?: RecordingGroups; storage?: RecordingStorage; summary?: DVRSummary;
   loading: boolean; busy: boolean; error?: unknown; accessDenied: boolean;
 }>;
-export type NativeRecordingService = Pick<DVRClient, 'list' | 'groups' | 'summary' | 'storage' | 'detail' | 'deletePreview' | 'schedule' | 'update' | 'cancel' | 'keep' | 'delete' | 'saveRule' | 'deleteRule' | 'onAccessChanged' | 'dispose'>;
+export type NativeRecordingService = Pick<DVRClient, 'list' | 'groups' | 'summary' | 'storage' | 'detail' | 'deletePreview' | 'schedule' | 'update' | 'cancel' | 'keep' | 'delete' | 'saveRule' | 'deleteRule' | 'saveStorage' | 'onAccessChanged' | 'dispose'>;
 
 /** One genuine DVR client per viewer lifetime. Never activate/reset its unknown-outcome receipts
  * on a view change. Cursor pages stay pages; no fabricated random offsets or whole-DVR scan. */
@@ -85,6 +85,8 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   cancel = (recording: Recording) => this.act(service => service.cancel(recording));
   keep = (recording: Recording) => this.act(service => service.keep(recording));
   remove = (recording: Recording, preview: DeletePreview) => this.act(service => service.delete(recording, preview));
+  storage = (): Promise<RecordingStorage> => this.read(() => this.service.storage());
+  saveStorage = (policy: StoragePolicy) => this.act(service => service.saveStorage(policy));
   resolve = (detail: RecordingDetail) => this.act(service => service.update(detail.recording, {...detail.recording.options, priority: Math.min(1000, Math.max(detail.recording.options.priority, ...detail.overlaps.map(value => value.priority)) + 1)}));
   saveRule = (rule: RecordingRule, config: RuleConfig) => this.act(service => service.saveRule(rule.id, rule.revision, config));
   deleteRule = (rule: RecordingRule, future: 'keep' | 'cancel') => this.act(service => service.deleteRule(rule, future));

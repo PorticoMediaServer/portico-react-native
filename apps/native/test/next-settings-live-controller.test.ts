@@ -180,7 +180,7 @@ function recordingService() {
   const service: NativeRecordingService = {
     list: async () => page, groups: async () => ({groups: [], nextCursor: '', revision: 1}),
     summary: async () => ({upcoming: 51, recorded: 201, rules: 3, conflicts: 2, groups: 80, unwatched: 60}), storage: async () => storage,
-    detail: unavailable, deletePreview: unavailable, schedule: unavailable, update: unavailable, cancel: unavailable, keep: unavailable, delete: unavailable, saveRule: unavailable, deleteRule: unavailable,
+    detail: unavailable, deletePreview: unavailable, schedule: unavailable, update: unavailable, cancel: unavailable, keep: unavailable, delete: unavailable, saveRule: unavailable, deleteRule: unavailable, saveStorage: unavailable,
     onAccessChanged: fn => {accessChanged = fn;}, dispose: () => {disposed++;},
   };
   return {service, page, storage, revoke: () => accessChanged(), disposed: () => disposed};

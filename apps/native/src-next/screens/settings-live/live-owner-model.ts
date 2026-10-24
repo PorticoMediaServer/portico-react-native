@@ -1,0 +1,166 @@
+/**
+ * Live TV & Channels owner documents, read exactly as the server names them.
+ * A field this client cannot read is refused rather than guessed; the server's
+ * own keys are the contract, so extra fields are ignored and never invented.
+ */
+
+const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+const text = (v: unknown, max = 4096): v is string => typeof v === 'string' && v.length <= max && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v);
+const count = (v: unknown, max = Number.MAX_SAFE_INTEGER): v is number => Number.isSafeInteger(v) && Number(v) >= 0 && Number(v) <= max;
+const signed = (v: unknown, min = -Number.MAX_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER): v is number => Number.isSafeInteger(v) && Number(v) >= min && Number(v) <= max;
+const flag = (v: unknown): v is boolean => typeof v === 'boolean';
+const oneOf = <T extends string>(v: unknown, values: readonly T[]): v is T => typeof v === 'string' && (values as readonly string[]).includes(v);
+const strings = (v: unknown, max: number): v is string[] => Array.isArray(v) && v.length <= max && v.every(item => text(item, 512));
+function invalid(): never { throw new Error('invalid_response'); }
+
+/** The server's administration envelope: the list carries its fields at the top,
+ * a typed owner result carries them under `result`. Both name this server. */
+export function adminResult(v: unknown, serverId: string, wrap = false): Record<string, any> {
+  if (!object(v) || typeof v.serverId !== 'string' || v.serverId !== serverId) invalid();
+  const body = wrap ? v.result : v;
+  if (!object(body)) invalid();
+  return body;
+}
+
+export type LiveRefresh = Readonly<{sourceId: string; state: 'healthy' | 'degraded' | 'credentials-required' | 'refreshing'; errorCode: string; nextRefresh: string; failures: number}>;
+export type ImportDiagnostics = Readonly<{skippedChannels: number; skippedProgrammes: number; adjustedProgrammes: number; examples: readonly string[]}>;
+export type LiveSource = Readonly<{
+  id: string; name: string; revision: number; state: string; tunerCount: number; tunerCountMode: string;
+  generation: string; publishedAt: string; channels: number; programmes: number;
+  deliveryValidation: string; capacityKnown: boolean; planningEstimate: number; diagnostics: ImportDiagnostics;
+}>;
+export type LiveSources = Readonly<{sources: readonly LiveSource[]; refresh: readonly LiveRefresh[]}>;
+
+const diagnostics = (v: unknown): ImportDiagnostics => {
+  if (!object(v)) return {skippedChannels: 0, skippedProgrammes: 0, adjustedProgrammes: 0, examples: []};
+  return {
+    skippedChannels: count(v.skippedChannels) ? v.skippedChannels : 0,
+    skippedProgrammes: count(v.skippedProgrammes) ? v.skippedProgrammes : 0,
+    adjustedProgrammes: count(v.adjustedProgrammes) ? v.adjustedProgrammes : 0,
+    examples: strings(v.examples, 10) ? v.examples : [],
+  };
+};
+const source = (v: unknown): LiveSource => {
+  if (!object(v) || !text(v.id, 64) || !v.id || !text(v.name, 512) || !count(v.revision) || !text(v.state, 64)) invalid();
+  return Object.freeze({
+    id: v.id, name: v.name, revision: v.revision, state: v.state,
+    tunerCount: count(v.tunerCount, 256) ? v.tunerCount : 0,
+    tunerCountMode: text(v.tunerCountMode, 64) ? v.tunerCountMode : '',
+    generation: text(v.generation, 128) ? v.generation : '',
+    publishedAt: text(v.publishedAt, 64) ? v.publishedAt : '',
+    channels: count(v.channels, 100000) ? v.channels : 0,
+    programmes: count(v.programmes, 10000000) ? v.programmes : 0,
+    deliveryValidation: text(v.deliveryValidation, 128) ? v.deliveryValidation : '',
+    capacityKnown: flag(v.capacityKnown) ? v.capacityKnown : false,
+    planningEstimate: count(v.planningEstimate, 256) ? v.planningEstimate : 0,
+    diagnostics: diagnostics(v.diagnostics),
+  });
+};
+export function parseLiveSources(v: unknown, serverId: string): LiveSources {
+  const body = adminResult(v, serverId);
+  if (!Array.isArray(body.sources) || !Array.isArray(body.refresh)) invalid();
+  return Object.freeze({
+    sources: Object.freeze(body.sources.map(source)),
+    refresh: Object.freeze(body.refresh.map(raw => {
+      if (!object(raw) || !text(raw.sourceId, 64) || !oneOf(raw.state, ['healthy', 'degraded', 'credentials-required', 'refreshing'] as const)) invalid();
+      return Object.freeze({sourceId: raw.sourceId, state: raw.state, errorCode: text(raw.errorCode, 128) ? raw.errorCode : '', nextRefresh: text(raw.nextRefresh, 64) ? raw.nextRefresh : '', failures: count(raw.failures) ? raw.failures : 0});
+    })),
+  });
+}
+
+export type FilterRule = Readonly<{mode: 'include' | 'exclude'; values: readonly string[]}>;
+export type LiveDefaults = Readonly<{
+  importLimits: Readonly<{bytes: number; channels: number; programmes: number}>;
+  streamBufferMs: number; retryWindowMs: number; userAgent: string; guideDays: number; logoImport: boolean; discoveryEnabled: boolean;
+}>;
+export type LiveSourceSettings = Readonly<{
+  enabledGroups: readonly string[]; enabledChannels: readonly string[]; kind: string;
+  streamBufferMs: number | null; retryWindowMs: number | null; userAgent: string;
+  filters: Readonly<{categories: FilterRule; countries: FilterRule; keywords: FilterRule}>;
+  logoImport: Readonly<{enabled: boolean; overwriteExisting: boolean}>;
+  channelNumbering: Readonly<{mode: 'source' | 'sequential'; startAt: number; step: number}>;
+  guideSourceId: string;
+  importLimits: Readonly<{bytes: number; channels: number; programmes: number}> | null;
+}>;
+export type LiveSourceDocument = Readonly<{
+  sourceId: string; sourceName: string; revision: number; digest: string;
+  settings: LiveSourceSettings; effective: LiveDefaults; availableKinds: readonly string[]; tunerCount: number;
+}>;
+
+const limits = (v: unknown): Readonly<{bytes: number; channels: number; programmes: number}> => {
+  if (!object(v)) invalid();
+  if (!count(v.bytes, 1 << 30) || !count(v.channels, 100000) || !count(v.programmes, 10000000)) invalid();
+  return Object.freeze({bytes: v.bytes, channels: v.channels, programmes: v.programmes});
+};
+const defaults = (v: unknown): LiveDefaults => {
+  if (!object(v)) invalid();
+  const importLimits = limits(v.importLimits);
+  if ( !count(v.streamBufferMs, 120000) || !count(v.retryWindowMs, 3600000) || !text(v.userAgent, 200) || !count(v.guideDays, 14) || !flag(v.logoImport) || !flag(v.discoveryEnabled)) invalid();
+  return Object.freeze({importLimits, streamBufferMs: v.streamBufferMs, retryWindowMs: v.retryWindowMs, userAgent: v.userAgent, guideDays: v.guideDays, logoImport: v.logoImport, discoveryEnabled: v.discoveryEnabled});
+};
+const filter = (v: unknown): FilterRule => {
+  if (!object(v) || !oneOf(v.mode, ['include', 'exclude'] as const) || !strings(v.values, 200)) invalid();
+  return Object.freeze({mode: v.mode, values: Object.freeze([...v.values])});
+};
+const settings = (v: unknown): LiveSourceSettings => {
+  if (!object(v) || !strings(v.enabledGroups, 2000) || !strings(v.enabledChannels, 2000) || !text(v.kind, 64) || !text(v.userAgent, 200)) invalid();
+  const buffer = v.streamBufferMs === null ? null : count(v.streamBufferMs, 120000) ? v.streamBufferMs : invalid();
+  const retry = v.retryWindowMs === null ? null : count(v.retryWindowMs, 3600000) ? v.retryWindowMs : invalid();
+  if (!object(v.filters) || !object(v.logoImport) || !flag(v.logoImport.enabled) || !flag(v.logoImport.overwriteExisting) || !object(v.channelNumbering) || !oneOf(v.channelNumbering.mode, ['source', 'sequential'] as const)) invalid();
+  if (!count(v.channelNumbering.startAt, 100000) || !count(v.channelNumbering.step, 10000) || !text(v.guideSourceId, 64)) invalid();
+  const own = v.importLimits === null || v.importLimits === undefined ? null : limits(v.importLimits);
+  return Object.freeze({
+    enabledGroups: Object.freeze([...v.enabledGroups]), enabledChannels: Object.freeze([...v.enabledChannels]), kind: v.kind,
+    streamBufferMs: buffer, retryWindowMs: retry, userAgent: v.userAgent,
+    filters: Object.freeze({categories: filter(v.filters.categories), countries: filter(v.filters.countries), keywords: filter(v.filters.keywords)}),
+    logoImport: Object.freeze({enabled: v.logoImport.enabled, overwriteExisting: v.logoImport.overwriteExisting}),
+    channelNumbering: Object.freeze({mode: v.channelNumbering.mode, startAt: v.channelNumbering.startAt, step: v.channelNumbering.step}),
+    guideSourceId: v.guideSourceId, importLimits: own,
+  });
+};
+export function parseSourceDocument(v: unknown, serverId: string): LiveSourceDocument {
+  const body = adminResult(v, serverId, true);
+  if (!text(body.sourceId, 64) || !text(body.sourceName, 512) || !count(body.revision) || !strings(body.availableKinds, 16) || !count(body.tunerCount, 256)) invalid();
+  return Object.freeze({sourceId: body.sourceId, sourceName: body.sourceName, revision: body.revision, digest: text(body.digest, 128) ? body.digest : '', settings: settings(body.settings), effective: defaults(body.effective), availableKinds: Object.freeze([...body.availableKinds]), tunerCount: body.tunerCount});
+}
+export function parseLiveDefaults(v: unknown, serverId: string): Readonly<{revision: number; settings: LiveDefaults}> {
+  const body = adminResult(v, serverId, true);
+  if (!count(body.revision) || !object(body.settings)) invalid();
+  return Object.freeze({revision: body.revision, settings: defaults(body.settings)});
+}
+
+export type ChannelMapEntry = Readonly<{channelId: string; name: string; sourceNumber: string; number: string; group: string; guideChannelId: string; hidden: boolean; overridden: boolean; position: number}>;
+export type ChannelMapPage = Readonly<{sourceId: string; generation: string; items: readonly ChannelMapEntry[]; nextCursor: string}>;
+export type ChannelMapEdit = Readonly<{number: string; guideChannelId: string; hidden: boolean}>;
+export function parseChannelMapPage(v: unknown, serverId: string): ChannelMapPage {
+  const body = adminResult(v, serverId, true);
+  if (!text(body.sourceId, 64) || !Array.isArray(body.items) || !text(body.nextCursor ?? '', 512)) invalid();
+  return Object.freeze({sourceId: body.sourceId, generation: text(body.generation, 128) ? body.generation : '', nextCursor: body.nextCursor ?? '', items: Object.freeze(body.items.map(raw => {
+    if (!object(raw) || !text(raw.channelId, 128) || !text(raw.name, 512) || !text(raw.sourceNumber ?? '', 32) || !text(raw.number ?? '', 32) || !text(raw.group ?? '', 256) || !text(raw.guideChannelId ?? '', 256) || !flag(raw.hidden) || !flag(raw.overridden) || !count(raw.position, 10000000)) invalid();
+    return Object.freeze({channelId: raw.channelId, name: raw.name, sourceNumber: raw.sourceNumber ?? '', number: raw.number ?? '', group: raw.group ?? '', guideChannelId: raw.guideChannelId ?? '', hidden: raw.hidden, overridden: raw.overridden, position: raw.position});
+  }))});
+}
+
+export type TunerDevice = Readonly<{deviceId: string; model: string; friendlyName: string; address: string; baseUrl: string; tunerCount: number; configured: boolean}>;
+export type TunerDiscovery = Readonly<{devices: readonly TunerDevice[]; discoveryEnabled: boolean; message: string}>;
+export function parseTunerDiscovery(v: unknown, serverId: string): TunerDiscovery {
+  const body = adminResult(v, serverId, true);
+  if (!Array.isArray(body.devices) || !flag(body.discoveryEnabled)) invalid();
+  return Object.freeze({discoveryEnabled: body.discoveryEnabled, message: text(body.message, 512) ? body.message : '', devices: Object.freeze(body.devices.map(raw => {
+    if (!object(raw) || !text(raw.address, 256) || !text(raw.baseUrl ?? '', 512) || !count(raw.tunerCount, 256) || !flag(raw.configured)) invalid();
+    return Object.freeze({deviceId: text(raw.deviceId, 256) ? raw.deviceId : '', model: text(raw.model, 256) ? raw.model : '', friendlyName: text(raw.friendlyName, 256) ? raw.friendlyName : '', address: raw.address, baseUrl: raw.baseUrl ?? '', tunerCount: raw.tunerCount, configured: raw.configured});
+  }))});
+}
+
+export type LogoImportOutcome = Readonly<{requested: number; imported: number; skipped: number}>;
+export function parseLogoImport(v: unknown, serverId: string): LogoImportOutcome {
+  const body = adminResult(v, serverId, true);
+  if (!count(body.requested, 100000) || !count(body.imported, 100000) || !count(body.skipped, 100000)) invalid();
+  return Object.freeze({requested: body.requested, imported: body.imported, skipped: body.skipped});
+}
+
+/** The fields an owner types for one source, held in whole seconds and MB before they are sent. */
+export const secondsOf = (ms: number | null): string => ms === null ? '' : String(ms / 1000);
+export const millisOf = (value: string): number | null => value.trim() === '' ? null : Math.max(0, Math.round(Number(value) || 0)) * 1000;
+export const megabytes = 1048576;
+export const listOf = (value: string): string[] => value.split(',').map(part => part.trim()).filter(Boolean);

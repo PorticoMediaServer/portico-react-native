@@ -28,8 +28,10 @@ import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, n
 import {useGuideTimePan} from './useGuideTimePan';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
+import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
+import type {NativeLiveOwnerController} from './live-owner-controller';
 
-export function NativeLiveScreen({controller, recordings, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId'>; runtime: NativeShellRuntime}) {
+export function NativeLiveScreen({controller, recordings, owner, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; owner: NativeLiveOwnerController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), guide = controller.guide;
   const data = useSyncExternalStore(guide.subscribe, guide.getSnapshot);
@@ -43,7 +45,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
   const setView = (value: 'guide' | 'list') => {if (value === 'list') goNow(); controller.chooseView(value);};
   const [selected, setSelected] = useState<Readonly<{channel: GuideChannelRow; program?: GuideProgram}>>();
   const [recording, setRecording] = useState(false), [recordError, setRecordError] = useState<unknown>();
-  const [recordingsOpen, setRecordingsOpen] = useState(false), [recordingsReturn, setRecordingsReturn] = useState(0);
+  const [recordingsOpen, setRecordingsOpen] = useState(false), [recordingsReturn, setRecordingsReturn] = useState(0), [ownerOpen, setOwnerOpen] = useState(false);
   const opener = useRef<View | null>(null), selectedOpener = useRef<View | null>(null);
   const list = useRef<VirtualizedList<number>>(null), visible = useRef({first: 0, last: 12});
   const guideOffset = useRef(0);
@@ -126,6 +128,8 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
           renderItem={({item: group}) => <Chip style={phone ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phone ? shellType(13.5, 700) : undefined} focusId={`group:${group}`} testID={`live-filter-${group}`} selected={state.options.group === group} onPress={() => select({group, favorites: false})}>{group}</Chip>}/>;
   useDestinationEntryFocus({visible: theme.isTV && !recordingsOpen && recordingsReturn > 0, intent: 'restore', revision: recordingsReturn}, {regionId: controls, childId: 'live-recordings'});
   const empty = !state.loading && state.sources.length === 0;
+  const managesServer = ports.context.account.account.role === 'owner';
+  if (ownerOpen) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} onClose={() => {setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
   if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
   return <Screen title={!theme.isTV && !phone ? t('search.chip.liveTV') : undefined} style={theme.isTV ? {paddingTop: 56, paddingRight: 8} : phone ? {paddingTop: insets.top + (landscape ? 0 : 14)} : undefined}>
     <View onLayout={event => setWidth(event.nativeEvent.layout.width - insetLeft - insetRight)} style={{flex: 1, paddingLeft: insetLeft, paddingRight: insetRight}}>
@@ -133,8 +137,9 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
         <Text accessibilityRole="header" style={[shellType(32, 800, 36.8, -.035), {color: theme.colors.text, flex: 1}]}>{t('search.chip.liveTV')}</Text>
         {viewSwitch}
         {hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}
+        {managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} onPress={() => setOwnerOpen(true)}/>}
       </View>}
-      {landscape && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', height: 50, paddingTop: 6, marginBottom: 6}}><Text accessibilityRole="header" style={[shellType(24, 800, 'normal', -.035), {color: theme.colors.text}]}>{t('search.chip.liveTV')}</Text>{viewSwitch}{filterChips}{sortPicker}{hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}</View>}
+      {landscape && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', height: 50, paddingTop: 6, marginBottom: 6}}><Text accessibilityRole="header" style={[shellType(24, 800, 'normal', -.035), {color: theme.colors.text}]}>{t('search.chip.liveTV')}</Text>{viewSwitch}{filterChips}{sortPicker}{hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}{managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} onPress={() => setOwnerOpen(true)}/>}</View>}
       {!phone && <FocusRegion id={controls} orientation="horizontal" edges={{left: ids.rail}} style={{flexDirection: 'row', gap: theme.isTV ? 22 : 12, alignItems: 'center', marginBottom: theme.isTV ? 24 : 20, minHeight: theme.isTV ? 64 : undefined}}>
         {theme.isTV && <Text accessibilityRole="header" style={[shellType(44, 800, 'normal', -.03), {color: theme.colors.text, marginRight: 14}]}>{t('search.chip.liveTV')}</Text>}
         {sourcePicker}
@@ -143,6 +148,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
         <Button testID="live-now" variant="glass" size="small" onPress={goNow}>{t('guide.now')}</Button>
         {hasRecordings && <Button focusId="live-recordings" testID="live-recordings" variant="glass" size="small" icon="i-rec" onPress={() => setRecordingsOpen(true)}>{t('recordings.title')}</Button>}
         {!theme.isTV && sortPicker}
+        {managesServer && <Button testID="live-owner-open" variant="glass" size="small" icon="i-sliders" onPress={() => setOwnerOpen(true)}>{t('settings.server.live')}</Button>}
       </FocusRegion>}
       {!landscape && <FocusRegion id={ids.surface('live.filters')} orientation="horizontal" edges={{left: ids.rail, up: controls}} style={{marginBottom: theme.isTV ? 38 : compact ? 8 : 30}}>
         {filterChips}
