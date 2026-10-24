@@ -11,7 +11,8 @@ import {nativeSearchEntryKey} from '../src-next/screens/search/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
-const texts = (node: any) => nodes(node).filter(n => n.type === 'Text');
+const flat = (node: any) => Array.isArray(node) ? node : nodes(node);
+const texts = (node: any) => flat(node).filter(n => n.type === 'Text');
 const label = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
 const flatten = (style: any) => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
 const state = (node: any) => ({focused: false, hovered: false, pressed: false, holding: false});
@@ -169,11 +170,6 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
     const artStyle = flatten(body.find(node => node.type === 'View' && flatten(node.props.style).overflow === 'hidden')!.props.style);
     assert.deepEqual([artStyle.width, artStyle.height, artStyle.borderRadius], [width, height, 6], `${id} keeps its drawn art slot`);
     const captions = texts(body).filter(node => flatten(node.props.style).fontSize === 12.5);
-    const outline = (node: any, depth = 0): string[] => Array.isArray(node)
-      ? node.flatMap(child => outline(child, depth))
-      : node?.props ? [`${'  '.repeat(depth)}${typeof node.type === 'string' ? node.type : typeof node.type}:${label(node) ?? ''}`, ...outline(node.props.children, depth + 1)] : [];
-    // eslint-disable-next-line no-console
-    console.log(`DEBUG ${id}\n${outline(childFn(frame)(state(frame))).join('\n')}`);
     assert.deepEqual(captions.map(node => label(node)), homeCardText(entry, false, env).caption.map(part => part.text));
   }
   // The Shows row is omitted: its only result already leads the page as the Top result.
