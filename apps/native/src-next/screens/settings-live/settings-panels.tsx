@@ -1,0 +1,126 @@
+import React, {useEffect, useMemo, useState} from 'react';
+import {NativeModules, Text, View} from 'react-native';
+import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
+import {idempotencyKey} from '../../../../../packages/client-core/src/playback-v1/http';
+import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
+import {SessionsClient} from '../../../../../packages/client-core/src/playback-v1/sessions';
+import {playbackControlsService, type RemotePlaybackControls} from '../../../../../packages/client-core/src/playback-controls';
+import {seekTarget, transportOffers, type TransportCommand} from '../../../../../packages/client-core/src/server-admin/now-playing';
+import type {SettingsCustomId} from '../../../../../packages/client-core/src/presentation/settings-structure';
+import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import type {NativeShellRoute} from '../../shell/routes';
+import type {NativeShellRuntime} from '../../shell/runtime';
+import {Menu, type MenuEntry} from '../../kit/overlays';
+import {SettingsRow} from '../../kit/shell';
+import {shellType} from '../../kit/shell/visual';
+import {useTheme} from '../../kit/theme';
+import type {MessageId, MessageValues} from '../../../../../packages/i18n/src';
+import type {NativeScreenLifetime} from './lifetime';
+
+/** The full catalogue translator; the page passes it down with every other word. */
+export type Translate = (id: MessageId, values?: MessageValues) => string;
+
+export type NativeSettingsPanelDeps = Readonly<{
+  context: NativeShellBootstrapContext;
+  lifetime: NativeScreenLifetime;
+  t: Translate;
+  openRoute: (route: NativeShellRoute) => void;
+}>;
+
+const roleWord = (role: 'owner' | 'admin' | 'member'): MessageId => role === 'owner' ? 'next.shell.owner' : role === 'admin' ? 'next.shell.administrator' : 'next.shell.member';
+
+function IdentityPanel({context, t}: NativeSettingsPanelDeps) {
+  const account = context.account.account;
+  const profile = context.account.profiles.find(value => value.id === context.session()?.viewer.profileId);
+  const description = [profile?.name, t(roleWord(account.role))].filter(Boolean).join(' · ');
+  return <SettingsRow first testID="settings-panel-identity" label={t('settings.row.identity')} value={account.username} description={description}/>;
+}
+
+function PorticoAccountPanel({context, t}: NativeSettingsPanelDeps) {
+  const hosted = !!context.account.account.hostedAccountId;
+  return <SettingsRow first testID="settings-panel-portico-account" label={t('settings.row.porticoAccount')}
+    value={t(hosted ? 'accounts.session.portico' : 'accounts.session.local')}
+    description={t(hosted ? 'accounts.settings.porticoPrivacy' : 'accounts.settings.localPrivacy')}/>;
+}
+
+function AboutPanel({context, t}: NativeSettingsPanelDeps) {
+  return <View testID="settings-panel-about">
+    <SettingsRow first label={t('about.appVersion')} value={context.appVersion}/>
+    <SettingsRow label={t('about.server')} value={context.serverName}/>
+  </View>;
+}
+
+function PrivacyNotePanel({t}: NativeSettingsPanelDeps) {
+  const theme = useTheme();
+  return <View style={{paddingHorizontal: 14, paddingVertical: 12}}>
+    <Text testID="settings-panel-privacy-note" style={[shellType(13, 400, 'normal'), {color: theme.colors.textTertiary}]}>{t('pref.note.privacy.ownerSeesPlays')}</Text>
+  </View>;
+}
+
+const transportIcon: Record<TransportCommand, 'i-pause' | 'i-play' | 'i-rew' | 'i-ffw' | 'i-restart'> = {pause: 'i-pause', resume: 'i-play', back: 'i-rew', forward: 'i-ffw', startOver: 'i-restart'};
+
+/** What this profile is playing elsewhere, read from the server. Nothing is drawn while nothing is. */
+function RemoteControlsPanel({context, lifetime, t}: NativeSettingsPanelDeps) {
+  const theme = useTheme();
+  const [items, setItems] = useState<readonly RemotePlaybackControls[]>([]);
+  const [menu, setMenu] = useState<RemotePlaybackControls>();
+  const controls = useMemo(() => playbackControlsService(<T,>(path: string, method?: string, body?: unknown) => lifetime.request(signal => context.api.request<T>(path, method, body, signal))), [context, lifetime]);
+  const sessions = useMemo(() => new SessionsClient(localV1Http(context.api)), [context]);
+  useEffect(() => {
+    let live = true;
+    const read = () => {void controls.remote().then(value => {if (live) setItems(value.items);}, () => {});};
+    read();
+    const timer = setInterval(read, 10_000);
+    return () => {live = false; clearInterval(timer);};
+  }, [controls]);
+  if (!items.length) return null;
+  const words: Record<TransportCommand, string> = {pause: t('action.pause'), resume: t('entry.resume'), back: t('player.skipBackSeconds', {seconds: 30}), forward: t('player.skipForwardSeconds', {seconds: 30}), startOver: t('action.startOver')};
+  const send = (target: RemotePlaybackControls, what: TransportCommand | 'stop') => {
+    const work = what === 'stop' ? sessions.stop(target.sessionId) : (async () => {
+      const change = (from: Readonly<{revision: string; positionMs: number}>) => sessions.patch(target.sessionId, from.revision, what === 'pause' || what === 'resume' ? {state: what === 'pause' ? 'paused' : 'playing'} : {seek: {positionMs: seekTarget(what, from.positionMs) ?? 0, id: idempotencyKey(() => nativeRequestId())}});
+      try {await change(target);} catch (error) {
+        const current = (error as {current?: Readonly<{revision?: unknown; positionMs?: unknown}>} | null)?.current;
+        if (!isStaleAnswer(error) || typeof current?.revision !== 'string') throw error;
+        await change({revision: current.revision, positionMs: typeof current.positionMs === 'number' ? current.positionMs : target.positionMs});
+      }
+    })();
+    void work.then(() => controls.remote().then(value => setItems(value.items), () => {}), () => {});
+  };
+  const entries = (target: RemotePlaybackControls): readonly MenuEntry[] => [
+    ...transportOffers(target, target.actions).map((command): MenuEntry => ({id: command, label: words[command], icon: transportIcon[command], onSelect: () => send(target, command)})),
+    ...(target.actions.includes('stop') ? [{id: 'stop', label: t('action.stop'), icon: 'i-stop' as const, destructive: true, onSelect: () => send(target, 'stop')}] : []),
+  ];
+  const stateWord = (target: RemotePlaybackControls) => target.state === 'paused' ? t('remote.state.paused') : target.state === 'playing' ? t('remote.state.playing') : t('remote.state.starting');
+  return <View testID="settings-panel-remote-controls">
+    {items.map((target, index) => <SettingsRow key={target.sessionId} first={index === 0} testID={`settings-remote-${target.sessionId}`}
+      label={target.device.name || t('remote.device')}
+      description={target.item?.title ?? t('remote.hiddenTitle')}
+      value={stateWord(target)}
+      onPress={entries(target).length ? () => setMenu(target) : undefined}/>)}
+    <Text style={[shellType(12.5, 400, 'normal'), {color: theme.colors.textTertiary, paddingHorizontal: 14, paddingVertical: 10}]}>{t('remote.lede')}</Text>
+    <Menu open={Boolean(menu)} onOpenChange={open => {if (!open) setMenu(undefined);}} presentation="sheet" testID="settings-remote-menu"
+      title={menu ? menu.device.name || t('remote.device') : undefined}
+      description={menu?.item?.title}
+      items={menu ? entries(menu) : []}/>
+  </View>;
+}
+
+function nativeRequestId(): string {
+  const runtime = NativeModules.PorticoRuntime as undefined | {playbackRequestId?: () => string};
+  if (typeof runtime?.playbackRequestId !== 'function') throw new Error('native_settings_request_id_unavailable');
+  return runtime.playbackRequestId();
+}
+
+/** The account pages' custom surfaces this build draws with real data. Server pages are their own routes. */
+export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSettingsPanelDeps, _runtime: NativeShellRuntime): React.ReactNode {
+  switch (id) {
+    case 'identity': return <IdentityPanel {...deps}/>;
+    case 'profiles': return <SettingsRow first label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
+    case 'servers': return <SettingsRow first label={deps.t('settings.section.servers')} value={deps.context.serverName} onPress={() => deps.openRoute({kind: 'servers'})}/>;
+    case 'porticoAccount': return <PorticoAccountPanel {...deps}/>;
+    case 'about': return <AboutPanel {...deps}/>;
+    case 'privacyNote': return <PrivacyNotePanel {...deps}/>;
+    case 'remoteControls': return <RemoteControlsPanel {...deps}/>;
+    default: return undefined;
+  }
+}
