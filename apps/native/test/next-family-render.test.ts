@@ -84,7 +84,7 @@ const {default: stateGalleries} = await import('../src-next/dev/families/states/
 const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
 const {Icon} = await import('../src-next/kit/Icon.tsx');
 const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
-const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
+const {Banner, Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {PlaylistPicker, MixedEditExplainer} = await import('../src-next/kit/selection/index.ts');
@@ -565,6 +565,64 @@ test('F01 Library composites forward caller-fenced surface and semantic inner id
       finally {control.host.unmount();}
     } finally {choice.host.unmount(); scope.unmount();}
   } finally {menu.host.unmount(); switcher.host.unmount();}
+});
+
+test('inline Banner stays in form flow with the same approved face and overlay default', () => {
+  const previous = state.theme;
+  try {for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    for (const variant of ['quiet', 'notice']) {
+      let actions = 0;
+      const props = {message: 'Actual server error', accessibilityLabel: 'Accessible server error', variant, tone: 'error', topInset: 27,
+        action: {label: 'Actual retry', onPress: () => {actions++;}}, testID: 'form-error'};
+      const overlay = mount(Banner, props), explicit = mount(Banner, {...props, placement: 'overlay'}), inline = mount(Banner, {...props, placement: 'inline'});
+      try {
+        assert.deepEqual((overlay.tree as Element).props.style, {position: 'absolute', top: 27, left: 0, right: 0, zIndex: state.theme.layers.notice, alignItems: 'center', paddingHorizontal: isTV ? 96 : 16});
+        assert.deepEqual((explicit.tree as Element).props.style, (overlay.tree as Element).props.style);
+        assert.deepEqual((inline.tree as Element).props.style, {alignSelf: 'stretch'});
+        const face = find(inline.tree, 'AnimatedView'), original = find(overlay.tree, 'AnimatedView');
+        assert.deepEqual(face.props.style, original.props.style, 'placement preserves material, dimensions, type and animation');
+        assert.equal(face.props.testID, 'form-error'); assert.equal(face.props.accessibilityLiveRegion, 'polite');
+        assert.deepEqual(find(inline.tree, 'Text').props, find(overlay.tree, 'Text').props);
+        assert.deepEqual(nodes(inline.tree).filter(node => node.type === Icon).map(node => node.props), nodes(overlay.tree).filter(node => node.type === Icon).map(node => node.props));
+        const action = find(inline.tree, Button);
+        assert.equal(Boolean(action), variant === 'notice');
+        if (action) {action.props.onPress(); assert.equal(actions, 1);}
+      } finally {inline.host.unmount(); explicit.host.unmount(); overlay.host.unmount();}
+    }
+    for (const placement of ['overlay', 'inline']) {
+      const hidden = mount(Banner, {message: 'Actual server error', visible: false, placement});
+      try {assert.equal(hidden.tree, null);} finally {hidden.host.unmount();}
+    }
+  }} finally {state.theme = previous;}
+});
+
+test('Library Save view follows caller eligibility without disabling the other menu commands', () => {
+  const previous = state.theme;
+  try {for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    for (const canSaveView of [undefined, true, false]) {
+      const events: unknown[] = [];
+      const menu = mount(LibraryMenu, {testID: 'save-eligibility', owner: false, open: true, canSaveView,
+        onOpenChange: (open: boolean) => events.push(open), onSaveView: () => events.push('save'), onMarkAll() {}, onEditPins() {}});
+      const rows = nodes(find(menu.tree, Popover)).filter(node => node.type === MenuRow);
+      const save = rows.find(row => row.props.focusId === 'save-view')!;
+      const scope = actualRegion('save-eligibility-surface'), row = mount(MenuRow, save.props, scope.contexts);
+      const control = mount(Focusable, find(row.tree, Focusable).props, scope.contexts);
+      try {
+        assert.deepEqual(rows.map(item => item.props.focusId), ['save-view', 'mark-all', 'edit-pins']);
+        assert.equal(save.props.disabled, canSaveView === false);
+        assert.ok(rows.slice(1).every(item => !item.props.disabled));
+        const native = nativeFocusable(control.tree), host = {nativeTag: 304, requestTVFocus() {}};
+        native.props.ref(host);
+        assert.equal(native.props.disabled, canSaveView === false);
+        assert.equal(native.props.accessibilityState.disabled, canSaveView === false);
+        if (isTV) assert.equal(scope.registry.child({regionId: 'save-eligibility-surface', childId: 'save-view'}), canSaveView === false ? undefined : host);
+        if (canSaveView !== false) {save.props.onPress(); assert.deepEqual(events, [false, 'save']);}
+        else assert.deepEqual(events, []);
+      } finally {control.host.unmount(); row.host.unmount(); scope.unmount(); menu.host.unmount();}
+    }
+  }} finally {state.theme = previous;}
 });
 
 test('F09 explicitly anchored TV Menu holds its in-window native focus guide', () => {
