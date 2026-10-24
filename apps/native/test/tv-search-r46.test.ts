@@ -52,7 +52,7 @@ async function screen(react: unknown) {
       caption: [{id: 'season-count', text: '1 season'}, {id: 'year', text: '2023'}], detail: [], progress: modelProgress})},
     '../../../../../packages/client-core/src/presentation/search-model': {orderedSearchGroups: (value: unknown) => value,
       SEARCH_CHIPS: [{id: 'all', label: 'search.chip.all'}, {id: 'movies', label: 'search.chip.movies'}], topSearchResult: () => top,
-      searchGroupLabel: (id: string) => id, topResultKindLabel: () => 'search.kind.show'},
+      searchGroupLabel: () => 'search.chip.movies', topResultKindLabel: () => 'search.kind.show'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
     '../../kit/cards/primitives': {ArtFrame: 'ArtFrame', CardFrame: 'CardFrame', Parts: 'Parts', Progress: 'Progress'}, '../../kit/focus': {FocusRegion: 'FocusRegion'},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/browse/presentation': presentation,
@@ -92,7 +92,7 @@ test('the drawn field, keyboard column and results column are tv.html#f5 geometr
   const headingNode = elements(tree).find(node => style(node.props.style).alignItems === 'baseline' && style(node.props.style).gap === 14)!;
   assert.deepEqual(style(headingNode.props.style), {flexDirection: 'row', alignItems: 'baseline', gap: 14});
   // The drawn headings carry their count beside the label; the section count is the frame's <small>.
-  assert.deepEqual(textOf(headingNode), ['movies', '4']);
+  assert.deepEqual(textOf(headingNode), ['Movies', '4']);
   const track = style(elements(tree).find(node => style(node.props.style).marginTop === 30 && style(node.props.style).gap === 28)!.props.style);
   assert.deepEqual(track, {flexDirection: 'row', gap: 28, marginTop: 30, flexWrap: 'nowrap'});
   const cards = elements(tree).filter(node => node.type === 'SearchGridCard');
@@ -150,6 +150,7 @@ test('the drawn empty page is states.html#f18 and its genre tiles keep the drawn
     search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: [{q: 'severance'}]};
   landing = {phase: 'ready', genres, initialHeading: 'initial', emptyHeading: 'Browse instead'}; top = undefined; modelProgress = undefined;
   const tree = host.render(() => TVSearchScreen(screenProps()));
+  console.log('TVSEARCH-EMPTY-TREE ' + JSON.stringify(textOf(tree).slice(0, 24)));
   const noMatches = style(textNode(tree, defaultI18n.t('next.states.noMatches', {query: 'casablanca'}))!.props.style);
   assert.deepEqual(noMatches, {...browseType(theme, 52, 800, -.04, 54.6), color: colors.text, marginBottom: 14});
   const body = style(textNode(tree, defaultI18n.t('next.states.noMatchesBody'))!.props.style);
