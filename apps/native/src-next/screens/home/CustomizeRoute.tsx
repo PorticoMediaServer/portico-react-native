@@ -5,12 +5,13 @@ import {PersonalSavedService} from '../../../../../packages/client-core/src/pers
 import {StateView} from '../../kit/states';
 import {HomeCustomize, type NativeHomeCustomizeCopy} from './HomeCustomize';
 import {NativeHomeCustomizeController} from './customize-controller';
+import {NativeHomeSavedViewSummaries} from './saved-view-summaries';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 
-type Source = Readonly<{route: NativeShellRoute; key: number; controller: NativeHomeCustomizeController; views: PersonalSavedService}>;
+type Source = Readonly<{route: NativeShellRoute; key: number; controller: NativeHomeCustomizeController; views: PersonalSavedService; summaries: NativeHomeSavedViewSummaries}>;
 
 /** Authority-local route factory. Registration belongs to this screen module;
  * the shell only binds its factories to the restored context. */
@@ -40,7 +41,7 @@ export function createNativeHomeCustomization(context: NativeShellBootstrapConte
   let source: Source | undefined, alive = true, sequence = 0;
   const current = () => alive && context.current() && !!source && context.navigation.getSnapshot().route === source.route;
   const requestId = async (): Promise<string> => NativeModules.PorticoRuntime.newRequestId();
-  const retire = () => {source?.controller.dispose(); source?.views.dispose(); source = undefined;};
+  const retire = () => {source?.controller.dispose(); source?.views.dispose(); source?.summaries.dispose(); source = undefined;};
   const reconcile = () => {
     if (!alive || !context.current()) {retire(); return;}
     const route = context.navigation.getSnapshot().route;
@@ -54,7 +55,8 @@ export function createNativeHomeCustomization(context: NativeShellBootstrapConte
     const controller = new NativeHomeCustomizeController({home: context.home, current, requestId,
       savedViews: {serverId: context.authority().serverId, isCurrent: view => current() && views.getSnapshot().resources.includes(view)
         && !!view.definition && context.libraries().some(library => library.id === view.definition!.libraryId)}});
-    source = {route, controller, views, key: ++sequence};
+    const summaries = new NativeHomeSavedViewSummaries({api: context.api, serverId: context.authority().serverId, current, libraryIds: () => context.libraries().map(library => library.id)});
+    source = {route, controller, views, summaries, key: ++sequence};
   };
   return {reconcile, owns: (route: NativeShellRoute) => source?.route === route,
     render: (runtime: NativeShellRuntime) => source && current() ? <Customization key={source.key} source={source} runtime={runtime} copy={copy}
@@ -64,10 +66,12 @@ export function createNativeHomeCustomization(context: NativeShellBootstrapConte
 
 function Customization({source, runtime, copy, close}: {source: Source; runtime: NativeShellRuntime; copy: NativeHomeCustomizeCopy; close: () => void}) {
   const state = useSyncExternalStore(source.controller.subscribe, source.controller.getSnapshot), views = useSyncExternalStore(source.views.subscribe, source.views.getSnapshot);
+  useSyncExternalStore(source.summaries.subscribe, source.summaries.getSnapshot);
   useEffect(() => {void source.controller.load();}, [source]);
+  useEffect(() => {void source.summaries.load(views.resources);}, [source, views.resources]);
   const retry = () => {void source.views.select({view: 'views'});};
   return state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, () => {void source.controller.load();})}/>
-    : <HomeCustomize controller={source.controller} copy={copy} i18n={defaultI18n} onClose={close} onAddView={retry} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
+    : <HomeCustomize summary={view => source.summaries.line(view, defaultI18n)} controller={source.controller} copy={copy} i18n={defaultI18n} onClose={close} onAddView={retry} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
       views={{items: views.resources, loading: views.loading, error: views.error, retry,
         renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>}}/>;
 }
