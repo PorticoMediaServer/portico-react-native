@@ -27,11 +27,12 @@ import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.uimanager.UIManagerHelper
 import tv.getportico.portico.BuildConfig
 import java.util.ArrayDeque
-import java.util.Locale
 
 /** No app state, strings, props, assets or image bytes cross this DEBUG-only boundary. */
 class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+  @Volatile private var retired = false
   override fun getName() = "PorticoLayoutObservation"
+  override fun invalidate() { retired = true; super.invalidate() }
 
   @ReactMethod
   fun observe(rootReactTag: Double, fixtureReactTag: Double, hostReactTags: ReadableArray, promise: Promise) {
@@ -41,21 +42,21 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
         hostReactTags.getDouble(it)
       }
     } catch (_: Exception) { null }
-    val activity = currentActivity
+    val activity = reactApplicationContext.currentActivity
     val intent = activity?.intent
-    if (activity == null || intent == null || tags == null || !LayoutObservationPolicy.admitted(
+    if (retired || activity == null || intent == null || tags == null || !LayoutObservationPolicy.admitted(
         BuildConfig.DEBUG, intent.action, intent.dataString, rootReactTag, fixtureReactTag, tags)) {
       promise.reject("layout_observation_scope", "layout_observation_scope"); return
     }
     UiThreadUtil.runOnUiThread {
       try {
-        fun intentCurrent() = currentActivity === activity && activity.intent === intent &&
+        fun intentCurrent() = !retired && reactApplicationContext.currentActivity === activity && activity.intent === intent &&
           LayoutObservationPolicy.publicIntent(BuildConfig.DEBUG, intent.action, intent.dataString) && !activity.isFinishing && !activity.isDestroyed
         if (!intentCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
         // Only this captured root is resolved by RN. All other IDs are found below it.
         val root = UIManagerHelper.getUIManagerForReactTag(reactApplicationContext, rootReactTag.toInt())?.resolveView(rootReactTag.toInt())
         val decor = activity.window?.decorView
-        if (root == null || decor == null || !root.isAttachedToWindow || root.windowToken == null ||
+        if (root == null || root.id != rootReactTag.toInt() || decor == null || !root.isAttachedToWindow || root.windowToken == null ||
             root.windowToken != decor.windowToken || !descendant(root, decor)) {
           promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread
         }
@@ -66,9 +67,9 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
           { view, index -> (view as ViewGroup).getChildAt(index) })
         if (found == null) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
         val fixture = found[fixtureReactTag.toInt()]
-        fun scopeCurrent() = intentCurrent() && root.isAttachedToWindow && decor.isAttachedToWindow &&
+        fun scopeCurrent() = intentCurrent() && root.id == rootReactTag.toInt() && root.isAttachedToWindow && decor.isAttachedToWindow &&
           activity.window?.decorView === decor && root.windowToken == window && decor.windowToken == window &&
-          descendant(root, decor) && fixture != null && fixture.isAttachedToWindow && fixture.windowToken == window && descendant(fixture, root)
+          descendant(root, decor) && fixture != null && fixture.id == fixtureReactTag.toInt() && fixture.isAttachedToWindow && fixture.windowToken == window && descendant(fixture, root)
         if (!scopeCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
         val hosts = requested.map { tag ->
           val view = found[tag]
@@ -80,8 +81,10 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
             input(view, root) -> "input-opaque"
             else -> null
           }
-          mapOf("reactTag" to tag, "facts" to if (reason != null) unavailableFacts(reason) else try { facts(view!!, decor) }
-            catch (_: Exception) { unavailableFacts("paint-unprovable") })
+          val observed = if (reason != null) unavailableFacts(reason) else try { facts(view!!, decor) }
+            catch (_: Exception) { unavailableFacts("paint-unprovable") }
+          mapOf("reactTag" to tag, "facts" to if (view != null && (view.id != tag || !view.isAttachedToWindow ||
+            view.windowToken != window || !descendant(view, root))) unavailableFacts("root-changed") else observed)
         }
         if (!scopeCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
         promise.resolve(Arguments.makeNativeMap(mapOf("version" to 1, "unit" to "dp", "rootReactTag" to rootReactTag.toInt(),
@@ -103,7 +106,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
       (it.animation == null || it.animation.hasEnded())) it.alpha.toDouble() * it.transitionAlpha.toDouble() else Double.NaN }
     LayoutObservationPolicy.opacity(alpha)?.let { result["effectiveOpacity"] = value(it, "android.View.alpha+transitionAlpha.decorAncestry") }
     val backgrounds = chain.map(::background)
-    backgrounds.first()?.let { result["backgroundColor"] = value(LayoutObservationPolicy.rgba(it), "android.ColorDrawable.color+alpha") }
+    backgrounds.first()?.let { result["backgroundColor"] = value(LayoutObservationPolicy.rgba(it), if (view.background == null) "android.View.background.none" else "android.ColorDrawable.color+alpha") }
       ?: run { result["backgroundColor"] = missing("unsupported-background") }
     if (backgrounds.all { it != null } && LayoutObservationPolicy.opacity(alpha) != null) {
       val composite = LayoutObservationPolicy.background(backgrounds.map { it!! }, alpha)
@@ -142,7 +145,8 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
       if (paints.size >= LayoutObservationPolicy.MAX_RUNS) return result
       val end = spanned?.nextSpanTransition(start, content.length, CharacterStyle::class.java) ?: content.length
       if (end <= start) return result
-      val paint = TextPaint(layout.paint); paint.color = view.currentTextColor
+      val paint = TextPaint(layout.paint); paint.color = view.currentTextColor; paint.drawableState = view.drawableState
+      view.linkTextColors?.let { paint.linkColor = it.getColorForState(view.drawableState, it.defaultColor) }
       val spans = if (spanned == null) emptyList() else spanned.getSpans(start, end, CharacterStyle::class.java).filter {
         spanned.getSpanStart(it) < end && spanned.getSpanEnd(it) > start
       }
@@ -162,7 +166,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     result["fontFamily"] = missing("font-family-unavailable")
     if (Build.VERSION.SDK_INT >= 36 && paints.isNotEmpty()) {
       val families = paints.map { it.typeface?.systemFontFamilyName }.distinct()
-      if (families.size == 1 && !families.single().isNullOrEmpty()) result["fontFamily"] = value(families.single()!!, "android.Layout.TextPaint.Typeface.getSystemFontFamilyName")
+      if (families.size == 1 && LayoutObservationPolicy.fontFamily(families.single())) result["fontFamily"] = value(families.single()!!, "android.Layout.TextPaint.Typeface.getSystemFontFamilyName")
     }
     val heights = (0 until layout.lineCount).map { layout.getLineBottom(it) - layout.getLineTop(it) }.distinct()
     if (heights.size == 1 && heights.single() > 0) result["lineHeight"] = value(heights.single() / density, "android.Layout.getLineTop+getLineBottom")
@@ -228,6 +232,7 @@ internal object LayoutObservationPolicy {
   const val MAX_RUNS = 512
   private const val PUBLIC_URI = "portico://native-layout?specimen=signed-out-welcome"
   fun publicIntent(debug: Boolean, action: String?, uri: String?) = debug && action == "android.intent.action.VIEW" && uri == PUBLIC_URI
+  fun fontFamily(value: String?) = value != null && value.isNotBlank() && value.length <= 128 && value.none { it.isISOControl() || it in "/\\:@?#" }
   private fun tag(value: Double) = value.isFinite() && value > 0 && value <= Int.MAX_VALUE && value == value.toInt().toDouble()
   fun admitted(debug: Boolean, action: String?, uri: String?, root: Double, fixture: Double, tags: List<Double>) =
     publicIntent(debug, action, uri) && tag(root) && tag(fixture) && root != fixture && tags.size <= MAX_HOSTS && tags.all(::tag) && tags.distinct().size == tags.size
@@ -245,9 +250,13 @@ internal object LayoutObservationPolicy {
     return found
   }
   fun opacity(alpha: List<Double>): Double? = if (alpha.isEmpty() || alpha.any { !it.isFinite() || it < 0 || it > 1 }) null else alpha.fold(1.0) { a, b -> a * b }
-  fun rgba(color: Int) = String.format(Locale.ROOT, "rgba(%d, %d, %d, %s)", color ushr 16 and 255, color ushr 8 and 255, color and 255,
-    java.math.BigDecimal(color ushr 24 and 255).divide(java.math.BigDecimal(255), 8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString())
-  fun background(colors: List<Int>, alpha: List<Double>): Int {
+  data class Rgba(val red: Double, val green: Double, val blue: Double, val alpha: Double)
+  fun rgba(color: Int) = rgba(Rgba((color ushr 16 and 255).toDouble(), (color ushr 8 and 255).toDouble(), (color and 255).toDouble(), (color ushr 24 and 255) / 255.0))
+  fun rgba(color: Rgba): String {
+    fun number(value: Double) = java.math.BigDecimal.valueOf(value).setScale(8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+    return "rgba(${number(color.red)}, ${number(color.green)}, ${number(color.blue)}, ${number(color.alpha)})"
+  }
+  fun background(colors: List<Int>, alpha: List<Double>): Rgba {
     var a = 0.0; var r = 0.0; var g = 0.0; var b = 0.0
     for (index in colors.indices) {
       val color = colors[index]; val ca = (color ushr 24 and 255) / 255.0
@@ -255,8 +264,7 @@ internal object LayoutObservationPolicy {
       a += ca * (1 - a)
       r *= alpha[index]; g *= alpha[index]; b *= alpha[index]; a *= alpha[index]
     }
-    if (a == 0.0) return 0
-    fun channel(value: Double) = kotlin.math.round(value / a).toInt().coerceIn(0, 255)
-    return (kotlin.math.round(a * 255).toInt().coerceIn(0, 255) shl 24) or (channel(r) shl 16) or (channel(g) shl 8) or channel(b)
+    if (a == 0.0) return Rgba(0.0, 0.0, 0.0, 0.0)
+    return Rgba(r / a, g / a, b / a, a)
   }
 }
