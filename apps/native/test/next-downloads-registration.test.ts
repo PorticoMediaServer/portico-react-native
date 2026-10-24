@@ -16,7 +16,7 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
   });
   assert.equal(kind, 'downloads');
   assert.equal(Object.keys(nativeDownloadsCopy).length, 11);
-  assert.equal(defaultI18n.t(nativeDownloadsCopy.emptyBody), "Press and hold a title and choose Download. It's kept here to watch without a connection.");
+  assert.equal(defaultI18n.t(nativeDownloadsCopy.emptyBody), "Open a title and choose Download. It's kept here to watch without a connection.");
   assert.equal(defaultI18n.t(nativeDownloadsCopy.storageLimitHelp), 'The most space downloads may use on this phone');
   let backs = 0;
   const renderer = factory({current: () => true, authority: () => ({}), navigation: {back: () => {backs++;}}});
