@@ -30,6 +30,8 @@ test('ruling 37 naming sheet keeps exact existing fields/copy, glass Cancel and 
   assert.equal(elements(tree).find(node => node.type === 'TextField').props.value, 'Actual typed name');
   const content = elements(tree);
   assert.ok(content.findIndex(node => node.type === 'Banner') < content.findIndex(node => node.type === 'TextField'));
+  const notice = content.find(node => node.type === 'Banner');
+  assert.equal(notice.props.variant, 'notice'); assert.equal(notice.props.tone, 'error'); assert.equal(notice.props.placement, 'inline');
   buttons = elements(tree.props.footer).filter(node => node.type === 'Button'); buttons[1].props.onPress(); assert.equal(saved, 1);
   field.props.onSubmitEditing(); assert.equal(saved, 2, 'Enter uses the same controller save guard');
   state = {...state, busy: true}; tree = render(); buttons = elements(tree.props.footer).filter(node => node.type === 'Button');

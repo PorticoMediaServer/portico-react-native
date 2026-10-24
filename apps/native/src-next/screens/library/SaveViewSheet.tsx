@@ -21,7 +21,7 @@ export function NativeLibrarySaveViewSheet({controller}: {controller: NativeLibr
         onPress={() => {void controller.save();}} style={{flex: 1}}>{t('lib.saveView')}</Button>
     </View>}>
     <View style={{gap: 12}}>
-      {state.error !== undefined && <Banner testID="library-save-view-error" tone="error" message={presentError(state.error, 'library', {operation: 'save'}).body}/>}
+      {state.error !== undefined && <Banner testID="library-save-view-error" variant="notice" tone="error" placement="inline" message={presentError(state.error, 'library', {operation: 'save'}).body}/>}
       <TextField ref={input} testID="library-save-view-name" focusId="save-view-name" label={t('lib.saveViewName')} placeholder={t('lib.saveViewPlaceholder')}
         autoFocus value={state.name} onChangeText={controller.setName} editable={!state.busy && !state.nameLocked} maxLength={200} returnKeyType="done"
         onSubmitEditing={() => {void controller.save();}}/>
