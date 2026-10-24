@@ -165,6 +165,6 @@ int main(void){@autoreleasepool{
  __block BOOL followed=YES;[transport URLSession:nil task:task willPerformHTTPRedirection:nil newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://elsewhere.example"]] completionHandler:^(NSURLRequest *next){followed=next!=nil;}];
  pull(request,replies,errors);check(!followed&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"same transport refuses redirects after headers");
  check(PorticoQueueActive==0&&PorticoQueueReads==0&&!PorticoQueueRequests.count,"all admission slots/handles released exactly once");
- actualPullStream();
+ for(NSUInteger attempt=0;attempt<10;attempt++)actualPullStream();
  printf("Apple Reading pull stream: %lu checks passed\n",(unsigned long)checks);return 0;
 }}

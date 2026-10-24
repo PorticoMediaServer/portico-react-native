@@ -153,7 +153,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
    NSUInteger limit=request.responseLimit?:1048576;if(request.data.length>limit||data.length>limit-request.data.length)over=YES;else [request.data appendData:data];
   }
  }
- if(over)[request finish:@"Queue response exceeded its limit."];
+ if(over)[request finish:request.streamingResponse?@"network_stream_window_exceeded":@"Queue response exceeded its limit."];
 }
 - (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
  [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
