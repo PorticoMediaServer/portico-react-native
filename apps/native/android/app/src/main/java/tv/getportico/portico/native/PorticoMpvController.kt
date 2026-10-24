@@ -1403,14 +1403,24 @@ internal class PorticoMpvController(private val context: Context) {
       // Which mpv track that is can only be said once the file is open.
       if (!loaded) return
       val embedded = PorticoMpvSupport.map(render["embedded"])
-      val key = listOf(subtitles["resourceId"], subtitles["resourceRevision"], render["kind"], embedded?.get("streamIndex"), embedded?.get("ordinal"), embedded?.get("language"), render["url"], embedded?.get("title"), render["fonts"])
-          .joinToString("|") { it?.toString() ?: "" }
-      if (!refusedSubtitleKeys.contains(key)) {
-        if (key == engineSubtitleKey) {
+      val all = PorticoMpvSupport.tracks(tracks, "sub")
+      val embeddedTrack = embedded?.let { PorticoMpvSupport.embeddedSubtitle(it, (render["kind"] as? String) ?: "", all) }
+      val externalVobSub = render["kind"] == "vobsub" && embeddedTrack == null
+      val pairValid = !externalVobSub || checkedVobSubCompanion(render, subtitles) != null
+      val key = PorticoMpvSupport.originalSubtitleKey(subtitles, render)
+      val action = PorticoMpvSupport.originalSubtitleAction(key, engineSubtitleKey, refusedSubtitleKeys, externalVobSub, pairValid)
+      if (action == PorticoMpvSupport.OriginalSubtitleAction.INVALID) {
+        clearEngineSubtitle()
+        overlayOff()
+        emit("subtitleStatus", "subtitle_source_invalid")
+        updateOutput()
+        return
+      }
+      if (action != PorticoMpvSupport.OriginalSubtitleAction.REFUSED) {
+        if (action == PorticoMpvSupport.OriginalSubtitleAction.REUSE) {
           // The choice stands: make sure it is still the track mpv has selected.
-          val all = PorticoMpvSupport.tracks(tracks, "sub")
           val address = externalSubtitleAddress
-          val track = embedded?.let { PorticoMpvSupport.embeddedSubtitle(it, (render["kind"] as? String) ?: "", all) }
+          val track = embeddedTrack
               ?: address?.let { all.firstOrNull { candidate -> candidate["external-filename"] == it } }?.let { PorticoMpvSupport.trackId(it) }
           if (track != null && snapshot.sid != track.toString()) core?.set("sid", track.toString())
           core?.set("sub-delay", offset)
@@ -1466,6 +1476,23 @@ internal class PorticoMpvController(private val context: Context) {
     core?.set("sid", sid)
   }
 
+  /** Revalidate the current supplied pair, including both local artifacts,
+   * before cache admission and again before an original can be opened. */
+  private fun checkedVobSubCompanion(render: Map<String, Any?>, subtitles: Map<String, Any?>): Uri? {
+    val media = PorticoMpvSupport.parse(source) ?: return null
+    val indexText = render["url"] as? String ?: return null
+    val offered = render["companionUrl"] as? String ?: return null
+    if (listOf(indexText, offered).any { it.length > 8192 || it.toByteArray(Charsets.UTF_8).size > 8192 }) return null
+    val index = PorticoMpvFontFetcher.resolve(indexText, media) ?: return null
+    val companion = PorticoMpvFontFetcher.resolve(offered, media) ?: return null
+    if (!PorticoMpvSupport.vobSubPair(index.toString(), companion.toString(), media.toString(),
+        subtitles["resourceId"] as? String, PorticoMpvSupport.integer(subtitles["resourceRevision"]))) return null
+    if (index.scheme?.lowercase() == "file") {
+      if (!PorticoMpvSupport.allowedLocalSource(context, index) || !PorticoMpvSupport.allowedLocalSource(context, companion)) return null
+    } else if (!PorticoMpvSupport.subtitleFileBelongs(index, media) || !PorticoMpvSupport.subtitleFileBelongs(companion, media)) return null
+    return companion
+  }
+
   /**
    * Starts mpv drawing the track `render` describes: the track inside the media itself when the
    * description names one and the media carries it, otherwise the original subtitle file at
@@ -1489,12 +1516,7 @@ internal class PorticoMpvController(private val context: Context) {
     val media = PorticoMpvSupport.parse(source) ?: return false
     val url = PorticoMpvFontFetcher.resolve(text, media) ?: return false
     val companion = if (kind == "vobsub") {
-      val offered = render["companionUrl"] as? String ?: return false
-      if (offered.length > 8192 || offered.toByteArray(Charsets.UTF_8).size > 8192) return false
-      val supplied = PorticoMpvFontFetcher.resolve(offered, media) ?: return false
-      if (!PorticoMpvSupport.vobSubPair(url.toString(), supplied.toString(), media.toString(),
-          subtitles["resourceId"] as? String, PorticoMpvSupport.integer(subtitles["resourceRevision"]))) return false
-      supplied
+      checkedVobSubCompanion(render, subtitles) ?: return false
     } else null
     val local = url.scheme?.lowercase() == "file"
     val target: String = if (local) {

@@ -364,6 +364,24 @@ internal object PorticoMpvSupport {
     }
   } catch (_: Exception) { false }
 
+  fun originalSubtitleKey(command: Map<*, *>, render: Map<*, *>): String {
+    val embedded = render["embedded"] as? Map<*, *>
+    return listOf(command["resourceId"], command["resourceRevision"], render["kind"], embedded?.get("streamIndex"),
+        embedded?.get("ordinal"), embedded?.get("language"), render["url"], embedded?.get("title"), render["fonts"],
+        if (render["kind"] == "vobsub") render["companionUrl"] else null).joinToString("|") { it?.toString() ?: "" }
+  }
+
+  enum class OriginalSubtitleAction { INVALID, REFUSED, REUSE, LOAD }
+
+  /** Validate the current external pair before either cache can admit it. The
+   * controller retains the only active/refused state; this decision owns none. */
+  fun originalSubtitleAction(key: String, active: String?, refused: Set<String>, externalVobSub: Boolean, pairValid: Boolean): OriginalSubtitleAction = when {
+    externalVobSub && !pairValid -> OriginalSubtitleAction.INVALID
+    key in refused -> OriginalSubtitleAction.REFUSED
+    key == active -> OriginalSubtitleAction.REUSE
+    else -> OriginalSubtitleAction.LOAD
+  }
+
   /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
   fun styleBackground(style: Map<*, *>?): String {
     val value = style?.get("background") as? String

@@ -196,6 +196,36 @@ class PorticoMpvSupportTest {
   }
 
   @Test
+  fun currentVobSubPairIsCheckedBeforeActiveAndRefusedCacheAdmission() {
+    val command = mapOf("resourceId" to "resource", "resourceRevision" to 2)
+    val media = "https://media.test/v1/media/grant/stream.mp4"
+    val idx = "https://media.test/v1/media/subtitles/grant/resource/2/original.idx"
+    val sub = "https://media.test/v1/media/subtitles/grant/resource/2/original.sub"
+    val valid = mapOf("kind" to "vobsub", "url" to idx, "companionUrl" to sub)
+    val active = support.originalSubtitleKey(command, valid)
+    fun action(render: Map<String, String>, held: String?, refused: Set<String>): PorticoMpvSupport.OriginalSubtitleAction {
+      val currentPair = support.vobSubPair(idx, render["companionUrl"], media, "resource", 2)
+      return support.originalSubtitleAction(support.originalSubtitleKey(command, render), held, refused, true, currentPair)
+    }
+    assertEquals(PorticoMpvSupport.OriginalSubtitleAction.REUSE, action(valid, active, emptySet()))
+    val invalid = listOf(valid - "companionUrl", valid + ("companionUrl" to sub.replace("media.test", "foreign.test")),
+        valid + ("companionUrl" to sub.replace("/2/", "/3/")))
+    for (changed in invalid) {
+      val changedKey = support.originalSubtitleKey(command, changed)
+      assertFalse("companion identity belongs to both cache keys", changedKey == active)
+      assertEquals(PorticoMpvSupport.OriginalSubtitleAction.INVALID, action(changed, active, emptySet()))
+      assertEquals("invalid beats even an identical active/refused cache entry", PorticoMpvSupport.OriginalSubtitleAction.INVALID,
+          action(changed, changedKey, setOf(changedKey)))
+      assertEquals("a corrected companion retries the refused original", PorticoMpvSupport.OriginalSubtitleAction.LOAD,
+          action(valid, null, setOf(changedKey)))
+    }
+    val replacement = valid + ("companionUrl" to sub.replace("media.test", "MEDIA.test"))
+    assertEquals("replacement retires the old external identity", PorticoMpvSupport.OriginalSubtitleAction.LOAD, action(replacement, active, emptySet()))
+    assertEquals("an actually accepted embedded track needs no external pair", PorticoMpvSupport.OriginalSubtitleAction.REUSE,
+        support.originalSubtitleAction(active, active, emptySet(), false, false))
+  }
+
+  @Test
   fun actualCaptionPositionRetainsAuthoredTopAndUsesOnePaneFraction() {
     assertTrue(support.captionAtTop(mapOf("position" to "top"), false))
     assertTrue(support.captionAtTop(mapOf("position" to "bottom"), true))
