@@ -12,7 +12,7 @@ function snapshot(motion?: 'follow' | 'reduce') {
   const effective = motion === undefined ? {'playback.skipBackMs': 10000} : {'appearance.motion': motion};
   const key = Object.keys(effective)[0]!;
   return parsePreferenceSnapshot({deviceClass: 'mobile', deviceBound: true, registryRevision: 'motion-fixture', registry: {revision: 'motion-fixture', fields: [
-    {key, type: motion === undefined ? 'number' : 'string', default: effective[key as keyof typeof effective], group: 'appearance', labelKey: 'pref.label.appearance.motion', scopes: ['profile-device']},
+    {key, type: motion === undefined ? 'number' : 'string', default: effective[key as keyof typeof effective], group: 'appearance', labelKey: `preferences.${key}`, scopes: ['profile-device']},
   ]}, documents: ['profile-server', 'profile-device-class', 'profile-device'].map(scope => ({scope, revision: 1, activeRevision: 1, digest: 'd'.repeat(64), values: scope === 'profile-device' ? effective : {}})),
     effective, effectiveSource: {[key]: 'profile-device'}, clampedFields: []});
 }
