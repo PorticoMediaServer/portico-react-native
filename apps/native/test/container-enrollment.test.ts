@@ -84,13 +84,17 @@ function containerServer(initialTotal: number) {
   return {api, service, state, cursors, ready};
 }
 
-let previous: typeof OfflineModule | undefined;
-async function bridge(): Promise<typeof OfflineModule> {
+type OfflineBridge = Pick<typeof OfflineModule, 'offlineDownloads'>;
+let previous: OfflineBridge | undefined;
+async function bridge(): Promise<OfflineBridge> {
   previous?.offlineDownloads.disconnect();
   previous?.offlineDownloads.dispose();
   device.reset();
   extraStore.clear();
-  previous = (await import('../src/bridge/offline-downloads.ts?v=' + Math.random())) as typeof OfflineModule;
+  // The legacy bridge now re-exports the one platform owner. A query on the
+  // re-export cannot create a fresh owner; isolate real instances in this fixture.
+  const implementation = await import('../src/bridge/offline-downloads.ts');
+  previous = {offlineDownloads: new implementation.OfflineDownloads()};
   return previous;
 }
 /** `connect` starts a 60-second interval; nothing may be left running when a test ends. */
