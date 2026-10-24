@@ -349,6 +349,8 @@ test('Cancel closes only this presentation and leaves the borrowed uncertain com
     assert.equal(await service.retry(), true);
     assert.equal(service.getSnapshot().resource?.name, 'Renamed');
     assert.equal(service.getSnapshot().retryPending, false);
+    assert.equal(controller.getSnapshot().closed, true, 'the late owner receipt never reopens the cancelled presentation');
+    assert.equal(controller.getSnapshot().name, 'Renamed');
   } finally {controller.dispose();}
 });
 
@@ -458,5 +460,62 @@ test('an unknown outcome owns its original command; only the owner dismissal sta
     assert.equal(controller.getSnapshot().closed, true);
     assert.equal(controller.getSnapshot().name, '');
     assert.equal(service.getSnapshot().resource?.name, 'Renamed');
+  } finally {controller.dispose();}
+});
+
+test('Dispose after an unknown outcome leaves the canonical retry to the owner and never closes later', async () => {
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']});
+  const controller = createNativeSavedViewRenameController({service, resource, current: () => true});
+  try {
+    fixture.patch = async () => {throw Object.assign(new Error('The answer was lost.'), {code: 'timeout'});};
+    assert.equal(controller.setName('Renamed'), true);
+    assert.equal(await controller.save(), false);
+    assert.equal(service.getSnapshot().retryPending, true);
+    const pending = service.getSnapshot().mutationError;
+    controller.dispose();
+    controller.dispose();
+    assert.equal(controller.getSnapshot().closed, false);
+    assert.equal(controller.getSnapshot().error, pending);
+    assert.equal(service.getSnapshot().retryPending, true);
+    assert.equal(service.getSnapshot().mutationError, pending);
+    fixture.patch = async body => fixture.succeed(body);
+    assert.equal(await service.retry(), true);
+    assert.equal(service.getSnapshot().resource?.name, 'Renamed');
+    assert.equal(service.getSnapshot().retryPending, false);
+    assert.equal(controller.getSnapshot().closed, false, 'a disposed presentation never observes the late receipt');
+    assert.equal(controller.getSnapshot().name, 'Renamed');
+  } finally {controller.dispose();}
+});
+
+test('a resource replacement during a Save discards the late acknowledgement without closing or leaking', async () => {
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']},
+    [{id: 'view-8', name: 'Other view', revision: 2, actions: ['update']}]);
+  const controller = createNativeSavedViewRenameController({service, resource, current: () => true});
+  try {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => {release = resolve;});
+    let started!: () => void;
+    const began = new Promise<void>(resolve => {started = resolve;});
+    fixture.patch = async body => {started(); await held; return fixture.succeed(body);};
+    assert.equal(controller.setName('Renamed'), true);
+    const saving = controller.save();
+    await began;
+    await service.select({view: 'resource', resourceId: 'view-8'});
+    assert.equal(await saving, false);
+    assert.equal(controller.getSnapshot().closed, false, 'the replaced route cannot close on the old request');
+    assert.equal(controller.getSnapshot().name, 'Renamed');
+    assert.equal(controller.getSnapshot().canSave, false);
+    assert.equal(service.getSnapshot().resource?.id, 'view-8');
+    assert.equal(service.getSnapshot().result, null, 'the replaced route consumed no late receipt');
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(controller.getSnapshot().closed, false);
+    assert.equal(service.getSnapshot().result, null);
+    await service.select({view: 'resource', resourceId: viewId});
+    assert.equal(service.getSnapshot().resource?.name, 'Renamed', 'the late PATCH reached the server, but only a fresh read shows it');
+    assert.equal(controller.getSnapshot().canSave, true);
+    assert.equal(await controller.save(), true);
+    assert.equal(controller.getSnapshot().closed, true);
+    assert.equal(fixture.patchCalls.length, 2);
   } finally {controller.dispose();}
 });
