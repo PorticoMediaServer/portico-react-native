@@ -61,7 +61,8 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const deadline = playing ? group.host.pauseAt : group.host.endAt;
   const countdown = deadline ? defaultI18n.clock(Math.max(0, Math.ceil((Date.parse(deadline) - clock) / 1000))) : undefined;
   const notice = away ? [t('web.together.hostDropped'), countdown ? t(playing ? 'web.together.pausesIn' : 'web.together.endsIn', {time: countdown}) : undefined].filter(Boolean).join(' ') : state.error;
-  const bodyTop = notice ? 316 : 196;
+  const refused = state.refused && group.permissions.isHost && canControl ? state.refused : undefined;
+  const bodyTop = 196 + (notice ? 120 : 0) + (refused ? 84 : 0);
   const position = Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), clock) / 1000000n);
   const elapsed = item && item.duration > 0 ? t('web.together.positionOf', {position: defaultI18n.clock(position), duration: defaultI18n.clock(item.duration)}) : undefined;
   const fraction = item && item.duration > 0 ? Math.max(0, Math.min(1, position / item.duration)) : undefined;
@@ -80,6 +81,8 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
     <Text style={[shellType(24, 700), {position: 'absolute', left: 200, top: 52, color: theme.colors.textSecondary}]}>{t('entry.group.together')}</Text>
     <Text accessibilityRole="header" style={[shellType(62, 800, 68.2, -.04), {position: 'absolute', left: 200, top: 80, color: theme.colors.text}]}>{group.name}</Text>
     {notice && <View style={{position: 'absolute', left: 200, right: 96, top: 176}}><Banner message={notice} tone="warning"/></View>}
+    {refused && <View style={{position: 'absolute', left: 200, right: 96, top: notice ? 236 : 176}}><Banner message={t('web.together.refused')} tone="warning"
+      action={{label: t('web.together.goAhead'), onPress: () => run(() => controller.transport(refused.command, {...refused.input, allowUnavailable: true}))}}/></View>}
     <View onLayout={event => setBodyHeight(event.nativeEvent.layout.height)} style={{position: 'absolute', left: 200, right: 96, top: bodyTop, bottom: 136, flexDirection: 'row', gap: 96}}>
       <View style={{width: 840}}>
         <View style={{height: 290, borderRadius: 22, overflow: 'hidden', backgroundColor: theme.colors.raised, justifyContent: 'flex-end', paddingHorizontal: 32, paddingBottom: 26}}>
