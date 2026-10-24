@@ -110,7 +110,10 @@ test('DEV TV heading records only native text events, invalidates changed layout
     theme = {...theme, textScale: 1.25}; await act(() => host!.rerender());
     assert.equal(registry.read(replacement)?.lines, undefined);
     assert.equal(registry.read(replacement)?.flattenedStyle.fontSize, 110);
-    heading().props.onTextLayout(event(replacement.tag)); heading().props.onLayout();
+    heading().props.onTextLayout(event(replacement.tag));
+    assert.equal(heading().props.onLayout, undefined, 'generic layout delivery cannot erase fresh native text lines');
+    assert.deepEqual(registry.read(replacement)?.lines, observed);
+    dimensions = {width: 1920, height: 1080}; await act(() => host!.rerender());
     assert.equal(registry.read(replacement)?.lines, undefined);
     assert.deepEqual(registry.read(replacement)?.measuredStyle, {});
     heading().props.onTextLayout(event(replacement.tag));

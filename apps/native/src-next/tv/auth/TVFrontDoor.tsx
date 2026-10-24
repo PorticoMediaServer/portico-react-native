@@ -31,8 +31,9 @@ function useHeadingMeasurement(text: string, style: TextStyle[], width: number, 
   const onTextLayout = useCallback<NonNullable<TextProps['onTextLayout']>>(event => {
     if (native.current && findNodeHandle(native.current) === event.nativeEvent.target) registration.current?.recordTextLayout(event.nativeEvent.lines);
   }, []);
-  const onLayout = useCallback(() => {registration.current?.invalidateTextLayout(); registration.current?.invalidateResolvedStyle();}, []);
-  return typeof __DEV__ !== 'undefined' && __DEV__ ? {ref, onTextLayout, onLayout} : {};
+  // Do not clear a just-delivered text event from a later generic onLayout.
+  // Committed text/font/viewport changes above invalidate before fresh events.
+  return typeof __DEV__ !== 'undefined' && __DEV__ ? {ref, onTextLayout} : {};
 }
 
 export type TVFrontDoorProps = Readonly<{
