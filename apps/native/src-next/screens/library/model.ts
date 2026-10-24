@@ -24,11 +24,19 @@ export type NativeLibrarySnapshot = Readonly<{
   queryRevision: number;
   unfilteredTotal?: BrowseRememberedTotal;
   sort?: BrowseSortSelection;
+  defaultSort?: BrowseSortSelection;
   collection?: WindowedCollection<ContentEntry>;
   discover: LibraryContentSnapshot;
   memory: NativeLibraryMemory;
   error?: unknown;
 }>;
+
+/** Ruling 37 keeps today's canSave rule, against this tab's actual opening sort. */
+export function nativeLibraryCanSave(source: NativeLibrarySnapshot, draft: NativeLibraryViewDraft): boolean {
+  return source.phase === 'ready' && !!source.defaultSort &&
+    (JSON.stringify(draft.predicates) !== JSON.stringify(source.tab.fixedFilter ?? [])
+      || draft.sort.field !== source.defaultSort.field || draft.sort.direction !== source.defaultSort.direction);
+}
 
 /** One authorized library in one actual session. This holds sparse native pages,
  * never an array sized by the library's count or a client-filtered catalogue. */
@@ -103,7 +111,7 @@ export class NativeLibraryDestination {
     if (tab.id === this.state.tab.id && this.state.phase === 'ready') return;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
-    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, unfilteredTotal: undefined, error: undefined,
+    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
       if (tab.shows === 'rows') {
@@ -127,7 +135,7 @@ export class NativeLibraryDestination {
       this.build(capabilities, tab, predicates, sort, 0, 1);
       const collection = createWindowedCollection({fetchPage: this.pages(capabilities, tab, predicates, sort),
         pageSize: Math.min(60, capabilities.queryLimits.maximumLimit), maxResidentPages: 4, prefetchPages: 1, maxConcurrent: 1, keyOf: nativeLibraryEntryKey});
-      this.publish({phase: 'ready', capabilities, predicates, sort, collection});
+      this.publish({phase: 'ready', capabilities, predicates, sort, defaultSort: sort, collection});
       collection.ensureRange(0, 0);
     } catch (error) {if (this.current() && revision === this.operation && !controller.signal.aborted) this.publish({phase: 'error', error});}
   }

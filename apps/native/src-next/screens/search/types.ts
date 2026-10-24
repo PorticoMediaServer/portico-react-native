@@ -8,7 +8,7 @@ import type {NativeEntryMenuState} from '../destinations/entry-actions';
 /** These are bounded, authorized producer tiles, never inferred from loaded results. */
 export type NativeSearchGenre = Readonly<{
   id: string; name: string; count: number; backdropPath?: string;
-  coverPaths: readonly string[]; tint?: string;
+  coverPaths: readonly string[];
 }>;
 export type NativeSearchExploreSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';

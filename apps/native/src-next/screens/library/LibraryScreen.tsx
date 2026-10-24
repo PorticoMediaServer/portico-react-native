@@ -21,7 +21,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {NativeLibraryDestination, nativeLibraryEntryKey, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
+import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 import {LibraryToolbar} from './LibraryToolbar';
 import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
@@ -31,6 +31,7 @@ import {hiddenReadingLibraryOnTV} from '../read/platform';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 export type NativeLibraryActions = Readonly<{
+  dispose?: () => void;
   menuState?: NativeEntryMenuState;
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
@@ -90,7 +91,10 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   </FocusRegion>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV ? 'chevron' : 'name'}/>;
   const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher}>{tabs}</LibraryHeader>
-    : <StickyBrowseHeader name={state.library.name} switcher={switcher} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}/>}
+    : <StickyBrowseHeader name={state.library.name} switcher={switcher} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}
+      canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
+      if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
+    }}/>}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</StickyBrowseHeader>;
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -167,6 +171,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   return <View style={{flex: 1}}>
     <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
+        canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}
         onFilters={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}
         onSort={sort => destination.setQuery(source.predicates, sort)} onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}
         onQuick={destination.setQuick} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}
