@@ -33,7 +33,7 @@ const offered = {itemId: 'episode', resume: {positionMs: 17000, partIndex: 0}, v
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
-  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing'}};
+  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string} | undefined};
   let respond = async (_url: URL) => offered as unknown;
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
@@ -51,6 +51,7 @@ function fixture(hasDestination = true) {
     holdStart: (held: Promise<void>) => {holdStart = held;},
     title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
     respond: (value: typeof respond) => {respond = value;},
+    failure: (versionId: string) => {source = {...source, playback: {...source.playback, phase: 'error'}, session: {itemId: entry.id, versionId}};},
     source: (next: PlaybackFence) => {source = {...source, fence: next}; for (const listener of playbackListeners) listener();},
     route: () => {revision++; for (const listener of routeListeners) listener();},
     authority: () => {bound = {...bound, epoch: 'next'}; for (const listener of authorityListeners) listener();},
@@ -152,4 +153,19 @@ test('actual title controller start receives pure current route/member lifetime 
     d.route(); assert.equal(input.lifetime.signal.aborted, true); assert.equal(input.lifetime.isCurrent(), false);
     held.resolve(); await pending;
   } finally {held.resolve(); d.screens.dispose();}
+});
+
+
+test('failure entry excludes only the actual failed grouped version and may leave one valid row', async () => {
+  const d = fixture();
+  try {
+    d.source(fence); d.failure('v1');
+    const capture = d.screens.capture(entry, () => true);
+    await d.screens.versions(capture, 'v2'); assert.equal(d.versions.length, 0, 'an invented failed version cannot be excluded');
+    await d.screens.versions(capture, 'v1');
+    assert.deepEqual(d.versions[0][1].rows.map((row: any) => row.id), ['v2']);
+    await d.versions[0][1].choose('v1'); assert.equal(d.starts.length, 0);
+    await d.versions[0][1].choose('v2'); assert.equal(d.starts[0][1].versionId, 'v2');
+    assert.ok(d.starts[0][1].lifetime.signal instanceof AbortSignal);
+  } finally {d.screens.dispose();}
 });

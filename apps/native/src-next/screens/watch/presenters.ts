@@ -87,8 +87,10 @@ export class NativeWatchPresenters {
     finally {if (this.value?.capture === value.capture && this.value.phase === 'versions-pending') this.close();}
   };
   openVersions = (capture: NativeWatchCapture, destination: NativeVersionDestination) => {
-    if (!this.current(capture) || !destination.isCurrent() || this.value?.capture !== capture || this.value.phase !== 'versions-pending') {destination.dispose(); return;}
-    this.replace({...this.value, phase: 'versions', destination, busy: false});
+    if (!this.current(capture) || !destination.isCurrent() || this.value && (this.value.capture !== capture || this.value.phase !== 'versions-pending')) {destination.dispose(); return;}
+    // A genuine playback-failure action can enter without a More menu. Its
+    // descriptor already checked the actual failed session/version identity.
+    this.replace({confirmation: '', candidates: [], ...this.value, capture, phase: 'versions', destination, busy: false});
   };
   chooseVersion = async (versionId: string) => {
     const value = this.value, destination = value?.destination;
