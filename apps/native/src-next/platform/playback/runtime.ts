@@ -950,7 +950,12 @@ export class NativePlaybackRuntime {
       const render = engineSubtitleRender(plan, state.session, rendering, path => this.o.api.mediaUrl(path), this.fonts, session);
       if (selected && plan.documentUrl || render) {
         const resource = selected ?? drawn?.resource;
-        if (engine === 'mpv') forcedPath = forcedImageLinesPath(state.session.streamUrl, render, resource, linesUrlOf(plan, session));
+        if (engine === 'mpv' && plan.renderer !== 'burn_in' && session?.presentation.subtitle?.delivery !== 'burn') {
+          // The service keeps a route-relative media path. Resolve it through
+          // the same authority-local route used by the actual native producer.
+          try {forcedPath = forcedImageLinesPath(this.o.api.mediaUrl(state.session.streamUrl), render, resource, linesUrlOf(plan, session));}
+          catch { /* an unavailable route cannot grant an optional filter */ }
+        }
         subtitles = {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? drawn?.id, resourceRevision: resource?.revision ?? 1,
           manifestName: resource?.manifestName, origin: resource?.origin ?? 'embedded', language: resource?.language ?? '', title: resource?.title ?? '', offsetUs: selected ? plan.offsetUs : '0',
           ...(selected && plan.documentUrl ? {documentUrl: this.o.api.mediaUrl(plan.documentUrl)} : {}), ...(render ? {render} : {}), refreshRevision: 0, style};

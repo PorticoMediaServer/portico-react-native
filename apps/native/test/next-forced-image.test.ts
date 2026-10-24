@@ -34,6 +34,7 @@ test('ambiguous or credential-bearing addresses and unknown resource facts remai
     assert.equal(forcedImageLinesPath(media, {...image, url}, resource, lines), undefined);
   }
   assert.equal(forcedImageLinesPath('file:///download/movie', image, resource, lines), undefined);
+  assert.equal(forcedImageLinesPath('/v1/media/current/file', image, resource, lines), undefined, 'the runtime must supply its actual resolved media route');
   assert.equal(forcedImageLinesPath(media, image, undefined, lines), undefined);
   assert.equal(forcedImageLinesPath(media, image, {...resource, revision: Number.NaN}, lines), undefined);
 });
