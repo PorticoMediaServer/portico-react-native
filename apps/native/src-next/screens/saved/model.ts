@@ -1,6 +1,7 @@
 import {SavedService, fetchSavedSummary, type SavedApi, type SavedLandingSummary, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {PersonalSavedService, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
 import {readPinOrder, type PinnedResource} from '../../../../../packages/client-core/src/library-pins';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 
 export type NativeSavedSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -39,6 +40,7 @@ export class NativeSavedDestination {
   }
   private current(): boolean {if (!this.disposed && !this.options.current()) this.dispose(); return !this.disposed;}
   getSnapshot = (): NativeSavedSnapshot => {this.current(); return this.state;};
+  contains = (entry: ContentEntry): boolean => this.current() && this.state.myList.projection?.sections.some(section => section.entries.some(value => value === entry)) === true;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private publish(patch: Partial<NativeSavedSnapshot>): void {
     if (!this.current()) return;

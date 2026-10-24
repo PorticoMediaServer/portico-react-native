@@ -20,7 +20,7 @@ const preference: readonly SubtitleKind[] = ['ass', 'pgs', 'vobsub', 'dvb', 'tex
 /** A subtitle file's address as the server gives it (the shape `subtitles.ts` in the shared package accepts): the cue document, an original, a styled track's font list, or an image track's line count. */
 const originalPath = /^\/v1\/media\/subtitles\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[1-9]\d*(?:\.vtt|\/original\.(?:ass|ssa|sup|idx|sub|mks)|\/fonts|\/lines)?$/;
 
-type SubtitleFileClock = Readonly<{timeDomain?: string; offsetMs?: number}>;
+type SubtitleFileClock = Readonly<{timeDomain?: 'source-relative'; offsetMs?: number}>;
 export type SubtitleDelivery = SubtitleFileClock & Readonly<{format: SubtitleKind; url?: string; companionUrl?: string; fontsUrl?: string; linesUrl?: string}>;
 export type SubtitleFonts = Readonly<{key: string; fonts: readonly Readonly<{name: string; url: string}>[]}>;
 export type SubtitleRender = SubtitleFileClock & Readonly<{
@@ -50,8 +50,8 @@ function fileClock(value: unknown): SubtitleFileClock {
   if (!value || typeof value !== 'object') return {};
   const clock = value as {timeDomain?: unknown; offsetMs?: unknown};
   return {
-    ...(typeof clock.timeDomain === 'string' && clock.timeDomain.length > 0 && clock.timeDomain.length <= 64 && !/[\x00-\x1f\x7f]/.test(clock.timeDomain) ? {timeDomain: clock.timeDomain} : {}),
-    ...(typeof clock.offsetMs === 'number' && Number.isSafeInteger(clock.offsetMs) ? {offsetMs: clock.offsetMs} : {}),
+    ...(clock.timeDomain === 'source-relative' ? {timeDomain: 'source-relative' as const} : {}),
+    ...(typeof clock.offsetMs === 'number' && Number.isFinite(clock.offsetMs) ? {offsetMs: clock.offsetMs} : {}),
   };
 }
 

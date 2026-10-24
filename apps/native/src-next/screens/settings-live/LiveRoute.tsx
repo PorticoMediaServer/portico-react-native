@@ -4,6 +4,8 @@ import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-reg
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import {NativeScreenLifetime} from './lifetime';
 import {NativeLiveController} from './live-controller';
+import {nativeGuideMemory} from './guide-memory';
+import {nativeScreenServices} from '../native-screen-services';
 import {createNativeRecordingsController} from './recordings-controller';
 import {NativeLiveScreen} from './LiveScreen';
 
@@ -11,7 +13,7 @@ export function createNativeLiveRenderer(context: NativeShellBootstrapContext): 
   const lifetime = new NativeScreenLifetime(context);
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => context.api.request<T>(path, method, body, next), signal)};
   const dvrRequestId = async () => {lifetime.assert(); return [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join('');};
-  const controller = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const controller = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone, {port: nativeGuideMemory(context.session()?.viewer, lifetime), reportError: error => nativeScreenServices(context).reportError(error)});
   const recordings = createNativeRecordingsController(lifetime, api, dvrRequestId);
   return {
     render: (route, runtime) => {
