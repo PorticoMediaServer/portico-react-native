@@ -236,3 +236,37 @@ test('motion late acknowledgement cannot publish or return a value after authori
   await assert.rejects(consumer.write('reduceMotion', false), {name: 'AbortError'});
   assert.equal(notifications, 0); assert.equal(f.context.preferences().effective['appearance.motion'], 'follow'); assert.equal(state.saves, 0); off();
 }));
+
+function textSizeSnapshot(value: 'standard' | 'large', revision: number): PreferenceSnapshot {
+  const key = 'appearance.textSize';
+  return parsePreferenceSnapshot({deviceClass: 'television', deviceBound: true, registryRevision: 'text-size-row', registry: {revision: 'text-size-row', fields: [
+    {key, type: 'string', default: 'standard', allowedValues: ['standard', 'large'], group: 'appearance', labelKey: `preferences.${key}`, scopes: ['profile-device']},
+  ]}, documents: ['profile-server', 'profile-device-class', 'profile-device'].map(scope => ({scope, revision, activeRevision: revision, digest: 'd'.repeat(64), values: scope === 'profile-device' ? {[key]: value} : {}})),
+    effective: {[key]: value}, effectiveSource: {[key]: 'profile-device'}, clampedFields: []});
+}
+
+test('TV text-size row borrows the same canonical source and returns its durable committed choice', async () => records(async state => {
+  const f = await motionFixture(textSizeSnapshot('standard', 21)), consumer = nativeDevicePreferences(f.context), begun = deferred(), ack = deferred();
+  assert.equal(consumer.read('textSize'), 'standard'); assert.equal(consumer.read('reduceMotion'), undefined);
+  let notifications = 0; const off = consumer.subscribe(() => {notifications++;});
+  f.respond(async () => {begun.resolve(); await ack.promise; return textSizeSnapshot('large', 22);});
+  let settled = false; const writing = consumer.write('textSize', 'large').then(value => {settled = true; return value;});
+  await begun.promise;
+  assert.deepEqual(f.calls[0], {scope: 'profile-device', deviceClass: 'television', revision: 21, values: {'appearance.textSize': 'large'}});
+  assert.equal(settled, false); assert.equal(consumer.read('textSize'), 'standard'); assert.equal(notifications, 0);
+  ack.resolve(); assert.equal(await writing, 'large'); assert.equal(consumer.read('textSize'), 'large'); assert.equal(notifications, 1);
+  f.respond(async () => textSizeSnapshot('large', 23));
+  assert.equal(await consumer.write('textSize', 'standard'), 'large', 'the actual committed reread wins over the requested choice');
+  assert.deepEqual(f.calls[1], {scope: 'profile-device', deviceClass: 'television', revision: 22, values: {'appearance.textSize': 'standard'}});
+  const confirmed = f.server.getSnapshot();
+  f.respond(async () => {throw new Error('text-size CAS refused');});
+  await assert.rejects(consumer.write('textSize', 'standard'), /text-size CAS refused/);
+  assert.equal(f.server.getSnapshot(), confirmed); assert.equal(consumer.read('textSize'), 'large');
+  for (const invalid of [true, false, 'huge']) await assert.rejects(consumer.write('textSize', invalid), /Invalid setting value/);
+  assert.equal(f.calls.length, 3, 'invalid choices do not reach the writer');
+  assert.equal(state.saves, 0, 'appearance never adds an installation-record field');
+  assert.equal(nativeServerPreferences(f.context), f.server); off();
+  assert.equal(f.listeners.size, 0); assert.equal(nativeServerPreferences(f.context), f.server);
+  f.retire(); assert.throws(() => consumer.read('textSize'), {name: 'AbortError'});
+  await assert.rejects(consumer.write('textSize', 'standard'), {name: 'AbortError'});
+}));
