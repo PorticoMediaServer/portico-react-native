@@ -46,7 +46,12 @@ export class NativeSavedViewDestination {
       || this.state.route.resourceId !== resource.id) return;
     const service = this.personal;
     if (!service) return;
-    const loaded = service.getSnapshot().resource;
+    const snapshot = service.getSnapshot();
+    // A fresh opening has no claim on a canonical command the owner still holds.
+    // This gate is only for new binding creation; an existing controller's own
+    // POST/refresh/retry must stay current through pending/retryPending.
+    if (snapshot.pending || snapshot.retryPending) return;
+    const loaded = snapshot.resource;
     if (loaded !== resource || loaded.kind !== 'view' || !loaded.actions.includes('update')) return;
     const generation = this.generation;
     const valid = (): boolean => {

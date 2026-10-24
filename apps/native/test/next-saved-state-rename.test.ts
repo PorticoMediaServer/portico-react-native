@@ -277,6 +277,8 @@ test('closing the presentation leaves the canonical uncertain command intact', a
     const view = state.view(target)!;
     await view.load();
     const resource = view.source.getSnapshot().personal!.resource!;
+    const owner = view.source.viewRename(resource);
+    assert.ok(owner, 'the owner port is captured before the command starts');
     const controller = view.rename(resource)!;
     assert.equal(controller.setName('Kept elsewhere'), true);
     assert.equal(await controller.save(), false);
@@ -284,8 +286,53 @@ test('closing the presentation leaves the canonical uncertain command intact', a
     assert.equal(controller.cancel(), true);
     assert.equal(controller.getSnapshot().closed, true);
     assert.equal(view.source.getSnapshot().personal!.retryPending, true, 'the canonical service still holds the uncertain command');
-    assert.equal(f.mutations.length, 1, 'closing the presentation issues no command');
+    assert.equal(view.rename(resource), undefined, 'a fresh opening refuses while the owner command is retryPending');
+    assert.equal(f.mutations.length, 1, 'the blocked reopening issues no command');
+    assert.equal(await owner.port.retry(), true, 'the captured owner port resolves its original command');
+    assert.equal(f.mutations.length, 2);
+    assert.equal(f.mutations[1]!.body.operationId, f.mutations[0]!.body.operationId);
+    assert.equal(f.mutations[1]!.body.name, 'Kept elsewhere');
+    const refreshed = view.source.getSnapshot().personal!.resource!;
+    assert.notEqual(refreshed, resource);
+    const next = view.rename(refreshed);
+    assert.ok(next); assert.notEqual(next, controller, 'the settled canonical service allows a new presentation');
+    assert.equal(view.rename(refreshed), next);
+    assert.equal(f.mutations.length, 2, 'the new opening issues no command of its own');
+    assert.equal(controller.setName('revive'), false, 'the old closed presentation never revives');
+    next.dispose();
+    assert.equal(view.source.getSnapshot().phase, 'ready', 'the borrowed service remains parent-owned');
+  } finally {state.dispose(); f.navigation.dispose();}
+});
+
+test('an in-flight Save disposed locally refuses a fresh opening until the canonical service settles', async () => {
+  const f = fixture(), {createNativeSavedState} = await stateModule();
+  const gate = deferred<unknown>();
+  f.plans.push({gate});
+  savedNavigation.openNativeSavedView(f.context, {view: 'resource', resourceId: 'actual-view'});
+  const target = f.navigation.getSnapshot().route;
+  if (target.kind !== 'saved-view') throw new Error('expected Saved route');
+  const state = createNativeSavedState(f.context);
+  try {
+    const view = state.view(target)!;
+    await view.load();
+    const resource = view.source.getSnapshot().personal!.resource!;
+    const controller = view.rename(resource)!;
+    assert.equal(controller.setName('Settled later'), true);
+    const saving = controller.save(); await tick();
+    assert.equal(f.mutations.length, 1);
     controller.dispose();
+    assert.equal(view.rename(resource), undefined, 'a pending canonical command blocks a fresh opening');
+    assert.equal(f.mutations.length, 1, 'the blocked reopening issues no command');
+    gate.resolve({});
+    await saving; await tick();
+    const refreshed = view.source.getSnapshot().personal!.resource!;
+    assert.equal(refreshed.name, 'Settled later');
+    const next = view.rename(refreshed);
+    assert.ok(next); assert.notEqual(next, controller, 'settlement allows a new presentation');
+    assert.equal(f.mutations.length, 1, 'the new opening issues no command of its own');
+    assert.equal(controller.setName('revive'), false, 'the old disposed presentation never revives');
+    assert.equal(view.source.getSnapshot().phase, 'ready');
+    next.dispose();
     assert.equal(view.source.getSnapshot().phase, 'ready', 'the borrowed service remains parent-owned');
   } finally {state.dispose(); f.navigation.dispose();}
 });
