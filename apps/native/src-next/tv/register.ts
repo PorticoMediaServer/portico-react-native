@@ -1,5 +1,6 @@
 /** The TV entry shares the genuine restore/session lifetime and single player.
  * Screen-owned registration modules are imported at this platform entry. */
+import '../screens/accounts/AccountRoutes';
 import '../screens/home/CustomizeRoute';
 import '../screens/home/SeeAllRoute';
 import '../screens/library/register';

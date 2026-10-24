@@ -7,6 +7,10 @@ import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
 
 if (!Platform.isTV) {
+  // Native accounts routes register as a module side effect. Metro's inline
+  // requires defer RestoredShell's import until its error branch, so the ready
+  // shell would have no profiles/servers renderer. Require the module eagerly.
+  require('./screens/accounts/AccountRoutes');
   require('./screens/downloads/register');
   require('./screens/library/register');
   require('./screens/library/OverviewRoute');
