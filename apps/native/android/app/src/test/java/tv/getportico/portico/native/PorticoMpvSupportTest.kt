@@ -128,6 +128,19 @@ class PorticoMpvSupportTest {
   }
 
   @Test
+  fun assFileStylingIsExplicitAndCannotLeakIntoAnotherTrack() {
+    assertEquals("no", support.captionAssOverride(mapOf("keepStyling" to true), "ass"))
+    assertEquals("strip", support.captionAssOverride(mapOf("keepStyling" to false), "ass"))
+    for (kind in listOf("pgs", "vobsub", "dvb", "text", "ssa", null)) {
+      assertEquals("scale", support.captionAssOverride(mapOf("keepStyling" to false), kind))
+      assertEquals("scale", support.captionAssOverride(mapOf("keepStyling" to true), kind))
+    }
+    for (style in listOf(null, emptyMap<String, Any>(), mapOf("keepStyling" to "false"), mapOf("keepStyling" to 0)))
+      assertEquals("legacy or malformed command", "scale", support.captionAssOverride(style, "ass"))
+    assertEquals("switching back restores script styling", "no", support.captionAssOverride(mapOf("keepStyling" to true), "ass"))
+  }
+
+  @Test
   fun actualCaptionPositionRetainsAuthoredTopAndUsesOnePaneFraction() {
     assertTrue(support.captionAtTop(mapOf("position" to "top"), false))
     assertTrue(support.captionAtTop(mapOf("position" to "bottom"), true))

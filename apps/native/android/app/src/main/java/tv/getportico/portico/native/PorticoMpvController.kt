@@ -1358,6 +1358,8 @@ internal class PorticoMpvController(private val context: Context) {
   private fun applyCaptionStyle(style: Map<*, *>?) {
     val same = style == captionStyle
     captionStyle = style
+    val render = PorticoMpvSupport.map(scoped(command?.get("subtitles"))?.get("render"))
+    core?.set("sub-ass-override", PorticoMpvSupport.captionAssOverride(style, render?.get("kind")))
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
     // This increment applies profile colour on the app's plain cue view only.
     // Preserve the core renderer's existing fallback until rich-track styling

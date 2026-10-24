@@ -309,6 +309,16 @@ internal object PorticoMpvSupport {
     return if (scale.isFinite() && scale in 0.5..3.0) scale else 1.0
   }
 
+  /** Only the actual ASS/SSA render kind opts into file-style policy. The
+   * pinned mpv's strip mode renders its text with the existing subtitle style;
+   * no bitmap or plain-text track inherits an earlier ASS override. */
+  fun captionAssOverride(style: Map<*, *>?, kind: Any?): String =
+      if (kind != "ass") "scale" else when (style?.get("keepStyling")) {
+        true -> "no"
+        false -> "strip"
+        else -> "scale"
+      }
+
   /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
   fun styleBackground(style: Map<*, *>?): String {
     val value = style?.get("background") as? String
