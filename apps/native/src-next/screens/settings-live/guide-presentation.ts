@@ -22,11 +22,11 @@ export function nativeGuideClock(locale: string, timeZone: string, hour12?: bool
     : undefined;
 }
 /** Separate facts keep the drawn spacing and the stored episode subtitle intact. */
-export function nativeProgrammeCaption(programme: GuideProgram | undefined, onNow: boolean, isTV: boolean, clock: (at: number) => string | undefined, text: TextEnvironment): readonly string[] {
+export function nativeProgrammeCaption(programme: GuideProgram | undefined, onNow: boolean, isTV: boolean, clock: (at: number) => string | undefined, text: TextEnvironment & Pick<I18n, 't'>): readonly string[] {
   if (!programme) return [];
   const episode = programme.episode?.number === undefined ? undefined : episodeLabel({mode: 'seasonal', season: programme.episode.season, episode: programme.episode.number}, 'ordinary', text)?.text;
   if (episode || programme.subtitle) return [episode, programme.subtitle].filter((value): value is string => !!value);
   const start = clock(programme.start), end = clock(programme.end);
   if (!end) return [];
-  return !isTV && onNow ? [defaultI18n.t('guide.ends', {time: end})] : start ? [defaultI18n.t('guide.range', {start, end})] : [];
+  return !isTV && onNow ? [text.t('guide.ends', {time: end})] : start ? [text.t('guide.range', {start, end})] : [];
 }
