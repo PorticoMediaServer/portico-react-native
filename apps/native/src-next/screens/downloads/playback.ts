@@ -51,7 +51,9 @@ export function createNativeOfflineEntryPlayback(context: NativeShellBootstrapCo
 
 /** A group never implies an arbitrary episode/file choice. */
 export function openNativeSavedDownload(device: NativeOfflineDownloadsDevice, group: OfflineGroup, browse: () => void, report: (error: unknown) => void): void {
-  const entry = group.entries.length === 1 ? group.entries[0] : undefined;
-  if (!entry || entry.state !== 'ready' || !device.openOffline || device.playable(entry)) {browse(); return;}
-  void device.openOffline(entry).catch(report);
+  try {
+    const entry = group.entries.length === 1 ? group.entries[0] : undefined;
+    if (!entry || entry.state !== 'ready' || !device.openOffline || device.playable(entry)) {browse(); return;}
+    void device.openOffline(entry).catch(report);
+  } catch (error) {report(error);}
 }

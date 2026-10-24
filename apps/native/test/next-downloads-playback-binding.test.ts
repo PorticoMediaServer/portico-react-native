@@ -101,4 +101,7 @@ test('Saved plays only a genuine single ready file; multi-file or unavailable ca
   assert.equal(browsed, 4); assert.deepEqual(played, [f.entry]);
   const failed = new Error('actual local failure'); open([f.entry], {...device, openOffline: async () => {throw failed;}});
   await new Promise<void>(resolve => setImmediate(resolve)); assert.deepEqual(errors, [failed]);
+  const retired = Object.assign(new Error('cancelled'), {code: 'cancelled'});
+  assert.doesNotThrow(() => open([f.entry], {...device, playable: () => {throw retired;}}));
+  assert.equal(errors[1], retired, 'retired synchronous native access follows the existing error presenter');
 });
