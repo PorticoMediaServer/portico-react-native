@@ -117,3 +117,59 @@ test('group and media kind are part of a mixed selection key', () => {
   const song = {id: 'shared-id', kind: 'song'} as SearchEntry;
   assert.notEqual(nativeSearchEntryKey('movies', movie), nativeSearchEntryKey('songs', song));
 });
+
+test('pause retains only arrived query/cursor data and refuses hidden callbacks or late next pages', async () => {
+  const slow = deferred<unknown>(), calls: string[] = [], signals: AbortSignal[] = [];
+  const {destination} = setup(async <T>(path: string, _method?: string, _body?: unknown, signal?: AbortSignal) => {
+    calls.push(path); if (signal) signals.push(signal);
+    if (path.includes('cursor=third')) return await slow.promise as T;
+    return result(path, path.includes('cursor=second') ? ['movie-b'] : ['movie-a'], path.includes('cursor=second') ? 'third' : 'second') as T;
+  });
+  try {
+    destination.setText('matrix'); destination.selectGroup('movies'); await tick();
+    await destination.next('movies'); const next = destination.next('movies');
+    destination.pause(); assert.equal(signals.at(-1)?.aborted, true);
+    const paused = destination.getSnapshot();
+    assert.equal(paused.search.phase, 'ready'); assert.equal(paused.search.pagination.cursor, 'second');
+    assert.equal(paused.search.pagination.canPrevious, true); assert.equal(paused.search.query?.q, 'matrix');
+    assert.deepEqual(paused.groups[0].items.map(entry => entry.id), ['movie-a', 'movie-b']);
+    destination.setText('hidden callback'); destination.selectGroup('people');
+    await destination.commit(); await destination.next('movies'); await destination.retry(); await destination.clearHistory();
+    assert.equal(calls.length, 3); assert.equal(destination.getSnapshot().text, 'matrix');
+    slow.resolve(result(calls[2], ['late-private-page'])); await next;
+    destination.resume(); await tick();
+    assert.equal(calls.length, 3, 'Back reuses the actual arrived page rather than replaying a cursor or recording history');
+    assert.deepEqual(destination.getSnapshot().groups[0].items.map(entry => entry.id), ['movie-a', 'movie-b']);
+  } finally {destination.dispose();}
+});
+
+test('pause stops the real debounce and an interrupted draft resumes without recording history', async () => {
+  const calls: string[] = [];
+  const {destination} = setup(async <T>(path: string) => {calls.push(path); return result(path, ['actual-result']) as T;});
+  try {
+    destination.setText('draft'); destination.pause();
+    await new Promise<void>(resolve => setTimeout(resolve, 280)); assert.equal(calls.length, 0);
+    destination.resume(); await tick();
+    assert.equal(calls.length, 1); assert.equal(new URL(calls[0], 'https://test.invalid').searchParams.get('record'), '0');
+    assert.equal(destination.getSnapshot().search.query?.q, 'draft');
+    assert.equal(destination.getSnapshot().groups[0].items[0].id, 'actual-result');
+  } finally {destination.dispose();}
+});
+
+test('privacy-off clears arrived history during an explicit clear, and pause cannot revive its late result', async () => {
+  const clear = deferred<unknown>(), calls: string[] = []; let signal: AbortSignal | undefined;
+  const f = setup(async <T>(path: string, method?: string, _body?: unknown, abort?: AbortSignal) => {
+    calls.push(path);
+    if (method === 'DELETE') {signal = abort; return await clear.promise as T;}
+    return history as T;
+  });
+  try {
+    await f.destination.refreshHistory(); assert.equal(f.destination.getSnapshot().recent.length, 1);
+    const pending = f.destination.clearHistory(); f.historyOff(); await f.destination.refreshHistory();
+    assert.deepEqual(f.destination.getSnapshot().recent, []); assert.equal(f.destination.getSnapshot().clearing, true);
+    f.destination.pause(); assert.equal(signal?.aborted, true); assert.equal(f.destination.getSnapshot().clearing, false);
+    clear.resolve({cleared: true}); await pending;
+    f.destination.resume(); await f.destination.refreshHistory();
+    assert.deepEqual(f.destination.getSnapshot().recent, []); assert.equal(calls.length, 2); assert.deepEqual(f.errors, []);
+  } finally {f.destination.dispose();}
+});
