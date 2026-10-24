@@ -274,12 +274,24 @@ test('external source readiness cannot survive caller close or an unknown old-bi
   } finally {d.runtime.dispose();}
   const rich = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(rich);
   try {
-    await rich.start('movie-1'); const caller = new AbortController();
+    await rich.start('movie-1'); const caller = new AbortController(), generation = rich.runtime.getSnapshot().fence!.generation;
     const pending = rich.runtime.requestPictureInPicture(rich.runtime.getSnapshot().fence!, {signal: caller.signal, isCurrent: () => !caller.signal.aborted});
-    await settle(); caller.abort(); assert.equal(await pending, false);
+    await settle(); assert.ok(rich.runtime.getSnapshot().fence!.generation > generation); caller.abort(); assert.equal(await pending, false);
     rich.engine.externalReady = true; rich.engine.emit('progress'); await settle();
     assert.equal(rich.runtime.getSnapshot().pictureInPicture?.request, 0);
   } finally {rich.runtime.dispose();}
+});
+
+test('an old binary without an external acknowledgement times out without a PiP request', async () => {
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(d);
+  try {
+    await d.start('movie-1');
+    const generation = d.runtime.getSnapshot().fence!.generation, pending = d.runtime.requestPictureInPicture(d.runtime.getSnapshot().fence!, versionLifetime());
+    await settle(); assert.ok(d.runtime.getSnapshot().fence!.generation > generation);
+    const timers = d.pendingTimers(10000); assert.equal(timers.length, 1); timers[0]!.run();
+    assert.equal(await pending, false); assert.equal(d.runtime.getSnapshot().pictureInPicture?.request, 0);
+    assert.equal(d.pendingTimers(10000).length, 0);
+  } finally {d.runtime.dispose();}
 });
 
 test('subtitle controls use the real source service and retire with its session and authority', async () => {
