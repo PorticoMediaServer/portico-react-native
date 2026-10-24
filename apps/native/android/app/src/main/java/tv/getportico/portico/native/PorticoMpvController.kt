@@ -1488,15 +1488,19 @@ internal class PorticoMpvController(private val context: Context) {
     if (text.toByteArray(Charsets.UTF_8).size > 8192) return false
     val media = PorticoMpvSupport.parse(source) ?: return false
     val url = PorticoMpvFontFetcher.resolve(text, media) ?: return false
+    val companion = if (kind == "vobsub") {
+      val offered = render["companionUrl"] as? String ?: return false
+      if (offered.length > 8192 || offered.toByteArray(Charsets.UTF_8).size > 8192) return false
+      val supplied = PorticoMpvFontFetcher.resolve(offered, media) ?: return false
+      if (!PorticoMpvSupport.vobSubPair(url.toString(), supplied.toString(), media.toString(),
+          subtitles["resourceId"] as? String, PorticoMpvSupport.integer(subtitles["resourceRevision"]))) return false
+      supplied
+    } else null
     val local = url.scheme?.lowercase() == "file"
     val target: String = if (local) {
       if (media.scheme?.lowercase() != "file" || !PorticoMpvSupport.allowedLocalSource(context, url)) return false
       val path = url.path ?: return false
-      // mpv opens a VobSub index's `.sub` file by itself: that file must be a download too.
-      if (kind == "vobsub") {
-        val companion = Uri.fromFile(java.io.File(path.substringBeforeLast('.') + ".sub"))
-        if (!PorticoMpvSupport.allowedLocalSource(context, companion)) return false
-      }
+      if (companion != null && !PorticoMpvSupport.allowedLocalSource(context, companion)) return false
       path
     } else {
       if (!PorticoMpvSupport.subtitleFileBelongs(url, media)) return false
@@ -1509,8 +1513,8 @@ internal class PorticoMpvController(private val context: Context) {
     subtitleTokenKey = key
     val add = {
       if (subtitleToken == token && externalSubtitleAddress == target) {
-        // A VobSub index names its `.sub` file, which mpv opens by itself from beside the
-        // index: under the same grant through the relay, or the checked download. That one
+        // The supplied, checked VobSub pair shares a basename, so mpv's companion
+        // opening names exactly that offered file through the relay or download. That one
         // opening is allowed for as long as the adding takes.
         if (kind == "vobsub" && !referencesAllowed) {
           referencesToken = token
