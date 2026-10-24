@@ -1,5 +1,6 @@
 package tv.getportico.portico.native
 
+import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableMap
@@ -47,7 +48,7 @@ internal object PorticoTransport {
   const val DEFAULT_LIMIT = 1L shl 20
   const val READ_LIMIT = 8L shl 20
 
-  private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?, val critical: Boolean) {
+  private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?, val critical: Boolean, val binary: Boolean) {
     var deadline: ScheduledFuture<*>? = null
     var call: Call? = null
     var completed = false
@@ -111,9 +112,9 @@ internal object PorticoTransport {
   }
 
   /** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
-  fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise) {
+  fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise, binary: Boolean = false) {
     val critical = request.method !in setOf("GET", "HEAD")
-    val entry = Entry(identifier, owner, limit, promise, critical)
+    val entry = Entry(identifier, owner, limit, promise, critical, binary)
     val call: Call
     synchronized(entries) {
       if (entries.containsKey(identifier) || entries.size >= MAX_ACTIVE + MAX_WAITING || (!critical && entries.values.count { !it.critical } >= 66)) {
@@ -152,7 +153,7 @@ internal object PorticoTransport {
     try {
       val body = response.body
       val buffer = Buffer()
-      if (body != null) {
+      if (body != null && response.request.method != "HEAD") {
         if (body.contentLength() > entry.limit) {
           finish(entry, "Queue response exceeded its limit.", null)
           return
@@ -170,7 +171,7 @@ internal object PorticoTransport {
       finish(entry, "The queue request could not be confirmed.", null)
       return
     }
-    val text = try {
+    val text = if (entry.binary) Base64.encodeToString(bytes, Base64.NO_WRAP) else try {
       Charsets.UTF_8.newDecoder()
           .onMalformedInput(CodingErrorAction.REPORT)
           .onUnmappableCharacter(CodingErrorAction.REPORT)
@@ -185,7 +186,7 @@ internal object PorticoTransport {
     val result = Arguments.createMap()
     result.putInt("status", response.code)
     result.putMap("headers", headers)
-    result.putString("body", text)
+    result.putString(if (entry.binary) "bodyBase64" else "body", text)
     finish(entry, null, result)
   }
 
