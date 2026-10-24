@@ -29,7 +29,7 @@ test('actual captured facade consumes non-UTF8 PDF bytes through native byte exc
   runtime.networkRequest = async (_id: string, url: string, method: string, headers: Record<string, string>) => {
     calls.push(method); assert.equal(new Headers(headers).get('Authorization'), 'Bearer throwaway-test-token');
     const value = method === 'POST' ? {sessionId: 'session', itemId: 'item', sourceId: 'source', revision, format: 'pdf', size: data.length, metadata: {title: 'Stored title'}} : {progress: null};
-    return {status: method === 'DELETE' ? 204 : 200, headers: {'Content-Type': 'application/json'}, body: method === 'DELETE' ? '' : JSON.stringify(value)};
+    return {status: method === 'DELETE' ? 204 : 200, headers: {'Content-Type': 'application/json', ETag: `"${revision}"`}, body: method === 'DELETE' ? '' : JSON.stringify(value)};
   };
   runtime.networkBytesRequest = async (_id: string, url: string, method: string, headers: Record<string, string>, limit: number) => {
     calls.push(method); assert.equal(limit, 65536); const h = new Headers(headers);
