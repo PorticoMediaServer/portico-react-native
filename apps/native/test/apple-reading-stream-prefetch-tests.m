@@ -31,7 +31,7 @@ static void pausedSource(uint64_t total,BOOL chunked,BOOL consumeFirst){
  int listener=socket(AF_INET,SOCK_STREAM,0);struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
  check(listener>=0&&bind(listener,(struct sockaddr *)&address,sizeof(address))==0&&listen(listener,1)==0,"bounded test listener");
  socklen_t length=sizeof(address);getsockname(listener,(struct sockaddr *)&address,&length);
- dispatch_group_t served=dispatch_group_create();NSObject *progress=[NSObject new];__block uint64_t sent=0;
+ dispatch_group_t served=dispatch_group_create();NSObject *progress=[NSObject new];__block uint64_t sent=0;__block int peerError=0;
  dispatch_group_async(served,dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
   int peer=accept(listener,NULL,NULL);if(peer<0)return;int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
   struct timeval timeout={3,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(peer,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
@@ -43,9 +43,9 @@ static void pausedSource(uint64_t total,BOOL chunked,BOOL consumeFirst){
   uint64_t current=0;
   while(current<total){
    NSUInteger amount=(NSUInteger)MIN((uint64_t)sizeof(bytes),total-current);char size[24];int n=snprintf(size,sizeof(size),"%lx\r\n",(unsigned long)amount);
-   if(chunked&&!sendAll(peer,size,(NSUInteger)n))break;
-   if(!sendAll(peer,bytes,amount))break;current+=amount;@synchronized(progress){sent=current;}
-   if(chunked&&!sendAll(peer,"\r\n",2))break;
+   if(chunked&&!sendAll(peer,size,(NSUInteger)n)){@synchronized(progress){peerError=errno;}break;}
+   if(!sendAll(peer,bytes,amount)){@synchronized(progress){peerError=errno;}break;}current+=amount;@synchronized(progress){sent=current;}
+   if(chunked&&!sendAll(peer,"\r\n",2)){@synchronized(progress){peerError=errno;}break;}
   }
   if(chunked&&current==total)sendAll(peer,"0\r\n\r\n",5);
   shutdown(peer,SHUT_RDWR);close(peer);
@@ -81,11 +81,14 @@ static void pausedSource(uint64_t total,BOOL chunked,BOOL consumeFirst){
  PorticoReadingStreamRead(request.identifier,owner,^(id value){bodyReturned=YES;},^(NSString *c,NSString *m,NSError *e){failure=c;});
  check([failure isEqual:@"cancelled"]&&!bodyReturned,"same-id/owner cancellation cannot become fake EOF");
  close(listener);BOOL closed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC))==0;
- BOOL taskClosed=waitFor(^BOOL{return task.state==NSURLSessionTaskStateCompleted;});
+ BOOL taskClosed=task.state==NSURLSessionTaskStateCanceling||task.state==NSURLSessionTaskStateCompleted;
  [[PorticoQueueTransport sessionFor:NO] getAllTasksWithCompletionHandler:^(NSArray<NSURLSessionTask *> *tasks){@synchronized(state){state[@"remainingTasks"]=@(tasks.count);}}];
  BOOL taskList=waitFor(^BOOL{@synchronized(state){return state[@"remainingTasks"]!=nil;}});
- if(!closed||!taskClosed)fprintf(stderr,"Paused cancellation peerClosed=%d taskClosed=%d taskState=%lu sessionTasks=%ld class=%s\n",closed,taskClosed,(unsigned long)task.state,taskList?[state[@"remainingTasks"] integerValue]:-1,NSStringFromClass(task.class).UTF8String);
- check(closed&&taskClosed,"paused transfer task and peer close on cancellation");
+ BOOL noTasks=taskList&&[state[@"remainingTasks"] isEqual:@0];
+ int socketError;@synchronized(progress){socketError=peerError;}
+ BOOL peerClosed=socketError==EPIPE||socketError==ECONNRESET||socketError==ENOTCONN;
+ if(!closed||!taskClosed||!noTasks||!peerClosed)fprintf(stderr,"Paused cancellation peerClosed=%d peerError=%d taskCancelled=%d taskState=%lu sessionTasks=%ld\n",closed,socketError,taskClosed,(unsigned long)task.state,taskList?[state[@"remainingTasks"] integerValue]:-1);
+ check(closed&&peerClosed&&taskClosed&&noTasks,"cancellation closes peer and leaves no outstanding session task");
  check(request.completed&&!request.data&&!request.response&&!request.wire&&!request.streamDriver&&!PorticoQueueRequests.count&&PorticoQueueActive==0&&PorticoQueueReads==0,"cancellation releases retained data, authority-bearing request and all admission");
 }
 
