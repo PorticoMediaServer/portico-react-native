@@ -6,6 +6,7 @@ import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
 import {Focusable, type FocusableProps} from './Focusable';
 import {buttonGeometry, colorAlpha, minimumHitSlop, progressFraction, type ButtonSize, type ButtonVariant} from './control-model';
+import {useNativeObservation} from '../dev-observation';
 
 export type ButtonProps = Omit<FocusableProps, 'children'> & {
   variant?: ButtonVariant;
@@ -42,6 +43,10 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   const androidGlass = glass && recipe.nativeBlur && Platform.OS === 'android';
   const foreground = white ? theme.colors.ink : variant === 'text' ? theme.platform === 'web' ? theme.colors.textSecondary : theme.colors.accentStrong : theme.colors.text;
   const glyphColor = iconColor ?? foreground;
+  const labelStyle = [theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle];
+  const labelId = props.testID ?? props.focusId;
+  const labelObservation = useNativeObservation<Text>({kind: 'text', semanticId: labelId ? `${labelId}/label` : undefined,
+    flattenedStyle: StyleSheet.flatten(labelStyle)}, undefined, children);
   const slop = minimumHitSlop(height, theme.isTV);
   const fraction = progress === undefined ? undefined : progressFraction(progress);
   const inline = theme.isTV && fraction !== undefined;
@@ -61,7 +66,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
         {icon || loading !== undefined ? <View style={{width: glyphSize, height: glyphSize, alignItems: 'center', justifyContent: 'center'}}>
           {loading ? <ActivityIndicator size={glyphSize} color={glyphColor} /> : icon ? <Icon name={icon} size={glyphSize} color={glyphColor} /> : null}
         </View> : null}
-        {!iconOnly ? <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle]}>{children}</Text> : null}
+        {!iconOnly ? <Text {...labelObservation.textProps} numberOfLines={1} ellipsizeMode="tail" style={labelStyle}>{children}</Text> : null}
         {inline && fraction !== undefined && !iconOnly ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .16)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
         {remaining !== undefined && !iconOnly ? <>
           <Text numberOfLines={1} style={[theme.type.button, {fontSize: (theme.isTV ? 22 : geometry.fontSize) * theme.textScale, color: white ? colorAlpha(theme.colors.ink, .66) : theme.colors.textTertiary}, textStyle]}>{remaining}</Text>
