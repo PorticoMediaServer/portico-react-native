@@ -24,7 +24,7 @@ import {NativeTogetherTVRoom} from './TogetherTVRoom';
 import type {NativeTogetherMedia} from './together-media';
 
 export function NativeTogetherScreen({controller, media, ports, runtime}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = defaultI18n.t;
+  const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const region = ids.surface('together');
@@ -40,7 +40,7 @@ export function NativeTogetherScreen({controller, media, ports, runtime}: {contr
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   useEffect(() => {void controller.refresh().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
-  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason}/>;
+  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason} runtime={runtime}/>;
   if (room) return theme.isTV ? <NativeTogetherTVRoom controller={controller} media={media} state={state} group={group} ports={ports} runtime={runtime}/> : <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
   const busy = state.busy || state.phase === 'joining';
   const fieldsRegion = ids.surface('together.form'), keyboard = ids.surface('together.keyboard');
@@ -95,8 +95,8 @@ function TogetherLobbyRegion({controller, region, rail, children}: {controller: 
   return <FocusRegion id={region} entry="start" orientation="free" edges={{left: rail}} onLayout={enter}>{children}</FocusRegion>;
 }
 
-function TogetherEndedScreen({controller, reason}: {controller: NativeTogetherController; reason: string}) {
-  const theme = useTheme(), t = defaultI18n.t;
+function TogetherEndedScreen({controller, reason, runtime}: {controller: NativeTogetherController; reason: string; runtime: NativeShellRuntime}) {
+  const theme = useTheme(), t = runtime.text.t;
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), region = ids.surface('together.ended');
   const [height, setHeight] = useState(0);
   const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'together-ended-lobby'} : undefined, controller.lifetime.current);
@@ -142,7 +142,7 @@ function TogetherLobbyArt({itemId, controller, ports, runtime}: {itemId?: string
 }
 
 function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = defaultI18n.t;
+  const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), group = state.group!;
   const playback = useSyncExternalStore(ports.context.playback.subscribe, ports.context.playback.getSnapshot);
   const [items, setItems] = useState<Readonly<Record<string, MediaItem | null>>>({}), [confirm, setConfirm] = useState<'end' | 'leave'>();
