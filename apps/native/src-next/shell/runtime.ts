@@ -11,6 +11,7 @@ import type {AccountMenuProps} from '../kit/shell/AccountShell';
 import type {LibraryMenuProps} from '../kit/browse';
 import type {LayoutSelection} from '../kit/layout/types';
 import type {StateViewProps} from '../kit/states';
+import type {ErrorContext} from '../../../../packages/client-core/src/presentation/errors';
 import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
@@ -76,7 +77,8 @@ export interface NativeShellRuntime {
   renderHomeEmpty: () => ReactNode;
   /** The shell-owned download sheet, opened by a title page's drawn Download action. */
   renderDownloads?: () => ReactNode;
-  error: (error: unknown, retry: () => void) => StateViewProps;
+  /** Destinations name their own copy context; Home stays the default. */
+  error: (error: unknown, retry: () => void, context?: ErrorContext) => StateViewProps;
   reportError: (error: unknown) => void;
   onDestination: (destination: ShellDestination) => void;
   scrollToTop: (destination: ShellDestination) => void;
