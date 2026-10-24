@@ -11,6 +11,7 @@ import {ServersRoute} from '../screens/accounts/AccountRoutes';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {NativeIdentityFailure} from '../platform/identity-failure';
 import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
+import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
 
@@ -51,7 +52,7 @@ export function RestoredShell() {
     return () => {alive = false; abort.abort(); unsubscribe(); unfence(); unsettled(); clearInterval(clock); owned?.dispose();};
   }, [attempt]);
   const complete = () => setAttempt(value => value + 1);
-  if (state.runtime && state.phase === 'ready') return <NativeShell runtime={state.runtime}/>;
+  if (state.runtime && state.phase === 'ready') return <NativeSettingsAppearance source={state.runtime}><NativeShell runtime={state.runtime}/></NativeSettingsAppearance>;
   if (state.phase === 'loading') return <HomeSkeleton elapsedMs={elapsed} visible/>;
   if (showAccounts || !state.error && retained) return <ServersRoute onComplete={complete} onBack={state.error ? () => setShowAccounts(false) : undefined}/>;
   if (state.error instanceof NativeIdentityFailure) {
