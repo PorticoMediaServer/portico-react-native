@@ -2,22 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 
-const song = (id, track, duration, title) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
+const song = (id: string, track: number, duration: number, title: string) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
 const albumEntry = {id: 'album-1', libraryId: 'music', kind: 'album', title: 'DAMN.', artist: {id: 'artist-1', name: 'Kendrick Lamar'}, year: 2017, posterUrl: '/v1/items/a/art/poster'};
 const artistEntry = {id: 'artist-1', libraryId: 'music', kind: 'artist', title: 'Kendrick Lamar', country: 'US', activeBeginYear: 2004, genres: ['Hip-Hop']};
 
 class Builder {
+  body: any;
   constructor() { this.body = {}; }
-  where(field, operator, value) { this.body.query = {field, operator, value}; return this; }
-  sort(field, direction) { this.body.sort = [{field, direction}]; return this; }
-  limit(value) { this.body.limit = value; return this; }
+  where(field: string, operator: string, value: string) { this.body.query = {field, operator, value}; return this; }
+  sort(field: string, direction: string) { this.body.sort = [{field, direction}]; return this; }
+  limit(value: number) { this.body.limit = value; return this; }
   build() { return this.body; }
 }
 
-async function controller(entry, {songs = [], total = songs.length, similar = [], albums = []} = {}) {
-  const calls = [];
-  const playback = {cataloguePlayback: () => ({playSegments: (segments, options) => {calls.push({segments, options}); return Promise.resolve({id: 'queue'});}})};
-  const api = {request: async path => {
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]};
+async function controller(entry: any, options: Fixture = {}) {
+  const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
+  const calls: any[] = [];
+  const playback = {cataloguePlayback: () => ({playSegments: (segments: any, start: any) => {calls.push({segments, options: start}); return Promise.resolve({id: 'queue'});}})};
+  const api = {request: async (path: any) => {
     if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: 200}};
     if (String(path).startsWith('browse:')) return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start: 0, total, revision: 'r', hasMore: false, nextCursor: ''}, entries: songs};
     if (String(path).includes('/albums')) return {albums, nextCursor: ''};
@@ -27,11 +30,11 @@ async function controller(entry, {songs = [], total = songs.length, similar = []
   }};
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
     './lifetime': {nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
-    '../../../../../../packages/client-core/src/library-content': {validateContentEntry: value => value},
-    '../../../../../../packages/client-core/src/browse': {BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library, pivot) => `cap:${library}:${pivot}`, browsePath: library => `browse:${library}`,
-      parseBrowseCapabilities: value => value, parseBrowseResult: value => value},
-    '../../../../../../packages/client-core/src/container-state': {getContainerState: async () => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
-    '../../../../../../packages/contracts/src/routes': {encodedRoutePath: (id, values) => `/v1/${id}/${values.id}`},
+    '../../../../../../packages/client-core/src/library-content': {validateContentEntry: (value: any) => value},
+    '../../../../../../packages/client-core/src/browse': {BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library: string, pivot: string) => `cap:${library}:${pivot}`, browsePath: (library: string) => `browse:${library}`,
+      parseBrowseCapabilities: (value: any) => value, parseBrowseResult: (value: any) => value},
+    '../../../../../../packages/client-core/src/container-state': {getContainerState: async (_api: any, _kind: any, _id: any) => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
+    '../../../../../../packages/contracts/src/routes': {encodedRoutePath: (id: string, values: {id: string}) => `/v1/${id}/${values.id}`},
     '../../../../../../packages/client-core/src/server-messages': {unreadableServerResponse: 'unreadable'},
   });
   const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => true}, playback});
@@ -47,7 +50,7 @@ test('album page reads its own songs, total, duration and similar albums', async
   assert.equal(state.songs.length, 2);
   assert.equal(state.songTotal, 2);
   assert.equal(state.songDurationSeconds, 365);
-  assert.deepEqual(state.similar.map(entry => entry.id), ['album-2']);
+  assert.deepEqual(state.similar.map((entry: any) => entry.id), ['album-2']);
   assert.equal(state.favorite, true);
   value.dispose();
 });
@@ -62,7 +65,7 @@ test('artist page reads albums, top songs and similar artists from the server', 
   assert.equal(state.songTotal, 4);
   assert.equal(state.albums.length, 1);
   assert.equal(state.albums[0]?.artist?.name, 'Kendrick Lamar');
-  assert.deepEqual(state.similar.map(entry => entry.id), ['artist-2']);
+  assert.deepEqual(state.similar.map((entry: any) => entry.id), ['artist-2']);
   value.dispose();
 });
 
