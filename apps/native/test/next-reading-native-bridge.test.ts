@@ -25,6 +25,11 @@ type Reply = {done: boolean; bodyBase64: string};
 async function fixture(t: TestContext) {
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
   const before = {request: runtime.networkRequest, open: runtime.networkStreamOpen, read: runtime.networkStreamRead, cancel: runtime.cancelQueueRequest, bytes: runtime.networkBytesRequest};
+  let dispose: (() => Promise<void>) | undefined;
+  t.after(async () => {try {await dispose?.();} finally {
+    runtime.networkRequest = before.request; runtime.networkStreamOpen = before.open; runtime.networkStreamRead = before.read;
+    runtime.cancelQueueRequest = before.cancel; runtime.networkBytesRequest = before.bytes;
+  }});
   const authority = new AbortController();
   let current = true, nativeReads = 0, mode: 'exact' | 'stall' | 'truncated' = 'exact';
   let late: ((reply: Reply) => void) | undefined;
@@ -33,7 +38,7 @@ async function fixture(t: TestContext) {
   runtime.networkRequest = async (_id: string, _url: string, method: string, requestHeaders: Record<string, string>) => {
     calls.push(method); assert.equal(new Headers(requestHeaders).get('Authorization'), 'Bearer native-bridge-test-token');
     const data = method === 'POST' ? {sessionId: 'session', itemId: 'item', sourceId: 'source', revision, size: bytes.length, format: 'pdf', sequential: true, metadata: {title: 'Stored title'}} : {progress: null};
-    return {status: method === 'DELETE' ? 204 : 200, headers: {'Content-Type': 'application/json'}, body: method === 'DELETE' ? '' : JSON.stringify(data)};
+    return {status: method === 'DELETE' ? 204 : 200, headers: {'Content-Type': 'application/json', ETag: `"${revision}"`}, body: method === 'DELETE' ? '' : JSON.stringify(data)};
   };
   runtime.networkBytesRequest = async (_id: string, _url: string, method: string) => {assert.equal(method, 'HEAD'); return {status: 200, headers, bodyBase64: ''};};
   runtime.networkStreamOpen = async (id: string, _url: string, requestHeaders: Record<string, string>) => {
@@ -52,18 +57,17 @@ async function fixture(t: TestContext) {
   runtime.cancelQueueRequest = (id: string) => {assert.ok(streams.has(id)); assert.equal(cancelled.has(id), false); cancelled.add(id);};
   const api = new HttpLocalApi('http://127.0.0.1:39143', 'native-bridge-test-token', nativeServerFetch('server'));
   const client = api.reading({viewer: {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', role: 'member'}, isCurrent: () => current, signal: authority.signal});
+  dispose = async () => {client.dispose();};
   const session = await client.open({itemId: 'item', sourceId: 'source'});
+  dispose = async () => {try {if (current) await session.close();} finally {client.dispose();}};
   let input: ((message: string) => void) | undefined;
   const host = createReadingHost({session, channel: 'native_bridge_channel_123', preferences: () => preferences, initialProgress: await session.progress(), current: () => current,
     send(message) {packets.push(message); input?.(message);}, onBack() {}, onSettings() {}});
   const connection = connectReadingHost({send: message => host.receive(message), subscribe(listener) {input = listener; return () => {input = undefined;};}});
-  t.after(async () => {
+  dispose = async () => {
     connection.dispose(); host.dispose();
-    try {if (current) await session.close();} finally {
-      client.dispose(); runtime.networkRequest = before.request; runtime.networkStreamOpen = before.open; runtime.networkStreamRead = before.read;
-      runtime.cancelQueueRequest = before.cancel; runtime.networkBytesRequest = before.bytes;
-    }
-  });
+    try {if (current) await session.close();} finally {client.dispose();}
+  };
   const guest = await connection.ready;
   return {guest, packets, calls, streams, cancelled, get reads() {return nativeReads;}, setMode(value: typeof mode) {mode = value;},
     releaseLate() {late?.({done: false, bodyBase64: Buffer.from(bytes.subarray(0, 49152)).toString('base64')});},
