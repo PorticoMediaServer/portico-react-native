@@ -4,6 +4,7 @@ import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
 import {act, createHookHost} from './hook-driver';
+import {nextRetryDelay} from '../src-next/screens/accounts/directory-chooser';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const theme = createTheme({isTV: false, width: 390});
@@ -13,7 +14,9 @@ const directory = [
   {id: 'two', name: 'Two', baseUrl: 'https://two.test', publicKey: 'key', policyRevision: 0, presence: {online: true, lastSeenAt: null}},
 ];
 
-test('a directory connect is fenced to its attempt: Choose another and a successor ignore its late result or error', async () => {
+test('a directory connect is fenced to its attempt: Choose another and a successor ignore its late result or error', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  let appState: (state: string) => void = () => {};
   const pending: {server: {id: string; name: string}; resolve: (value: unknown) => void; reject: (error: unknown) => void}[] = [];
   class SignIn {
     connectPortico(server: {id: string; name: string}) {
@@ -31,7 +34,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
   })};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     react: {...React, default: React},
-    'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})},
+    'react-native': {AppState: {currentState: 'active', addEventListener: (_: string, listener: (state: string) => void) => {appState = listener; return {remove() {}};}}, BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})},
       NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView', Linking: {openURL: async () => {}}},
     'react-native-qrcode-svg': {default: 'QR'},
     '../../../../../packages/i18n/src': {defaultI18n},
@@ -49,8 +52,9 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     '../../platform/account-authority': {hostedUrl: 'https://hosted.test'},
     '../../tv/auth': {TVProfilePINForm: 'PIN', TVForgotPINHandoff: 'Forgot', TVFrontDoor: 'Front', TVCodePresenter: 'Code',
       TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required'},
-    './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
-    './directory-chooser': {directoryRows: (servers: readonly {id: string; name: string}[]) => servers.map(server => ({id: server.id, name: server.name, offline: false})),
+    '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'},
+    './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
+    './directory-chooser': {nextRetryDelay, directoryRows: (servers: readonly {id: string; name: string}[]) => servers.map(server => ({id: server.id, name: server.name, offline: false})),
       directoryFailure: (server: unknown, error: unknown) => !server ? 'other' : error === undefined ? 'opening' : 'waiting',
       directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
@@ -88,6 +92,51 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     await act(async () => {pending[3]!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})); await Promise.resolve(); host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-waiting');
     assert.equal(tree.props.title, defaultI18n.t('web.chooser.waitingTitle', {server: 'Two'}));
+    assert.ok(tree.props.retry, 'the waiting state carries its automatic retry schedule');
+    assert.equal(tree.props.retry.label, defaultI18n.t('web.chooser.checkingAgain', {seconds: 20}));
     assert.equal(completed, 0);
-  } finally {host.unmount();}
+    const advance = async (seconds: number) => {for (let i = 0; i < seconds; i++) await act(() => t.mock.timers.tick(1000));};
+    const rejectLast = async () => {await act(() => pending.at(-1)!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})));};
+    for (const delay of [20, 40, 80, 160, 300, 300]) {
+      const count = pending.length;
+      await advance(delay - 1);
+      assert.equal(pending.length, count, 'countdown does not connect early');
+      await advance(1);
+      assert.equal(pending.length, count + 1, `one retry at ${delay}s`);
+      assert.equal(pending.at(-1)!.server.id, 'two');
+      await rejectLast();
+    }
+    await advance(299);
+    let count = pending.length;
+    // Manual Check now invalidates the old tick before effects can clean it up.
+    await act(() => {tree.props.primaryAction.onPress(); t.mock.timers.tick(1000);});
+    assert.equal(pending.length, count + 1, 'manual/timer boundary issues one connection');
+    await rejectLast();
+    await advance(299);
+    count = pending.length;
+    await act(() => {appState('background'); t.mock.timers.tick(1000);});
+    assert.equal(pending.length, count, 'background invalidates the expiry synchronously');
+    await advance(400);
+    assert.equal(pending.length, count, 'no requests while inactive');
+    await act(() => appState('active'));
+    await advance(1);
+    assert.equal(pending.length, count + 1, 'foreground resumes the remaining second');
+    await rejectLast();
+    await advance(299);
+    count = pending.length;
+    await act(() => {tree.props.secondaryAction.onPress(); t.mock.timers.tick(1000);});
+    assert.equal(pending.length, count, 'Choose another invalidates the expiry before passive cleanup');
+    await act(() => rows()[0].props.onPress());
+    await rejectLast();
+    await advance(19);
+    count = pending.length;
+    await act(() => {tree.props.secondaryAction.onPress(); rows()[1]?.props.onPress(); t.mock.timers.tick(1000);});
+    assert.equal(pending.length, count, 'a retired target cannot reconnect');
+    await act(() => rows()[1].props.onPress());
+    await rejectLast();
+    await advance(19);
+    count = pending.length;
+    host.unmount(); t.mock.timers.tick(1000);
+    assert.equal(pending.length, count, 'unmount retires the timer');
+  } finally {host.unmount(); t.mock.timers.reset();}
 });

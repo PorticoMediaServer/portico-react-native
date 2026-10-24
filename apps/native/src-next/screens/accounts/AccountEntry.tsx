@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {BackHandler, Linking, NativeModules, Platform, TVEventControl, Text, View} from 'react-native';
+import {AppState, BackHandler, Linking, NativeModules, Platform, TVEventControl, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
@@ -28,7 +28,7 @@ import {DirectoryAccessRefused} from './DirectoryAccessRefused';
 import {directoryAccessRefused} from './directory-refusal';
 import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
-import {directoryFailure, directoryOfflineBody, directoryRows} from './directory-chooser';
+import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
 export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
@@ -45,19 +45,22 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
   const identityOrigin = useRef<string | undefined>(undefined);
-  const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
+  const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [retryIn, setRetryIn] = useState(20), [appActive, setAppActive] = useState(AppState.currentState === 'active'), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
   const [pinRecovery, setPinRecovery] = useState<PINRecovery>();
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
-  const lifetime = useRef(true), directoryAttempt = useRef(0), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
+  const lifetime = useRef(true), directoryAttempt = useRef(0), retryDelay = useRef(20), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
   const pinRecoveryRef = useRef<PINRecovery | undefined>(undefined), profileRef = useRef(profile);
   profileRef.current = profile;
   const retireRecovery = (expected = pinRecoveryRef.current) => {
     if (!expected || pinRecoveryRef.current !== expected || expected.retired) return false;
     expected.retired = true; pinRecoveryRef.current = undefined; expected.controller.dispose(); setPinRecovery(undefined); return true;
   };
+  const targetRef = useRef(target), activeRef = useRef(appActive), retryEpoch = useRef(0), remainingRetry = useRef(20);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
@@ -67,7 +70,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
-  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireRecovery(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) stopRetry(); setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useEffect(() => {
     if (stage !== 'address') return;
     const abort = new AbortController(), probes = new Set<ServerSignInProbe>();
@@ -101,10 +105,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireRecovery(); ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
-    setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); setStage(initialStage);};
-  const cancelDirectory = () => {retireRecovery(); ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
+    setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
+  const cancelDirectory = () => {retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
     if (pinRecoveryRef.current) {retireRecovery(); setCode(''); return;}
     if (stage === 'servers' && target) {cancelDirectory(); return;}
@@ -150,10 +154,14 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
       !Number.isSafeInteger(value.policyRevision) || value.policyRevision < 0) || new Set(out.items.map(value => value.id)).size !== out.items.length)
       throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
-    if (lifetime.current) {setPassword(''); setServers(out.items); setTarget(undefined); setError(undefined); setStage('servers');}
+    if (lifetime.current) {setPassword(''); setServers(out.items); stopRetry(); targetRef.current = undefined; setTarget(undefined); setError(undefined); setStage('servers');}
   };
-  const connectDirectory = (value: HostedServer) => {
-    if (busy || acting.current || adoptingTV.current || !lifetime.current) return;
+  const connectDirectory = (value: HostedServer, automatic = false) => {
+    if (busyRef.current || acting.current || adoptingTV.current || !lifetime.current) return;
+    if (automatic && (stageRef.current !== 'servers' || targetRef.current !== value || !activeRef.current)) return;
+    stopRetry(); targetRef.current = value;
+    if (!automatic) {retryDelay.current = 20; setRetryIn(20);}
+    remainingRetry.current = retryDelay.current;
     const attempt = ++directoryAttempt.current;
     setTarget(value); setError(undefined); acting.current = true; setBusy(true);
     void (async () => {
@@ -254,6 +262,22 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const failure = error ? presentError(error, stage === 'profile-pin' ? 'profiles' : 'sign-in') : undefined;
   const status = failure && !failure.silent ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
   const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
+  useEffect(() => {
+    if (stage !== 'servers' || !target || directoryView !== 'waiting' || busy || !appActive) return;
+    const attempt = directoryAttempt.current, epoch = ++retryEpoch.current, capturedTarget = target;
+    const current = () => lifetime.current && retryEpoch.current === epoch && directoryAttempt.current === attempt
+      && stageRef.current === 'servers' && targetRef.current === capturedTarget && activeRef.current
+      && !busyRef.current && !acting.current && !adoptingTV.current;
+    const tick = () => {
+      if (!current()) return;
+      const seconds = remainingRetry.current;
+      setRetryIn(seconds);
+      if (seconds <= 0) {retryDelay.current = nextRetryDelay(retryDelay.current); connectDirectory(capturedTarget, true); return;}
+      retryTimer.current = setTimeout(() => {if (!current()) return; remainingRetry.current -= 1; tick();}, 1000);
+    };
+    tick();
+    return () => {if (retryEpoch.current === epoch) stopRetry();};
+  }, [stage, target, directoryView, busy, appActive]);
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
     requirement={requiredSetup.requirement} url={new URL('/settings/profile', requiredSetup.serverOrigin).href} busy={busy}
@@ -342,11 +366,12 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'servers' && target && directoryView === 'unreachable') {
     const body = directoryOfflineBody(target);
     return <StateLayout testID="accounts-server-unreachable" title={t('web.chooser.unreachableTitle', {server: target.name})} body={t(body.key, body.values)}
-      primaryAction={{id: 'try-again', label: t('web.chooser.tryAgain'), loading: busy, onPress: () => connectDirectory(target)}}
+      primaryAction={{id: 'try-again', label: t('web.chooser.tryAgain'), loading: busy, onPress: () => connectDirectory(target, true)}}
       secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   }
   if (stage === 'servers' && target && directoryView === 'waiting') return <StateLayout testID="accounts-server-waiting" title={t('web.chooser.waitingTitle', {server: target.name})}
-    body={t('web.chooser.waitingBody')} primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target)}}
+    body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
+    primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   if (stage === 'servers') return layout(t('portico.landing.pickTitle'), servers.length ? t('accounts.session.portico') : t('web.hostedAccount.noServersBody'),
     <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{directoryRows(server && server.signIn === 'portico' ? servers.filter(value => value.id === server.id) : servers).map(row => {

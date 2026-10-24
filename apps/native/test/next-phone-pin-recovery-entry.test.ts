@@ -34,7 +34,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     react: {...React, default: React},
-    'react-native': {BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
+    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     'react-native-qrcode-svg': {default: 'QR'},
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src': {},
@@ -144,7 +144,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     react: {...React, default: React},
-    'react-native': {BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
+    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     'react-native-qrcode-svg': {default: 'QR'},
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src': {},
