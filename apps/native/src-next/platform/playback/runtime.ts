@@ -31,12 +31,12 @@ import {PlaybackScopeHttp} from './scope-http';
 import {captionStyle} from './caption-style';
 import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
 import {uploadPickedSubtitle} from './subtitle-file-upload';
-import {deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
+import {deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
 import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativeExternalPresentationLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
@@ -95,6 +95,10 @@ export class NativePlaybackRuntime {
   private subtitleOff?: () => void;
   private subtitleFileController?: AbortController;
   private externalPresentationBinding?: NativeBinding | null;
+  private externalController?: AbortController;
+  private externalEpoch = 0;
+  private pictureRequests = 0;
+  private pictureBinding?: NativeBinding;
   private fonts?: SubtitleFonts | 'pending';
   private fontsKey?: string;
   private detail?: SourceDetail;
@@ -220,7 +224,7 @@ export class NativePlaybackRuntime {
   private routeChanged(): void {
     if (!this.active()) return;
     const route = this.o.api.getRouteSnapshot();
-    if (route && route.phase !== 'ready') {this.cancelSnapshot(); this.externalPresentationBinding = null;}
+    if (route && route.phase !== 'ready') {this.cancelSnapshot(); this.externalPresentationBinding = null; this.pictureBinding = undefined; this.externalController?.abort();}
     this.coordinator.setConnection(!route || route.phase === 'ready');
     if (route && route.phase !== 'ready') this.publish();
   }
@@ -234,6 +238,7 @@ export class NativePlaybackRuntime {
 
   private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
+    this.externalController?.abort(); this.pictureBinding = undefined;
     this.startController?.abort();
     for (const controller of [...this.selectionControllers]) {
       if (controller.signal === retainScope) continue;
@@ -716,7 +721,7 @@ export class NativePlaybackRuntime {
   }
   private selectSource(key: string): void {
     this.cancelSnapshot();
-    this.externalPresentationBinding = undefined;
+    this.externalPresentationBinding = undefined; this.pictureBinding = undefined;
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
     this.sourceController?.abort();
     this.subtitleOff?.(); this.subtitleOff = undefined;
@@ -806,7 +811,11 @@ export class NativePlaybackRuntime {
     if (plan) subtitles = {binding, mode: 'off', revision: plan.revision};
     if (visible && plan && (selected || drawn)) {
       // mediaUrl enforces the current selected origin/media grant. No raw URL concatenation.
-      const render = this.coordinator.getEngine() === 'mpv' ? engineSubtitleRender(plan, state.session, this.o.engineFeatures('mpv').subtitleRendering, path => this.o.api.mediaUrl(path), this.fonts, session) : undefined;
+      const engine = this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native';
+      // A native engine may genuinely install the rich subtitle producer too.
+      // Plain cue documents retain their existing platform selection path.
+      const rendering = this.o.engineFeatures(engine).subtitleRendering.filter(kind => engine === 'mpv' || kind !== 'text');
+      const render = engineSubtitleRender(plan, state.session, rendering, path => this.o.api.mediaUrl(path), this.fonts, session);
       if (selected && plan.documentUrl || render) {
         const resource = selected ?? drawn?.resource;
         subtitles = {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? drawn?.id, resourceRevision: resource?.revision ?? 1,
@@ -838,7 +847,8 @@ export class NativePlaybackRuntime {
       && acknowledgement.itemId === playback.itemId ? acknowledgement : null;
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
-      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding, retired: this.retired,
+      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
+      ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
       capabilities: Object.freeze({play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
@@ -979,6 +989,82 @@ export class NativePlaybackRuntime {
     } : undefined);
   };
   cast = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.o.openDestinations) await this.o.openDestinations(fence); };
+
+  /** Same queue occurrence/session, then an actual native acknowledgement. The
+   * caller owns host/navigation lifetime; the accepted new generation is ours. */
+  prepareExternalPresentation = async (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime): Promise<NativeBinding | undefined> => {
+    if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
+    const original = this.currentSession(), playback = this.playback.getSnapshot();
+    if (!original || original.kind !== 'vod' || original.id !== fence.sessionId || !original.queue || original.queue.entryId !== fence.entryId || playback.nativeListening) return;
+    const preparation = externalSubtitlePreparation(this.subtitleService?.getSnapshot().plan, original);
+    if (preparation.kind === 'unavailable') return;
+    this.externalController?.abort();
+    const controller = this.externalController = new AbortController(), epoch = ++this.externalEpoch, start = this.startEpoch;
+    let generation: number | undefined;
+    const current = () => {
+      const state = this.playback.getSnapshot(), session = this.queue.currentSession(), queue = this.queue.getSnapshot().view?.queue;
+      try {return this.active() && !controller.signal.aborted && !lifetime.signal.aborted && lifetime.isCurrent()
+        && epoch === this.externalEpoch && start === this.startEpoch && state.intentId === playback.intentId
+        && state.session?.id === original.id && session?.id === original.id
+        && queue?.id === original.queue!.queueId && queue.current?.entryId === original.queue!.entryId
+        && (generation === undefined || state.session.generation === generation);}
+      catch {return false;}
+    };
+    const abort = () => controller.abort();
+    lifetime.signal.addEventListener('abort', abort, {once: true});
+    if (lifetime.signal.aborted) controller.abort();
+    const retire = this.subscribe(() => {if (!current()) controller.abort();});
+    try {
+      const adopted = preparation.kind === 'burn'
+        ? await this.queue.changePlayback(preparation.choices, {signal: controller.signal, isCurrent: current, recoverEnded: false}) : original;
+      if (!current() || !adopted || adopted.id !== original.id || adopted.queue?.queueId !== original.queue.queueId || adopted.queue.entryId !== original.queue.entryId
+        || adopted.versionId !== original.versionId || adopted.presentation.audioTrackId !== original.presentation.audioTrackId) return;
+      if (preparation.kind === 'burn' && (adopted.presentation.generation <= original.presentation.generation || adopted.presentation.subtitle?.trackId !== preparation.trackId || adopted.presentation.subtitle.delivery !== 'burn')) return;
+      generation = adopted.presentation.generation;
+      return await this.waitForExternalPresentation(controller.signal, current, binding => {
+        if (binding.sessionId !== adopted.id || binding.generation !== generation || binding.intentId !== playback.intentId || binding.itemId !== playback.itemId) return false;
+        if (preparation.kind !== 'burn') return true;
+        const plan = this.subtitleService?.getSnapshot().plan;
+        return plan?.sessionId === adopted.id && plan.generation === generation && plan.sourceId === preparation.sourceId;
+      });
+    } catch (error) {
+      if (!current()) return;
+      throw error;
+    } finally {
+      retire(); lifetime.signal.removeEventListener('abort', abort); controller.abort();
+      if (this.externalController === controller) this.externalController = undefined;
+    }
+  };
+
+  private waitForExternalPresentation(signal: AbortSignal, current: () => boolean, accepts: (binding: NativeBinding) => boolean): Promise<NativeBinding | undefined> {
+    return new Promise(resolve => {
+      let finished = false, timer: unknown, unsubscribe = () => {};
+      const finish = (binding?: NativeBinding) => {
+        if (finished) return; finished = true; unsubscribe(); signal.removeEventListener('abort', aborted);
+        if (timer !== undefined) {if (this.o.timers?.clearTimer) this.o.timers.clearTimer(timer); else clearTimeout(timer as ReturnType<typeof setTimeout>);}
+        resolve(binding);
+      };
+      const aborted = () => finish();
+      const check = () => {
+        if (signal.aborted || !current()) {finish(); return;}
+        const binding = this.snapshot.externalPresentationBinding;
+        if (binding && accepts(binding)) finish(binding);
+      };
+      unsubscribe = this.subscribe(check); signal.addEventListener('abort', aborted, {once: true});
+      timer = this.o.timers?.setTimer ? this.o.timers.setTimer(() => finish(), 10000) : setTimeout(() => finish(), 10000);
+      check();
+    });
+  }
+
+  /** True acknowledges a fenced retained-view request, never that PiP started. */
+  requestPictureInPicture = async (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime): Promise<boolean> => {
+    if (!this.o.pictureInPictureControls) return false;
+    const pending = this.prepareExternalPresentation(fence, lifetime), epoch = this.externalEpoch;
+    const binding = await pending, ready = this.snapshot.externalPresentationBinding;
+    if (!binding || !ready || !this.active() || epoch !== this.externalEpoch || lifetime.signal.aborted || !lifetime.isCurrent()
+      || !sameNativePresentation(binding, ready) || this.pictureRequests >= Number.MAX_SAFE_INTEGER) return false;
+    this.pictureRequests++; this.pictureBinding = binding; this.publish(); return true;
+  };
 
   change = async (fence: PlaybackFence, choice: PlaybackChoices): Promise<void> => {
     if (!this.matches(fence)) return;

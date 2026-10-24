@@ -35,6 +35,7 @@ export type NativePlaybackVersionSelection = Readonly<{
   /** Exact source when the menu opened, including an explicitly absent source. */
   expectedFence: PlaybackFence | undefined;
 }>;
+export type NativeExternalPresentationLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{
   dockBounds?: NativePlaybackBounds; expandedBounds?: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean;
@@ -59,6 +60,8 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   effectiveRate: number; supportedRates: readonly number[];
   /** Actual native external source readiness. Absent=unknown; null=unready. Not PiP support. */
   externalPresentationBinding?: NativeBinding | null;
+  /** Installed retained-view request port, not a claim of support or a started PiP session. */
+  pictureInPicture?: Readonly<{request: number; binding?: NativeBinding}>;
   retired: boolean;
 }>;
 
@@ -83,6 +86,8 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   openDestinations?: (fence: PlaybackFence) => Promise<void>;
   /** Platform-owned picker only; upload stays in the one current-source SubtitleService. */
   subtitleFilePicker?: NativeSubtitleFilePicker;
+  /** The platform factory actually wires the retained view's existing request props. */
+  pictureInPictureControls?: true;
 }>;
 
 export interface NativePlaybackAdapter {
@@ -106,6 +111,8 @@ export interface NativePlaybackAdapter {
   previous: (fence: PlaybackFence) => Promise<void>;
   next: (fence: PlaybackFence) => Promise<void>;
   cast?: (fence: PlaybackFence) => Promise<void>;
+  prepareExternalPresentation?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<NativeBinding | undefined>;
+  requestPictureInPicture?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<boolean>;
   stop: (fence: PlaybackFence) => Promise<void>;
   restoreBookmark: (expectedBookmarkFence: PlaybackFence, playExplicitly: boolean) => Promise<PlaybackFence | undefined>;
   open: (fence: PlaybackFence) => void;
