@@ -1361,10 +1361,10 @@ internal class PorticoMpvController(private val context: Context) {
     val render = PorticoMpvSupport.map(scoped(command?.get("subtitles"))?.get("render"))
     core?.set("sub-ass-override", PorticoMpvSupport.captionAssOverride(style, render?.get("kind")))
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
-    // This increment applies profile colour on the app's plain cue view only.
-    // Preserve the core renderer's existing fallback until rich-track styling
-    // and keepStyling are composed together; never recolour an authored ASS file.
-    val (text, box) = PorticoMpvSupport.captionColors(context, style, applyProfileColour = false)
+    // Plain/stripped text uses the same canonical/system colour as the cue view.
+    // An ASS track retaining its file style ignores these fallback properties
+    // through the explicit sub-ass-override=no above.
+    val (text, box) = PorticoMpvSupport.captionColors(context, style)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
     core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
     val edge = android.graphics.Color.alpha(box) < 77
