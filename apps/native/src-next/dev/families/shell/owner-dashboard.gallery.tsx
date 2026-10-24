@@ -1,7 +1,7 @@
 import React from 'react';
 import {ScrollView, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
-import type {AdminSession} from '../../../../../../packages/client-core/src/playback-v1/types';
+import type {AdminSession, StreamAction} from '../../../../../../packages/client-core/src/playback-v1/types';
 import type {Alert, Job} from '../../../../../../packages/client-core/src/console';
 import type {PlaySummary} from '../../../../../../packages/client-core/src/play-history';
 import type {TelemetryReading} from '../../../../../../packages/client-core/src/telemetry';
@@ -13,10 +13,10 @@ import {ownerAlertView, ownerHealthLine, ownerJobView, ownerStreamView} from '..
 const t = defaultI18n.t;
 const now = Date.now();
 
-function session(kind: 'movie' | 'episode', title: string, year: number | undefined, viewer: {profile: string; user: string; device: string}, action: 'direct' | 'copy' | 'transcode', extra: Partial<AdminSession> = {}): AdminSession {
+function session(kind: 'movie' | 'episode', title: string, year: number | undefined, viewer: {profile: string; user: string; device: string}, action: StreamAction, extra: Partial<AdminSession> = {}): AdminSession {
   return Object.freeze({
     id: `${viewer.user}-session`, user: viewer.user, profile: viewer.profile, device: viewer.device, title, kind: 'vod', state: 'playing', positionMs: 1_915_000, durationMs: 4_560_000,
-    decision: {video: {action}, audio: {action: 'direct'}}, location: 'local', startedAt: new Date(now - 1_800_000).toISOString(),
+    decision: {video: {action, reasons: []}, audio: {action: 'direct', reasons: []}}, location: 'local', startedAt: new Date(now - 1_800_000).toISOString(),
     item: {id: `${viewer.user}-item`, kind, title, art: [], ...(kind === 'episode' ? {showId: 'show', showTitle: title === 'The Last of Us' ? 'The Last of Us' : title, seasonNumber: 1, episodeNumber: 3} : year === undefined ? {} : {year})} as AdminSession['item'],
     ...extra,
   });
