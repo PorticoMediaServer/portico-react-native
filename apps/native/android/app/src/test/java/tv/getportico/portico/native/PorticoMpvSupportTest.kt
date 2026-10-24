@@ -143,6 +143,27 @@ class PorticoMpvSupportTest {
   }
 
   @Test
+  fun originalSubtitleClockWinsOnceAndKeepsSignedFractionalCorrections() {
+    val plan = mapOf("offsetUs" to "17000000")
+    for (ms in listOf(0.0, -0.5, 0.5, 12_345.6789, -86_400_000.0, 86_400_000.0)) {
+      val delay = support.originalSubtitleDelay(plan, mapOf("timeDomain" to "source-relative", "offsetMs" to ms))
+      assertEquals(ms / 1000, delay!!.toDouble(), 0.0)
+    }
+    assertEquals(0.000001, support.originalSubtitleDelay(mapOf("offsetUs" to "1"), emptyMap<String, Any>())!!.toDouble(), 0.0)
+    assertEquals(-1.234567, support.originalSubtitleDelay(mapOf("offsetUs" to "-1234567"), emptyMap<String, Any>())!!.toDouble(), 0.0)
+    for (bad in listOf(null, "0.5", true, Double.NaN, Double.POSITIVE_INFINITY, 86_400_000.01, -86_400_000.01))
+      assertNull("explicit invalid file offset never falls back", support.originalSubtitleDelay(plan, mapOf("offsetMs" to bad)))
+    assertNull(support.originalSubtitleDelay(plan, mapOf("timeDomain" to "unknown", "offsetMs" to 0)))
+    for (bad in listOf(null, 0, "", "+1", "01", "1.5", "600000001", "-600000001", "1e3"))
+      assertNull("plan corrections stay canonical and bounded", support.originalSubtitleDelay(mapOf("offsetUs" to bad), emptyMap<String, Any>()))
+    val before = java.util.Locale.getDefault()
+    try {
+      java.util.Locale.setDefault(java.util.Locale.GERMANY)
+      assertEquals(0.0005, support.originalSubtitleDelay(plan, mapOf("offsetMs" to 0.5))!!.toDouble(), 0.0)
+    } finally { java.util.Locale.setDefault(before) }
+  }
+
+  @Test
   fun actualCaptionPositionRetainsAuthoredTopAndUsesOnePaneFraction() {
     assertTrue(support.captionAtTop(mapOf("position" to "top"), false))
     assertTrue(support.captionAtTop(mapOf("position" to "bottom"), true))

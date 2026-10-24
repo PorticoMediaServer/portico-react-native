@@ -1389,10 +1389,17 @@ internal class PorticoMpvController(private val context: Context) {
       updateOutput()
       return
     }
-    val offset = (((subtitles["offsetUs"] as? String)?.toDoubleOrNull() ?: 0.0) / 1_000_000).coerceIn(-600.0, 600.0)
     val document = subtitles["documentUrl"] is String
     val render = PorticoMpvSupport.map(subtitles["render"])
     if (render != null && !(render["kind"] == "text" && document)) {
+      val offset = PorticoMpvSupport.originalSubtitleDelay(subtitles, render)
+      if (offset == null) {
+        clearEngineSubtitle()
+        overlayOff()
+        emit("subtitleStatus", "subtitle_source_invalid")
+        updateOutput()
+        return
+      }
       // Which mpv track that is can only be said once the file is open.
       if (!loaded) return
       val embedded = PorticoMpvSupport.map(render["embedded"])
@@ -1406,7 +1413,7 @@ internal class PorticoMpvController(private val context: Context) {
           val track = embedded?.let { PorticoMpvSupport.embeddedSubtitle(it, (render["kind"] as? String) ?: "", all) }
               ?: address?.let { all.firstOrNull { candidate -> candidate["external-filename"] == it } }?.let { PorticoMpvSupport.trackId(it) }
           if (track != null && snapshot.sid != track.toString()) core?.set("sid", track.toString())
-          core?.set("sub-delay", PorticoMpvSupport.decimal(offset))
+          core?.set("sub-delay", offset)
           return
         }
         clearEngineSubtitle()
@@ -1414,7 +1421,7 @@ internal class PorticoMpvController(private val context: Context) {
         engineSubtitleKey = key
         updateOutput()
         if (startEngineSubtitle(render, key, subtitles)) {
-          core?.set("sub-delay", PorticoMpvSupport.decimal(offset))
+          core?.set("sub-delay", offset)
           overlayOff()
           emit("subtitleStatus", "")
           return
