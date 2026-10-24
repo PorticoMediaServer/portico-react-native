@@ -561,7 +561,15 @@ export class NativePlaybackRuntime {
   }
 
   private readonly cataloguePort = Object.freeze({
-    playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => this.playCatalogueSegments(segments, options),
+    playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => {
+      // P0-PHONE-ALBUM-PLAYBACK proof: temporary __DEV__-only, sanitized call arguments
+      // (container kind/id and order only). Removed after the proof run.
+      if (__DEV__) console.log('[P0-ALBUM-PROOF]', new Date().toISOString(), JSON.stringify(segments.map(segment => ({
+        source: {container: 'container' in segment.source ? {kind: segment.source.container.kind, id: segment.source.container.id} : null},
+        order: segment.order ? {mode: segment.order.mode, ...(segment.order.mode === 'shuffle' && segment.order.seed ? {seed: segment.order.seed} : {})} : null,
+      }))));
+      return this.playCatalogueSegments(segments, options);
+    },
     enqueueSegments: (segments: readonly SegmentInput[], placement: 'next' | 'end', lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => {
       // Capture the queue/source epochs before waiting behind another append: a call queued
       // for queue A must never adopt a source B that replaced it while it waited.
