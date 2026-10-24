@@ -168,11 +168,10 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
       val weights = paints.map { it.typeface.weight }.distinct()
       if (weights.size == 1) result["fontWeight"] = value(weights.single(), "android.Layout.TextPaint.Typeface.getWeight")
     }
+    // A Typeface system label does not establish the associated shaped resource's
+    // typographic name (name ID 16, else ID 1). No resource/name-table association
+    // is currently observable here, so neither labels nor requested families qualify.
     result["fontFamily"] = missing("font-family-unavailable")
-    if (Build.VERSION.SDK_INT >= 36 && paints.isNotEmpty()) {
-      val families = paints.map { it.typeface?.systemFontFamilyName }.distinct()
-      if (families.size == 1 && LayoutObservationPolicy.fontFamily(families.single())) result["fontFamily"] = value(families.single()!!, "android.Layout.TextPaint.Typeface.getSystemFontFamilyName")
-    }
     val heights = (0 until layout.lineCount).map { layout.getLineBottom(it) - layout.getLineTop(it) }.distinct()
     if (heights.size == 1 && heights.single() > 0) result["lineHeight"] = value(heights.single() / density, "android.Layout.getLineTop+getLineBottom")
     result["textLineRects"] = missing("unsupported-transform")
@@ -269,7 +268,6 @@ internal object LayoutObservationPolicy {
   }
   private const val PUBLIC_URI = "portico://native-layout?specimen=signed-out-welcome"
   fun publicIntent(debug: Boolean, action: String?, uri: String?) = debug && action == "android.intent.action.VIEW" && uri == PUBLIC_URI
-  fun fontFamily(value: String?) = value != null && value.isNotBlank() && value.length <= 128 && value.none { it.isISOControl() || it in "/\\:@?#" }
   private fun tag(value: Double) = value.isFinite() && value > 0 && value <= Int.MAX_VALUE && value == value.toInt().toDouble()
   fun admitted(debug: Boolean, action: String?, uri: String?, root: Double, fixture: Double, tags: List<Double>) =
     publicIntent(debug, action, uri) && tag(root) && tag(fixture) && root != fixture && tags.size <= MAX_HOSTS && tags.all(::tag) && tags.distinct().size == tags.size

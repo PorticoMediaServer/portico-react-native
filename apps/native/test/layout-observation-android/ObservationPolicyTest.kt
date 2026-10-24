@@ -41,8 +41,6 @@ fun main() {
   verify(LayoutObservationPolicy.opacity(listOf(1.0, 0.0, 0.5)) == 0.0)
   for (bad in listOf(-0.1, 1.1, Double.NaN, Double.POSITIVE_INFINITY)) verify(LayoutObservationPolicy.opacity(listOf(1.0, bad)) == null)
   verify(LayoutObservationPolicy.opacity(emptyList()) == null)
-  verify(LayoutObservationPolicy.fontFamily("sans-serif"))
-  for (bad in listOf(null, "", " ", "sans\nserif", "asset/font.ttf", "https://example.invalid", "A".repeat(129))) verify(!LayoutObservationPolicy.fontFamily(bad))
   val box = doubleArrayOf(105.0, 210.0, 1275.0, 2742.0)
   val mappedOrigin = doubleArrayOf(105.0, 210.0)
   val nativeOrigin = doubleArrayOf(15.0, 72.0)
