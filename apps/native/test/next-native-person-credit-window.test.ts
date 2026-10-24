@@ -70,7 +70,7 @@ test('Person sparse credits borrow one arrived page and follow only real continu
     await ready(window, 0); assert.equal(f.reads.length, 1, 'seed does not reread page zero');
     const old = window.collection.itemAt(0)!.media;
     assert.equal(window.contains(old), true); assert.equal(window.contains({...old}), false);
-    await ready(window, 200);
+    await ready(window, 200).catch(error => {throw new Error(`${error.message}; fixture reads=${f.reads.map(read => new URL(read.path, 'https://fixture.invalid').search).join('|')}; window=${JSON.stringify(window!.collection.getSnapshot())}; resident=${JSON.stringify(window!.collection.resident())}`);});
     const paths = f.reads.slice(1).map(read => new URL(read.path, 'https://fixture.invalid'));
     assert.deepEqual(paths.map(url => url.searchParams.get('cursor')), ['opaque-40', 'opaque-80', 'opaque-120', 'opaque-160', 'opaque-200']);
     assert.ok(paths.every(url => !url.searchParams.has('offset') && url.searchParams.get('limit') === '40'));
