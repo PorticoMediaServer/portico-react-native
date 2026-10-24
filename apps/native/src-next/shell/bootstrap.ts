@@ -1,5 +1,4 @@
 import {AppState, Dimensions, Platform} from 'react-native';
-import {defaultI18n} from '../../../../packages/i18n/src';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
 import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
@@ -30,6 +29,7 @@ import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
 import {authorityKey, type ShellAuthority} from './model';
 import {nativeReadRouteAllowed} from '../screens/read/platform';
+import {nativeRuntimeRegionText} from '../screens/settings/runtime-region';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
@@ -198,6 +198,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       for (const listener of [...listeners]) listener();
     };
     publish();
+    cleanups.push(context.subscribePreferences(publish));
     refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
       if (!current() || !sameViewer(session!, renewed)) {end(); return;}
       if (renewed.authorizationHorizon !== session!.authorizationHorizon) {
@@ -285,7 +286,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: nativeRuntimeRegionText(context),
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;
