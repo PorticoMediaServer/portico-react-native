@@ -85,7 +85,7 @@ static void actualPullStream(void) {
  BOOL opened=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
  check(opened&&!state[@"error"]&&[state[@"headers"][@"status"]isEqual:@200],"actual task resolves headers before read");
  [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
- @synchronized(request){check(!request.completed&&request.streamPaused&&request.data.length<=PorticoStreamChunkLimit,"real task stays bounded while no pull is pending");}
+ @synchronized(request){check(!request.completed&&request.streamNativeTask&&request.data.length==0,"real same-request stream conversion keeps no prefetched body window");}
  NSUInteger received=0,pulls=0;BOOL done=NO,valid=YES;
  while(!done&&pulls++<512){
   @synchronized(state){[state removeObjectForKey:@"read"];}
