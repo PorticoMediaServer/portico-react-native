@@ -38,10 +38,7 @@ export function createNativeHandheldLibraryModule(context: NativeShellBootstrapC
       const activation = nativeDestinationActivation(context.navigation, {kind: 'library', libraryId: destination.getSnapshot().library.id});
       const actions = createNativeEntryActions(context, {
         current: () => !disposed && activation.getSnapshot().visible,
-        contains: entry => {
-          const state = destination.getSnapshot();
-          return state.collection?.residentItems().includes(entry) === true || state.discover.appended.some(section => section.entries.includes(entry));
-        },
+        contains: destination.contains,
         subscribe: listener => {
           let collection = destination.getSnapshot().collection, offCollection = collection?.subscribe(listener);
           const off = destination.subscribe(() => {
