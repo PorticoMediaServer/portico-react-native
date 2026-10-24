@@ -287,6 +287,31 @@ test('one owner disposal never aborts another owner canonical page', async t => 
   assert.equal(f.calls.length, 2);
 });
 
+test('sparse options and opaque cursor/library/source facts pass through unrewritten', async t => {
+  const cursor = 'opaque_' + 'a'.repeat(121), next = 'next_' + 'B'.repeat(120) + '-_', libraryId = 'lib_A-b9';
+  const envelope = {
+    items: [{
+      item: {id: 'book_1', libraryId: 'library_other', title: 'Stored title', format: 'epub', sourceId: 'source_A-b9', inventoryAvailable: true},
+      progress: {location: {cfi: 'epubcfi(/6/4[chap01]!/4/2/2:0)', format: 'epub', progression: 0.42, section: 'OEBPS/chapter1.xhtml'},
+        observedAt: 1_700_000_000_123, revision: 9, sourceId: 'source_A-b9', sourceRevision: 'b'.repeat(64), stale: false},
+    }],
+    nextCursor: next,
+  };
+  const f = fixture(call => {
+    assert.equal(call.url.pathname, '/v1/reading/continue');
+    return call.url.searchParams.get('cursor') === cursor ? json(envelope) : json({items: []});
+  });
+  t.after(() => f.bindings.dispose());
+  const page = await f.bindings.continue({libraryId, cursor, limit: 7});
+  assert.deepEqual([...f.calls[0]!.url.searchParams], [['libraryId', libraryId], ['cursor', cursor], ['limit', '7']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(page)), envelope, 'the canonical decoded envelope is returned exactly');
+  assert.equal(page.nextCursor, next);
+  const sparse = await f.bindings.continue({libraryId: undefined, cursor: undefined, limit: undefined});
+  assert.equal(f.calls[1]!.url.search, '', 'explicit undefined options invent no query value');
+  assert.deepEqual(JSON.parse(JSON.stringify(sparse)), {items: []});
+  assert.ok(Object.isFrozen(page) && Object.isFrozen(page.items[0]!.progress.location));
+});
+
 test('the captured original authority is what a later Continue still belongs to', async t => {
   const f = fixture(call => call.url.pathname === '/v1/reading/continue' ? json(pageOf([row('one')])) : json(versions()));
   t.after(() => f.bindings.dispose());
