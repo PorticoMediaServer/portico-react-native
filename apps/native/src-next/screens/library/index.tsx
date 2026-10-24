@@ -9,6 +9,7 @@ import {LibraryScreen, type NativeLibraryActions, type NativeLibrarySelectionPor
 import {NativeLibraryDestination} from './model';
 import {NativeLibraryDirectory} from './directory';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
+import {createNativeLibraryPlaySelection} from './play-selection';
 
 export type NativeLibraryRendererPorts = Readonly<{
   activation: (libraryId: string) => NativeDestinationActivationPort;
@@ -46,4 +47,4 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
 
 export type {NativeLibraryActions, NativeLibrarySelectionPort} from './LibraryScreen';
 export type {NativeLibraryViewDraft} from './model';
-export {createNativeLibraryPlaySelection} from './play-selection';
+export {createNativeLibraryPlaySelection};
