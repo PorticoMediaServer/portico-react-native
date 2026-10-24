@@ -43,6 +43,18 @@ export function downloadStorageSegments(snapshot: Pick<OfflineSnapshot, 'totalBy
   return {downloads: downloads / total, other: (total - free - downloads) / total};
 }
 
+export type DownloadRequestLine = Readonly<{key: 'downloads.requestPreparing' | 'downloads.requestProgress' | 'downloads.requestFailed';
+  values?: Readonly<{ready: number; total: number}> | Readonly<{failed: number}>}>;
+
+/** The whole-container request's own progress in today's words: an unknown total
+ * is still capturing ("Finding everything to download…"), a known one says how
+ * many members are ready, and failed members add their own line. */
+export function downloadRequestLines(request: Readonly<{totalKnown: boolean; ready: number; total: number; failed: number}>): readonly DownloadRequestLine[] {
+  if (!request.totalKnown) return Object.freeze([{key: 'downloads.requestPreparing' as const}]);
+  return Object.freeze([{key: 'downloads.requestProgress' as const, values: Object.freeze({ready: request.ready, total: request.total})},
+    ...(request.failed > 0 ? [{key: 'downloads.requestFailed' as const, values: Object.freeze({failed: request.failed})}] : [])]);
+}
+
 export function downloadTransferProgress(entry: OfflineEntry): number | undefined {
   return Number.isFinite(entry.bytes) && entry.bytes > 0 && Number.isFinite(entry.bytesDone) && entry.bytesDone >= 0
     ? Math.min(1, entry.bytesDone / entry.bytes) : undefined;

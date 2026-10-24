@@ -10,23 +10,29 @@ import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
+import type {DownloadsService, TrackedDownloadRequest} from '../../../../../packages/client-core/src/downloads-service';
 import {type NativeOfflineDownloadsDevice, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
-import {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from './presentation';
+import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from './presentation';
 import {useDownloadArtwork} from './useDownloadArtwork';
 
 const t = defaultI18n.t;
+const noRequests = (): readonly TrackedDownloadRequest[] => Object.freeze([]);
+const noSubscribe = (_listener: () => void) => () => {};
 const limits = [0, 5, 10, 25, 50, 100].map(gb => gb * 1073741824);
 
 export type {NativeDownloadsCopy} from './presentation';
 export type NativeDownloadsScreenProps = Readonly<{
   device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
   back: () => void; openTitle: (entry: OfflineEntry) => void;
+  /** The same authority-local service the route created; its requests are the
+   * server's whole-container preparations for this device. */
+  service?: Pick<DownloadsService, 'subscribe' | 'getSnapshot'>;
 }>;
 
 /** The device adapter publishes only this viewer's native files. No server preparation
  * is ever counted as a file available here, or substituted for a local action. */
-export function DownloadsScreen({device, runtime, copy, back, openTitle}: NativeDownloadsScreenProps) {
+export function DownloadsScreen({device, runtime, copy, back, openTitle, service}: NativeDownloadsScreenProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const snapshot = useSyncExternalStore(device.subscribe, device.getSnapshot);
   const [failure, setFailure] = useState<unknown>(), [entryMenu, setEntryMenu] = useState<{entry: OfflineEntry; anchor: RefObject<View | null>}>();
@@ -44,7 +50,11 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
   useEffect(() => {run(device.open);}, [device, run]);
   const save = (settings: Partial<OfflineSettings>) => run(() => device.setSettings(settings));
   const groups = downloadGroups(snapshot.entries), storage = downloadStorageSegments(snapshot);
-  const empty = snapshot.ready && snapshot.entries.length === 0;
+  const requests = useSyncExternalStore(service ? service.subscribe : noSubscribe, service ? () => service.getSnapshot().requests : noRequests);
+  const empty = snapshot.ready && snapshot.entries.length === 0 && requests.length === 0;
+  const requestText = (tracked: TrackedDownloadRequest): string => downloadRequestLines(tracked.request).map(line =>
+    line.key === 'downloads.requestProgress' ? t(line.key, line.values as {ready: number; total: number})
+      : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key)).join(' · ');
   const ruleList = <DownloadsRules settings={snapshot.settings} pending={pending} copy={copy} save={save} limitRef={limitRef} onLimit={() => setPickingLimit(true)}/>;
   const firstMenuAction = useRef<View>(null);
   const menuItems: MenuAction[] = menu ? [
@@ -76,6 +86,16 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
             <View style={{height: 6, width: `${100 * storage.downloads}%`, backgroundColor: theme.colors.accentStrong}}/>
             <View style={{height: 6, width: `${100 * storage.other}%`, backgroundColor: alpha(theme.colors.accentStrong, .4)}}/>
           </View>}
+        </View>}
+        {requests.length > 0 && <View testID="downloads-requests" style={{marginTop: 18, marginHorizontal: 16}}>
+          <Text accessibilityRole="header" style={[browseType(theme, 13.5, 700), {color: theme.colors.textSecondary, marginBottom: 8}]}>{t('downloads.requestsTitle')}</Text>
+          <View style={{backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>
+            {requests.map((tracked, index) => <View key={tracked.request.requestId} testID={`downloads-request-${tracked.request.requestId}`}
+              style={{paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.lineStrong, .45)}}>
+              <Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{tracked.title}</Text>
+              <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, marginTop: 3}]}>{requestText(tracked)}</Text>
+            </View>)}
+          </View>
         </View>}
         <View style={dimensions.width >= 1024 && !empty ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
           {!empty && <View style={{flex: 1}}>{groups.map(group => <View key={group.key}>
