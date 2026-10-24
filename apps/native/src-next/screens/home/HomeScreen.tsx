@@ -21,7 +21,7 @@ import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
 import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
-import {useTheme} from '../../kit/theme';
+import {useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
@@ -30,6 +30,30 @@ import {authorizedHome, homeCardText, homePlayTarget, pageAtVisibleEnd, platform
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 const t = defaultI18n.t;
+
+/**
+ * Phone Home measurements the drawn frame states outside the shared kit:
+ * phone-app.html `.phone .row{margin-top:28px}` and `.phone .row-head .sub{font-size:13px}`
+ * (kit.css's shared row-subtitle role is 14). TV and desktop keep their shipped values.
+ */
+export function homeRowSpacing(theme: Theme) {
+  return theme.isTV ? {marginBottom: 30} : theme.layoutMode === 'phone' ? {marginTop: 28} : {marginBottom: 18};
+}
+
+/** The hero reserves only its drawn height; the first row's 28 px gap comes from its own margin. */
+export function homeHeroBlock(theme: Theme, heroHeight: number, preview: boolean): number {
+  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' ? heroHeight : heroHeight + theme.spec.shelf.homeOverlap;
+}
+
+/** The drawn phone row sub-line is 13 px; the shared rowSubtitle role carries 14. */
+export function homeRowSubtitle(theme: Theme) {
+  return theme.layoutMode === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
+}
+
+/** kit.css draws the phone scroll 96 px deep over an 84 px bar; other platforms keep their padding. */
+export function homeContentBottom(theme: Theme, bottomInset: number): number {
+  return bottomInset + (theme.isTV ? 96 : theme.layoutMode === 'phone' ? 12 : 24);
+}
 
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
 export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange}: {
@@ -185,8 +209,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       void runtime.home.revalidate().catch(runtime.reportError).finally(() => {if (current()) setRefreshing(false);});
     }}/>}
     onContentSizeChange={(_, height) => {contentHeight.current = height;}} onScrollBeginDrag={vertical.stop}
-    showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: bottomInset + (theme.isTV ? 96 : 24)}}>
-    <View style={{height: theme.isTV ? preview ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
+    showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: homeContentBottom(theme, bottomInset)}}>
+    <View style={{height: homeHeroBlock(theme, heroHeight, !!preview)}}>
       {/* tv-focus frames1..3: the real spotlight controls stay mounted for native
           Up guides while the preview covers them. Focus restores the spotlight. */}
       {theme.isTV ? <View pointerEvents={preview ? 'none' : 'box-none'} style={{position: 'absolute', inset: 0}}>{spotlight}</View> : spotlight}
@@ -214,6 +238,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         loading: !!pending?.loading || !!snapshot.paging?.has(row.id) || !shown, failed: !!pending?.failed && pending.cursor === row.nextCursor,
         waitingId, waitingItem, fulfilled: pending?.fulfilled, requestNext: () => {if (shown && current()) void pages.request(sourceRow, waitingId);}} : undefined;
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
+      // The drawn phone subtitle is 13 px; the shared role carries 14 until the kit models it.
+      const rowSubtitle = subtitle ? theme.layoutMode === 'phone'
+        ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
+        : subtitle : undefined;
       const retainedIds = theme.isTV && registry.isRegionActive(ids.row(row.id)) && focus?.rowId === row.id ? [focus.entryId] : undefined;
       const range = (first: number, last: number) => {if (!current()) return; const keys = ranges.current.get(row.id)?.keys; ranges.current.set(row.id, {first, last, keys}); runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds, retainedIds, keys); if (shown && (!theme.isTV || row.live) && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
       const visibleKeys = (keys: readonly string[]) => {if (!current()) return; const before = ranges.current.get(row.id) ?? {first: 0, last: -1};
@@ -222,11 +250,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         rowPositions.current.set(row.id, box); updateViewport(offset.current);
         // Initial focus can precede the compact hero layout. Re-anchor against
         // this measured box rather than retaining the previous hero's offset.
-        if (canAnchor.current && focus?.rowId === row.id && focusTarget.current?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
+        if (canAnchor.current && focus?.rowId === row.id && focusTarget.current?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={homeRowSpacing(theme)}>
         {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth}/>
           : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><HomeCollectionCard row={row} runtime={runtime}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} visible={shown} current={current} onFocus={() => onRowFocus(row, row.collection!.collection.id)}/></View></FocusItem></HomeRegion>
-          : <Row title={title} subtitle={subtitle || undefined} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
+          : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
             gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
             onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={{width, height}}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
@@ -296,7 +324,12 @@ function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, 
   // Projection time, expiry and server-issued marks define the bounded row. No lineup scan.
   const observed = Date.parse(live.observedAt);
   if (Date.now() >= Date.parse(live.expiresAt)) return null;
-  return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
+  // The drawn live row carries its server-authored sub-line ("Synthetic Live TV").
+  const subtitle = serverTextLabel(defaultI18n, row.subtitleText);
+  const rowSubtitle = subtitle && theme.layoutMode === 'phone'
+    ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
+    : undefined;
+  return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
     itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange} onVisibleKeys={onVisibleKeys} onItemFocus={onItemFocus}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}
     renderItem={(item: HomeChannel, context) => <HomeChannelCard rowId={row.id} item={item} context={context} runtime={runtime} current={current} visible={visible} observed={observed} width={itemWidth}/>}/>;

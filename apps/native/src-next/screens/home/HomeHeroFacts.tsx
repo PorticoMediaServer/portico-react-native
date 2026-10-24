@@ -2,7 +2,30 @@ import React from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CardTextModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {useTheme} from '../../kit/theme';
+import {useTheme, type Theme} from '../../kit/theme';
+
+/** A hex colour with the drawn alpha; `rgba(237,245,250,.28)` is the same paint. */
+function withAlpha(color: string, value: number): string {
+  const channel = Math.round(Math.min(1, Math.max(0, value)) * 255).toString(16).padStart(2, '0').toUpperCase();
+  return `${color}${channel}`;
+}
+
+/** kit.css `.tag`: 3×9 padding, 1px rgba(237,245,250,.28), radius 6 (TV draws 3×12, 1.5px, radius 8). */
+export function homeFactTag(theme: Theme) {
+  const phone = theme.layoutMode === 'phone';
+  return {
+    paddingHorizontal: phone ? 9 : theme.isTV ? 12 : 8,
+    paddingVertical: 3,
+    borderWidth: theme.isTV ? 1.5 : 1,
+    borderRadius: phone ? theme.baseRadii.tag : theme.isTV ? 8 : 6,
+    borderColor: phone ? withAlpha(theme.colors.text, 0.28) : `${theme.colors.text}4D`,
+  } as const;
+}
+
+/** kit.css `.meta strong` draws the 700 face; native supplies one file per weight. */
+export function homeFactStrong(theme: Theme): string {
+  return (theme.layoutMode === 'phone' ? theme.type.rowHeading : theme.type.bodyStrong).fontFamily ?? '';
+}
 
 /** The display context stays canonical; continuation timing is a separate genuine projection. */
 export function HomeHeroFacts({facts, continuation}: {facts: readonly FactPart[]; continuation?: CardTextModel}) {
@@ -11,8 +34,8 @@ export function HomeHeroFacts({facts, continuation}: {facts: readonly FactPart[]
   return <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: theme.layoutMode === 'phone' ? 'center' : 'flex-start', columnGap: theme.spec.hero.facts.gap[theme.platform], rowGap: theme.spec.hero.facts.rowGap[theme.platform]}}>
     {facts.map(fact => {
       const badge = fact.id === 'duration' || fact.id === 'season-count';
-      const text = <Text style={[badge ? theme.type.tag : theme.type.meta, {includeFontPadding: false, color: badge || fact.id === 'year' ? theme.colors.text : theme.colors.textSecondary, ...(!badge && fact.id === 'year' ? {fontFamily: theme.type.bodyStrong.fontFamily} : {})}]}>{fact.text}</Text>;
-      return badge ? <View key={fact.id} style={{paddingHorizontal: theme.isTV ? 12 : 8, paddingVertical: 3, borderWidth: theme.isTV ? 1.5 : 1, borderRadius: theme.isTV ? 8 : 6, borderColor: `${theme.colors.text}4D`}}>{text}</View> : <React.Fragment key={fact.id}>{text}</React.Fragment>;
+      const text = <Text style={[badge ? theme.type.tag : theme.type.meta, {includeFontPadding: false, color: badge || fact.id === 'year' ? theme.colors.text : theme.colors.textSecondary, ...(!badge && fact.id === 'year' ? {fontFamily: homeFactStrong(theme)} : {})}]}>{fact.text}</Text>;
+      return badge ? <View key={fact.id} style={homeFactTag(theme)}>{text}</View> : <React.Fragment key={fact.id}>{text}</React.Fragment>;
     })}
     {theme.isTV && continuation?.progress !== undefined && remaining && <View style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
       <View accessible={false} style={{width: 160, height: 6, borderRadius: 6, overflow: 'hidden', backgroundColor: `${theme.colors.text}38`}}><View style={{width: `${continuation.progress * 100}%`, height: '100%', backgroundColor: theme.colors.accentStrong}}/></View>
