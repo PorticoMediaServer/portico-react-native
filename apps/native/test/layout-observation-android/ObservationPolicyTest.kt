@@ -34,6 +34,9 @@ fun main() {
   verify(collect(Node(1, List(20000) { Node(it + 2) }), emptySet()) == null)
   // The boundary cannot allocate/read even the first child of an oversized root.
   verify(LayoutObservationPolicy.collect(1, emptySet(), { it }, { Int.MAX_VALUE }, { _, _ -> error("unbounded child lookup") }) == null)
+  val budget = LayoutObservationPolicy.TextBudget()
+  verify(!budget.lines(-1)); verify(budget.lines(4096)); verify(!budget.lines(1))
+  repeat(4096) { check(budget.run()) }; verify(!budget.run())
   verify(LayoutObservationPolicy.opacity(listOf(0.5, 0.4, 1.0)) == 0.2)
   verify(LayoutObservationPolicy.opacity(listOf(1.0, 0.0, 0.5)) == 0.0)
   for (bad in listOf(-0.1, 1.1, Double.NaN, Double.POSITIVE_INFINITY)) verify(LayoutObservationPolicy.opacity(listOf(1.0, bad)) == null)

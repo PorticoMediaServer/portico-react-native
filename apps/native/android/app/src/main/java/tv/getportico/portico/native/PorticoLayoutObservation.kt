@@ -71,6 +71,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
           activity.window?.decorView === decor && root.windowToken == window && decor.windowToken == window &&
           descendant(root, decor) && fixture != null && fixture.id == fixtureReactTag.toInt() && fixture.isAttachedToWindow && fixture.windowToken == window && descendant(fixture, root)
         if (!scopeCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
+        val budget = LayoutObservationPolicy.TextBudget()
         val hosts = requested.map { tag ->
           val view = found[tag]
           val reason = when {
@@ -81,7 +82,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
             input(view, root) -> "input-opaque"
             else -> null
           }
-          val observed = if (reason != null) unavailableFacts(reason) else try { facts(view!!, decor) }
+          val observed = if (reason != null) unavailableFacts(reason) else try { facts(view!!, decor, budget) }
             catch (_: Exception) { unavailableFacts("paint-unprovable") }
           mapOf("reactTag" to tag, "facts" to if (view != null && (view.id != tag || !view.isAttachedToWindow ||
             view.windowToken != window || !descendant(view, root))) unavailableFacts("root-changed") else observed)
@@ -96,7 +97,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     }
   }
 
-  private fun facts(view: View, decor: View): Map<String, Any> {
+  private fun facts(view: View, decor: View, budget: LayoutObservationPolicy.TextBudget): Map<String, Any> {
     val result = unavailableFacts("paint-unprovable").toMutableMap()
     val density = view.resources.displayMetrics.density.toDouble()
     if (!density.isFinite() || density <= 0) return result
@@ -118,7 +119,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     if (view !is TextView) {
       TEXT_FIELDS.forEach { result[it] = missing("not-text") }; return result
     }
-    text(view, decor, density).forEach { (key, observation) -> result[key] = observation }
+    text(view, decor, density, budget).forEach { (key, observation) -> result[key] = observation }
     return result
   }
 
@@ -130,10 +131,10 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     return value(outline.radius / density, "android.ViewOutlineProvider+Outline.getRadius")
   }
 
-  private fun text(view: TextView, decor: View, density: Double): Map<String, Any> {
+  private fun text(view: TextView, decor: View, density: Double, budget: LayoutObservationPolicy.TextBudget): Map<String, Any> {
     val result = TEXT_FIELDS.associateWith { missing("paint-unprovable") }.toMutableMap()
     val layout = view.layout ?: return TEXT_FIELDS.associateWith { missing("unsupported-text-layout") }
-    if (view.isLayoutRequested || layout.lineCount > LayoutObservationPolicy.MAX_LINES ||
+    if (view.isLayoutRequested || layout.lineCount > LayoutObservationPolicy.MAX_LINES || !budget.lines(layout.lineCount) ||
         (0 until layout.lineCount).any { layout.getEllipsisCount(it) != 0 }) return TEXT_FIELDS.associateWith { missing("unsupported-text-layout") }
     // Layout's public span metadata is consulted without reading/subsequencing/serializing characters.
     // Reapply the same draw-state spans to detached TextPaints; base TextView defaults alone are not run paint.
@@ -142,7 +143,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     val paints = mutableListOf<TextPaint>()
     var start = 0
     while (start < content.length) {
-      if (paints.size >= LayoutObservationPolicy.MAX_RUNS) return result
+      if (paints.size >= LayoutObservationPolicy.MAX_RUNS || !budget.run()) return TEXT_FIELDS.associateWith { missing("unsupported-text-layout") }
       val end = spanned?.nextSpanTransition(start, content.length, CharacterStyle::class.java) ?: content.length
       if (end <= start) return result
       val paint = TextPaint(layout.paint); paint.color = view.currentTextColor; paint.drawableState = view.drawableState
@@ -205,7 +206,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
 
   private fun ancestry(view: View, root: View): List<View>? {
     val result = mutableListOf<View>(); var current: View? = view
-    while (current != null && result.size <= LayoutObservationPolicy.MAX_NODES) {
+    while (current != null && result.size < LayoutObservationPolicy.MAX_ANCESTORS) {
       if (!current.isAttachedToWindow || current.windowToken != root.windowToken) return null
       result.add(current); if (current === root) return result
       current = current.parent as? View
@@ -230,6 +231,13 @@ internal object LayoutObservationPolicy {
   const val MAX_NODES = 20000
   const val MAX_LINES = 512
   const val MAX_RUNS = 512
+  const val MAX_ANCESTORS = 256
+  class TextBudget {
+    private var lines = 4096
+    private var runs = 4096
+    fun lines(count: Int): Boolean { if (count < 0 || count > lines) return false; lines -= count; return true }
+    fun run(): Boolean { if (runs == 0) return false; runs--; return true }
+  }
   private const val PUBLIC_URI = "portico://native-layout?specimen=signed-out-welcome"
   fun publicIntent(debug: Boolean, action: String?, uri: String?) = debug && action == "android.intent.action.VIEW" && uri == PUBLIC_URI
   fun fontFamily(value: String?) = value != null && value.isNotBlank() && value.length <= 128 && value.none { it.isISOControl() || it in "/\\:@?#" }
