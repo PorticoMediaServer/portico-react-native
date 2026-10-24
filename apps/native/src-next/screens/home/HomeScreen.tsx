@@ -26,7 +26,7 @@ import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
-import {authorizedHome, homeCardText, homePlayTarget, pageAtVisibleEnd, platformRows} from './model';
+import {authorizedHome, homeCardText, homePlayTarget, homeRowHasContent, pageAtVisibleEnd, platformRows} from './model';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 
@@ -147,7 +147,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   }, [document, ids, pages, pagingRevision, registry, setFocus]);
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));
-  const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries).map(row => theme.isTV ? pages.present(row) : row) : [];
+  const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries).filter(homeRowHasContent).map(row => theme.isTV ? pages.present(row) : row) : [];
   const previousRows = useRef<readonly HomeRow[]>([]);
   const occupied = theme.isTV && (registry.isRegionActive(ids.spotlight) || previousRows.current.some(row => registry.isRegionActive(ids.row(row.id))));
   const rows = theme.isTV ? tvHomeRows(previousRows.current, incomingRows, rowId => registry.isRegionActive(ids.row(rowId)), occupied) : incomingRows;
