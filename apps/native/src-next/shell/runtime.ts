@@ -70,6 +70,8 @@ export interface NativeShellRuntime {
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
   renderHomeEmpty: () => ReactNode;
+  /** The shell-owned download sheet, opened by a title page's drawn Download action. */
+  renderDownloads?: () => ReactNode;
   error: (error: unknown, retry: () => void) => StateViewProps;
   reportError: (error: unknown) => void;
   onDestination: (destination: ShellDestination) => void;

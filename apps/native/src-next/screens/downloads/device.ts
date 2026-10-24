@@ -5,7 +5,10 @@ import {createNativeOfflineDownloadsAdapter, offlineDownloads, type NativeOfflin
 import {createNativeOfflineEntryPlayback} from './playback';
 
 let connection: object | undefined;
-type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; dispose: () => void}>;
+type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; service: DownloadsService;
+  want: (...args: Parameters<typeof offlineDownloads.want>) => ReturnType<typeof offlineDownloads.want>;
+  display: (...args: Parameters<typeof offlineDownloads.display>) => ReturnType<typeof offlineDownloads.display>;
+  dispose: () => void}>;
 type SharedDevice = {lease: DownloadDeviceLease; references: number};
 const authorities = new WeakMap<NativeShellBootstrapContext, WeakMap<typeof offlineDownloads, SharedDevice>>();
 
@@ -41,7 +44,10 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     localMedia: async entry => {assertBorrowed(); const media = await source.localMedia(entry); assertBorrowed(); return media;},
     ...(openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await openOffline(entry);}} : {}),
   };
-  return Object.freeze({device: Object.freeze(borrowed), dispose: () => {
+  return Object.freeze({device: Object.freeze(borrowed), service: current.lease.service,
+    want: (...args) => {assertBorrowed(); return current.lease.want(...args);},
+    display: (...args) => {assertBorrowed(); return current.lease.display(...args);},
+    dispose: () => {
     if (released) return;
     released = true;
     playback.dispose();
@@ -101,7 +107,9 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     playabilityReason: entry => {assertCurrent(); return adapter.playabilityReason(entry);},
     note: entry => {assertCurrent(); return adapter.note(entry);},
   };
-  return Object.freeze({device: Object.freeze(guarded),
+  return Object.freeze({device: Object.freeze(guarded), service,
+    want: (...args) => {assertCurrent(); return device.want(...args);},
+    display: (...args) => {assertCurrent(); return device.display(...args);},
     dispose: () => {
       if (!alive) return; alive = false; abort.abort(); service.dispose();
       // A late retired screen cannot disconnect a newer restored viewer.
