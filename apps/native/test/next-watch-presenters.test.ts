@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi} from '../../../packages/client-core/src/index.ts';
+import {NativeVersionChooserController} from '../src-next/screens/watch/version-destination.ts';
 import {NativeWatchPresenters} from '../src-next/screens/watch/presenters.ts';
 import {NativeScreenServices} from '../src-next/screens/screen-services.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
@@ -117,4 +118,27 @@ test('real version preview owns confirmation and exact physical DELETE receipt, 
     assert.equal(removes[1]?.path, '/v1/admin/items/movie/files/asset');
     assert.equal(d.changed(), 1); assert.equal(d.presenters.getSnapshot(), undefined);
   } finally {d.dispose();}
+});
+
+
+test('the real menu-to-chooser presenter keeps its sheet until start settles and aborts explicit close', async () => {
+  for (const close of [false, true]) {
+    const d = await fixture(), held = deferred<void>(); let selection: any;
+    try {
+      d.presenters.close();
+      // The actual capture entry needs its genuine playback target for selection.
+      const capture = {...d.capture, entry: {...d.capture.entry, playback: {itemId: 'movie'}}};
+      const actual = new NativeVersionChooserController({capture, options: offered, rows: [{id: 'asset', heading: 'Actual edition', detail: ''}],
+        hostCurrent: () => d.presenters.hostCurrent(capture), sourceCurrent: () => d.presenters.current(capture),
+        start: async (_input, next) => {selection = next; await held.promise;}});
+      d.presenters.openMenu(capture, {fileInfo: async () => {}, differentVersion: async () => {d.presenters.openVersions(capture, actual);}});
+      await d.presenters.differentVersion(d.presenters.getSnapshot()!);
+      assert.equal(d.presenters.getSnapshot()?.phase, 'versions');
+      const starting = d.presenters.chooseVersion('asset');
+      assert.equal(d.presenters.getSnapshot()?.phase, 'versions'); assert.equal(d.presenters.getSnapshot()?.busy, true);
+      assert.equal(selection.lifetime.signal.aborted, false);
+      if (close) {d.presenters.close(); assert.equal(selection.lifetime.signal.aborted, true);}
+      held.resolve(); await starting; assert.equal(d.presenters.getSnapshot(), undefined);
+    } finally {held.resolve(); d.dispose();}
+  }
 });

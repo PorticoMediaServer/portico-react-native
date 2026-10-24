@@ -12,6 +12,7 @@ import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
+import {NativeVersionChooserController} from '../src-next/screens/watch/version-destination.ts';
 import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
 
 const {react} = hooks();
@@ -22,17 +23,17 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo},
   './track-identity': {nativeWatchTracks},
   './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
-  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
+  './version-destination': {NativeVersionChooserController}, './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
   './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryId: 'library', playback: {itemId: 'episode', startSeconds: 17}};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'episode', sourceId: 'v1', entryId: 'entry', generation: 1});
-const offered = {itemId: 'episode', versions: [{id: 'v1'}, {id: 'v2'}]};
+const offered = {itemId: 'episode', resume: {positionMs: 17000, partIndex: 0}, versions: [{id: 'v1', video: [{id: 'p1', codec: 'hevc', width: 3840, height: 2160}]}, {id: 'v2', video: [{id: 'p2', codec: 'h264', width: 1920, height: 1080, interlaced: false}]}]};
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
-  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing'}};
+  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string} | undefined};
   let respond = async (_url: URL) => offered as unknown;
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
@@ -50,6 +51,7 @@ function fixture(hasDestination = true) {
     holdStart: (held: Promise<void>) => {holdStart = held;},
     title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
     respond: (value: typeof respond) => {respond = value;},
+    failure: (versionId: string) => {source = {...source, playback: {...source.playback, phase: 'error'}, session: {itemId: entry.id, versionId}};},
     source: (next: PlaybackFence) => {source = {...source, fence: next}; for (const listener of playbackListeners) listener();},
     route: () => {revision++; for (const listener of routeListeners) listener();},
     authority: () => {bound = {...bound, epoch: 'next'}; for (const listener of authorityListeners) listener();},
@@ -65,6 +67,7 @@ test('episode menu retains its real show owner and sends the exact offered versi
     await d.menus[0][1].differentVersion();
     assert.equal(d.requests.length, 2);
     const destination = d.versions[0][1];
+    assert.equal(destination.rows[1].heading, '1080p', 'actual JSON Options preserves the supplied progressive scan fact');
     await destination.choose('unknown'); assert.equal(d.starts.length, 0);
     await destination.choose('v2');
     assert.equal(d.starts[0][0].target.startSeconds, 17);
@@ -151,4 +154,19 @@ test('actual title controller start receives pure current route/member lifetime 
     d.route(); assert.equal(input.lifetime.signal.aborted, true); assert.equal(input.lifetime.isCurrent(), false);
     held.resolve(); await pending;
   } finally {held.resolve(); d.screens.dispose();}
+});
+
+
+test('failure entry excludes only the actual failed grouped version and may leave one valid row', async () => {
+  const d = fixture();
+  try {
+    d.source(fence); d.failure('v1');
+    const capture = d.screens.capture(entry, () => true);
+    await d.screens.versions(capture, 'v2'); assert.equal(d.versions.length, 0, 'an invented failed version cannot be excluded');
+    await d.screens.versions(capture, 'v1');
+    assert.deepEqual(d.versions[0][1].rows.map((row: any) => row.id), ['v2']);
+    await d.versions[0][1].choose('v1'); assert.equal(d.starts.length, 0);
+    await d.versions[0][1].choose('v2'); assert.equal(d.starts[0][1].versionId, 'v2');
+    assert.ok(d.starts[0][1].lifetime.signal instanceof AbortSignal);
+  } finally {d.screens.dispose();}
 });

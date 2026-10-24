@@ -21,7 +21,7 @@ const {NativeWatchOverlays} = await screenModule(new URL('../src-next/screens/wa
   '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/administration': {deletionAllowed}, '../../../../../packages/client-core/src/title-identity': {mergeExplanation},
   '../../shell/model': {shellLayout}, '../../kit/controls': controls, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog', Menu: 'Menu'}, '../../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'},
-  '../../kit/overlays/surface': {FocusBoundary: 'FocusBoundary', PanelBackground: 'PanelBackground'}, '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/theme': themed,
+  './VersionChooser': {NativeVersionChooser: 'VersionChooser'}, '../../kit/overlays/surface': {FocusBoundary: 'FocusBoundary', PanelBackground: 'PanelBackground'}, '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/theme': themed,
 });
 const contexts: {current: unknown}[] = [];
 const focus = await screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {
@@ -41,7 +41,7 @@ for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search
   const value = {phase: phase.startsWith('merge') ? 'merge' : phase, capture: {entry}, busy: false, candidates: [other], confirmation: '', keep: entry.id,
     ...(phase === 'merge-confirm' ? {other} : {}), owner: {info: {model, files: [], groups: [{members: [{id: 'asset', available: true}]}]}},
     content: NativeFileInfoContent({model, onManage() {}})};
-  const presenters = {subscribe: () => () => {}, getSnapshot: () => value, current: () => true, close() {}, backToInfo() {}, search: async () => {}};
+  const presenters = {subscribe: () => () => {}, getSnapshot: () => value, current: () => true, overlayCurrent: () => true, close() {}, backToInfo() {}, search: async () => {}};
   let buttons: any[] = [];
   const host = createHookHost(() => {buttons = targets(React.createElement(NativeWatchOverlays, {presenters, runtime: {}, common: {}}));});
   host.mount();
