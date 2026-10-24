@@ -9,7 +9,7 @@ import {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, to
 import {Artwork} from '../../kit/artwork';
 import {GenreTile, type CardSelection} from '../../kit/cards';
 import {CardFrame} from '../../kit/cards/primitives';
-import {Button, Chip, Focusable, TextField} from '../../kit/controls';
+import {Chip, Focusable, TextField} from '../../kit/controls';
 import {SelectionCircle} from '../../kit/selection';
 import {GridSkeleton, StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
@@ -60,37 +60,37 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
     return () => clearTimeout(timer);
   }, [loading]);
   const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
-  const available = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available));
-  const chips = typed && !empty && !problem && state.search.data && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, paddingHorizontal: 20, paddingVertical: 12}}>
+  const available = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available))
+    // One chip is selected: the answer covers that group alone, so the drawn row keeps its other types.
+    .filter(chip => chip.id === 'all' || state.group !== 'all' || !state.groups.some(group => group.id === chip.id && group.status === 'success' && group.totalCount === 0));
+  const chips = typed && !empty && !problem && state.search.data && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, paddingHorizontal: 20, paddingTop: 12}}>
     {available.map(chip => {
       const group = state.groups.find(value => value.id === chip.id);
       const count = chip.id === 'all' ? state.groups.every(value => value.totalCountExact) ? state.groups.reduce((sum, value) => sum + value.totalCount, 0) : undefined : group?.totalCountExact ? group.totalCount : undefined;
-      return <Chip key={chip.id} testID={`search-chip-${chip.id}`} selected={state.group === chip.id} disabled={!!group && group.status === 'success' && group.totalCount === 0}
-        onPress={() => destination.selectGroup(chip.id)}>{t(chip.label)}{count !== undefined && <Text style={{color: theme.colors.textTertiary}}> {count}</Text>}</Chip>;
+      return <Chip key={chip.id} testID={`search-chip-${chip.id}`} selected={state.group === chip.id} count={count} retry={group?.status === 'error'} disabled={!!group && group.status === 'success' && group.totalCount === 0}
+        onPress={() => destination.selectGroup(chip.id)}>{t(chip.label)}</Chip>;
     })}
   </ScrollView>;
   const fields = <View style={{paddingTop: Math.max(typed || focused ? 56 : 58, insets.top), backgroundColor: theme.colors.ink}}>
-    {!typed && !focused && <Text accessibilityRole="header" style={[browseType(theme, 36, 800, -.035, 39), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 18}]}>{t('web.shell.search')}</Text>}
+    {!typed && !focused && <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 12}]}>{t('web.shell.search')}</Text>}
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16}}>
       <View style={{flex: 1}}><TextField testID="search-input" focusId="search-input" variant="search" leadingIcon="i-search" value={state.text}
         cursorColor={theme.colors.accentStrong} selectionColor={theme.colors.accentStrong}
         onChangeText={destination.setText.bind(destination)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         accessibilityLabel={t('web.shell.search')} placeholder={t('web.search.placeholder')} returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         onSubmitEditing={() => run(destination.commit())} fieldStyle={{height: 44, borderRadius: 12, paddingRight: typed ? 38 : 12}}/>
-        {typed && <Focusable testID="search-clear" accessibilityLabel={t('web.search.clear')} onPress={() => destination.setText('')} hitSlop={12}
+        {typed && <Focusable testID="search-clear" accessibilityLabel={t('web.search.clear')} onPress={() => destination.setText('')} hitSlop={12} focusRadius={10}
           style={{position: 'absolute', right: 12, top: 12, width: 20, height: 20, borderRadius: 10, backgroundColor: theme.colors.lineStrong, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-x" size={12} color={theme.colors.raised}/></Focusable>}
       </View>
-      {(typed || focused) && <Focusable testID="search-cancel" accessibilityLabel={t('action.cancel')} onPress={() => {destination.setText(''); Keyboard.dismiss(); setFocused(false);}} style={{minHeight: 44, justifyContent: 'center'}}><Text style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary}]}>{t('action.cancel')}</Text></Focusable>}
+      {(typed || focused) && <Focusable testID="search-cancel" accessibilityLabel={t('action.cancel')} onPress={() => {destination.setText(''); Keyboard.dismiss(); setFocused(false);}} style={{height: 44, justifyContent: 'center'}}><Text style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary}]}>{t('action.cancel')}</Text></Focusable>}
     </View>{chips}
   </View>;
   const history = !!state.recent.length && <>
     <SectionHeading title={t('web.search.recent')} action={t('web.search.clearRecent')} disabled={state.clearing} onAction={() => run(destination.clearHistory())}/>
-    <View style={empty ? {marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'} : undefined}>
-      {state.recent.map(recent => <Focusable key={recent.q} testID={`search-recent-${encodeURIComponent(recent.q)}`} accessibilityLabel={recent.q} onPress={() => destination.useRecent(recent.q)}
-        style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: empty ? 48 : 44, paddingHorizontal: empty ? 14 : 20}}>
-        <Icon name="i-clock" size={empty ? 18 : 19} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary, flex: 1}]}>{recent.q}</Text>
-      </Focusable>)}
-    </View>
+    {state.recent.map(recent => <Focusable key={recent.q} testID={`search-recent-${encodeURIComponent(recent.q)}`} accessibilityLabel={recent.q} onPress={() => destination.useRecent(recent.q)}
+      style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 44, paddingHorizontal: 20}}>
+      <Icon name="i-clock" size={19} color={theme.colors.textTertiary}/><Text numberOfLines={1} style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary, flex: 1}]}>{recent.q}</Text>
+    </Focusable>)}
   </>;
   const genreTiles = nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone');
   const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
@@ -112,7 +112,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
       {error}
       {empty && <StateView testID="search-no-matches" variant="search" title={t('next.states.noMatches', {query: state.text.trim()})} body={t('next.states.noMatchesBody')} style={{paddingTop: 26, marginHorizontal: 20}}/>}
       {(!typed || empty) && (empty ? <>{genres}{history}</> : <>{history}{genres}</>)}
-      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)}/>}
+      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} width={dimensions.width - 32}/>}
       {resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
         <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(group, entry)}/>
@@ -129,15 +129,19 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
 
 function SectionHeading({title, action, disabled, onAction}: {title: string; action?: string; disabled?: boolean; onAction?: () => void}) {
   const theme = useTheme();
-  return <View style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 26, marginHorizontal: 20, marginBottom: 8}}>
+  return <View style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 24, marginHorizontal: 20, marginBottom: 6}}>
     <Text accessibilityRole="header" style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{title}</Text>
     {action && onAction && <Focusable accessibilityLabel={action} disabled={disabled} onPress={onAction} hitSlop={12}><Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{action}</Text></Focusable>}
   </View>;
 }
 
+/** Ruling 36: phone 7 uses two covers; the no-match state 17a uses a backdrop. */
 function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSearchGenre; empty: boolean; runtime: NativeShellRuntime; width: number; onPress: () => void}) {
   const theme = useTheme(), gradient = useId();
-  if (!empty) return <GenreTile testID={`search-genre-${encodeURIComponent(genre.id)}`} title={genre.name} variant="video" width={width} covers={genre.coverPaths.slice(0, 2).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];})} palette={{first: channelTint(genre.id), second: channelTint(genre.id)}} onNavigate={onPress}/>;
+  const tint = channelTint(genre.id);
+  if (!empty) return <GenreTile testID={`search-genre-${encodeURIComponent(genre.id)}`} title={genre.name} variant="video" width={width}
+    covers={genre.coverPaths.slice(0, 2).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];})}
+    palette={{first: tint, second: tint}} onNavigate={onPress}/>;
   return <Focusable testID={`search-genre-${encodeURIComponent(genre.id)}`} accessibilityLabel={genre.name} onPress={onPress} focusRadius={12} style={{width, height: 84, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
     <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={84}/>
     <Svg pointerEvents="none" width={width} height={84} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset=".55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={84} fill={`url(#${gradient})`}/></Svg>
@@ -155,31 +159,40 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
       onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)} style={{flex: 1}} pressableStyle={{flexDirection: 'row', gap: 13, alignItems: 'center'}}>
       {() => <>
       {selection?.active && <SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/>}
-      <View style={{width, height, borderRadius: 6, overflow: 'hidden'}}><Artwork source={runtime.artwork(group === 'episodes' ? content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl : entry.posterUrl)} width={width} height={height}/></View>
+      <View style={{width, height, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.colors.raised}}><Artwork source={runtime.artwork(group === 'episodes' ? content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl : entry.posterUrl)} width={width} height={height}/></View>
       <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: selection?.selected ? theme.colors.accentStrong : theme.colors.text}]}>{title}</Text>
-        <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>{text?.caption.map(part => <Text key={part.id} numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part.text}</Text>)}</View>
+        <View style={{flexDirection: 'row', gap: 12, marginTop: 2}}>{text?.caption.map(part => <Text key={part.id} numberOfLines={1} style={[browseType(theme, 12.5, 400), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part.text}</Text>)}</View>
       </View>
       </>}
     </CardFrame>
-    {!selection?.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
+    {!selection?.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={3} focusRadius={19}
+      style={{width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
   </View>;
 }
 
 
-function SearchTopResult({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection}) {
-  const theme = useTheme(), menuAnchorRef = useRef<View>(null), kind = topResultKindLabel(group), title = media(entry) ? entry.displayTitle || entry.title : entry.title;
+function SearchTopResult({entry, group, runtime, actions, selection, width}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection; width: number}) {
+  const theme = useTheme(), menuAnchorRef = useRef<View>(null), gradient = useId(), kind = topResultKindLabel(group), title = media(entry) ? entry.displayTitle || entry.title : entry.title;
   return <CardFrame testID="search-top-result" title={title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
     onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)}
-    style={{marginHorizontal: 16, marginTop: 14}} pressableStyle={{height: 178, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
+    style={{marginHorizontal: 16, marginTop: 14, marginBottom: 2}} pressableStyle={{height: 178, borderRadius: 14, backgroundColor: theme.colors.dim, overflow: 'hidden'}}>
     {() => <>
     <Artwork source={runtime.artwork(media(entry) ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl)} height={178}/>
-    <View style={{position: 'absolute', left: 18, right: 18, top: 16, bottom: 18, justifyContent: 'flex-end'}}>
-      <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.accentStrong, marginBottom: 6}]}>{t('search.topResult')}</Text>
-      <Text numberOfLines={2} style={[browseType(theme, 26, 800, -.035, 28), {color: theme.colors.text}]}>{title}</Text>
-      {kind && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary, marginTop: 6}]}>{t(kind)}</Text>}
+    <Svg pointerEvents="none" width={width} height={178} style={{position: 'absolute', inset: 0}}>
+      <Defs>
+        <LinearGradient id={`${gradient}-side`} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.92}/><Stop offset=".45" stopColor={theme.colors.ink} stopOpacity={.55}/><Stop offset=".75" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient>
+        <LinearGradient id={`${gradient}-foot`} x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.7}/><Stop offset=".5" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient>
+      </Defs>
+      <Rect width={width} height={178} fill={`url(#${gradient}-side)`}/><Rect width={width} height={178} fill={`url(#${gradient}-foot)`}/>
+    </Svg>
+    <View style={{position: 'absolute', left: 16, right: 70, bottom: 14}}>
+      <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.accentStrong}]}>{t('search.topResult')}</Text>
+      <Text numberOfLines={2} style={[browseType(theme, 27, 800, -.035, 28.35), {color: theme.colors.text, marginTop: 4, marginBottom: 6}]}>{title}</Text>
+      {kind && <Text numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
     </View>
-    {selection?.active ? <View style={{position: 'absolute', right: 14, top: 16}}><SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/></View>
-      : media(entry) && entry.playback && <Button testID="search-top-play" variant="primary" icon="i-play" accessibilityLabel={t('card.play', {title})} onPress={() => actions.play(entry, group)} style={{position: 'absolute', right: 14, bottom: 16}}/>}
+    {selection?.active ? <View style={{position: 'absolute', right: 14, top: 14}}><SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/></View>
+      : media(entry) && entry.playback && <Focusable testID="search-top-play" accessibilityLabel={t('card.play', {title})} onPress={() => actions.play(entry, group)} focusRadius={23}
+        style={{position: 'absolute', right: 14, bottom: 14, width: 46, height: 46, borderRadius: 23, backgroundColor: theme.colors.text, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-play" size={20} color={theme.colors.ink}/></Focusable>}
     </>}
   </CardFrame>;
 }
