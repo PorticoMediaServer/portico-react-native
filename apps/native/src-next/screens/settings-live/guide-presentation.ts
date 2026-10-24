@@ -37,3 +37,11 @@ export function nativeGuideNext(programme: GuideProgram | undefined, clock: (at:
   const time = clock(programme.start);
   return time ? text.t('guide.next', {title: programme.title, time}) : undefined;
 }
+
+/** Date labels share the Guide's resolved format locale and genuine timezone. */
+export function nativeGuideDate(locale: string, timeZone: string, options: Pick<Intl.DateTimeFormatOptions, 'weekday' | 'month' | 'day'>): (at: number) => string {
+  let formatter: Intl.DateTimeFormat;
+  try {formatter = new Intl.DateTimeFormat(locale, {...options, timeZone});}
+  catch {return () => '';}
+  return at => Number.isFinite(at) && Number.isFinite(new Date(at).getTime()) ? formatter.format(at) : '';
+}
