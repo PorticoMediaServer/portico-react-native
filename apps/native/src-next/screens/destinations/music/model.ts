@@ -117,15 +117,34 @@ export class NativeTVMusicController {
       encodedRoutePath('get_items_id_similar', {id: encodeURIComponent(this.options.entry.id)}) + '?limit=12', 'GET', undefined, signal);
     return entryList(raw?.data?.entries, 24);
   }
+  /** The album's songs in server order. The published page cap is the server's:
+   * ask for no more than it allows and continue by cursor until the album is whole. */
+  private async albumSongs(capabilities: BrowseCapabilities, signal: AbortSignal): Promise<Readonly<{songs: readonly ContentEntry[]; total: number}>> {
+    const pageSize = Math.min(200, capabilities.queryLimits.maximumLimit);
+    const songs: ContentEntry[] = [];
+    let cursor = '', total = 0;
+    for (let page = 0; page < 20; page++) {
+      const result = await this.browse(capabilities, builder => {
+        const scoped = builder.where('memberOf', 'equals', this.options.entry.id).sort('groupOrder', 'asc').limit(pageSize);
+        return cursor ? scoped.cursor(cursor) : scoped;
+      }, signal);
+      if (!this.current() || signal.aborted) return {songs, total};
+      if (result.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
+      songs.push(...result.entries);
+      total = result.pageInfo.total;
+      if (!result.pageInfo.hasMore || !result.pageInfo.nextCursor || songs.length >= total) break;
+      cursor = result.pageInfo.nextCursor;
+    }
+    return {songs, total};
+  }
   private async loadAlbum(signal: AbortSignal): Promise<void> {
     const [capabilities, favorite, similar] = await Promise.all([this.capabilities('songs', signal), this.favoriteState(signal), this.similar(signal)]);
     if (!this.current() || signal.aborted) return;
-    const page = await this.browse(capabilities, builder => builder.where('memberOf', 'equals', this.options.entry.id).sort('groupOrder', 'asc').limit(200), signal);
+    const {songs, total} = await this.albumSongs(capabilities, signal);
     if (!this.current() || signal.aborted) return;
-    if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
-    const complete = page.entries.length === page.pageInfo.total;
-    const duration = complete ? page.entries.reduce((sum, entry) => sum + (entry.duration ?? 0), 0) : undefined;
-    this.publish({phase: 'ready', songs: page.entries, songTotal: page.pageInfo.total, ...(duration ? {songDurationSeconds: duration} : {}),
+    const complete = songs.length === total;
+    const duration = complete ? songs.reduce((sum, entry) => sum + (entry.duration ?? 0), 0) : undefined;
+    this.publish({phase: 'ready', songs, songTotal: total, ...(duration ? {songDurationSeconds: duration} : {}),
       similar: similar.filter(entry => entry.kind === 'album' && entry.id !== this.options.entry.id), favorite});
   }
   private async loadArtist(signal: AbortSignal): Promise<void> {
