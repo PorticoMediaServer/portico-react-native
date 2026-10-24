@@ -32,7 +32,7 @@ class PorticoPackage : ReactPackage {
   ) + (
       // Downloads belong to phones and tablets, the home-screen rows to televisions: the other
       // kind of device has no such module, and the shared screens hide the feature.
-      if (TelevisionDisplay.isTelevision) listOf(PorticoTopShelf(reactContext)) else listOf(PorticoDownloads(reactContext))) + flavorModules(reactContext)
+      if (TelevisionDisplay.isTelevision) listOf(PorticoTopShelf(reactContext)) else listOf(PorticoDownloads(reactContext), PorticoReaderAssets(reactContext))) + flavorModules(reactContext)
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = listOf(
       PorticoPlayerManager(),

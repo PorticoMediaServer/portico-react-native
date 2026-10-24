@@ -137,6 +137,20 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   fun networkRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, body: String?, promise: Promise) =
       boundedRequest(identifier, url, method, headers, body, fullAPI = true, promise)
 
+  /** Actual bounded Reading bytes over the existing trust/cancel transport. */
+  @ReactMethod
+  fun networkBytesRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, byteLimit: Double, promise: Promise) {
+    val target = PorticoTransport.target(url)
+    val path = target?.encodedPath ?: ""
+    val reading = Regex("^/v1/reading/sessions/[A-Za-z0-9_-]{1,128}/(?:source|assets|pages/[0-9]{1,10})$").matches(path)
+    val limit = byteLimit.toLong()
+    val request = if (target != null && reading && (method == "GET" || method == "HEAD" && path.endsWith("/source")) &&
+        limit in 1..33554432L && limit.toDouble() == byteLimit && identifier != null && identifier.length <= 128)
+      PorticoTransport.request(target, method!!, headers, null) else null
+    if (request == null || identifier == null) {promise.reject("queue_transport", "Invalid Reading byte request."); return}
+    PorticoTransport.submit(this, identifier, request, limit, "queue_transport", "Too many requests.", promise, binary = true)
+  }
+
   @ReactMethod
   fun openNetworkStream(identifier: String?, url: String?, headers: ReadableMap?, promise: Promise) =
       PorticoEventStream.open(this, identifier, url, headers, promise)

@@ -8,6 +8,7 @@ import {browseToolbarModel} from '../../../../../packages/client-core/src/presen
 import {libraryTabs} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
+import {AmbientArt} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, type BrowseLabels} from '../../kit/browse';
@@ -90,8 +91,11 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     </Focusable>)}
   </FocusRegion>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV ? 'chevron' : 'name'}/>;
-  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher}>{tabs}</LibraryHeader>
-    : <StickyBrowseHeader name={state.library.name} switcher={switcher} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}
+  const latestArtwork = summaries.libraries.find(library => library.id === state.library.id)?.summary.latestArtwork;
+  const source = latestArtwork ? runtime.ambient(latestArtwork) : undefined;
+  const ambient = source ? <AmbientArt source={source} treatment="library"/> : undefined;
+  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient}>{tabs}</LibraryHeader>
+    : <StickyBrowseHeader name={state.library.name} switcher={switcher} ambient={ambient} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}
       canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
       if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
     }}/>}
