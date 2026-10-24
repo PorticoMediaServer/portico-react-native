@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {nativeSavedRouteTarget} from '../src-next/screens/saved/navigation.ts';
-import {exactDurationSeconds, savedMosaicPaths, savedVisibility} from '../src-next/screens/saved/presentation.ts';
+import {exactDurationSeconds, savedMosaicPaths, savedViewConditionCount, savedVisibility} from '../src-next/screens/saved/presentation.ts';
 
 /** The shell has one registration per kind. The phone hub is this family's;
  * the TV landing is the TV-more owner's, so only the routes remain there. */
@@ -59,4 +59,11 @@ test('Saved facts keep the server counts, published visibility and exact totals'
   assert.equal(exactDurationSeconds([film, short]), 150);
   assert.equal(exactDurationSeconds([film, {kind: 'movie', id: 'c', title: 'C'} as never]), undefined, 'an unknown length never becomes a made-up total');
   assert.equal(exactDurationSeconds([]), undefined);
+});
+
+test('a saved view reports the conditions it actually applies, never a guessed badge', () => {
+  const query = {all: [{field: 'genre', operator: 'in', value: ['Action']}, {any: [{field: 'year', operator: 'between', value: [1990, 1999]}, {not: {field: 'watched', operator: 'equals', value: true}}]}]};
+  assert.equal(savedViewConditionCount({definition: {query}} as never), 3);
+  assert.equal(savedViewConditionCount({definition: {query: null}} as never), 0);
+  assert.equal(savedViewConditionCount({} as never), 0);
 });

@@ -9,6 +9,7 @@ import type {PlaylistOccurrence, SavedRoute, SavedSnapshot} from '../../../../..
 import {Button, Chip, Focusable, Switch} from '../../kit/controls';
 import {AmbientArt, Artwork, MediaArt} from '../../kit/artwork';
 import {CardFrame, Parts} from '../../kit/cards/primitives';
+import {PosterCard, SquareCard} from '../../kit/cards';
 import {FocusRegion} from '../../kit/focus';
 import {Banner, BottomSheet, Menu, ToastHost, type MenuEntry, type ToastMessage} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
@@ -22,7 +23,7 @@ import type {NativeSavedViewDestination} from './view-model';
 import {homeCardText} from '../home/model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
 import {exactDurationSeconds, firstPlayable, personalMosaic, playlistEntryMosaic, savedDuration, savedItemCount, savedLibraryName, savedPlaylistEyebrow,
-  savedResourceEyebrow, savedTitleCount, savedVisibility, savedVisibilityHelp} from './presentation';
+  savedResourceEyebrow, savedTitleCount, savedViewConditionCount, savedVisibility, savedVisibilityHelp} from './presentation';
 
 const t = defaultI18n.t;
 
@@ -238,10 +239,10 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
           {reordering && !theme.isTV && <Text style={[browseType(theme, 13), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: 10}]}>{t('web.saved.visibleToAll') === '' ? '' : t('order.handle', {title: name})}</Text>}
           {(isPlaylist ? playlist?.actions.includes('reorder') : resource?.kind === 'collection' && resource.actions.includes('reorder')) && theme.isTV &&
             <View style={{paddingHorizontal: theme.gutter, paddingTop: 20}}><Text style={[browseType(theme, 22), {color: theme.colors.textTertiary}]}>{t('order.handle', {title: name})}</Text></View>}
-          {!theme.isTV && <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: theme.gutter, paddingTop: 14}}>
+          {(!theme.isTV || (!isPlaylist && resource?.kind === 'view')) && <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: theme.gutter, paddingTop: 14}}>
             {!isPlaylist && resource?.kind === 'view' ? <>
               <Chip focusId="saved-sort" icon="i-sort" onPress={() => setInfoOpen(true)}>{viewSortLabel(resource)}</Chip>
-              <Chip focusId="saved-filters" icon="i-sliders" onPress={() => setInfoOpen(true)}>{t('next.browse.native.filters')}</Chip>
+              <Chip focusId="saved-filters" icon="i-sliders" count={savedViewConditionCount(resource)} countStyle="badge" onPress={() => setInfoOpen(true)}>{t('next.browse.native.filters')}</Chip>
             </> : <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, opacity: .7}}><Icon name="i-sort" size={16} color={theme.colors.textTertiary}/>
               <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{t('web.saved.sort.other')}</Text></View>}
             <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{countText}</Text>
@@ -252,8 +253,10 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             {!rows.length && snapshot.phase !== 'loading' && <StateView variant={theme.isTV ? 'centered' : 'inline'} icon={isPlaylist ? 'i-queue' : 'i-stack'}
               title={t(isPlaylist ? 'web.saved.playlistEmpty' : resource?.kind === 'view' ? 'web.saved.viewEmpty' : 'web.saved.collectionEmpty')}
               body={isPlaylist ? t('web.saved.playlistEmptyBody') : undefined}/>}
-            {rows.map(row => <SavedResourceRow key={row.id} row={row} width={width} runtime={runtime} actions={actions} library={savedLibraryName(libraries, row.media.libraryId)}
-              canReorder={canReorder && reordering} onMore={() => setRowMenu({entry: row.media, entryId: row.id})}/>)}
+            {!isPlaylist && resource?.kind === 'view'
+              ? <SavedResourceViewGrid entries={media} runtime={runtime} actions={actions} tv={theme.isTV} windowWidth={theme.isTV ? 1920 : dimensions.width} gutter={theme.gutter}/>
+              : rows.map(row => <SavedResourceRow key={row.id} row={row} width={width} runtime={runtime} actions={actions} library={savedLibraryName(libraries, row.media.libraryId)}
+                canReorder={canReorder && reordering} onMore={() => setRowMenu({entry: row.media, entryId: row.id})}/>)}
             {!!(isPlaylist ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
               <Button variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
             </View>}
@@ -301,6 +304,23 @@ function sortFieldId(field: string): 'web.saved.sort.title' | 'web.saved.sort.ad
   if (field === 'duration') return 'web.saved.sort.duration';
   if (field === 'progress') return 'web.saved.sort.progress';
   return 'web.saved.sort.other';
+}
+
+/** A saved view is a browse result, so its body is the library grid rather than
+ * the playlist row list (collections.html 13a and 21). */
+function SavedResourceViewGrid({entries, runtime, actions, tv, windowWidth, gutter}: {
+  entries: readonly ContentEntry[]; runtime: NativeShellRuntime; actions: NativeSavedEntryActions; tv: boolean; windowWidth: number; gutter: number;
+}) {
+  const columns = tv ? 7 : 3, gap = tv ? 26 : 10, width = (windowWidth - gutter * 2 - gap * (columns - 1)) / columns;
+  return <View style={{flexDirection: 'row', flexWrap: 'wrap', gap, paddingHorizontal: gutter}}>{entries.map(entry => {
+    const text = homeCardText(entry, false, runtime.text), square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
+    const progress = entry.duration && entry.progressSeconds ? Math.min(1, entry.progressSeconds / entry.duration) : undefined;
+    const props = {testID: `saved-view-entry-${encodeURIComponent(entry.id)}`, focusId: `saved-view-entry-${entry.id}`, title: entry.displayTitle || entry.title,
+      caption: text.caption, artwork: runtime.artwork(entry.posterUrl), progress, watched: entry.watched, width,
+      onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry),
+      moreExpanded: actions.isMenuOpen?.(entry)};
+    return square ? <SquareCard key={entry.id} {...props}/> : <PosterCard key={entry.id} {...props}/>;
+  })}</View>;
 }
 
 /** The frame's list row: art with its progress line, the title, what it is, the

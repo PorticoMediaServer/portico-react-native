@@ -1,5 +1,6 @@
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {BrowseNode} from '../../../../../packages/client-core/src/browse';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {PlaylistCard, PlaylistOccurrence} from '../../../../../packages/client-core/src/saved';
 import type {IconName} from '../../kit/Icon';
@@ -83,6 +84,18 @@ export function savedDuration(seconds: number | undefined): string | undefined {
 /** The first real playable item is the only sequential start this shell offers today. */
 export function firstPlayable(entries: readonly ContentEntry[]): ContentEntry | undefined {
   return entries.find(entry => !!entry.playback && entry.available !== false && !entry.missing);
+}
+
+/** How many conditions the saved query actually applies (a drawn Filters badge). */
+export function savedViewConditionCount(resource: PersonalResource): number {
+  const walk = (node: BrowseNode | null | undefined): number => {
+    if (!node) return 0;
+    if ('all' in node) return node.all.reduce((total, child) => total + walk(child), 0);
+    if ('any' in node) return node.any.reduce((total, child) => total + walk(child), 0);
+    if ('not' in node) return walk(node.not);
+    return 1;
+  };
+  return walk(resource.definition?.query);
 }
 
 export function savedLibraryName(libraries: readonly Readonly<{id: string; name: string}>[], libraryId: string | undefined): string | undefined {
