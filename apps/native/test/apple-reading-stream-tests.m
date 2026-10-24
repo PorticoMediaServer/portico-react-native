@@ -1,4 +1,7 @@
 #import "../Native/PorticoQueueTransport.h"
+#import <sys/socket.h>
+#import <netinet/in.h>
+#import <unistd.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wincomplete-implementation"
@@ -47,6 +50,59 @@ static void pull(PorticoQueueRequest *request,NSMutableArray *replies,NSMutableA
  PorticoReadingStreamRead(request.identifier,owner,^(id value){[replies addObject:value];},^(NSString *code,NSString *message,NSError *error){[errors addObject:code];});
 }
 static void cancel(PorticoQueueRequest *request){request.failureCode=@"cancelled";[request finish:@"network_stream_cancelled"];}
+
+static BOOL waitFor(BOOL (^ready)(void)) {
+ NSDate *until=[NSDate dateWithTimeIntervalSinceNow:8];
+ while(!ready()&&until.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
+ return ready();
+}
+/** Real NSURLSession data/delegate scheduling and suspension, without a device,
+ * auth state or TLS claim. The loopback peer generates bytes, never stores a PDF. */
+static void actualPullStream(void) {
+ int listener=socket(AF_INET,SOCK_STREAM,0);check(listener>=0,"loopback socket");
+ struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+ check(bind(listener,(struct sockaddr *)&address,sizeof(address))==0&&listen(listener,1)==0,"private ephemeral loopback listener");
+ socklen_t size=sizeof(address);check(getsockname(listener,(struct sockaddr *)&address,&size)==0,"actual loopback port");
+ dispatch_group_t served=dispatch_group_create();
+ dispatch_group_async(served,dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+  int peer=accept(listener,NULL,NULL);if(peer<0)return;
+  int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
+  struct timeval timeout={5,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(peer,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
+  char request[8192]={0};ssize_t count=0;
+  while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
+  const char *header="HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: 2097152\r\nConnection: close\r\n\r\n";
+  if(strstr(request,"GET /v1/reading/sessions/live/source HTTP/1.1")&&!strstr(request,"Range:")){
+   send(peer,header,strlen(header),0);unsigned char bytes[16384];for(NSUInteger i=0;i<sizeof(bytes);i++)bytes[i]=(uint8_t)i;
+   NSUInteger sent=0;
+   while(sent<2097152){ssize_t next=send(peer,bytes+sent%sizeof(bytes),MIN(sizeof(bytes)-sent%sizeof(bytes),2097152-sent),0);if(next<=0)break;sent+=(NSUInteger)next;}
+  }
+  shutdown(peer,SHUT_RDWR);close(peer);
+ });
+ NSMutableDictionary *state=[NSMutableDictionary new];NSObject *realOwner=[NSObject new];
+ NSString *url=[NSString stringWithFormat:@"http://127.0.0.1:%u/v1/reading/sessions/live/source",ntohs(address.sin_port)];
+ PorticoQueueRequest *request=PorticoReadingStreamRequest(NSUUID.UUID.UUIDString,url,@{},realOwner,^(id value){@synchronized(state){state[@"headers"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+ [PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_stream_busy"];
+ BOOL opened=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
+ check(opened&&!state[@"error"]&&[state[@"headers"][@"status"]isEqual:@200],"actual task resolves headers before read");
+ [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
+ @synchronized(request){check(!request.completed&&request.streamPaused&&request.data.length<=PorticoStreamChunkLimit,"real task stays bounded while no pull is pending");}
+ NSUInteger received=0,pulls=0;BOOL done=NO,valid=YES;
+ while(!done&&pulls++<512){
+  @synchronized(state){[state removeObjectForKey:@"read"];}
+  PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+  if(!waitFor(^BOOL{@synchronized(state){return state[@"read"]||state[@"error"];}})){valid=NO;break;}
+  NSDictionary *reply;@synchronized(state){if(state[@"error"]){valid=NO;break;}reply=state[@"read"];}
+  NSData *bytes=[[NSData alloc]initWithBase64EncodedString:reply[@"bodyBase64"] options:0];done=[reply[@"done"]isEqual:@YES];
+  if(!bytes||(done?bytes.length!=0:bytes.length==0||bytes.length>PorticoStreamPullLimit)){valid=NO;break;}
+  const uint8_t *raw=bytes.bytes;for(NSUInteger i=0;i<bytes.length;i++)if(raw[i]!=(uint8_t)(received+i)){valid=NO;break;}
+  received+=bytes.length;
+  @synchronized(request){if(request.data.length>PorticoStreamChunkLimit){valid=NO;break;}}
+ }
+ if(!done)cancel(request);
+ close(listener);BOOL serverClosed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0;
+ check(valid&&done&&received==2097152&&pulls>42,"real two-MiB source arrives as exact demand-driven <=48KiB pulls and genuine EOF");
+ check(serverClosed&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real peer, request and admission close");
+}
 
 int main(void){@autoreleasepool{
  transport=[PorticoQueueTransport new];owner=[NSObject new];
@@ -108,5 +164,6 @@ int main(void){@autoreleasepool{
  __block BOOL followed=YES;[transport URLSession:nil task:task willPerformHTTPRedirection:nil newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://elsewhere.example"]] completionHandler:^(NSURLRequest *next){followed=next!=nil;}];
  pull(request,replies,errors);check(!followed&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"same transport refuses redirects after headers");
  check(PorticoQueueActive==0&&PorticoQueueReads==0&&!PorticoQueueRequests.count,"all admission slots/handles released exactly once");
+ actualPullStream();
  printf("Apple Reading pull stream: %lu checks passed\n",(unsigned long)checks);return 0;
 }}
