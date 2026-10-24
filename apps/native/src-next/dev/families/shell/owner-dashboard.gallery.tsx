@@ -108,7 +108,8 @@ function specimen(scale: boolean, expanded: boolean) {
   return function OwnerDashboardSpecimen() {
     const theme = useTheme(), env = {t, locale: defaultI18n.region.formatLocale}, health = ownerHealthLine(undefined, undefined, t);
     const list = scale ? scaleSessions : sessions;
-    return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    // The page is drawn edge to edge in the frames; the dev host's gutter is cancelled here, once.
+    return <View style={{flex: 1, backgroundColor: theme.colors.ink, marginHorizontal: -theme.gutter}}>
       <ScrollView contentContainerStyle={{paddingBottom: 40}}>
         <OwnerDashboardPage t={t} role="owner" serverName="Portico demo" topInset={0}
           health={{degraded: false, status: health.status, line: 'Up for 6 days · 1.2 TB free · Database 412 MB'}} updated={t('next.dashboard.updatedNow')} loading={false}

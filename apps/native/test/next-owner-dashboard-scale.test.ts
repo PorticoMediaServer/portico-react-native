@@ -88,3 +88,9 @@ test('Show all appends the server pages in their own order and never repeats a s
   assert.deepEqual(merged.map(value => value.id), ['a', 'b', 'c']);
   assert.equal(appendOwnerSessions(merged, []), merged);
 });
+
+test('the dev gallery can be drawn full-window for a pixel capture', () => {
+  assert.deepEqual(kitSelectionFromURL('portico://kit?gallery=shell-owner-dashboard-busy&window=1'), {gallery: 'shell-owner-dashboard-busy', window: true});
+  assert.deepEqual(kitSelectionFromURL('portico://kit?gallery=shell-owner-dashboard-busy'), {gallery: 'shell-owner-dashboard-busy'});
+  assert.deepEqual(kitSelectionFromURL('portico://kit/'), {});
+});
