@@ -135,6 +135,32 @@ test('a second Save while the first is in flight sends nothing and cannot edit t
   } finally {controller.dispose();}
 });
 
+test('an empty trimmed name cannot be submitted', async () => {
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']});
+  const controller = createNativeSavedViewRenameController({service, resource, current: () => true});
+  try {
+    assert.equal(controller.setName('   '), true);
+    assert.equal(controller.getSnapshot().canSave, false);
+    assert.equal(await controller.save(), false);
+    assert.equal(fixture.patchCalls.length, 0);
+    assert.equal(controller.getSnapshot().name, '   ');
+    assert.equal(controller.getSnapshot().closed, false);
+  } finally {controller.dispose();}
+});
+
+test('a controller constructed after the owner retired is inert and cannot revive', async () => {
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']});
+  const controller = createNativeSavedViewRenameController({service, resource, current: () => false});
+  try {
+    assert.equal(controller.getSnapshot().retired, true);
+    assert.equal(controller.getSnapshot().canSave, false);
+    assert.equal(controller.setName('Renamed'), false);
+    assert.equal(await controller.save(), false);
+    assert.equal(fixture.patchCalls.length, 0);
+    assert.equal(controller.getSnapshot().name, 'Comfort movies');
+  } finally {controller.dispose();}
+});
+
 test('a view that does not offer update cannot be renamed', async () => {
   const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['pin']});
   const controller = createNativeSavedViewRenameController({service, resource, current: () => true});
