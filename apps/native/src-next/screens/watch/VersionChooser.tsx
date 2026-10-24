@@ -4,7 +4,8 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {shellLayout} from '../../shell/model';
 import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
-import {FocusBoundary, PanelBackground} from '../../kit/overlays/surface';
+import {FocusBoundary} from '../../kit/overlays/surface';
+import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeWatchOverlay} from './presenters';
@@ -42,13 +43,16 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
     return <Modal transparent visible animationType="none" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
       <View style={[StyleSheet.absoluteFill, {backgroundColor: '#0710189e'}]} accessibilityViewIsModal>
         <View pointerEvents="box-none" testID="watch-versions-tv-canvas" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
-          <FocusBoundary modal testID="watch-versions-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 760, paddingTop: 60, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
-            <PanelBackground/>
+          <FocusBoundary modal testID="watch-versions-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 760, boxShadow: '-40px 0 80px -20px rgba(0,0,0,.7)', paddingTop: 60, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}><Svg width="100%" height="100%" accessible={false}>
+              <Defs><LinearGradient id="watch-versions-panel" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#132836"/><Stop offset="0.6" stopColor="#0d1c27"/><Stop offset="1" stopColor="#0b1822"/></LinearGradient></Defs>
+              <Rect width="100%" height="100%" fill="url(#watch-versions-panel)"/>
+            </Svg></View>
             <Text style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}), {color: theme.colors.text}]}>{title}</Text>
             <Text numberOfLines={2} style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 31.9}), {color: theme.colors.text, marginTop: 10, marginBottom: 20}]}>{name}</Text>
             <View style={{flex: 1, marginHorizontal: -24, paddingHorizontal: 24}}>{body}</View>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('title.ok'))}<Text style={[theme.type.caption, {color: theme.colors.textTertiary, fontSize: 20}]}>{t('action.play')}</Text>
-              <View style={{width: 16}}/><View style={{width: 16}}/>{key(t('action.back'))}<Text style={[theme.type.caption, {color: theme.colors.textTertiary, fontSize: 20}]}>{t('action.close')}</Text></View>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('title.ok'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textTertiary}]}>{t('action.play')}</Text>
+              <View style={{width: 16}}/><View style={{width: 16}}/>{key(t('action.back'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>
           </FocusBoundary>
         </View>
       </View>

@@ -6,6 +6,7 @@ import {shellLayout} from '../src-next/shell/model.ts';
 const {react, render} = hooks(); let isTV = false, width = 390, height = 844;
 const {NativeVersionChooser} = await screenModule(new URL('../src-next/screens/watch/VersionChooser.tsx', import.meta.url), {
   react, 'react-native': {Modal: 'Modal', ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}}, Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height})},
+  'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
   '../../../../../packages/i18n/src': {defaultI18n}, '../../shell/model': {shellLayout}, '../../kit/controls': {Focusable: 'Focusable'},
   '../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../kit/overlays/surface': {FocusBoundary: 'FocusBoundary', PanelBackground: 'PanelBackground'},
   '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/theme': {nativeType: (value: unknown) => value, useTheme: () => ({isTV, colors: {}, type: {caption: {}}})},
@@ -39,6 +40,7 @@ for (const scale of [1, .5, 2]) test(`actual TV chooser uses one760px panel/one 
   const tree = render(() => NativeVersionChooser({value, choose() {}, close() {}})), nodes = descendants(tree);
   const canvas = nodes.find(node => node.props.testID === 'watch-versions-tv-canvas'); assert.deepEqual(canvas.props.style.transform, [{scale}]);
   const panel = nodes.find(node => node.props.testID === 'watch-versions-tv'); assert.equal(panel.props.style.width, 760);
+  assert.deepEqual(nodes.filter(node => node.type === 'Stop').map(node => node.props.stopColor), ['#132836', '#0d1c27', '#0b1822']);
   const rows = nodes.filter(node => /^watch-version-v/.test(node.props.testID ?? ''));
   assert.equal(rows.filter(node => node.props.hasTVPreferredFocus).length, 1); assert.equal(rows.find(node => node.props.hasTVPreferredFocus).props.testID, 'watch-version-v2');
   assert.equal(nodes.some(node => node.props.testID === 'watch-versions-done'), false);
