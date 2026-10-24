@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useMemo} from 'react';
+import React, {useLayoutEffect, useMemo, useRef} from 'react';
 import {Image, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent, type NativeSyntheticEvent, type TextLayoutEventData} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -15,7 +15,8 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
   busy: boolean; error?: React.ReactNode; onPortico: () => void; onLocal: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
-  const title = t('web.signin.welcomeHome');
+  const title = t('web.signin.welcomeHome'), committedTitle = useRef(title);
+  useLayoutEffect(() => {committedTitle.current = title;}, [title]);
   const titleStyle = useMemo(() => [nativeType({size: 42, lineHeight: 43.68, weight: 800, tracking: -.04}, theme.textScale),
     {includeFontPadding: false, color: theme.colors.text, marginBottom: 22}], [theme.textScale, theme.colors.text]);
   const titleMeasurement = useMemo(() => {
@@ -29,7 +30,7 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
         unregister();
         if (host) {current = host; lease = registerNativeHost(host, facts);}
       },
-      onTextLayout: (event: NativeSyntheticEvent<TextLayoutEventData>) => {lease?.recordTextLayout(event.nativeEvent.lines);},
+      onTextLayout: (event: NativeSyntheticEvent<TextLayoutEventData>) => {if (committedTitle.current === title) lease?.recordTextLayout(event.nativeEvent.lines);},
       onLayout: (event: LayoutChangeEvent) => {
         const {x, y, width, height} = event.nativeEvent.layout, next = [x, y, width, height].join(':');
         if (previousLayout !== undefined && next !== previousLayout) {lease?.invalidateTextLayout(); lease?.invalidateResolvedStyle();}
