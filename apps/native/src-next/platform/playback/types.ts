@@ -10,7 +10,7 @@ import type {CapabilityOverrides} from '../../../../../packages/client-core/src/
 import type {DockState, DockTransition, PlaybackDock, PlaybackFence} from '../../../../../packages/player-core/src';
 import type {SkipMode} from '../../../../../packages/player-core/src';
 import type {EngineFeatures, EngineKind, EngineSetting} from './engine-choice';
-import type {EngineSelection, NativePlaybackTransport} from './NativePlaybackCoordinator';
+import type {EngineSelection, NativeBinding, NativePlaybackTransport} from './NativePlaybackCoordinator';
 import type {NativeListeningV1Control} from '../../../../../packages/client-core/src/playback/native-listening';
 import type {Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-core/src/home-selection/types';
@@ -18,6 +18,7 @@ import type {SelectionContext} from '../../../../../packages/client-core/src/sel
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
+import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
@@ -56,6 +57,8 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: NativePlaybackCapabilities; engine: EngineKind; lease: string;
   effectiveRate: number; supportedRates: readonly number[];
+  /** Actual native external source readiness. Absent=unknown; null=unready. Not PiP support. */
+  externalPresentationBinding?: NativeBinding | null;
   retired: boolean;
 }>;
 
@@ -78,6 +81,8 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   timers?: Timers;
   /** Optional actual destination binding. Its absence removes Cast from capabilities and API. */
   openDestinations?: (fence: PlaybackFence) => Promise<void>;
+  /** Platform-owned picker only; upload stays in the one current-source SubtitleService. */
+  subtitleFilePicker?: NativeSubtitleFilePicker;
 }>;
 
 export interface NativePlaybackAdapter {
