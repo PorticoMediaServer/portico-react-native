@@ -1358,7 +1358,7 @@ internal class PorticoMpvController(private val context: Context) {
   private fun applyCaptionStyle(style: Map<*, *>?) {
     val same = style == captionStyle
     captionStyle = style
-    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(style), 2))
+    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
     val (text, box) = PorticoMpvSupport.captionColors(context, style)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
     core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))

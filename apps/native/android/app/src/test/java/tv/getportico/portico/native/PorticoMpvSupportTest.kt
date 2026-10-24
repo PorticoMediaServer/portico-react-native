@@ -119,6 +119,32 @@ class PorticoMpvSupportTest {
   }
 
   @Test
+  fun explicitSystemCaptionPreferenceDoesNotBorrowAnEnabledDeviceStyle() {
+    assertFalse(support.usesSystemCaptionStyle(mapOf("useSystemCaptionStyle" to false), true))
+    assertTrue(support.usesSystemCaptionStyle(mapOf("useSystemCaptionStyle" to true), false))
+    assertTrue(support.usesSystemCaptionStyle(null, true))
+    assertFalse(support.usesSystemCaptionStyle(null, false))
+  }
+
+  @Test
+  fun actualCaptionPositionRetainsAuthoredTopAndUsesOnePaneFraction() {
+    assertTrue(support.captionAtTop(mapOf("position" to "top"), false))
+    assertTrue(support.captionAtTop(mapOf("position" to "bottom"), true))
+    assertFalse(support.captionAtTop(mapOf("position" to "raised"), false))
+    assertEquals(.20f, support.captionBottomInset(mapOf("position" to "raised")), 0f)
+    assertEquals(.08f, support.captionBottomInset(mapOf("position" to "bottom")), 0f)
+    assertEquals(.08f, support.captionBottomInset(null), 0f)
+  }
+
+  @Test
+  fun canonicalPlainCaptionColoursAreExactAndUnknownStaysWhite() {
+    val colours = mapOf("white" to 0xffffffff.toInt(), "yellow" to 0xffffff00.toInt(), "cyan" to 0xff00ffff.toInt(), "green" to 0xff00ff00.toInt(), "pink" to 0xffff80bf.toInt())
+    for ((name, colour) in colours) assertEquals(colour, support.captionForeground(mapOf("color" to name)))
+    assertEquals(0xffffffff.toInt(), support.captionForeground(null))
+    assertEquals(0xffffffff.toInt(), support.captionForeground(mapOf("color" to "#123456")))
+  }
+
+  @Test
   fun numbersForMpvUseThePointWhateverTheLanguage() {
     val before = java.util.Locale.getDefault()
     try {
