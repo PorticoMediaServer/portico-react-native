@@ -2,11 +2,13 @@ import type {ContentEntry} from '../../../../packages/client-core/src/library-co
 import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {SavedRoute} from '../../../../packages/client-core/src/saved';
 import {sameAuthority, type ShellAuthority, type ShellDestination} from './model';
+import {Platform} from 'react-native';
 
 /** Descriptors are requests to the registered phase owner, never synthesized screen content. */
 export type NativeShellRoute = Readonly<
   | {kind: 'shell'; destination: ShellDestination}
   | {kind: 'title'; entry: ContentEntry}
+  | {kind: 'music'; entry: ContentEntry}
   | {kind: 'person'; personId: string}
   | {kind: 'read'; itemId: string; sourceId: string}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
@@ -30,6 +32,10 @@ export type NativeShellRoute = Readonly<
 >;
 
 export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.freeze({kind: 'title', entry});
+/** TV opens albums and artists on their own drawn pages; every other platform keeps
+ * the existing title route exactly. */
+export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute =>
+  Platform.isTV && (entry.kind === 'album' || entry.kind === 'artist') ? Object.freeze({kind: 'music', entry}) : titleRoute(entry);
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
@@ -57,7 +63,7 @@ export function nativeDestinationActivation(navigation: NativeShellNavigation, d
 
 /** Highlight the title's actual authorized library while retaining its mounted origin for Back. */
 export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
-  const libraryId = snapshot.route.kind === 'title' ? snapshot.route.entry.libraryId : undefined;
+  const libraryId = snapshot.route.kind === 'title' || snapshot.route.kind === 'music' ? snapshot.route.entry.libraryId : undefined;
   return libraryId && libraries.some(library => library.id === libraryId) ? {kind: 'library', libraryId} : snapshot.destination;
 }
 

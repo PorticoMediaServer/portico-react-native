@@ -7,7 +7,7 @@ import {NativeHomeRowController} from './row-controller';
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
-import {titleRoute, type NativeShellRoute} from '../../shell/routes';
+import {nativeEntryRoute, type NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
@@ -79,7 +79,7 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
     render: (runtime: NativeShellRuntime) => [...rows.values()].map(source => <RetainedHomeRow key={source.key} source={source} runtime={runtime} active={current(source)}
       onBack={() => {if (current(source)) context.navigation.back(context.authority());}}
       onPlay={shuffle => play(source, shuffle)}
-      onOpen={entry => {if (current(source)) context.navigation.open(titleRoute(entry), context.authority());}}
+      onOpen={entry => {if (current(source)) context.navigation.open(nativeEntryRoute(entry), context.authority());}}
       onPlayEntry={(entry, entryCurrent) => {
         if (!current(source) || !entryCurrent() || !entry.playback) return;
         const captured = context.navigation.getSnapshot();

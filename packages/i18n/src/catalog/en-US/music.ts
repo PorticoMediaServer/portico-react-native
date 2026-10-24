@@ -1,0 +1,20 @@
+/** tv-more6–9: the TV album and artist pages. */
+export const musicMessages = {
+  'music.topSongs': 'Top songs',
+  'music.albums': 'Albums',
+  'music.similarArtists': 'Similar artists',
+  'music.allSongs': 'All songs',
+  'music.moreLikeThis': 'More like this',
+  'music.moreLikeThisHint': 'Same genres first, then what people here play alongside it',
+  'music.onServer': '{albums, plural, one {# album} other {# albums}} and {songs, plural, one {# song} other {# songs}} on your server',
+  'music.songCountAndDuration': '{songs, plural, one {# song} other {# songs}}, {minutes} min',
+  'music.shuffleArtist': 'Shuffle {artist}',
+  'music.playArtist': 'Play {artist}',
+  'music.playAlbum': 'Play {album}',
+  'music.noSongs': 'No songs here',
+  'music.noSongsBody': 'This release has no playable songs on the server.',
+  'music.noAlbums': 'No albums here',
+  'music.noAlbumsBody': 'This artist has no albums on the server yet.',
+  'music.favorite': 'Favorite',
+  'music.loading': 'Loading music',
+};
