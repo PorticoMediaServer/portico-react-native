@@ -42,7 +42,8 @@ private final class ReadingBytePolicy: NSObject, URLSessionTaskDelegate {
         failure(NSError(domain: "PorticoReadingStream", code: 1, userInfo: [NSLocalizedDescriptionKey: "network_stream_redirect"]))
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error { attached(task); failure(error) }
+        // Completion must not reattach/re-cancel a request already retired by its owner.
+        if let error { failure(error) }
     }
 }
 

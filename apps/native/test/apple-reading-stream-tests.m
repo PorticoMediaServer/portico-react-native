@@ -129,8 +129,8 @@ static void actualCancel(NSUInteger mode) {
   int peer=accept(listener,NULL,NULL);if(peer<0)return;int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
   struct timeval timeout={3,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
   char request[8192]={0};ssize_t count=0;while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
-  const char *header="HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));
-  if(mode!=1)sendAll(peer,"x",1);
+  const char *header="HTTP/1.1 200 OK\r\nContent-Length: 49153\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));
+  if(mode!=1){uint8_t initial[49152]={0};sendAll(peer,initial,sizeof(initial));}
   dispatch_semaphore_signal(accepted);
   dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC));
   char byte;disconnected=recv(peer,&byte,1,0)==0;shutdown(peer,SHUT_RDWR);close(peer);
@@ -145,6 +145,9 @@ static void actualCancel(NSUInteger mode) {
   BOOL gotHeaders=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
   if(!gotHeaders||state[@"error"])fprintf(stderr,"Cancellation mode=%lu headers=%d nativeResponse=%d error=%s\n",(unsigned long)mode,state[@"headers"]!=nil,request.response!=nil,[state[@"error"] UTF8String]?:"none");
   check(gotHeaders&&!state[@"error"],"first upstream byte resolves actual response metadata");
+  PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+  check(waitFor(^BOOL{@synchronized(state){return state[@"read"]||state[@"error"];}})&&!state[@"error"],"first explicit read returns the native-held initial chunk");
+  @synchronized(state){NSData *first=[[NSData alloc]initWithBase64EncodedString:state[@"read"][@"bodyBase64"] options:0];check(first.length==49152&&[state[@"read"][@"done"]isEqual:@NO],"initial chunk remains exactly bounded and is not EOF");[state removeObjectForKey:@"read"];}
   PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
   @synchronized(request){check(request.streamResolve!=nil&&!request.completed,"real body pull pending without upstream bytes");}
  }
