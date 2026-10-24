@@ -161,7 +161,8 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
         } else missing(id, 'textRects', unavailableReason('textLineRects', 'current scoped native window text runs are not observed; host boxes are not text runs'));
         if (record.ownText) strings.push({id: `${id}:text:0`, owner: id, frame: frame ?? null, kind: 'text', text: record.ownText, rects: record.textRects, style: record.style});
       }
-      for (const property of ['resolvedFontFamily', 'fontSize', 'fontWeight', 'color']) {
+      for (const property of ['resolvedFontFamily', 'fontSize', 'fontWeight', 'color', 'fontStyle', 'letterSpacing',
+        'textTransform', 'textDecorationLine', 'textShadow']) {
         if (typeof (record.style as Record<string, unknown>)[property] !== 'string') missing(id, property,
           unavailableReason(property === 'color' ? 'textColor' : property, 'resolved native font/paint fact is not available'));
       }
@@ -172,7 +173,8 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     }
     if (image) {
       record.image = {kind: /SVG/i.test(tag) ? 'icon' : 'image'};
-      missing(id, 'image.fit', 'native image fit/load facts have not been observed');
+      missing(id, 'image.fit', 'current native image fit has not been observed');
+      missing(id, 'image.loaded', 'current native image load state has not been observed');
     }
     elements.push(record);
     if (parent !== null) childRecords.set(parent, [...(childRecords.get(parent) ?? []), record]);

@@ -200,6 +200,23 @@ test('only observed native window Text rectangles become text ranges; host boxes
   assert.ok(transformed.unavailable.some(fact => fact.element === 'root.0' && fact.property === 'textRects'));
 });
 
+test('an attached image box does not imply loaded pixels or a fit mode', async () => {
+  const registry = createNativeMeasurementRegistry();
+  const image = host('RN:Image', {x: 20, y: 30, width: 100, height: 24});
+  for (const key of ['childNodes', 'source', 'props', 'asset']) {
+    Object.defineProperty(image, key, {get() {throw new Error('Image internals were read.');}});
+  }
+  registry.register(image, {kind: 'image'});
+  const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844}, [image]);
+  const measured = await collectTestScene({root, registry, platform: 'android', viewport: {width: 390, height: 844, deviceScaleFactor: 3}});
+  const record = measured.elements.find(element => element.tag === 'RN:Image')!;
+  assert.deepEqual(record.box, {x: 20, y: 30, width: 100, height: 24});
+  assert.deepEqual(record.image, {kind: 'image'});
+  for (const property of ['image.loaded', 'image.fit']) {
+    assert.ok(measured.unavailable.some(fact => fact.element === record.id && fact.property === property));
+  }
+});
+
 test('late window Text observers are retired on unregister or cancellation', async () => {
   const registry = createNativeMeasurementRegistry(), node = {};
   const lease = registry.register(node, {kind: 'text'});
