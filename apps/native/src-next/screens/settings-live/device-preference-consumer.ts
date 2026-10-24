@@ -21,13 +21,13 @@ type Row = Readonly<{
 const rows: Readonly<Partial<Record<CompositeId, Row>>> = Object.freeze({
   forceStereo: Object.freeze({
     row: 'audioSubtitles.surround',
-    shown: current => current === 'stereo' ? true : current === 'asis' ? false : undefined,
-    asked: value => value === true ? 'stereo' : value === false ? 'asis' : undefined,
+    shown: (current: unknown) => current === 'stereo' ? true : current === 'asis' ? false : undefined,
+    asked: (value: NativeDevicePreferenceValue) => value === true ? 'stereo' : value === false ? 'asis' : undefined,
   }),
   disableHdr: Object.freeze({
     row: 'quality.disableHdr',
-    shown: current => typeof current === 'boolean' ? current : undefined,
-    asked: value => typeof value === 'boolean' ? value : undefined,
+    shown: (current: unknown) => typeof current === 'boolean' ? current : undefined,
+    asked: (value: NativeDevicePreferenceValue) => typeof value === 'boolean' ? value : undefined,
   }),
 });
 
