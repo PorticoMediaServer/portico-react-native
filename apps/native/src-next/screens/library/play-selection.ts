@@ -15,9 +15,11 @@ const unavailable = () => Object.assign(new Error('native_library_selection_unav
 export function createNativeLibraryPlaySelection(context: NativeShellBootstrapContext, source: NativeLibraryDestination) {
   const lifetime = nativeDestinationLifetime(context), opening = source.getSnapshot(), viewer = context.session()!.viewer;
   if (opening.phase !== 'ready' || !opening.revision || !opening.collection || !opening.sort) throw unavailable();
+  const authority = viewer.authority;
+  if (authority !== 'local' && authority !== 'hosted') throw unavailable();
   const definition = source.captureSavedView({predicates: opening.predicates, sort: opening.sort});
   const captured: BrowseSelectionContext = Object.freeze({
-    scope: Object.freeze({serverId: viewer.serverId, authority: viewer.authority, accountId: viewer.accountId, profileId: viewer.profileId,
+    scope: Object.freeze({serverId: viewer.serverId, authority, accountId: viewer.accountId, profileId: viewer.profileId,
       viewId: JSON.stringify(['native-library', definition.libraryId, definition.pivot, definition.query, definition.sort])}),
     revision: Object.freeze({pageRevision: opening.revision}),
   });
