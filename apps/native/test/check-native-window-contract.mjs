@@ -10,6 +10,8 @@ const secondary = process.env.PORTICO_RUNNER_SECONDARY_SOURCE;
 if (!secondary) throw new Error('An exact checked public server archive is required.');
 const {validateMeasurement, nativeWindowRectToRoot, nativeWindowCoversViewport} =
   await import(pathToFileURL(join(secondary, 'tools/fidelity/contract.mjs')).href);
+const {prepareNativeDeclarations} =
+  await import(pathToFileURL(join(secondary, 'tools/fidelity/native-declarations.mjs')).href);
 const registry = createNativeMeasurementRegistry();
 const title = nativeHost('RN:Text', {x: 10, y: -12, width: 100, height: 30});
 const input = nativeHost('RN:TextInput', {x: 10, y: 60, width: 100, height: 30});
@@ -23,7 +25,10 @@ setNativeObservation(title, {windowRect: {x: 35, y: 22, width: 102, height: 32},
   effectiveOpacity: 1, effectiveBackgroundColor: 'rgba(0, 0, 0, 1)', focused: false,
   textRects: [{x: 38, y: 23, width: 96, height: 30}], textRectsSource: 'android.Layout.linesToWindowDp'});
 setNativeObservation(input, {textRects: [{x: 10, y: 60, width: 100, height: 30}], textRectsSource: 'android.Layout.linesToWindowDp'});
-registry.register(title, {kind: 'text'}).recordTextLayout([{text: 'Public fixture', x: 0, y: 0, width: 96, height: 30}]);
+registry.register(root, {kind: 'view', flattenedStyle: {backgroundColor: '#000000', opacity: 1}, declaredStyleComplete: true});
+registry.register(title, {kind: 'text', flattenedStyle: {fontFamily: 'Declared Public Font', fontSize: 26, letterSpacing: -.75,
+  color: '#040506', opacity: .5}, declaredStyleComplete: true})
+  .recordTextLayout([{text: 'Public fixture', x: 0, y: 0, width: 96, height: 30}]);
 registry.register(input, {kind: 'input'}).recordMaskLength(4);
 const retireFixture = addNativeFixture(root, registry.register.bind(registry));
 const options = {root, registry, observe: observeNativeWindow, isCurrent: () => true,
@@ -43,6 +48,24 @@ try {
   assert.equal(secure.diagnostics.nativeWindowTextRects, undefined);
   assert.deepEqual(secure.input, {value: null, redacted: true, maskedLength: 4});
 
+  const rawBefore = JSON.stringify(measured);
+  const prepared = prepareNativeDeclarations(measured);
+  assert.notEqual(prepared, measured);
+  assert.equal(JSON.stringify(measured), rawBefore);
+  const declaredText = prepared.elements.find(node => node.tag === 'RN:Text');
+  assert.equal(text.style.fontSize, '24px');
+  assert.equal(declaredText.style.fontSize, '26px');
+  assert.equal(declaredText.style.letterSpacing, '-0.75px');
+  assert.equal(text.style.letterSpacing, undefined);
+  assert.deepEqual(declaredText.box, text.box);
+  assert.deepEqual(declaredText.textRects, text.textRects);
+  assert.equal(declaredText.focused, text.focused);
+  assert.deepEqual(prepared.root, measured.root);
+  assert.deepEqual(prepared.viewport, measured.viewport);
+  assert.ok(measured.unavailable.some(fact => fact.element === text.id && fact.property === 'letterSpacing'));
+  assert.ok(!prepared.unavailable.some(fact => fact.element === text.id && fact.property === 'letterSpacing'));
+  assert.equal(prepared.elements.find(node => node.input).textRects, undefined);
+
   const altered = structuredClone(measured);
   altered.elements.find(node => node.tag === 'RN:Text').box.x += 0.001;
   assert.ok(validateMeasurement(altered).some(path => path.endsWith('.nativeWindow.box')));
@@ -54,7 +77,7 @@ try {
   const shifted = await collectNativeScreen(options);
   assert.equal(shifted.fullViewport, false);
   assert.ok(validateMeasurement(shifted).includes('nativeWindow.fullViewport'));
-  console.log('Native-window producer/shared-validator coupling PASS (public synthetic only).');
+  console.log('Native-window/declaration producer/shared-policy coupling PASS (public synthetic only).');
 } finally {
   retireFixture();
 }
