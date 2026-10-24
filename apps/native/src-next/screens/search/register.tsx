@@ -1,5 +1,5 @@
 import React, {useSyncExternalStore} from 'react';
-import {View} from 'react-native';
+import {Platform, View} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
@@ -22,9 +22,12 @@ type AllRoute = Extract<NativeShellRoute, {kind: 'search-genres'}>;
 type All = Readonly<{route: AllRoute; key: number; explore: NativeSearchExplore; owned: boolean; current: () => boolean}>;
 
 /** Screen-owned registration; every controller is keyed by its actual retained
- * history descriptor. The shell's presentation descriptor never becomes data. */
-export function createNativeHandheldSearchModule(context: NativeShellBootstrapContext): NativeRouteRenderer {
+ * history descriptor. The shell's presentation descriptor never becomes data.
+ * The same module serves the handset and TV entries; the drawn genre prefixes
+ * follow the actual surface rather than the entry that imported it. */
+export function createNativeSearchModule(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const lifetime = nativeDestinationLifetime(context), roots = new Map<NativeShellRoute, Root>(), genres = new Map<GenreRoute, Genre>(), all = new Map<AllRoute, All>();
+  const surface = Platform.isTV ? 'tv' as const : 'phone' as const;
   let disposed = false, sequence = 0;
   const current = () => !disposed && lifetime.current();
   const retained = (route: NativeShellRoute) => current() && (context.navigation.getSnapshot().route === route || context.navigation.retainedRoutes().includes(route));
@@ -41,7 +44,7 @@ export function createNativeHandheldSearchModule(context: NativeShellBootstrapCo
       if (route.kind !== 'shell' || route.destination.kind !== 'search' || roots.has(route)) continue;
       const search = createNativeSearchController(context, route);
       let explore!: NativeSearchExplore;
-      explore = new NativeSearchExplore({api: context.api, surface: 'phone', current: () => retained(route), openGenre: genre => {
+      explore = new NativeSearchExplore({api: context.api, surface, current: () => retained(route), openGenre: genre => {
         const showing = context.navigation.getSnapshot().route;
         if (visible(route) || showing.kind === 'search-genres' && all.get(showing)?.explore === explore && visible(showing)) openNativeSearchGenre(context, genre);
       }});
@@ -65,7 +68,7 @@ export function createNativeHandheldSearchModule(context: NativeShellBootstrapCo
       if (route.kind === 'search-genres' && !all.has(route)) {
         const parent = [...routes].reverse().find(candidate => roots.has(candidate));
         const borrowed = parent && roots.get(parent)?.explore;
-        const explore = borrowed || new NativeSearchExplore({api: context.api, surface: 'phone', current: () => retained(route),
+        const explore = borrowed || new NativeSearchExplore({api: context.api, surface, current: () => retained(route),
           openGenre: genre => {if (visible(route)) openNativeSearchGenre(context, genre);}});
         all.set(route, {route, key: ++sequence, explore, owned: !borrowed, current: () => visible(route)});
       }
@@ -108,6 +111,6 @@ function AllHost({entry, runtime, navigation, back}: {entry: All; runtime: Nativ
   </View>;
 }
 
-nativeShellRoutes.registerDestination('search', createNativeHandheldSearchModule);
-nativeShellRoutes.registerRoute('search-genre', createNativeHandheldSearchModule);
-nativeShellRoutes.registerRoute('search-genres', createNativeHandheldSearchModule);
+nativeShellRoutes.registerDestination('search', createNativeSearchModule);
+nativeShellRoutes.registerRoute('search-genre', createNativeSearchModule);
+nativeShellRoutes.registerRoute('search-genres', createNativeSearchModule);
