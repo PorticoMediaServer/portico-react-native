@@ -61,7 +61,8 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   }, [loading]);
   const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
   const available = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available))
-    .filter(chip => chip.id === 'all' || !state.groups.some(group => group.id === chip.id && group.status === 'success' && group.totalCount === 0));
+    // One chip is selected: the answer covers that group alone, so the drawn row keeps its other types.
+    .filter(chip => chip.id === 'all' || state.group !== 'all' || !state.groups.some(group => group.id === chip.id && group.status === 'success' && group.totalCount === 0));
   const chips = typed && !empty && !problem && state.search.data && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, paddingHorizontal: 20, paddingTop: 12}}>
     {available.map(chip => {
       const group = state.groups.find(value => value.id === chip.id);
