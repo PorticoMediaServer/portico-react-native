@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {type RefObject} from 'react';
 import {BackHandler, Platform, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {HomeSelectionController, homeSelectionContext} from '../../../../packages/client-core/src/home-selection/index';
@@ -68,6 +68,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     requestId: feedback.requestId, playback, reportError,
     routes: {openEntry: entry => open(titleRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
+  let capturedMenu: {menu: NonNullable<ReturnType<HomeSelectionController['getSnapshot']>['menu']>; anchorRef?: RefObject<View | null>; owner: object} | undefined;
   const windowId = (rowId: string) => `home-row:${rowId}`;
   const members = new Map<string, Registration & {cleanup: () => void}>();
   let coordinateDocument = initial;
@@ -164,7 +165,25 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const id = window.memberWindows.get(entry.id)!;
     return {id, key, owner: members.get(id) ?? window.registration};
   };
-  const menu = (entry: ContentEntry, rowId?: string) => {homeActionDiagnostics.action('home-assembly', 'menu'); if (!currentHome()) return; const member = find(entry, rowId); controller.openMenu(member.id, member.key);};
+  const menuOwner = (id: string): object | undefined => members.get(id) ?? [...spotlights.values()].find(value => value.id === id)
+    ?? [...windows.values()].find(window => [...window.memberWindows.values()].includes(id))?.registration;
+  // Only the native anchor/expanded binding follows this capture. The canonical
+  // controller continues to own permission checks and accepted command lifetimes.
+  const currentMenuCapture = () => {
+    const menu = controller.getSnapshot().menu;
+    if (!currentHome() || !capturedMenu || !menu || capturedMenu.menu !== menu || menuOwner(menu.windowId) !== capturedMenu.owner) return undefined;
+    return capturedMenu;
+  };
+  const openMenu = (windowId: string, key: string, anchorRef?: RefObject<View | null>) => {
+    if (!currentHome()) return;
+    const owner = menuOwner(windowId); if (!owner) return;
+    capturedMenu = undefined;
+    controller.openMenu(windowId, key);
+    const menu = controller.getSnapshot().menu;
+    capturedMenu = menu && menu.windowId === windowId && menu.key === key ? {menu, anchorRef, owner} : undefined;
+    publish();
+  };
+  const menu = (entry: ContentEntry, rowId?: string, anchorRef?: RefObject<View | null>) => {homeActionDiagnostics.action('home-assembly', 'menu'); if (!currentHome()) return; const member = find(entry, rowId); openMenu(member.id, member.key, anchorRef);};
   const onDocument = () => {
     if (!alive || !context.current()) return;
     const document = context.home.getSnapshot().document;
@@ -180,7 +199,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   const scopeForServices = {serverId: scope.serverId, viewerId: JSON.stringify([scope.authority, scope.accountId, scope.profileId])};
   const management = context.account.account.role === 'owner' ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
-  const cleanups = [context.home.subscribe(onDocument), controller.subscribe(publish), context.navigation.subscribe(() => {
+  const cleanups = [context.home.subscribe(onDocument), controller.subscribe(() => {if (capturedMenu?.menu !== controller.getSnapshot().menu) capturedMenu = undefined; publish();}), context.navigation.subscribe(() => {
     controller.clear();
     if (currentHome()) onDocument();
     publish();
@@ -249,16 +268,18 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         if (action.error) throw failure(action.error.code);
       },
       channel: channel => run(async signal => {if (currentHome()) await playback.playChannel(channel, controller.getSnapshot().context, signal);}),
-      channelMore: channel => {
+      channelMore: (channel, anchorRef) => {
         const window = [...windows.values()].find(value => value.row.live?.channels.includes(channel));
         const key = window?.keys.get(JSON.stringify([channel.channel.sourceId, channel.channel.id]));
         if (!window || !key || !currentHome()) return;
-        controller.openMenu(window.memberWindows.get(JSON.stringify([channel.channel.sourceId, channel.channel.id]))!, key);
+        openMenu(window.memberWindows.get(JSON.stringify([channel.channel.sourceId, channel.channel.id]))!, key, anchorRef);
       },
-      collectionMore: (collection, rowId) => {const window = windows.get(rowId), key = window?.keys.get(collection.collection.id); if (window && key && currentHome()) controller.openMenu(window.memberWindows.get(collection.collection.id)!, key);},
+      collectionMore: (collection, rowId, anchorRef) => {const window = windows.get(rowId), key = window?.keys.get(collection.collection.id); if (window && key && currentHome()) openMenu(window.memberWindows.get(collection.collection.id)!, key, anchorRef);},
       seeAll: destination => open({kind: 'home-see-all', destination}), customize: () => open({kind: 'home-customize'}),
     },
     selection: rowId => ({active: controller.getSnapshot().selection.active,
+      isMenuOpen: id => {const capture = currentMenuCapture(), window = windows.get(rowId);
+        return !!capture && !!window && window.keys.get(id) === capture.menu.key && window.memberWindows.get(id) === capture.menu.windowId;},
       isSelected: id => {const key = windows.get(rowId)?.keys.get(id); return !!key && controller.selection.isSelected(key);},
       onToggle: id => {const key = windows.get(rowId)?.keys.get(id); if (key && currentHome()) controller.toggle(windows.get(rowId)!.memberWindows.get(id)!, key);},
       onEnter: id => {
@@ -277,7 +298,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       try {reconcileWindows();} catch (error) {reportError(error, 'home-registration');}
     },
     homeMenuRow: id => [...windows.values()].find(window => [...window.memberWindows.values()].includes(id))?.row,
-    renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><NativeScreenFeedbackHost service={feedback} bottomOffset={84}/></>,
+    renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays anchorRef={currentMenuCapture()?.anchorRef} controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><NativeScreenFeedbackHost service={feedback} bottomOffset={84}/></>,
     renderRoutes: () => {
       const route = context.navigation.getSnapshot().route;
       // Instantiate the current module before asking it for retained native views.
@@ -305,6 +326,6 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); runtime = undefined; listeners.clear();},
   };
 }
