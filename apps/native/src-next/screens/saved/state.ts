@@ -5,6 +5,11 @@ import {createNativeDownloadsDevice} from '../downloads/device';
 import {nativeScreenServices} from '../native-screen-services';
 import type {NativeSavedActions} from './SavedScreen';
 import {createNativeSavedHubController, createNativeSavedViewController, type NativeSavedViewRoute} from './navigation';
+import {createNativeSavedViewSummaryOwner, type NativeSavedViewSummaryOwner} from './view-summary-owner';
+
+/** The read ports a retained views-directory route exposes. Disposal stays
+ * internal to the parent state, which owns construction and retirement. */
+export type NativeSavedViewSummaries = Pick<NativeSavedViewSummaryOwner, 'start' | 'getSnapshot' | 'subscribe' | 'line'>;
 
 /** Real Saved inputs for a generated presenter. This binds existing services,
  * the borrowed Watch module and the same native device lease as Downloads;
@@ -27,7 +32,17 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
     const controller = createNativeSavedViewController(context, target, common.requestId);
     const entryActions = createNativeEntryActions(context, {current: () => current() && controller.activation.getSnapshot().visible,
       contains: controller.source.contains, subscribe: controller.source.subscribe});
-    return Object.freeze({...controller, actions: entryActions, dispose: () => {entryActions.dispose(); controller.dispose();}});
+    const owner = target.view.view === 'views'
+      ? createNativeSavedViewSummaryOwner(context, controller.source, () => !disposed && lifetime.current() && retained(target))
+      : undefined;
+    const summaries: NativeSavedViewSummaries | undefined = owner && Object.freeze({start: owner.start, getSnapshot: owner.getSnapshot,
+      subscribe: owner.subscribe, line: owner.line});
+    return Object.freeze({...controller, load: () => {
+      if (!current()) return Promise.resolve();
+      void owner?.start();
+      return controller.load();
+    }, ...(summaries ? {summaries} : {}), actions: entryActions,
+    dispose: () => {owner?.dispose(); entryActions.dispose(); controller.dispose();}});
   }
   const dispose = () => {
     if (disposed) return;

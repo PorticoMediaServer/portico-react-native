@@ -9,6 +9,7 @@ import {NativeShellNavigation} from '../src-next/shell/routes';
 import {createNativeSavedHubController, createNativeSavedViewController, openNativeSavedView} from '../src-next/screens/saved/navigation';
 import * as savedNavigation from '../src-next/screens/saved/navigation';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
+import * as savedSummaryOwner from '../src-next/screens/saved/view-summary-owner';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const title: ContentEntry = {kind: 'movie', id: 'actual-film', libraryId: 'movies', title: 'Stored title'};
@@ -139,6 +140,7 @@ test('headless Saved binding borrows one device lease and actual Watch menu with
     react: {default: React},
     '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
+    './view-summary-owner': savedSummaryOwner,
     '../downloads/device': {createNativeDownloadsDevice: (context: NativeShellBootstrapContext) => {
       assert.equal(context, f.context); devices++; return {device: offline, dispose: () => {releases++;}};
     }},
