@@ -157,8 +157,20 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const authority: ShellAuthority = Object.freeze({serverId: session.viewer.serverId, accountId: session.viewer.accountId, profileId: session.viewer.profileId,
       epoch: JSON.stringify([session.sessionFamilyId, session.authorizationHorizon, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
     const scopeIdentity = authorityKey(authority);
+    let invalidReported = false;
     const current = () => {
-      const valid = alive && installation.current() && !!session && session.viewer.serverId === authority.serverId && session.viewer.accountId === authority.accountId && session.viewer.profileId === authority.profileId;
+      const installationCurrent = installation.current();
+      const valid = alive && installationCurrent && !!session && session.viewer.serverId === authority.serverId && session.viewer.accountId === authority.accountId && session.viewer.profileId === authority.profileId;
+      // The accessor is read while ShellSession renders, and end() disposes the
+      // runtime (retiring the playback Surface). This DEV-only line names which
+      // check failed and the caller stack so the first cause can be fixed rather
+      // than deferred. No behaviour changes here.
+      if (!valid && alive && typeof __DEV__ !== 'undefined' && __DEV__ && !invalidReported) {
+        invalidReported = true;
+        console.warn('portico_shell_current_invalid', JSON.stringify({installation: installationCurrent, session: !!session,
+          server: session?.viewer.serverId === authority.serverId, account: session?.viewer.accountId === authority.accountId,
+          profile: session?.viewer.profileId === authority.profileId, generation: installation.generation}), new Error().stack);
+      }
       if (!valid && alive) end();
       return valid;
     };
