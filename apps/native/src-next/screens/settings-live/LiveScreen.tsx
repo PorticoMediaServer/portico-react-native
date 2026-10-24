@@ -25,7 +25,7 @@ import type {NativeLiveController} from './live-controller';
 import type {NativeRecordingsController} from './recordings-controller';
 import {NativeRecordingsScreen} from './RecordingsScreen';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {nativeGuideClock, nativeProgrammeCaption} from './guide-presentation';
+import {nativeGuideClock, nativeGuideRegion, nativeProgrammeCaption} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
@@ -71,7 +71,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
   const laterNow = useAnimatedStyle(() => ({display: now >= (panActive ? panPosition.value / px + (end - start) : end) ? 'flex' : 'none'}), [panActive, start, end, px, now]);
   const overscan = panActive ? (end - start) / 2 : 0;
   const groups = [...new Set((source ? [source] : state.sources).flatMap(value => value.groups))];
-  const locale = runtime.text.locale ?? defaultI18n.region.formatLocale, hour12 = defaultI18n.region.hour12;
+  const {locale, hour12} = nativeGuideRegion(runtime.text);
   const clock = useMemo(() => nativeGuideClock(locale, state.options.timezone, hour12, theme.isTV), [locale, state.options.timezone, hour12, theme.isTV]);
   const goNow = () => setStart(floorTo(now, SLOT_MS) - (theme.isTV || phone ? SLOT_MS : 0));
   const nowX = (now - start) * px, inNowSpan = now >= start && now < end;

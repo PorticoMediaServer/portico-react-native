@@ -55,7 +55,7 @@ export interface NativeShellRuntime {
   getSnapshot: () => NativeShellSnapshot;
   home: HomeService;
   memory: LastLibraryMemory;
-  text: Omit<TextEnvironment, 't'> & Pick<I18n, 't'>;
+  text: Omit<TextEnvironment, 't'> & Pick<I18n, 't'> & Readonly<{region?: I18n['region']}>;
   actions: NativeHomeActions;
   artwork: (path: string | undefined) => ArtworkSource | undefined;
   ambient: (path: string | undefined) => AmbientArtSource | undefined;

@@ -1,6 +1,15 @@
-import {defaultI18n} from '../../../../../packages/i18n/src';
+import {defaultI18n, type I18n} from '../../../../../packages/i18n/src';
 import {episodeLabel, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {GuideProgram} from '../../../../../packages/client-core/src/guide/types';
+
+/** UI language and number/date format locale may differ. Preserve the actual
+ * resolved auto-hour policy, including undefined; old runtimes keep their
+ * existing fallback only when they have no regional formatter port. */
+export function nativeGuideRegion(text: Pick<TextEnvironment, 'locale'> & Readonly<{region?: I18n['region']}>): Readonly<{locale: string; hour12: boolean | undefined}> {
+  const region = text.region;
+  return region ? {locale: region.formatLocale, hour12: region.hour12}
+    : {locale: text.locale ?? defaultI18n.region.formatLocale, hour12: defaultI18n.region.hour12};
+}
 
 /** Source69 TV guide clocks omit the day period in the ruler/cells. Sheets retain the full
  * canonical programme range. Only format actual instants, in the device's genuine zone. */
