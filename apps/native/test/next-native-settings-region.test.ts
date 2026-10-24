@@ -48,6 +48,30 @@ test('an older partial registry keeps existing runtime text and never invents mi
   const text = nativeRuntimeRegionText({current: () => true, preferences: () => partial}, () => {deviceReads++; return device;});
   assert.equal(text.locale, defaultI18n.locale); assert.equal(text.t, defaultI18n.t);
   assert.equal(deviceReads, 0);
+  assert.equal(text.refreshDeviceRegion(), false); assert.equal(deviceReads, 0);
+});
+
+test('auto regional text refreshes a changed device without a changed preference snapshot or a new observer', () => {
+  const confirmed = preferences('auto', 'auto');
+  let actualDevice = device, current = true;
+  const text = nativeRuntimeRegionText({current: () => current, preferences: () => confirmed}, () => actualDevice);
+  assert.equal(text.locale, 'en-CA'); const initial = text.t;
+  assert.equal(text.refreshDeviceRegion(), false); assert.equal(text.t, initial);
+  actualDevice = {locales: ['en-GB'], timeZone: 'Europe/London'};
+  assert.equal(text.refreshDeviceRegion(), true); assert.equal(text.locale, 'en-GB');
+  const expected = createI18n(resolveRegion(regionPreferences(confirmed), actualDevice));
+  assert.equal(text.t('next.kit.items', {count: 1234}), expected.t('next.kit.items', {count: 1234}));
+  assert.equal(confirmed.effective['region.locale'], 'auto');
+  current = false; assert.throws(text.refreshDeviceRegion, {name: 'AbortError'});
+});
+
+test('explicit regional choices keep their formatter when an irrelevant device locale changes', () => {
+  let actualDevice = device;
+  const confirmed = preferences('en-US', 'de-DE');
+  const text = nativeRuntimeRegionText({current: () => true, preferences: () => confirmed}, () => actualDevice);
+  const translate = text.t;
+  actualDevice = {...actualDevice, locales: ['en-GB']};
+  assert.equal(text.refreshDeviceRegion(), false); assert.equal(text.t, translate); assert.equal(text.locale, 'en-US');
 });
 
 test('a real Settings ACK republishes bootstrap text only after confirmation and retirement closes the borrowed text port', async () => {
