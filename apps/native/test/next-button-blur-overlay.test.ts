@@ -20,7 +20,7 @@ async function button(os: 'android' | 'ios', isTV: boolean) {
     'react-native': {Platform: {OS: os, isTV}, View: 'View', Text: 'Text', ActivityIndicator: 'ActivityIndicator', StyleSheet: {create: (s: any) => s, flatten, absoluteFill: {position: 'absolute', inset: 0}}},
     './Focusable': {Focusable: 'Focusable'}, './control-model': controlModel,
     '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => glassRecipe(os, isTV)},
-    '../theme': {useTheme: () => theme}, '../Icon': {Icon: 'Icon'},
+    '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, '../Icon': {Icon: 'Icon'},
   });
   function host(variant: 'glass' | 'icon' | 'primary' | 'text', extra: Record<string, any> = {}, ref: any = null, resume = false) {
     const onPress = () => {};

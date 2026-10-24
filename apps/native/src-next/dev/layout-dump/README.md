@@ -9,6 +9,10 @@ The App owner installs **one** `installNativeLayoutDump(options)` in a DEV-only
 branch, giving it a live whole-screen host getter, actual logical window width
 and height, actual device pixel ratio, platform, and an explicit public semantic
 ID → frame-anchor map. The returned owner supplies `capture()` and `dispose()`.
+Optional `diagnostics: () => ({fontScale: PixelRatio.getFontScale()})` reads
+fresh platform font scaling for each capture. Only a finite positive value is
+emitted in top-level `diagnostics.fontScale`; unknown/invalid values are omitted.
+It is unscored metadata, never part of viewport or geometry/font arithmetic.
 `captureNativeLayoutDump()` calls that owner; the collector itself installs no
 global command endpoint or payload logging. Production entry calls are inert.
 App/Kit imports must additionally be inside `__DEV__` branches so Metro can strip
