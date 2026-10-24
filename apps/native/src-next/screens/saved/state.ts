@@ -1,3 +1,4 @@
+import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeEntryActions} from '../destinations/entry-actions';
@@ -6,6 +7,7 @@ import {nativeScreenServices} from '../native-screen-services';
 import type {NativeSavedActions} from './SavedScreen';
 import {createNativeSavedHubController, createNativeSavedViewController, type NativeSavedViewRoute} from './navigation';
 import {createNativeSavedViewSummaryOwner, type NativeSavedViewSummaryOwner} from './view-summary-owner';
+import {createNativeSavedViewRenameController, type NativeSavedViewRenameController} from './rename-view';
 
 /** The read ports a retained views-directory route exposes. Disposal stays
  * internal to the parent state, which owns construction and retirement. */
@@ -37,12 +39,36 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
       : undefined;
     const summaries: NativeSavedViewSummaries | undefined = owner && Object.freeze({start: owner.start, getSnapshot: owner.getSnapshot,
       subscribe: owner.subscribe, line: owner.line});
+    let rename: {controller: NativeSavedViewRenameController; resource: PersonalResource} | undefined;
+    const openRename = (resource: PersonalResource): NativeSavedViewRenameController | undefined => {
+      if (target.view.view !== 'resource') return;
+      const held = rename;
+      if (held) {
+        const status = held.controller.getSnapshot();
+        if (!status.closed && !status.retired) {
+          const loaded = controller.source.getSnapshot().personal?.resource;
+          return resource === held.resource || resource === loaded ? held.controller : undefined;
+        }
+        rename = undefined;
+      }
+      const binding = controller.source.viewRename(resource);
+      if (!binding) return;
+      const created = createNativeSavedViewRenameController({service: binding.port, resource,
+        current: () => !disposed && lifetime.current() && retained(target) && binding.current()});
+      const holder: {current?: NativeSavedViewRenameController} = {};
+      const exposed = Object.freeze({getSnapshot: created.getSnapshot, subscribe: created.subscribe, setName: created.setName,
+        save: created.save, retry: created.retry, cancel: created.cancel,
+        dispose: () => {created.dispose(); if (rename?.controller === holder.current) rename = undefined;}}) as NativeSavedViewRenameController;
+      holder.current = exposed;
+      rename = {controller: exposed, resource};
+      return exposed;
+    };
     return Object.freeze({...controller, load: () => {
       if (!current()) return Promise.resolve();
       void owner?.start();
       return controller.load();
-    }, ...(summaries ? {summaries} : {}), actions: entryActions,
-    dispose: () => {owner?.dispose(); entryActions.dispose(); controller.dispose();}});
+    }, ...(summaries ? {summaries} : {}), rename: openRename, actions: entryActions,
+    dispose: () => {rename?.controller.dispose(); rename = undefined; owner?.dispose(); entryActions.dispose(); controller.dispose();}});
   }
   const dispose = () => {
     if (disposed) return;

@@ -8,6 +8,7 @@ import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifeti
 import {NativeSavedViewDestination} from '../src-next/screens/saved/view-model';
 import * as savedNavigation from '../src-next/screens/saved/navigation';
 import * as savedSummaryOwner from '../src-next/screens/saved/view-summary-owner';
+import * as savedRename from '../src-next/screens/saved/rename-view';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const title: ContentEntry = {kind: 'movie', id: 'actual-film', libraryId: 'movies', title: 'Stored title'};
@@ -59,7 +60,7 @@ async function setup() {
   const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
     react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
-    './view-summary-owner': savedSummaryOwner,
+    './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,
     '../downloads/device': {createNativeDownloadsDevice: () => {devices++; return {device: offline, dispose: () => {releases++;}};}},
   });
   const {createNativeTVSavedState} = await screenModule(new URL('../src-next/tv/saved/state.ts', import.meta.url), {

@@ -12,6 +12,7 @@ import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import * as savedNavigation from '../src-next/screens/saved/navigation';
 import * as savedSummaryOwner from '../src-next/screens/saved/view-summary-owner';
+import * as savedRename from '../src-next/screens/saved/rename-view';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -91,7 +92,7 @@ async function stateModule() {
   });
   return screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
     react: {default: React}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
-    '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation, './view-summary-owner': savedSummaryOwner,
+    '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation, './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,
     '../downloads/device': {createNativeDownloadsDevice: () => ({device: {}, dispose: () => {}})},
   });
 }
