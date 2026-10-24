@@ -17,8 +17,9 @@ export function nativeReadingPolicy(url: string, method: string, headers?: Heade
 type NativeReply = Readonly<{status: number; headers: Record<string, string>; body?: string; bodyBase64?: string}>;
 const invalid = () => new RouteError('invalid_response', 'Invalid native Reading response.');
 
-/** Header-first Reading response on the SAME native request. Every read pulls
- * <=48KiB; neither Response nor this adapter accumulates the publication. */
+/** Metadata arrives no later than the first upstream body byte or end of body
+ * (Apple §44); the first chunk stays native until read. Every pull is <=48KiB.
+ * Neither Response nor this adapter accumulates the publication. */
 export function nativeReadingStreamResponse(raw: Pick<NativeReply, 'status' | 'headers'>,
   transport: Readonly<{read: () => Promise<Readonly<{done: boolean; bodyBase64: string}>>; cancel: () => void}>, signal?: AbortSignal): Response {
   let ended = false, failure: unknown, locked = false, pending = false, used = false;
