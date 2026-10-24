@@ -59,5 +59,5 @@ export function LibraryFilters({draft, source, runtime, labels, owner, onClose, 
     style={{paddingTop: 42, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}} footer={footer}>{content}</SidePanel>
     : <BottomSheet testID={panelId} open={state.open} onOpenChange={open => {if (!open) close();}} title={defaultI18n.t('next.browse.native.filters')}
       headerAction={<Button focusId="clear" variant="text" textStyle={theme.platform === 'phone' ? {color: theme.colors.textSecondary} : undefined} onPress={draft.clear}>{defaultI18n.t('next.browse.native.clearAll')}</Button>}
-      footer={footer} scrollable={false} detents={[580, 698]} showClose={false}>{content}</BottomSheet>;
+      footer={footer} scrollable={false} detents={[580, 698]} defaultDetent={1} showClose={false}>{content}</BottomSheet>;
 }
