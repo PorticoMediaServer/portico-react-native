@@ -117,6 +117,17 @@ def porticoFonts = tasks.register("porticoFonts", Copy) {
 }
 preBuild.dependsOn(porticoFonts)
 
+// The already-built immutable web graph is optional; absent input removes stale
+// output and leaves the actual native Reader unavailable, never a fake entry.
+def porticoReaderAssets = tasks.register("porticoReaderAssets", Exec) {
+    workingDir rootProject.file("..")
+    commandLine(System.getenv("NODE_BINARY") ?: "node", "scripts/stage-apple-reader.mjs",
+        layout.buildDirectory.dir("generated/portico/assets/PorticoReader.bundle").get().asFile.absolutePath)
+    outputs.upToDateWhen { false }
+}
+preBuild.dependsOn(porticoReaderAssets)
+
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")

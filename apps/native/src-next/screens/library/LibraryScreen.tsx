@@ -8,6 +8,7 @@ import {browseToolbarModel} from '../../../../../packages/client-core/src/presen
 import {libraryTabs} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
+import {AmbientArt} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, type BrowseLabels} from '../../kit/browse';
@@ -21,7 +22,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {NativeLibraryDestination, nativeLibraryEntryKey, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
+import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 import {LibraryToolbar} from './LibraryToolbar';
 import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
@@ -31,6 +32,7 @@ import {hiddenReadingLibraryOnTV} from '../read/platform';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 export type NativeLibraryActions = Readonly<{
+  dispose?: () => void;
   menuState?: NativeEntryMenuState;
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
@@ -89,8 +91,14 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     </Focusable>)}
   </FocusRegion>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV ? 'chevron' : 'name'}/>;
-  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher}>{tabs}</LibraryHeader>
-    : <StickyBrowseHeader name={state.library.name} switcher={switcher} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}/>}
+  const latestArtwork = summaries.libraries.find(library => library.id === state.library.id)?.summary.latestArtwork;
+  const source = latestArtwork ? runtime.ambient(latestArtwork) : undefined;
+  const ambient = source ? <AmbientArt source={source} treatment="library"/> : undefined;
+  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient}>{tabs}</LibraryHeader>
+    : <StickyBrowseHeader name={state.library.name} switcher={switcher} ambient={ambient} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}
+      canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
+      if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
+    }}/>}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</StickyBrowseHeader>;
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -167,6 +175,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   return <View style={{flex: 1}}>
     <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
+        canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}
         onFilters={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}
         onSort={sort => destination.setQuery(source.predicates, sort)} onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}
         onQuick={destination.setQuick} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}

@@ -4,7 +4,6 @@ import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-nati
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {OverlaysProvider} from '../kit/overlays';
 import {AccountMenu} from '../kit/shell';
-import {LibraryMenu, LibrarySwitcher, StickyBrowseHeader} from '../kit/browse';
 import {useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
@@ -117,15 +116,11 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
-  const library = destination.kind === 'library' ? snapshot.libraries.find(item => item.id === destination.libraryId) : undefined;
   const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
   const content = <>
     <Animated.View style={[{flex: 1}, pageStyle]}>
       {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={barHeight} onScrolledChange={setHomeScrolled}/>
         : <View style={{flex: 1, paddingBottom: barHeight}}>
-          {!theme.isTV && library && <StickyBrowseHeader name={library.name} onLibraries={() => navigate({kind: 'libraries'})}
-            switcher={<LibrarySwitcher libraries={snapshot.libraries} value={library.id} onValueChange={openLibrary}/>}
-            menu={<LibraryMenu {...runtime.libraryMenu(library)}/>}/>} 
           {runtime.renderDestination(destination, openLibrary)}
         </View>}
     </Animated.View>

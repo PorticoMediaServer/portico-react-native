@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {NativeLibraryDestination, nativeLibraryEntryKey} from '../src-next/screens/library/model.ts';
+import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave} from '../src-next/screens/library/model.ts';
 import type {BrowseCapabilities, BrowseNode, BrowseRequestBody} from '../../../packages/client-core/src/browse.ts';
 import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
 import {NativeLibraryFilterDraft} from '../src-next/screens/library/filters.ts';
@@ -36,6 +36,8 @@ test('Save view captures the real staged query and sort independently of later L
   const staged = {field: 'favorite', operator: 'equals', value: true} as const;
   assert.throws(() => destination.captureSavedView({predicates: [staged], sort: {field: 'title', direction: 'desc'}}));
   await destination.load();
+  assert.equal(nativeLibraryCanSave(destination.getSnapshot(), {predicates: [], sort: {field: 'title', direction: 'asc'}}), false);
+  assert.equal(nativeLibraryCanSave(destination.getSnapshot(), {predicates: [], sort: {field: 'title', direction: 'desc'}}), true, 'a sort-only change is saveable');
   const definition = destination.captureSavedView({predicates: [staged], sort: {field: 'title', direction: 'desc'}});
   assert.equal(definition.libraryId, library.id); assert.equal(definition.pivot, 'movies');
   assert.deepEqual(definition.query, staged); assert.deepEqual(definition.sort, [{field: 'title', direction: 'desc'}]);

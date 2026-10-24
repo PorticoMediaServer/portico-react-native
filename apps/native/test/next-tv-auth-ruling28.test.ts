@@ -143,7 +143,7 @@ test('profile PIN shares the actual pad, submits four digits once and exposes on
   const submitted: string[] = [], actions: string[] = [], react = {...React, default: React};
   const numeric = await numericModule(react);
   const {TVProfilePINForm} = await screenModule(new URL('../src-next/tv/auth/TVProfilePINForm.tsx', import.meta.url), {
-    ...common, react, 'react-native': {useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
+    ...common, react, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
     '../../kit/focus': {FocusProvider: 'Provider'}, './TVAuthLayout': {TVProfilePINLayout: 'PINLayout'}, './TVNumericPad': numeric,
   });
   const profile = {id: 'actual-profile', name: 'Actual name', initial: 'A', color: 'blue'};
@@ -155,6 +155,11 @@ test('profile PIN shares the actual pad, submits four digits once and exposes on
   try {
     await act(() => host.mount());
     assert.equal(tree.props.profile, profile);
+    const hints = nodes(tree.props.hints.type(tree.props.hints.props));
+    assert.deepEqual(hints.filter(node => node.type === 'Text').map(node => node.props.children), [
+      defaultI18n.t('next.auth.tv.playPause'), defaultI18n.t('next.auth.tv.deleteDigit'), defaultI18n.t('action.back'), defaultI18n.t('web.direct.otherProfiles'),
+    ]);
+    assert.ok(!hints.some(node => node.type === 'TextInput' || node.type === 'Button' || node.type === 'Focusable'), 'remote hints add no controls or native-input path');
     for (const digit of '1234') await act(() => {press(digit); host.rerender();});
     await act(() => {press('5'); host.rerender();});
     assert.deepEqual(submitted, ['1234']);

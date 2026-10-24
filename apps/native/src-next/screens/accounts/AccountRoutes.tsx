@@ -6,6 +6,7 @@ import type {ManagedProfile} from '../../../../../packages/client-core/src/profi
 import type {SetupPreview} from '../../../../../packages/client-core/src/setup-code';
 import type {TVConsentApprover} from '../../../../../packages/client-core/src/tv-consent';
 import type {AppServerSession} from '../../../../../packages/client-core/src/app-sessions';
+import {routeOrigin} from '../../../../../packages/client-core/src/route-identity';
 import {nativeAccounts} from '../../platform/accounts';
 import {nativeAppSessions, subscribeNativeAppSessions} from '../../platform/app-session-storage';
 import {nativeProfileSelection} from '../../platform/profile-selection';
@@ -17,6 +18,7 @@ import {ProfilePicker} from '../../kit/artwork';
 import {Button, TextField} from '../../kit/controls';
 import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
+import {TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 
 const t = defaultI18n.t;
 type Panel = 'servers' | 'add' | 'sign-out-server' | 'sign-out-account' | 'consent-kind' | 'consent-code' | 'consent-review' | 'consent-done';
@@ -30,17 +32,25 @@ export function AccountRoute({route, context}: {route: NativeShellRoute; context
 
 function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; onBack: () => void}) {
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+  const [forgotPIN, setForgotPIN] = useState(false);
   const selection = useRef<ReturnType<typeof nativeProfileSelection> | undefined>(undefined), alive = useRef(true);
   useEffect(() => {alive.current = true; const session = context.session();
     if (session) selection.current = nativeProfileSelection(session.viewer.serverId, session.sessionFamilyId);
     return () => {alive.current = false; selection.current?.dispose();};
   }, [context]);
   const choose = async (id: string, code?: string) => {if (busy || !context.current()) return; setBusy(true); setError(undefined);
-    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) setError(failure);} finally {if (alive.current) setBusy(false);}
+    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {if (theme.isTV) setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
-  const back = () => {if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  const back = () => {if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
   useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busy) back(); return true;}); return () => subscription.remove();});
+  if (theme.isTV && profile && forgotPIN) return <TVForgotPINHandoff profileName={profile.name}
+    url={new URL('/settings/profile', routeOrigin(context.api.baseUrl)).href} body="next.auth.tv.forgotPINBody" onBack={back}/>;
+  if (theme.isTV && profile) return <TVProfilePINForm
+    profile={{id: profile.id, name: profile.name, initial: [...profile.name][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: true}}
+    code={pin} onCodeChange={setPin} busy={busy} error={error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text> : undefined}
+    onSubmit={value => {void choose(profile.id, value);}} onBack={back}
+    onForgotPIN={() => {if (!busy) {setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
   return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('accounts.profiles.onServer', {server: context.serverName})}
     beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <TextField label={t('pin.fourDigit')} value={pin} onChangeText={setPin} secureTextEntry keyboardType="number-pad" editable={!busy}/> :
       <ProfilePicker profiles={context.account.profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
