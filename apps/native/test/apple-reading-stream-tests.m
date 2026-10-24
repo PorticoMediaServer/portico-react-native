@@ -100,6 +100,7 @@ static void actualPullStream(void) {
  }
  if(!done)cancel(request);
  close(listener);BOOL serverClosed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0;
+ if(!valid||!done||received!=2097152)fprintf(stderr,"Real stream: valid=%d done=%d received=%lu pulls=%lu error=%s terminal=%s\n",valid,done,(unsigned long)received,(unsigned long)pulls,[state[@"error"] UTF8String]?:"none",request.streamTerminalFailure.UTF8String?:"none");
  check(valid&&done&&received==2097152&&pulls>42,"real two-MiB source arrives as exact demand-driven <=48KiB pulls and genuine EOF");
  check(serverClosed&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real peer, request and admission close");
 }
