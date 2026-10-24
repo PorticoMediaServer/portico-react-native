@@ -33,7 +33,7 @@ const membershipFailure = (code: string) => Object.assign(new Error(code), {code
  * person's request; keep it diagnosable without showing raw text or losing a
  * server/permission status the presentation layer already understands. */
 const stageFailure = (stage: 'capabilities' | 'favorite' | 'similar' | 'songs', error: unknown, signal: AbortSignal, musicRead: Readonly<Record<string, unknown>>) => {
-  if (signal.aborted) return Object.assign(new Error('native_music_retired'), {name: 'AbortError'});
+  if (signal.aborted) return Object.assign(new Error('native_music_retired'), {name: 'AbortError'}); // lint-strings-allow DOMException name
   const value = error && typeof error === 'object' ? error as {code?: unknown; status?: unknown; name?: unknown; retryable?: unknown; retryAfterSeconds?: unknown; path?: unknown} : undefined;
   if (value && value.name === 'AbortError') return error;
   if (error instanceof TypeError) { try { return Object.assign(error, {musicRead}); } catch { return error; } }
@@ -279,7 +279,7 @@ export class NativeTVMusicController {
         throw membershipFailure('music_all_songs_unavailable');
       this.publish({allSongs: Object.freeze({phase: 'ready', songs: page.entries, total: page.total})});
     } catch (error) {
-      if (this.current() && !signal.aborted) this.publish({allSongs: Object.freeze({phase: 'error', songs: [], error: stageFailure('songs', error, signal, diagnose('songs', 'POST', browsePath(this.options.entry.libraryId ?? ''), error))})});
+      if (this.current() && !signal.aborted) this.publish({allSongs: Object.freeze({phase: 'error', songs: [], error: stageFailure('songs', error, signal, diagnose('songs', 'POST', browsePath(this.options.entry.libraryId ?? ''), error))})}); // lint-strings-allow HTTP method
     } finally {
       if (this.allSongsController === controller) this.allSongsController = undefined;
     }
