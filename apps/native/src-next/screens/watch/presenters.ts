@@ -9,14 +9,15 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority} from '../../shell/model';
 import type {NativeScreenServices} from '../screen-services';
-import type {NativeWatchCapture, NativeWatchMenuActions} from './factory';
+import type {NativeWatchCapture, NativeWatchMenuActions, NativeVersionDestination} from './factory';
 import {nativeFileInfoMergeGroups, type NativeFileInfo} from './file-info';
 
 type FileOwner = Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>;
 export type NativeWatchOverlay = Readonly<{
   capture: NativeWatchCapture;
-  phase: 'menu' | 'file-pending' | 'file-info' | 'split-pick' | 'split' | 'delete' | 'merge';
+  phase: 'menu' | 'file-pending' | 'file-info' | 'split-pick' | 'split' | 'delete' | 'merge' | 'versions-pending' | 'versions';
   actions?: NativeWatchMenuActions;
+  destination?: NativeVersionDestination;
   anchorRef?: RefObject<View | null>;
   content?: ReactNode;
   owner?: FileOwner;
@@ -53,14 +54,19 @@ export class NativeWatchPresenters {
   getMenuEntry = () => this.value?.phase === 'menu' ? this.value.capture.entry : undefined;
   subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private emit() {for (const listener of [...this.listeners]) listener();}
-  current = (capture: NativeWatchCapture) => {
-    const route = this.context.navigation.getSnapshot(), actual = this.context.playback.getSnapshot().fence;
+  hostCurrent = (capture: NativeWatchCapture) => {
+    const route = this.context.navigation.getSnapshot();
     return !this.disposed && this.context.current() && capture.current() && sameAuthority(capture.authority, this.context.authority())
-      && sameAuthority(route.authority, capture.authority) && route.revision === capture.routeRevision
-      && (capture.expectedFence ? sameFence(actual, capture.expectedFence) : !actual);
+      && sameAuthority(route.authority, capture.authority) && route.revision === capture.routeRevision;
   };
-  private invalidate = () => {if (this.value && !this.current(this.value.capture)) this.close();};
+  current = (capture: NativeWatchCapture) => {
+    const actual = this.context.playback.getSnapshot().fence;
+    return this.hostCurrent(capture) && (capture.expectedFence ? sameFence(actual, capture.expectedFence) : !actual);
+  };
+  overlayCurrent = (value: NativeWatchOverlay) => value.phase === 'versions' && value.destination ? value.destination.isCurrent() : this.current(value.capture);
+  private invalidate = () => {if (this.value && !this.overlayCurrent(this.value)) this.close();};
   close = () => {
+    this.value?.destination?.dispose();
     for (const request of this.requests) request.abort(); this.requests.clear();
     this.searchService?.dispose(); this.searchService = undefined;
     if (this.value) {this.value = undefined; this.emit();}
@@ -73,6 +79,28 @@ export class NativeWatchPresenters {
   private replace(value: NativeWatchOverlay) {this.value = Object.freeze(value); this.emit();}
   openMenu = (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: RefObject<View | null>) => {
     this.close(); if (this.current(capture)) this.replace({capture, actions, anchorRef, phase: 'menu', confirmation: '', busy: false, candidates: []});
+  };
+  differentVersion = async (value: NativeWatchOverlay) => {
+    if (!value.actions?.differentVersion || !this.patch(value, {phase: 'versions-pending', busy: true})) return;
+    try {await value.actions.differentVersion();}
+    catch (error) {if (this.value?.capture === value.capture && this.current(value.capture)) this.common.reportError(error, 'detail');}
+    finally {if (this.value?.capture === value.capture && this.value.phase === 'versions-pending') this.close();}
+  };
+  openVersions = (capture: NativeWatchCapture, destination: NativeVersionDestination) => {
+    if (!this.current(capture) || !destination.isCurrent() || this.value?.capture !== capture || this.value.phase !== 'versions-pending') {destination.dispose(); return;}
+    this.replace({...this.value, phase: 'versions', destination, busy: false});
+  };
+  chooseVersion = async (versionId: string) => {
+    const value = this.value, destination = value?.destination;
+    if (value?.phase !== 'versions' || !destination || value.busy || !destination.isCurrent() || !destination.rows.some(row => row.id === versionId)) return;
+    this.replace({...value, busy: true});
+    try {await destination.choose(versionId); if (this.value?.destination === destination) this.close();}
+    catch (error) {
+      if (this.value?.destination === destination) {
+        if (!destination.isCurrent()) this.close();
+        else {this.replace({...this.value, busy: false}); this.common.reportError(error, 'detail');}
+      }
+    }
   };
   fileInfo = async (value: NativeWatchOverlay) => {
     if (!value.actions || !this.patch(value, {phase: 'file-pending', busy: true})) return;

@@ -12,6 +12,7 @@ import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
+import {NativeVersionChooserController} from '../src-next/screens/watch/version-destination.ts';
 import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
 
 const {react} = hooks();
@@ -22,13 +23,13 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo},
   './track-identity': {nativeWatchTracks},
   './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
-  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
+  './version-destination': {NativeVersionChooserController}, './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
   './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryId: 'library', playback: {itemId: 'episode', startSeconds: 17}};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'episode', sourceId: 'v1', entryId: 'entry', generation: 1});
-const offered = {itemId: 'episode', versions: [{id: 'v1'}, {id: 'v2'}]};
+const offered = {itemId: 'episode', resume: {positionMs: 17000, partIndex: 0}, versions: [{id: 'v1'}, {id: 'v2'}]};
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
