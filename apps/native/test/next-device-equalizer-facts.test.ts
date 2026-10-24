@@ -8,15 +8,16 @@ const flat = (on = false): DeviceEqualizer => ({on, preamp: 0, gains: Array(10).
 
 function fixture() {
   const calls = {read: 0, write: 0, reset: 0};
-  let held = flat(), gate: Promise<void> | undefined, acknowledge: ((asked: DeviceEqualizer) => Promise<DeviceEqualizer>) | undefined;
+  let held = flat(), gate: Promise<void> | undefined, readError: Error | undefined, acknowledge: ((asked: DeviceEqualizer) => Promise<DeviceEqualizer>) | undefined;
   const port = {
-    read: async () => {calls.read++; if (gate) await gate; return held;},
+    read: async () => {calls.read++; if (gate) await gate; if (readError) throw readError; return held;},
     write: async (asked: DeviceEqualizer) => {calls.write++; return acknowledge ? acknowledge(asked) : (held = asked);},
     reset: async () => {calls.reset++; return held = flat(held.on);},
   };
   return {
     store: createDeviceEqualizer(port), calls,
     holdRead: () => {let release!: () => void; gate = new Promise<void>(resolve => {release = resolve;}); return release;},
+    failRead: (error: Error) => {readError = error;},
     answerWith: (next: (asked: DeviceEqualizer) => Promise<DeviceEqualizer>) => {acknowledge = next;},
     get held() {return held;},
   };
@@ -91,6 +92,35 @@ test('the fact is unconfirmed before and during refresh, then exposes the exact 
   assert.equal(facts.value, receipt);
   assert.equal(facts.value, f.store.getSnapshot().value);
   assert.deepEqual(facts.value, flat());
+  const laterRelease = f.holdRead(), laterRefresh = f.store.refresh();
+  await new Promise(resolve => setImmediate(resolve));
+  const duringLater = confirmed(f.store.getSnapshot());
+  assert.equal(duringLater.pending, true);
+  assert.equal(duringLater.value, receipt);
+  laterRelease(); await laterRefresh;
+  const reread = f.store.getSnapshot().value!;
+  const afterLater = confirmed(f.store.getSnapshot());
+  assert.equal(afterLater.pending, false);
+  assert.equal(afterLater.value, reread);
+  assert.deepEqual(afterLater.value, receipt);
+});
+
+test('a rejected refresh keeps the last confirmed receipt through pending and failure', async () => {
+  const f = fixture();
+  await f.store.refresh();
+  const last = f.store.getSnapshot().value!;
+  f.failRead(new Error('audio_eq_invalid'));
+  const release = f.holdRead(), refreshing = f.store.refresh();
+  await new Promise(resolve => setImmediate(resolve));
+  const during = confirmed(f.store.getSnapshot());
+  assert.equal(during.pending, true);
+  assert.equal(during.value, last);
+  release();
+  await assert.rejects(refreshing, /audio_eq_invalid/);
+  const after = confirmed(f.store.getSnapshot());
+  assert.equal(after.pending, false);
+  assert.equal(after.value, last);
+  assert.equal(f.store.getSnapshot().ready, true);
 });
 
 test('a pending update keeps the last confirmed value by identity until the native acknowledgement', async () => {
@@ -118,8 +148,15 @@ test('a rejected or contradictory native acknowledgement retains the last confir
   const f = fixture();
   await f.store.refresh();
   const last = f.store.getSnapshot().value!;
-  f.answerWith(async () => {throw new Error('audio_eq_invalid');});
-  await assert.rejects(f.store.update({on: true}), /audio_eq_invalid/);
+  let rejectWrite!: (error: Error) => void;
+  f.answerWith(() => new Promise<DeviceEqualizer>((_, reject) => {rejectWrite = reject;}));
+  const rejecting = f.store.update({on: true});
+  await new Promise(resolve => setImmediate(resolve));
+  const during = confirmed(f.store.getSnapshot());
+  assert.equal(during.pending, true);
+  assert.equal(during.value, last);
+  rejectWrite(new Error('audio_eq_invalid'));
+  await assert.rejects(rejecting, /audio_eq_invalid/);
   let facts = confirmed(f.store.getSnapshot());
   assert.equal(facts.pending, false);
   assert.equal(facts.value, last);
