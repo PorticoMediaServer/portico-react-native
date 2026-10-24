@@ -277,7 +277,7 @@ test('only an accepted current native fact publishes external readiness and old 
     await d.start('movie-2');
     d.engine.emit('progress', {externalPresentationBinding: binding});
     assert.equal(d.runtime.getSnapshot().externalPresentationBinding, null, 'the old presentation never grants readiness to a replacement');
-    d.changeAuthority(); assert.equal(d.runtime.getSnapshot().externalPresentationBinding, undefined);
+    d.changeAuthority(); assert.equal(d.runtime.getSnapshot().externalPresentationBinding, null, 'retiring the authority explicitly withholds external readiness');
   } finally {d.runtime.dispose();}
 });
 

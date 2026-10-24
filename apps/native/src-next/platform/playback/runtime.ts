@@ -1176,7 +1176,7 @@ export class NativePlaybackRuntime {
     if (state.session && !this.playback.hasNativeOwner() && this.authorityMatches()) {
       this.stopOwnedSession(state.session.id, Math.max(0, Math.round(state.positionSeconds * 1000)));
     }
-    this.beginOperation(); this.retired = true; ++this.sourceEpoch;
+    this.beginOperation(); this.retired = true; ++this.sourceEpoch; this.externalPresentationBinding = null;
     this.cancelSnapshot(); this.snapshotCapture?.dispose();
     this.startController?.abort(); this.sourceController?.abort(); this.http.dispose(); this.clearCompletion();
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
