@@ -36,22 +36,50 @@ type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry
  * (kit.css's shared row-subtitle role is 14). TV and desktop keep their shipped values.
  */
 export function homeRowSpacing(theme: Theme) {
-  return theme.isTV ? {marginBottom: 30} : theme.layoutMode === 'phone' && theme.platform === 'phone' ? {marginTop: 28} : {marginBottom: 18};
+  return theme.isTV ? {marginBottom: 30} : theme.platform === 'tablet' ? {marginTop: 26} : theme.layoutMode === 'phone' && theme.platform === 'phone' ? {marginTop: 28} : {marginBottom: 18};
 }
 
 /** The hero reserves only its drawn height; the first row's 28 px gap comes from its own margin. */
 export function homeHeroBlock(theme: Theme, heroHeight: number, preview: boolean): number {
-  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : theme.layoutMode === 'desktop' ? heroHeight + theme.spec.shelf.homeOverlap : 588;
+  return theme.isTV ? (preview ? 588 : 820) : theme.platform === 'tablet' ? heroHeight : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : theme.layoutMode === 'desktop' ? heroHeight + theme.spec.shelf.homeOverlap : 588;
 }
+
+/**
+ * The medium window draws two hero compositions in foldable.html: upright the hero is
+ * half the window (440 of 880), and sideways it is the 392 px frame 3f authors. The
+ * 392 is drawn, never derived.
+ */
+export const MEDIUM_SIDEWAYS_HERO = 392;
+export const mediumHeroHeight = (width: number, height: number): number => width > height ? MEDIUM_SIDEWAYS_HERO : Math.round(height / 2);
+/** foldable.html `.md .ph-hero.sbs .copy`: inset 28, sideways width 320 and upright 300, bottom 30. */
+export const mediumCopySide = (width: number, height: number) => ({inset: 28, width: width > height ? 320 : 300, bottom: 30});
+/** foldable.html frame 7 draws `--bw:60%` upright and frame 3f the default 66% sideways. */
+export const mediumBackdropFraction = (width: number, height: number): number => width > height ? 0.66 : 0.6;
+/** foldable.html draws the sideways lockup at 50 px and frame 7 the upright one at 42 px. */
+export const mediumLockupSize = (width: number, height: number): number => width > height ? 50 : 42;
+/**
+ * The drawn size keeps the handheld lockup's own line box and tracking ratios, so the
+ * three values stay one coherent column rather than a bare number.
+ */
+export function mediumLockupStyle(theme: Theme, width: number, height: number) {
+  const role = theme.type.lockup, size = mediumLockupSize(width, height), roleSize = role.fontSize ?? size, ratio = size / (roleSize / theme.textScale);
+  return {fontSize: roleSize * ratio, lineHeight: (role.lineHeight ?? roleSize) * ratio, letterSpacing: (role.letterSpacing ?? 0) * ratio, marginBottom: 12};
+}
+/** foldable.html `.phone.md .card{width:140px}` and `.card.wide{width:292px}`. */
+export const mediumCardWidth = (wide: boolean): number => wide ? 292 : 140;
+/** foldable.html `.phone.md .card .t{font-size:14px}` and `.card .s{font-size:12.5px}`. */
+export const mediumCardType = {title: {fontSize: 14}, caption: {fontSize: 12.5}} as const;
+/** foldable.html `.phone.md .row-head h2{font-size:21px}`; the row heading role carries 19. */
+export const mediumHeadingStyle = {fontSize: 21} as const;
 
 /** The drawn phone row sub-line is 13 px; the shared rowSubtitle role carries 14. */
 export function homeRowSubtitle(theme: Theme) {
-  return theme.layoutMode === 'phone' && theme.platform === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
+  return theme.layoutMode === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
 }
 
 /** kit.css draws the phone scroll 96 px deep over an 84 px bar; other platforms keep their padding. */
 export function homeContentBottom(theme: Theme, bottomInset: number): number {
-  return bottomInset + (theme.isTV ? 96 : theme.layoutMode === 'phone' && theme.platform === 'phone' ? 12 : 24);
+  return bottomInset + (theme.isTV ? 96 : theme.platform === 'tablet' ? 40 : theme.layoutMode === 'phone' && theme.platform === 'phone' ? 12 : 24);
 }
 
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
@@ -63,8 +91,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const ids = useMemo(() => tvFocusIds(authority), [authority]);
   const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t;
   const labels = useMemo(() => ({t, has: defaultI18n.has}), [t]);
-  const desktop = theme.layoutMode === 'desktop';
-  const heroHeight = theme.isTV ? 820 : theme.spec.hero.homeHeight[theme.platform];
+  const desktop = theme.layoutMode === 'desktop', medium = theme.platform === 'tablet' && !theme.isTV;
+  const windowWidth = theme.isTV ? 1920 : dimensions.width, windowHeight = theme.isTV ? 1080 : dimensions.height;
+  const heroHeight = theme.isTV ? 820 : medium ? mediumHeroHeight(windowWidth, windowHeight) : theme.spec.hero.homeHeight[theme.platform];
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
   const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
   const document = authorizedHome(snapshot.document, authority);
@@ -125,8 +154,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   previousRows.current = rows;
   const regionMap = tvHomeRegionMap(authority, rows.map(row => row.id));
   const ranges = useRef(new Map<string, {first: number; last: number; keys?: readonly string[]}>());
-  const viewportHeight = theme.isTV ? 1080 : dimensions.height;
-  const viewportWidth = theme.isTV ? 1920 : dimensions.width;
+  const viewportHeight = windowHeight, viewportWidth = windowWidth;
 
   useEffect(() => {if (current()) void runtime.home.load();}, [current, runtime]);
   useEffect(() => {const sub = AppState.addEventListener('change', state => setForeground(state === 'active')); return () => sub.remove();}, []);
@@ -165,7 +193,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   })) : [], [document, runtime.text, labels, t]);
   const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
     foreground={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
-    onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : heroHeight}/>;
+    onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : heroHeight}
+    foregroundFraction={medium ? mediumBackdropFraction(windowWidth, windowHeight) : undefined} foregroundFade={medium ? 'left' : undefined}
+    position={medium ? {x: 0.38, y: 0.22} : undefined}/>;
   const activate = (entry: ContentEntry, target: ContentEntry | undefined) => guarded(() => {
     if (target?.playback) runtime.actions.play(entry, target.playback); else runtime.actions.navigate(entry);
   });
@@ -196,6 +226,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   };
   const spotlight = <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
     testID={theme.isTV ? ids.surface('hero') : undefined} active={heroActive && (!theme.isTV || !preview)} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
+    copySide={medium ? mediumCopySide(windowWidth, windowHeight) : undefined} lockupStyle={medium ? mediumLockupStyle(theme, windowWidth, windowHeight) : undefined}
     renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
   if (!document) return snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
@@ -228,8 +259,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
       const ranked = presentation.cards.some(card => card.rank !== undefined);
       const width = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
-        : wide ? desktop || theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
-        : square ? theme.spec.card.width.square[theme.platform] : theme.spec.card.width.poster[theme.platform];
+        : wide ? medium ? mediumCardWidth(true) : desktop || theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
+        : square ? theme.spec.card.width.square[theme.platform] : medium ? mediumCardWidth(false) : theme.spec.card.width.poster[theme.platform];
       const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const pending = pages.state(row.id), waitingItem = presentation.cards.at(-1);
@@ -255,7 +286,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
           : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><HomeCollectionCard row={row} runtime={runtime}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} visible={shown} current={current} onFocus={() => onRowFocus(row, row.collection!.collection.id)}/></View></FocusItem></HomeRegion>
           : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
-            gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
+            gutter={medium ? 24 : theme.gutter} rightGutter={medium ? 24 : theme.isTV ? 96 : theme.gutter} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
             onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={{width, height}}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={false}
@@ -287,8 +318,8 @@ function HomeWindow({runtime, row, sectionOrder, visible, physicalIds, retainedI
   return children;
 }
 
-function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible, preferred, current}: {
-  runtime: NativeShellRuntime; row: HomeRow; entry: ContentEntry; rank?: number; context: LayoutItemContext; width: number; rowIndex: number; visible: boolean; preferred: boolean; current: () => boolean;
+function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible, preferred, medium = false, current}: {
+  runtime: NativeShellRuntime; row: HomeRow; entry: ContentEntry; rank?: number; context: LayoutItemContext; width: number; rowIndex: number; visible: boolean; preferred: boolean; medium?: boolean; current: () => boolean;
 }) {
   const theme = useTheme(), anchor = useRef<View>(null), text = homeCardText(entry, row.kind === 'continue' || row.id === 'continue_books', runtime.text), target = homePlayTarget(row, entry);
   const navigate = () => {if (current()) runtime.actions.navigate(entry);};
@@ -297,6 +328,7 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
   const actions = play && (theme.isTV || row.kind === 'continue') ? {primaryAction: 'play' as const, onPlay: play, onNavigate: navigate}
     : {primaryAction: 'navigate' as const, onNavigate: navigate, ...(play ? {onPlay: play} : {})};
   const props: CardProps = {...text, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred, testID: context.testID,
+    ...(medium ? {titleTextStyle: mediumCardType.title, captionTextStyle: mediumCardType.caption} : {}),
     menuAnchorRef: anchor, moreExpanded: runtime.selection(row.id).isMenuOpen?.(entry.id),
     accessibilityState: {expanded: !!runtime.selection(row.id).isMenuOpen?.(entry.id)},
     onMore: () => {if (current()) runtime.actions.more(entry, row.id, anchor);}};
@@ -320,7 +352,7 @@ function HomeCollectionCard({row, runtime, width, visible, current, onFocus}: {r
 }
 
 function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, onItemFocus, current, focus, viewportWidth}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; onVisibleKeys: (keys: readonly string[]) => void; onItemFocus: (item: HomeChannel) => void; current: () => boolean; focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>; viewportWidth: number}) {
-  const theme = useTheme(), live = row.live!, labels = {t: runtime.text.t, has: defaultI18n.has};
+  const theme = useTheme(), live = row.live!, labels = {t: runtime.text.t, has: defaultI18n.has}, medium = theme.platform === 'tablet' && !theme.isTV;
   // Projection time, expiry and server-issued marks define the bounded row. No lineup scan.
   const observed = Date.parse(live.observedAt);
   if (Date.now() >= Date.parse(live.expiresAt)) return null;
@@ -331,6 +363,7 @@ function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, 
     : undefined;
   return <Row title={serverTextLabel(labels, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
     itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange} onVisibleKeys={onVisibleKeys} onItemFocus={onItemFocus}
+    gutter={medium ? 24 : undefined} rightGutter={medium ? 24 : undefined} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}
     renderItem={(item: HomeChannel, context) => <HomeChannelCard rowId={row.id} item={item} context={context} runtime={runtime} current={current} visible={visible} observed={observed} width={itemWidth}/>}/>;
 }
