@@ -65,7 +65,7 @@ async function screen(react: unknown) {
 test('the drawn field, keyboard column and results column are tv.html#f5 geometry and paint', async () => {
   const host = hooks(), {TVSearchScreen} = await screen({...host.react, useId: () => 'gradient'});
   state = {text: 'the l', group: 'all', groups, search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: []};
-  landing = {phase: 'ready', genres, initialHeading: 'initial', emptyHeading: 'Browse instead'}; top = undefined; modelProgress = undefined;
+  landing = {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}; top = undefined; modelProgress = undefined;
   const tree = host.render(() => TVSearchScreen(screenProps()));
   assert.equal(theme.gutter, 200);
   const field = style(elements(tree).find(node => node.props.accessibilityLabel === defaultI18n.t('web.shell.search'))!.props.style);
@@ -148,14 +148,13 @@ test('the drawn empty page is states.html#f18 and its genre tiles keep the drawn
   const host = hooks(), {TVSearchScreen, TVSearchGenre} = await screen({...host.react, useId: () => 'gradient'});
   state = {text: 'casablanca', group: 'all', groups: [{id: 'movies' as const, status: 'success' as const, items: [], totalCount: 0, totalCountExact: true}],
     search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: [{q: 'severance'}]};
-  landing = {phase: 'ready', genres, initialHeading: 'initial', emptyHeading: 'Browse instead'}; top = undefined; modelProgress = undefined;
+  landing = {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}; top = undefined; modelProgress = undefined;
   const tree = host.render(() => TVSearchScreen(screenProps()));
-  console.log('TVSEARCH-EMPTY-TREE ' + JSON.stringify(textOf(tree).slice(0, 24)));
   const noMatches = style(textNode(tree, defaultI18n.t('next.states.noMatches', {query: 'casablanca'}))!.props.style);
   assert.deepEqual(noMatches, {...browseType(theme, 52, 800, -.04, 54.6), color: colors.text, marginBottom: 14});
   const body = style(textNode(tree, defaultI18n.t('next.states.noMatchesBody'))!.props.style);
   assert.deepEqual(body, {...browseType(theme, 26, 400), color: colors.textSecondary, marginBottom: 54});
-  const browse = style(textNode(tree, 'Browse instead')!.props.style);
+  const browse = style(textNode(tree, defaultI18n.t('next.search.browseInstead'))!.props.style);
   assert.deepEqual(browse, {...browseType(theme, 32, 700, -.019), color: colors.text, marginBottom: 22});
   // states.html#f18's .sres ends at --safe-r, so its two drawn columns are (1140 - 96 - 26) / 2 and keep the producer's order.
   const tiles = elements(tree).filter(node => node.type === 'TVSearchGenre');
@@ -228,7 +227,7 @@ test('the drawn keyboard is f5 six-column grid with Space, Delete and Clear and 
 test('Left from a result returns to the last keyboard row, and that key returns Right to the same card', async () => {
   const host = hooks(), {TVSearchScreen} = await screen({...host.react, useId: () => 'gradient'});
   state = {text: 'the l', group: 'all', groups, search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: []};
-  landing = {phase: 'ready', genres, initialHeading: 'initial', emptyHeading: 'Browse instead'}; top = undefined; modelProgress = undefined;
+  landing = {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}; top = undefined; modelProgress = undefined;
   let tree = host.render(() => TVSearchScreen(screenProps()));
   const results = () => elements(tree).find(node => node.type === 'FocusRegion')!;
   assert.equal(results().props.edges.left, ids.searchKeyboard);
