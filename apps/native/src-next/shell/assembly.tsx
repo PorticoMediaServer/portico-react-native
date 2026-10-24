@@ -40,7 +40,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const feedback = nativeScreenServices(context);
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined;
-  let tvPageBack: (() => boolean) | undefined, tvRailBack: (() => boolean) | undefined;
+  const tvPageBack = new Map<string, () => boolean>();
+  let tvRailBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void; spotlight: HomeSpotlight; index: number; context: string}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
   const publish = () => {if (alive) for (const listener of [...listeners]) listener();};
@@ -218,7 +219,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       if (context.playback.getSnapshot().dock.local?.expanded) return false;
       // Menus/selection own Back first, then the player, then the page.
       if (Platform.isTV && tvRailBack?.()) return true;
-      if (Platform.isTV && currentHome() && tvPageBack) return tvPageBack();
+      const navigation = context.navigation.getSnapshot();
+      if (Platform.isTV && navigation.route.kind === 'shell' && tvPageBack.get(JSON.stringify(navigation.destination))?.()) return true;
       return context.navigation.back(context.authority());
     }
     return true;
@@ -324,7 +326,10 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
-    registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
+    registerTVPageBack: (handler, destination = {kind: 'home'}) => {
+      const key = JSON.stringify(destination); tvPageBack.set(key, handler);
+      return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
+    },
     onArtworkError: error => reportError(error, 'artwork-error'),
     dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); runtime = undefined; listeners.clear();},
   };
