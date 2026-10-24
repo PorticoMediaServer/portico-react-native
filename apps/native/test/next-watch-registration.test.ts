@@ -3,6 +3,44 @@ import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
 import {NativeShellRouteRegistry} from '../src-next/shell/route-registry.ts';
 
+test('a cold registry creates the one Watch module for the shared entry menu before any route', async () => {
+  const {react} = hooks(), registry = new NativeShellRouteRegistry();
+  let created = 0, disposed = 0;
+  const menus: object[] = [];
+  const {registerNativeWatch, nativeWatchEntryMenu} = await screenModule(new URL('../src-next/screens/watch/register.ts', import.meta.url), {
+    react, '../../shell/route-registry': {nativeShellRoutes: registry},
+    './module': {createNativeWatchModule: (context: any) => {
+      const identity = ++created, entryMenu = {identity}; menus.push(entryMenu);
+      return {entryMenu, render: (runtime: any) => ({watch: identity, runtime}), renderOverlays: () => ({overlay: identity}), dispose: () => {disposed++;}};
+    }},
+  });
+  const remove = registerNativeWatch((context: any) => ({context}));
+  const base = {current: () => true, session: () => ({}), navigation: {allows: () => true}};
+  const context = Object.defineProperties({...base}, {
+    api: {get: () => {throw new Error('the registry must not construct api on a cold overlay');}},
+    playback: {get: () => {throw new Error('the registry must not start playback on a cold overlay');}},
+  }) as any;
+  const absent = registry.bind({...base, session: () => undefined});
+  assert.deepEqual(absent.renderOverlays({} as any), [], 'no session means no construction');
+  assert.equal(created, 0);
+  absent.dispose();
+  const bound = registry.bind(context);
+  assert.equal(created, 0);
+  assert.equal(nativeWatchEntryMenu(context), undefined);
+  assert.deepEqual(bound.renderOverlays({} as any), [{overlay: 1}], 'cold overlays create and draw the Watch overlay host');
+  assert.equal(created, 1, 'exactly one authority-local module is created');
+  assert.equal(nativeWatchEntryMenu(context), menus[0], 'the Saved/Library/Search menu exists before any title, channel or watch route');
+  assert.deepEqual(bound.renderOverlays({} as any), [{overlay: 1}]);
+  assert.equal((bound.renderWatch({} as any) as any).watch, 1, 'renderWatch borrows the same instance');
+  assert.equal(created, 1);
+  bound.dispose(); bound.dispose();
+  assert.equal(disposed, 1, 'the cold instance is disposed exactly once');
+  assert.equal(nativeWatchEntryMenu(context), undefined);
+  assert.equal(bound.renderOverlays({} as any), null, 'a retired binding never constructs again');
+  assert.equal(created, 1);
+  remove();
+});
+
 test('actual bound registry shares one Watch/title clock, Back and disposal per bootstrap authority', async () => {
   const {react} = hooks(), registry = new NativeShellRouteRegistry();
   let created = 0, disposed = 0;

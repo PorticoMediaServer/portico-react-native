@@ -90,7 +90,16 @@ export class NativeShellRouteRegistry {
       // not hide valid playback or skip its topmost panel's Back handling.
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       renderRetained: runtime => current() ? [...instances.values()].map(value => value.renderRetained?.(runtime)) : null,
-      renderOverlays: runtime => current() ? [...instances.values()].map(value => value.renderOverlays?.(runtime)) : null,
+      // Saved, Library and Search borrow the Watch module's entry menu and its
+      // overlays. A cold screen has no title/channel/watch route instance yet,
+      // so create the one authority-local Watch instance before mapping. It is
+      // the same instance renderWatch uses and is released with this bind; the
+      // host itself renders null while no surface is active.
+      renderOverlays: runtime => {
+        if (!current()) return null;
+        if (this.watch && context.session()) instance(this.watch);
+        return [...instances.values()].map(value => value.renderOverlays?.(runtime));
+      },
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current() && context.navigation.allows(route)) renderer(route)?.scrollToTop?.(route);},
       dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},
