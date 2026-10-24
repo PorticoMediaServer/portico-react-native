@@ -10,7 +10,7 @@ import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-cor
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {AmbientArt} from '../../kit/artwork';
-import {Focusable} from '../../kit/controls';
+import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {browseType, alpha} from '../../kit/browse/presentation';
@@ -120,9 +120,9 @@ export function LibraryCompactHeader({switcher, menu, wash, children, onLibrarie
 
 /** The pivot strip: it scrolls on a phone because Music and Audiobooks have more
  * pivots than fit (phone-app 15a), and stays one drawn row on TV. */
-export function LibraryTabs({items, selected, enabled, disabled, regionId, leftEdge, phone, onSelect, onFocusTab}: {
+export function LibraryTabs({items, selected, enabled, disabled, regionId, leftEdge, downEdge, phone, onSelect, onFocusTab}: {
   items: readonly Readonly<{id: LibraryTabId; label: MessageId}>[]; selected: string; enabled: boolean; disabled?: boolean;
-  regionId: string; leftEdge: string; phone: boolean; onSelect: (id: LibraryTabId) => void; onFocusTab?: (id: LibraryTabId) => void;
+  regionId: string; leftEdge: string; downEdge?: string; phone: boolean; onSelect: (id: LibraryTabId) => void; onFocusTab?: (id: LibraryTabId) => void;
 }) {
   const theme = useTheme();
   const strip = items.map(tab => <Focusable key={tab.id} focusId={tab.id} accessibilityRole="tab" accessibilityLabel={defaultI18n.t(tab.label)}
@@ -134,7 +134,7 @@ export function LibraryTabs({items, selected, enabled, disabled, regionId, leftE
     <Text style={[browseType(theme, theme.isTV ? 24 : 15.5, 700), {color: selected === tab.id ? theme.colors.text : theme.colors.textTertiary}]}>{defaultI18n.t(tab.label)}</Text>
     {phone && selected === tab.id && <View style={[nativeLibraryR46.tabUnderline, {backgroundColor: theme.colors.accent}]}/>}
   </Focusable>);
-  return <FocusRegion id={regionId} entry="browse" orientation="horizontal" enabled={enabled} edges={{left: leftEdge}}
+  return <FocusRegion id={regionId} entry="browse" orientation="horizontal" enabled={enabled} edges={{left: leftEdge, ...(downEdge ? {down: downEdge} : {})}}
     style={phone ? undefined : {flexDirection: 'row', gap: theme.isTV ? 32 : 28, paddingHorizontal: theme.isTV ? 0 : 20}}>
     {phone ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexGrow: 0, flexShrink: 0}} contentContainerStyle={nativeLibraryR46.tabStrip}>{strip}</ScrollView> : strip}
   </FocusRegion>;
@@ -160,6 +160,10 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   useEffect(() => {void destination.load().catch(runtime.reportError); void directory.load().catch(runtime.reportError);}, [destination, directory, runtime]);
+  // tv-focus 46: a library with no titles yet draws one action, never an empty grid.
+  const empty = state.phase === 'ready' && state.unfilteredTotal?.total === 0;
+  const emptyRegion = `${ids.libraryTabs(state.library.id)}.empty`;
+  useDestinationEntryFocus(active, empty && theme.isTV ? {regionId: emptyRegion, childId: 'browse-home'} : undefined);
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
     const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
@@ -167,7 +171,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
       style={[browseType(theme, theme.isTV ? 22 : 14), {color: theme.colors.textTertiary}]}>{defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}</Text>)}</View>};
   });
   const tabs = <LibraryTabs items={libraryTabs(state.library.kind)} selected={state.tab.id} enabled={active.visible} phone={theme.platform === 'phone'}
-    disabled={theme.isTV && active.intent === 'enter' && !entered} regionId={ids.libraryTabs(state.library.id)} leftEdge={ids.rail}
+    disabled={theme.isTV && active.intent === 'enter' && !entered} regionId={ids.libraryTabs(state.library.id)} leftEdge={ids.rail} downEdge={empty ? emptyRegion : undefined}
     onSelect={id => {void destination.load(id).catch(runtime.reportError);}} onFocusTab={id => {void destination.load(id).catch(runtime.reportError);}}/>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV ? 'chevron' : 'name'}/>;
   const latestArtwork = summaries.libraries.find(library => library.id === state.library.id)?.summary.latestArtwork;
@@ -191,6 +195,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     {header}
     {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
+      : empty ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)}/>
       : state.collection ? <LibraryGrid {...props} source={state} entryRequest={entryRequest} onEntered={onEntered}/>
       : state.tab.shows === 'rows' ? <ScrollView>
         {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
@@ -207,6 +212,17 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
       </View>)}</ScrollView> : null}
     {props.selection?.render()}
   </View>;
+}
+
+/** tv-focus 46: the composed empty-library page. Header and pivot strip stay
+ * above it; the one action enters first and leads Home. */
+function LibraryEmpty({runtime, regionId, upRegionId}: {runtime: NativeShellRuntime; regionId: string; upRegionId: string}) {
+  const theme = useTheme(), ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
+  return <FocusRegion id={regionId} entry="browse-home" order={['browse-home']} edges={{up: upRegionId, left: ids.rail}} style={{flex: 1, justifyContent: 'center'}}>
+    <StateView testID="library-empty" variant="centered" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}>
+      <Button focusId="browse-home" testID="library-empty-browse-home" variant="primary" size="hero" onPress={() => runtime.onDestination({kind: 'home'})}>{defaultI18n.t('saved.browseHome')}</Button>
+    </StateView>
+  </FocusRegion>;
 }
 
 function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, entryRequest, onEntered}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void}) {
