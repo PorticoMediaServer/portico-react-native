@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {defaultI18n, type I18n} from '../../../packages/i18n/src';
 import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
-import {nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
+import {nativeGuideNext, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
 
 const programme: GuideProgram = {id: 'programme', channelId: 'channel', title: 'Stored title (Special Edition)', start: 1, end: 2};
 const clock = (at: number) => at === 1 ? '16:05' : '17:05';
@@ -32,5 +32,16 @@ test('regional timing never replaces stored subtitle/episode facts or manufactur
   current.calls.length = 0;
   assert.deepEqual(nativeProgrammeCaption(undefined, true, false, clock, current), []);
   assert.deepEqual(nativeProgrammeCaption(programme, true, false, () => undefined, current), []);
+  assert.deepEqual(current.calls, []);
+});
+
+
+test('next-programme text uses the same supplied Guide clock and exact stored title', () => {
+  const current = text(), next = {...programme, title: 'Stored next: Special Edition'};
+  assert.equal(nativeGuideNext(next, clock, current), defaultI18n.t('guide.next', {title: next.title, time: '16:05'}));
+  assert.deepEqual(current.calls, [{key: 'guide.next', values: {title: next.title, time: '16:05'}}]);
+  current.calls.length = 0;
+  assert.equal(nativeGuideNext(undefined, clock, current), undefined);
+  assert.equal(nativeGuideNext(next, () => undefined, current), undefined);
   assert.deepEqual(current.calls, []);
 });
