@@ -38,6 +38,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
     assert.deepEqual(calls, [], 'mounting does not contact Portico Services or a media server');
     const all = nodes(tree), logo = all.find(node => node.type === 'Image');
     assert.equal(tree.props.ref, undefined, 'the production root has no collector ref');
+    assert.equal(logo.props.ref, undefined, 'production preserves the original unforwarded Image ref');
     assert.equal(logo.props.source, 'wordmark'); assert.equal(logo.props.accessibilityLabel, defaultI18n.t('accounts.brand'));
     const buttons = all.filter(node => node.type === 'Button');
     assert.deepEqual(buttons.map(node => node.props.children), [defaultI18n.t('accounts.signIn.portico'), defaultI18n.t('accounts.signIn.local')]);
@@ -94,6 +95,17 @@ test('DEV TV heading records only native text events, invalidates changed layout
     host = createHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     const heading = () => nodes(tree).find(node => node.props.accessibilityRole === 'header');
+    const image = () => nodes(tree).find(node => node.type === 'Image');
+    const wordmark = {tag: 301}, replacementWordmark = {tag: 302};
+    image().props.ref(wordmark);
+    assert.equal(registry.read(wordmark)?.kind, 'image');
+    assert.equal(registry.read(wordmark)?.semanticId, 'tv-front-door-wordmark');
+    assert.deepEqual(registry.read(wordmark)?.flattenedStyle, {});
+    assert.deepEqual(registry.read(wordmark)?.measuredStyle, {}, 'asset contents and paint are not observed by this hook');
+    const imageRef = image().props.ref;
+    imageRef(replacementWordmark);
+    assert.equal(registry.read(wordmark), undefined);
+    assert.equal(registry.read(replacementWordmark)?.kind, 'image');
     const root = {tag: 201}, replacementRoot = {tag: 202};
     tree.props.ref(root);
     assert.equal(registry.read(root)?.kind, 'view');
@@ -114,6 +126,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     assert.deepEqual(registry.read(first)?.measuredStyle, {}, 'flattened inputs are never promoted to observed paint/fonts');
     assert.equal(registry.read(first)?.effectiveBackgroundColor, undefined);
     props.busy = true; await act(() => host!.rerender());
+    assert.equal(image().props.ref, imageRef, 'the existing Image keeps one stable native callback');
     assert.deepEqual(registry.read(first)?.lines, observed, 'unchanged heading inputs retain its current text event');
     dimensions = {width: 1280, height: 800}; await act(() => host!.rerender());
     assert.equal(registry.read(first)?.lines, undefined);
@@ -136,6 +149,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     heading().props.onTextLayout(event(replacement.tag));
     await act(() => host!.unmount()); host = undefined;
     assert.equal(registry.read(replacement), undefined);
+    assert.equal(registry.read(replacementWordmark), undefined, 'the existing Image lease retires on unmount');
     assert.equal(registry.read(replacementRoot), undefined, 'leaving this existing Welcome view retires the fixture root');
     heading().props.onTextLayout(event(replacement.tag));
     assert.equal(registry.read(replacement), undefined, 'late events after unmount cannot recreate a registration');
