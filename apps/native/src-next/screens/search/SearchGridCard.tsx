@@ -13,7 +13,7 @@ export function SearchGridCard({entry, group, runtime, actions, selection, width
   const menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined;
   const text = content ? homeCardText(content, false, runtime.text) : undefined;
   const props = {testID: `search-result-${nativeSearchEntryKey(group, entry)}`, focusId: nativeSearchEntryKey(group, entry), disabled, onFocus, onBlur, density: 'grid' as const, title: content?.displayTitle || entry.title, width, caption: text?.caption,
-    onNavigate: () => actions.open(entry, group), onMore: () => actions.menu(entry, group, menuAnchorRef), selection, menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry, group)};
+    onNavigate: () => actions.open(entry, group), onMore: actions.canMenu?.(entry, group) === false ? undefined : () => actions.menu(entry, group, menuAnchorRef), selection, menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry, group)};
   if (group === 'movies' || group === 'shows') return <PosterCard {...props} artwork={runtime.artwork(entry.posterUrl)}/>;
   if (group === 'episodes') return <EpisodeTile {...props} label={text?.caption ?? []} layout="tile" artwork={runtime.artwork(content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl)}/>;
   if (group === 'people') return <CircleCard {...props} person art={{source: runtime.artwork(entry.posterUrl), initials: entry.title.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('')}}/>;

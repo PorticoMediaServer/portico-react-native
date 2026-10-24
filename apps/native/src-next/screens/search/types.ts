@@ -30,6 +30,8 @@ export type NativeSearchSelectionPort = Readonly<{
 }>;
 export type NativeSearchActions = Readonly<{
   menuState?: NativeEntryMenuState;
+  /** Non-media rows have no generic media-menu grant. */
+  canMenu?: (entry: SearchEntry, group: SearchGroup) => boolean;
   open: (entry: SearchEntry, group: SearchGroup) => void;
   play: (entry: SearchEntry, group: SearchGroup) => void;
   menu: (entry: SearchEntry, group: SearchGroup, anchorRef?: RefObject<View | null>) => void;
