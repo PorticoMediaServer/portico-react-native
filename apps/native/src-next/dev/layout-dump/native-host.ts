@@ -17,7 +17,8 @@ function rect(value: unknown): HostRect | undefined {
   return Object.freeze({x, y, width, height});
 }
 
-/** Coordinates remain in the host API's logical window units. DPR is never applied here. */
+/** Preserve raw logical API coordinates. Cross-API/window equivalence needs observation;
+ * a method name or a zero origin does not establish it. DPR is never applied here. */
 export async function measureNativeHost(
   host: NativeHostReader | null | undefined,
   options: Readonly<{signal?: AbortSignal; timeoutMs?: number}> = {},

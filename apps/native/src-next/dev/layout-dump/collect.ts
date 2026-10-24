@@ -46,7 +46,15 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     && finite(viewport.deviceScaleFactor) && viewport.deviceScaleFactor > 0;
   const fullViewport = !!rootBox && knownViewport && rootBox.x === 0 && rootBox.y === 0
     && sameNativeExtent(rootBox.width, viewport.width) && sameNativeExtent(rootBox.height, viewport.height);
-  if (!fullViewport) missing('root', 'fullViewport', 'measured screen root does not equal the actual logical window');
+  if (!fullViewport) {
+    const unit = options.platform === 'android' ? 'dp' : 'pt';
+    const api = 'rect' in measuredRoot
+      ? measuredRoot.source === 'bounding-client-rect' ? 'getBoundingClientRect' : 'measureInWindow'
+      : 'unavailable';
+    missing('root', 'fullViewport', rootBox
+      ? `API=${api}; coordinate-space=unknown; logical-unit=${unit}; raw x=${rootBox.x}, y=${rootBox.y}, width=${rootBox.width}, height=${rootBox.height}; window-origin equivalence is not established`
+      : 'native whole-screen root measurement unavailable');
+  }
   const mounted = new Set<object>();
   const nodes = new Map<string, Node>();
   const childRecords = new Map<string, Element[]>();

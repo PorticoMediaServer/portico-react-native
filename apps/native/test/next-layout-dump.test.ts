@@ -39,6 +39,18 @@ test('RN full viewport accepts exact float32 extents without changing raw facts 
   }
 });
 
+test('a nonzero observed root origin stays invalid and records provenance rather than selecting a zero-returning API', async () => {
+  const root = {...host('RN:View', {x: 0, y: 24, width: 390, height: 844}),
+    measureInWindow(callback: (x: number, y: number, width: number, height: number) => void) {callback(0, 0, 390, 844);}};
+  const measured = await collectNativeScreen({root, viewport: {width: 390, height: 844, deviceScaleFactor: 3},
+    platform: 'android', registry: createNativeMeasurementRegistry()});
+  assert.equal(measured.fullViewport, false);
+  assert.deepEqual(measured.root, {x: 0, y: 0, width: 390, height: 844});
+  const gap = measured.unavailable.find(item => item.property === 'fullViewport')!;
+  assert.match(gap.reason, /API=getBoundingClientRect; coordinate-space=unknown; logical-unit=dp/);
+  assert.match(gap.reason, /raw x=0, y=24, width=390, height=844/);
+});
+
 test('font scaling is optional unscored metadata and never changes logical observations', async () => {
   const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844});
   const options = {root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const,
