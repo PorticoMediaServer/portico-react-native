@@ -344,6 +344,10 @@ internal object PorticoMpvSupport {
 
   fun captionBottomInset(style: Map<*, *>?): Float = if (style?.get("position") == "raised") .20f else .08f
 
+  /** mpv 0.41 sub-margin-y uses scaled pixels at a 720-high window, not native
+   * view pixels or dp (DOCS/man/options.rst, sub-font-size/sub-margin-y). */
+  fun mpvCaptionMargin(style: Map<*, *>?): Int = Math.round(720 * captionBottomInset(style))
+
   /** Select only actual supplied platform faces. A configured system face wins;
    * no rounded face or font-resource identity is invented from a family label. */
   fun <T : Any> captionTypeface(style: Map<*, *>?, system: T?, ordinary: T, serif: T, mono: T): T =
