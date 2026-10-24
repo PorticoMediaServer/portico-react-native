@@ -24,8 +24,12 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   const {registry, root, viewport, signal} = options;
   const elements: Element[] = [], strings: Record<string, unknown>[] = [];
   const unavailable: {element: string; property: string; reason: string}[] = [];
+  const missingKeys = new Set<string>();
   const anchorIssues: {kind: string; frame: string; elements: string[]}[] = [];
-  const missing = (element: string, property: string, reason: string) => unavailable.push({element, property, reason});
+  const missing = (element: string, property: string, reason: string) => {
+    const key = `${element}\0${property}\0${reason}`;
+    if (!missingKeys.has(key)) {missingKeys.add(key); unavailable.push({element, property, reason});}
+  };
   const revision = registry.revision();
   const measuredRoot = await measureNativeHost(root, {signal});
   const rootBox = 'rect' in measuredRoot ? measuredRoot.rect : undefined;
@@ -112,7 +116,10 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     }
     elements.push(record);
     if (parent !== null) childRecords.set(parent, [...(childRecords.get(parent) ?? []), record]);
-    for (let index = 0; index < elementChildren.length; index++) await walk(elementChildren[index], id, `${id}.${index}`);
+    for (let index = 0; index < elementChildren.length; index++) {
+      if (elements.length >= 2000) {missing('root', 'elements', 'native tree exceeds capture bound'); break;}
+      await walk(elementChildren[index], id, `${id}.${index}`);
+    }
   };
   if (rootBox) await walk(root, null, 'root');
   for (const element of elements) {

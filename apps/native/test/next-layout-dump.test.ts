@@ -127,6 +127,18 @@ test('late window Text observers are retired on unregister or cancellation', asy
   assert.equal(await again, undefined);
 });
 
+test('a retired capture never starts a queued native text observer', async () => {
+  const registry = createNativeMeasurementRegistry(), node = {};
+  const lease = registry.register(node, {kind: 'text'});
+  let reads = 0;
+  lease.observeTextRectangles(async () => {reads++; return [];});
+  const controller = new AbortController();
+  const pending = registry.measureTextRectangles(node, controller.signal);
+  controller.abort();
+  assert.equal(await pending, undefined);
+  assert.equal(reads, 0);
+});
+
 test('unobserved paint hides text and never defaults focus or opacity; wrong viewport fails', async () => {
   const registry = createNativeMeasurementRegistry(), text = host('RN:Text', {x: 0, y: 0, width: 100, height: 30});
   registry.register(text, {kind: 'text'}).recordTextLayout([{x: 0, y: 0, width: 70, height: 24, text: 'Do not export without visibility'}]);

@@ -182,7 +182,7 @@ export function createNativeMeasurementRegistry() {
       if (!record || !current(record) || record.observation.kind !== 'text' || !reader || signal?.aborted) return undefined;
       let abort: (() => void) | undefined;
       try {
-        const pending = Promise.resolve().then(reader);
+        const pending = Promise.resolve().then(() => current(record) && record.textRectangles === reader && !signal?.aborted ? reader() : undefined);
         const stopped = new Promise<undefined>(resolve => {
           abort = () => resolve(undefined);
           signal?.addEventListener('abort', abort, {once: true});
