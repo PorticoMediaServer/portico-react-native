@@ -25,9 +25,9 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
   let host: ReturnType<typeof createHookHost> | undefined;
   try {
     const calls: string[] = [], entries: any[] = [], theme = createTheme({isTV: true, width: 1920});
-    let dimensions = {width: 1920, height: 1080}, tree: any;
+    let dimensions = {width: 1920, height: 1080}, tree: any, flattenCalls = 0;
     const {TVFrontDoor} = await screenModule(new URL('../src-next/tv/auth/TVFrontDoor.tsx', import.meta.url), {
-      react: {...React, default: React}, 'react-native': {Image: 'Image', Text: 'Text', View: 'View', useWindowDimensions: () => dimensions, StyleSheet: {flatten}},
+      react: {...React, default: React}, 'react-native': {Image: 'Image', Text: 'Text', View: 'View', useWindowDimensions: () => dimensions, StyleSheet: {flatten: (style: unknown) => {flattenCalls++; return flatten(style);}}},
       '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/controls': {Button: 'Button'},
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: (activation: unknown, address: unknown) => entries.push({activation, address})},
@@ -37,6 +37,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
     host = createHookHost(() => {const provider = TVFrontDoor(props); assert.equal(provider.type, 'Provider'); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     assert.deepEqual(calls, [], 'mounting does not contact Portico Services or a media server');
+    assert.equal(flattenCalls, 0, 'production does not evaluate diagnostic style flattening');
     const all = nodes(tree), logo = all.find(node => node.type === 'Image');
     assert.equal(tree.props.ref, undefined, 'the production root has no collector ref');
     assert.equal(logo.props.ref, undefined, 'production preserves the original unforwarded Image ref');
@@ -62,6 +63,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
     nodes(tree).filter(node => node.type === 'Button').forEach(node => {assert.equal(node.props.disabled, true); node.props.onPress();});
     assert.deepEqual(calls, ['portico', 'local']);
     assert.equal(entries.at(-1).activation.visible, false);
+    assert.equal(flattenCalls, 0, 'production rerenders preserve the zero-evaluation diagnostic boundary');
   } finally {
     host?.unmount();
     if (previous) Object.defineProperty(globalThis, 'require', previous); else delete (globalThis as {require?: unknown}).require;

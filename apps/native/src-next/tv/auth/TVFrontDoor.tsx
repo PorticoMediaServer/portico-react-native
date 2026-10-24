@@ -57,8 +57,8 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
   const rootStyle = {flex: 1, backgroundColor: theme.colors.ink};
   const wordmarkStyle: ImageStyle = {position: 'absolute', left: 0, top: 72, width: 174, height: 40};
-  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door', flattenedStyle: StyleSheet.flatten(rootStyle)});
-  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark', flattenedStyle: StyleSheet.flatten(wordmarkStyle)});
+  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(rootStyle) : undefined});
+  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined});
   return <View ref={rootObservation.ref} testID="tv-front-door" style={rootStyle}>
     <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
