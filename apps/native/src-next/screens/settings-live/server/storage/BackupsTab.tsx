@@ -7,15 +7,15 @@ import {presentError} from '../../../../../../../packages/client-core/src/presen
 import {when} from '../../../../../../../packages/client-core/src/server-admin/console-words';
 import type {MessageId} from '../../../../../../../packages/i18n/src';
 import {defaultI18n} from '../../../../../../../packages/i18n/src';
-import {Button} from '../../../kit/controls/Button';
-import {TextField} from '../../../kit/controls/TextField';
-import {BottomSheet} from '../../../kit/overlays/BottomSheet';
-import {Menu, type MenuEntry} from '../../../kit/overlays';
-import {StateView} from '../../../kit/states';
-import {shellType} from '../../../kit/shell/visual';
-import {useTheme} from '../../../kit/theme';
+import {Button} from '../../../../kit/controls/Button';
+import {TextField} from '../../../../kit/controls/TextField';
+import {BottomSheet} from '../../../../kit/overlays/BottomSheet';
+import {Menu, type MenuEntry} from '../../../../kit/overlays';
+import {StateView} from '../../../../kit/states';
+import {shellType} from '../../../../kit/shell/visual';
+import {useTheme} from '../../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../../ports';
-import type {NativeShellRuntime} from '../../../shell/runtime';
+import type {NativeShellRuntime} from '../../../../shell/runtime';
 
 type Translate = typeof defaultI18n.t;
 const kindWord = (kind: BackupKind): MessageId => kind === 'scheduled' ? 'web.maintenance.backupKindScheduled' : kind === 'manual' ? 'web.maintenance.backupKindManual' : 'web.maintenance.backupKindPreRestore';

@@ -6,14 +6,14 @@ import {presentError} from '../../../../../../../packages/client-core/src/presen
 import {when} from '../../../../../../../packages/client-core/src/server-admin/console-words';
 import {defaultI18n} from '../../../../../../../packages/i18n/src';
 import type {MessageId} from '../../../../../../../packages/i18n/src';
-import {Button} from '../../../kit/controls/Button';
-import {TextField} from '../../../kit/controls/TextField';
-import {BottomSheet} from '../../../kit/overlays/BottomSheet';
-import {StateView} from '../../../kit/states';
-import {shellType} from '../../../kit/shell/visual';
-import {useTheme} from '../../../kit/theme';
+import {Button} from '../../../../kit/controls/Button';
+import {TextField} from '../../../../kit/controls/TextField';
+import {BottomSheet} from '../../../../kit/overlays/BottomSheet';
+import {StateView} from '../../../../kit/states';
+import {shellType} from '../../../../kit/shell/visual';
+import {useTheme} from '../../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../../ports';
-import type {NativeShellRuntime} from '../../../shell/runtime';
+import type {NativeShellRuntime} from '../../../../shell/runtime';
 
 type Translate = typeof defaultI18n.t;
 const RULES: readonly MissingTitlesRule[] = ['immediately', 'after_days', 'never'];

@@ -6,14 +6,14 @@ import type {LogsDraft, MaintenanceDocument, MaintenanceSettings} from '../../..
 import {presentError} from '../../../../../../../packages/client-core/src/presentation/errors';
 import type {MessageId} from '../../../../../../../packages/i18n/src';
 import {defaultI18n} from '../../../../../../../packages/i18n/src';
-import {Button} from '../../../kit/controls/Button';
-import {TextField} from '../../../kit/controls/TextField';
-import {BottomSheet} from '../../../kit/overlays/BottomSheet';
-import {StateView} from '../../../kit/states';
-import {alpha, shellType} from '../../../kit/shell/visual';
-import {useTheme} from '../../../kit/theme';
+import {Button} from '../../../../kit/controls/Button';
+import {TextField} from '../../../../kit/controls/TextField';
+import {BottomSheet} from '../../../../kit/overlays/BottomSheet';
+import {StateView} from '../../../../kit/states';
+import {alpha, shellType} from '../../../../kit/shell/visual';
+import {useTheme} from '../../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../../ports';
-import type {NativeShellRuntime} from '../../../shell/runtime';
+import type {NativeShellRuntime} from '../../../../shell/runtime';
 import {useFormState, useStorageForms} from './forms';
 
 type Translate = typeof defaultI18n.t;
@@ -38,7 +38,7 @@ export function LimitsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; 
   const runtimeDraft = runtimeState.draft, maintenanceDraft = maintenanceState.draft, logsDraft = logsState.draft;
   const categories = maintenanceState.status?.storageCategories ?? [];
   const maxima = maintenanceState.status?.retentionMaxima ?? {};
-  if (runtimeState.loadError !== undefined && !runtimeDraft) return <StateView {...runtime.error(runtimeState.loadError)}/>;
+  if (runtimeState.loadError !== undefined && !runtimeDraft) return <StateView {...runtime.error(runtimeState.loadError, () => {void forms.runtime.load();})}/>;
   return <View style={{marginTop: 14}} testID="server-storage-limits">
     <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('server.limitsAndRetention')}</Text>
     {runtimeDraft ? <View style={{marginTop: 10}}>
@@ -70,7 +70,7 @@ export function LimitsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; 
         <Section title={t('server.logsByKind')}/>
         <Group>
           {logsDraft.retention.map(entry => <NumberRow key={entry.category} label={t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)})} value={entry.days} suffix={t('settings.unit.days')}
-            onPress={() => open(t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)}), entry.days, next => forms.logs.set(draft => ({retention: draft.retention.map(row => row.category === entry.category ? {...row, days: Math.max(1, Math.min(90, next))} : row)})))}/>)}
+            onPress={() => open(t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)}), entry.days, next => forms.logs.set(draft => ({retention: draft.retention.map((row: {category: string; days: number}) => row.category === entry.category ? {...row, days: Math.max(1, Math.min(90, next))} : row)})))}/>)}
         </Group>
       </> : null}
     </View> : null}

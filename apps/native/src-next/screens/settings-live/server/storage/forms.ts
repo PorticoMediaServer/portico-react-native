@@ -2,8 +2,8 @@ import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {ConsoleClient} from '../../../../../../../packages/client-core/src/console';
 import {FormSet, type DraftForm, type FormState} from '../../../../../../../packages/client-core/src/server-admin/draft-form';
 import {createServerForm, type ServerFormDeps, type ServerFormId} from '../../../../../../../packages/client-core/src/server-admin/server-forms';
-import {nativeRouteCrypto} from '../../../platform/server-connections';
-import type {NativeSettingsLivePorts} from '../ports';
+import {nativeRouteCrypto} from '../../../../platform/server-connections';
+import type {NativeSettingsLivePorts} from '../../ports';
 
 const operationHex = (): string => [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
