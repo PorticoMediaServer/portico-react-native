@@ -22,20 +22,30 @@ export function RestoredShell() {
   useEffect(() => {
     const abort = new AbortController(); let owned: RestoredNativeShellRuntime | undefined;
     let alive = true;
-    let selection: string | undefined, reads = 0;
+    let selection: string | undefined, reads = 0, fenced = false, restored = false;
     const checkSelection = async () => {
       const read = ++reads;
       try {
         const viewer = await readNativeSelectedViewer();
         if (!alive || abort.signal.aborted || read !== reads) return;
         const key = viewer ? JSON.stringify([viewer.session.viewer.serverId, viewer.session.viewer.accountId, viewer.session.viewer.profileId, viewer.session.sessionFamilyId]) : '';
-        if (selection !== undefined && key !== selection) {abort.abort(); owned?.dispose(); setAttempt(value => value + 1);}
+        if (selection !== undefined && key !== selection) {
+          // A pending restore or a ready runtime must be fenced. Once the entry is settled
+          // and owns sign-in, the new selection is its own publication: its onComplete
+          // starts the restore, so aborting here would unmount it mid-publish.
+          if (!restored || owned) {abort.abort(); owned?.dispose(); setAttempt(value => value + 1);}
+        }
         selection = key;
       } catch (error) {if (alive && !abort.signal.aborted) {owned?.dispose(); setState({phase: 'ended', error});}}
     };
     const unsubscribe = subscribeNativeAppSessions(() => {void checkSelection();});
-    const unsettled = nativeAccounts.onSettled(() => {if (alive) setAttempt(value => value + 1);});
-    const unfence = nativeAccounts.onFence(() => {abort.abort(); if (owned) {owned.dispose(); owned = undefined; setState({phase: 'loading'});}});
+    // A ready shell refreshes when a publication settles. While an entry is publishing
+    // (no owned runtime yet) the entry's own onComplete starts the restore, so a settled
+    // bump here would abort the entry mid-publication and can leave the shell empty.
+    const unsettled = nativeAccounts.onSettled(() => {if (alive && (owned || fenced)) setAttempt(value => value + 1);});
+    // A fence retires the running shell runtime. With no runtime there is nothing to
+    // abandon: the entry that is publishing stays mounted and reports completion itself.
+    const unfence = nativeAccounts.onFence(() => {if (!alive || !owned) return; fenced = true; abort.abort(); owned.dispose(); owned = undefined; setState({phase: 'loading'});});
     void checkSelection();
     const started = Date.now(); setElapsed(0); setState({phase: 'loading'}); setShowAccounts(false);
     void nativeAccounts.snapshot().then(value => {if (alive) setRetained(value.servers.length > 0);}, () => {});
@@ -45,10 +55,10 @@ export function RestoredShell() {
     }, onAuthorityEnded: error => {
       if (alive && !abort.signal.aborted) {owned = undefined; setState({phase: 'ended', error});}
     }}).then(runtime => {
-      clearInterval(clock);
+      clearInterval(clock); restored = true;
       if (!alive || abort.signal.aborted) {runtime?.dispose(); return;}
       owned = runtime; setState({phase: runtime ? 'ready' : 'ended', runtime});
-    }, error => {clearInterval(clock); if (!abort.signal.aborted) setState({phase: 'ended', error});});
+    }, error => {clearInterval(clock); restored = true; if (!abort.signal.aborted) setState({phase: 'ended', error});});
     return () => {alive = false; abort.abort(); unsubscribe(); unfence(); unsettled(); clearInterval(clock); owned?.dispose();};
   }, [attempt]);
   const complete = () => setAttempt(value => value + 1);

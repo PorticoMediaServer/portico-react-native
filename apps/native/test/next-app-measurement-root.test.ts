@@ -28,14 +28,14 @@ for (const dev of [true, false]) test(`actual App root disables collapsing only 
     'react-native-gesture-handler': {GestureHandlerRootView: 'GestureHandlerRootView'},
     'react-native-safe-area-context': {SafeAreaProvider: 'SafeAreaProvider'},
     './kit/theme': {ThemeProvider: 'ThemeProvider', useTheme: () => ({colors: {ink: '#010203'}})},
-    './shell': {NativeShell: leaf}, './shell/RestoredShell': {RestoredShell: leaf},
+    './shell': {NativeShell: leaf}, './shell/RestoredShell': {RestoredShell: leaf}, './shell/settings-mount': {},
     './screens/watch': {registerNativeWatch: (factory: unknown) => {assert.equal(factory, leaf);}, createNativeWatchBindings: leaf},
     './dev/Kit': {KitHost: leaf}, './dev/public-measurement': {NativePublicMeasurementGate: leaf},
     './dev/measurement-install': {installNativePublicMeasurement: () => {throw new Error('root-prop read must not install measurement');}},
   };
-  const registrations = new Set(['./screens/downloads/register', './screens/library/register', './screens/library/OverviewRoute',
-    './screens/destinations/PinsRoute', './screens/read/register', './screens/people/register', './screens/search/register', './screens/home/CustomizeRoute', './screens/home/SeeAllRoute',
-    './screens/settings-live/LiveRoute', './screens/settings-live/TogetherRoute']);
+  const registrations = new Set(['./screens/accounts/AccountRoutes', './screens/downloads/register', './screens/library/register', './screens/library/OverviewRoute',
+    './screens/destinations/PinsRoute', './screens/destinations/music/register', './screens/read/register', './screens/people/register', './screens/search/register', './screens/home/CustomizeRoute', './screens/home/SeeAllRoute',
+    './screens/settings-live/LiveRoute', './screens/settings-live/TogetherRoute', './screens/saved/register']);
   const module = {exports: {} as {default?: (props: object) => Element}};
   compileFunction(code, ['require', 'exports', 'module', '__DEV__'], {filename: file.pathname})((name: string) => {
     if (name.startsWith('@babel/runtime/')) return require(name);

@@ -16,12 +16,15 @@ function backOwner() {
 }
 const shared = (back: ReturnType<typeof backOwner>) => ({
   react: {...React, default: React},
-  'react-native': {BackHandler: back.api, Platform: {isTV: true}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
+  'react-native': {BackHandler: back.api, Platform: {isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
   '../../../../../packages/i18n/src': {defaultI18n},
   '../../../../../packages/client-core/src/route-identity': {routeOrigin},
   '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'PIN refused'})},
   '../../kit/theme': {useTheme: () => theme}, '../../kit/states': {StateLayout: 'Layout'},
-  '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
+  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
+  '../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../kit/Icon': {Icon: 'Icon'},
+  '../../../platform/offline-downloads': {offlineDownloads: {getSnapshot: () => ({entries: []}), remove: async () => {}}, offlineOwnerKey: () => 'owner'},
+  './sign-out-downloads': {removeCapturedDownloads: async () => 0},
   '../../tv/auth': {TVProfilePINForm: 'PIN', TVForgotPINHandoff: 'Forgot', TVFrontDoor: 'Front', TVCodePresenter: 'Code',
     TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required'},
 });
@@ -93,7 +96,7 @@ test('TV profile-switch hand-off preserves its current family, selection control
     '../../platform/profile-selection': {nativeProfileSelection: (server: string, family: string) => {
       assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
       return {select: async (...args: unknown[]) => {attempts.push(args); throw new Error('refused');}, dispose: () => {disposed++;}};
-    }}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, './AccountEntry': {AccountEntry: 'Entry'},
+    }}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, './AccountEntry': {AccountEntry: 'Entry'}, './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
   });
   const context = {session: () => current, current: () => true, serverName: 'Verified server', api: {baseUrl: 'https://verified.example'},
     account: {profiles: [profile]}, authority: () => ({}), navigation: {back: () => {exited++;}}};
