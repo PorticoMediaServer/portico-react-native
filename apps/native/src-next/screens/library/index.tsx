@@ -49,7 +49,7 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
       }
       const page = <LibraryScreen key={id} destination={selected.destination} runtime={runtime} directory={directory} libraries={context.libraries()}
         activation={ports.activation(id)} labels={ports.labels} actions={selected.actions} selection={selected.selection} owner={context.session()?.viewer.role === 'owner'}/>;
-      return tvNaming ? <NativeTVLibrarySurface key={id} library={page} naming={tvNaming} panelId={nativeTVNamingPanelId(runtime.getSnapshot().authority, id)}/> : page;
+      return tvNaming ? <NativeTVLibrarySurface key={id} library={page} naming={tvNaming} panelId={nativeTVNamingPanelId(context.authority(), id)}/> : page;
     },
     dispose() {if (disposed) return; disposed = true; retireSelected(); tvNaming?.dispose(); tvNaming = undefined; directory.dispose();},
   };
