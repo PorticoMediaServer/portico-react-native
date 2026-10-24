@@ -106,7 +106,7 @@ export function NativeOwnerDashboardPhone({controller, ports, runtime}: {control
       title={stopSession ? t('web.nowPlaying.stopTitle', {title: stopSession.title || t('web.nowPlaying.untitled')}) : t('web.nowPlaying.stop')}
       description={stopSession ? t('web.nowPlaying.stopBody', {viewer: sessionViewer(stopSession, t)}) : undefined}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={() => setStopView(undefined)}>{t('action.cancel')}</Button><Button variant="glass" disabled={busy} loading={busy} textStyle={{color: theme.colors.record}} onPress={() => {const view = stopView; if (view) void run(async () => {await reader.stop(view.id, stopMessage(message)); setStopView(undefined);});}}>{t('web.nowPlaying.stopConfirm')}</Button></View>}>
-      <TextField testID="owner-stop-message" label={t('web.nowPlaying.messageLabel')} hint={t('web.nowPlaying.messageHelp')} placeholder={t('web.nowPlaying.messagePlaceholder')} value={message} onChangeText={setMessage} maxLength={STOP_MESSAGE_MAX} multiline/>
+      <TextField testID="owner-stop-message" label={t('web.nowPlaying.messageLabel')} description={t('web.nowPlaying.messageHelp')} placeholder={t('web.nowPlaying.messagePlaceholder')} value={message} onChangeText={setMessage} maxLength={STOP_MESSAGE_MAX} multiline/>
     </BottomSheet>
   </>;
 }

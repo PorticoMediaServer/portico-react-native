@@ -31,7 +31,7 @@ export function OwnerNowPlaying({streams, people, loading, error, onRetry, onSto
     {streams.map((entry, index) => <View key={entry.view.id} style={{marginBottom: 12}}>
       <SessionCard testID={`owner-stream-${entry.view.id}`} title={entry.view.title} identity={entry.view.identity} facts={[...entry.view.facts, ...(entry.view.state ? [entry.view.state] : []), ...(entry.view.position ? [entry.view.position] : [])]}
         viewer={entry.view.viewer} viewerBadge={face(index, entry.view.viewer.username || entry.view.viewer.name)} artwork={entry.artwork} progress={entry.view.progress} paused={entry.view.paused}
-        onStop={() => onStop(entry.view)} onMore={() => onMenu(entry.view)} accessibilityLabel={`${entry.view.title}, ${entry.view.viewer.username || entry.view.viewer.name}, ${entry.view.viewer.device}`} menuVisibility="always"/>
+        primaryAction="play" onPlay={() => onMenu(entry.view)} onStop={() => onStop(entry.view)} onMore={() => onMenu(entry.view)} accessibilityLabel={`${entry.view.title}, ${entry.view.viewer.username || entry.view.viewer.name}, ${entry.view.viewer.device}`} menuVisibility="always"/>
     </View>)}
   </OwnerSection>;
 }
