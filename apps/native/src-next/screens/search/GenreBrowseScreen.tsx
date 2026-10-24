@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {browseNameId} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
@@ -9,7 +10,7 @@ import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {FiltersButton, type BrowseLabels} from '../../kit/browse';
 import {Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
-import {WindowedGrid, type WindowedGridHandle} from '../../kit/layout';
+import {WindowedGrid, type WindowedGridHandle, type LayoutItemContext} from '../../kit/layout';
 import {GridSkeleton, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -69,6 +70,7 @@ function GenreGrid({destination, runtime, actions, openFilters, filtersOpen}: Re
 }>) {
   const theme = useTheme(), dimensions = useWindowDimensions(), source = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const collection = source.collection!, state = useSyncExternalStore(collection.subscribe, collection.getSnapshot), grid = useRef<WindowedGridHandle>(null);
+  useSyncExternalStore(actions.menuState.subscribe, actions.menuState.getSnapshot);
   const model = useMemo(() => browseToolbarModel(source.capabilities!, source.capabilities!.library.kind, source.predicates, source.sort!, {...runtime.text, textEntry: true, owner: false}),
     [runtime.text, source.capabilities, source.predicates, source.sort]);
   const [first, setFirst] = useState(destination.getMemory().firstVisibleIndex), offset = useRef(destination.getMemory().offset);
@@ -96,7 +98,17 @@ function GenreGrid({destination, runtime, actions, openFilters, filtersOpen}: Re
       onVisibleRange={start => {setFirst(start); destination.remember(start, offset.current);}}
       onScrollOffset={value => {offset.current = value; destination.remember(first, value);}}
       renderPlaceholder={index => <View key={index} style={{width, height: width * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
-      renderItem={(entry, context) => <PosterCard testID={`genre-card-${context.id}`} focusId={context.id} onFocus={context.onFocus} onBlur={context.onBlur} title={entry.displayTitle || entry.title} density="grid" width={width} artwork={runtime.artwork(entry.posterUrl)}
-        caption={homeCardText(entry, false, runtime.text).caption} onNavigate={() => actions.open(entry)} onPlay={entry.playback ? () => actions.play(entry) : undefined}/>}/>
+      renderItem={(entry, context) => <GenreCard entry={entry} context={context} width={width} runtime={runtime} actions={actions}/>}/>
+
   </>;
+}
+
+function GenreCard({entry, context, width, runtime, actions}: Readonly<{
+  entry: ContentEntry; context: LayoutItemContext; width: number; runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>;
+}>) {
+  const anchor = useRef<View>(null);
+  return <PosterCard testID={`genre-card-${context.id}`} focusId={context.id} onFocus={context.onFocus} onBlur={context.onBlur}
+    title={entry.displayTitle || entry.title} density="grid" width={width} artwork={runtime.artwork(entry.posterUrl)}
+    caption={homeCardText(entry, false, runtime.text).caption} onNavigate={() => actions.open(entry)} onPlay={entry.playback ? () => actions.play(entry) : undefined}
+    menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen(entry)} onMore={() => actions.menu(entry, anchor)}/>;
 }
