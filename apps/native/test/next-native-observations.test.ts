@@ -48,6 +48,50 @@ test('malformed native facts do not become paint, identity, focus or raw errors'
   assert.deepEqual(result.hosts[2].facts.fontFamily, {unavailable: 'font-family-unavailable'});
 });
 
+test('optional native paint facts keep signed spacing, exact enums and explicit unsupported transforms', async () => {
+  for (const letterSpacing of [-3.96, -0, 0, 1.5]) {
+    const result = await requestNativeObservations(request(response({fontStyle: native('italic'), letterSpacing: native(letterSpacing),
+      textDecorationLine: native('underline line-through'), textShadow: native('none'), textTransform: native('uppercase'),
+      imageHasImage: native(false), imageScaleType: native('center-crop')})));
+    const facts = result.hosts[2].facts;
+    assert.deepEqual(facts.fontStyle, native('italic'));
+    assert.ok('value' in facts.letterSpacing && Object.is(facts.letterSpacing.value, letterSpacing));
+    assert.deepEqual(facts.textDecorationLine, native('underline line-through'));
+    assert.deepEqual(facts.textShadow, native('none'));
+    assert.deepEqual(facts.textTransform, {unavailable: 'paint-unprovable'});
+    assert.deepEqual(facts.imageHasImage, native(false));
+    assert.deepEqual(facts.imageScaleType, native('center-crop'));
+  }
+});
+
+test('native mechanism facts never accept custom strings, active shadows, getters or image completion guesses', async () => {
+  let reads = 0;
+  const result = await requestNativeObservations(request(response({fontStyle: native('oblique'), letterSpacing: native(Infinity),
+    textDecorationLine: native('line-through underline'), textShadow: native('0px 1px 2px rgba(0, 0, 0, 1)'),
+    imageHasImage: native('true'), imageScaleType: native('custom(0.5)'),
+    get imageLoaded() {reads++; throw new Error('unapproved image state was read');}})));
+  for (const property of ['fontStyle', 'letterSpacing', 'textDecorationLine', 'textShadow', 'imageHasImage', 'imageScaleType'] as const) {
+    assert.deepEqual(result.hosts[2].facts[property], {unavailable: 'invalid-native-fact'});
+  }
+  assert.equal(reads, 0);
+  for (const reason of ['not-image', 'image-state-unavailable', 'unsupported-image-scale']) {
+    const decoded = await requestNativeObservations(request(response({imageHasImage: {unavailable: reason}})));
+    assert.deepEqual(decoded.hosts[2].facts.imageHasImage, {unavailable: reason});
+  }
+});
+
+test('all agreed image scale and decoration mechanisms remain bounded internal facts', async () => {
+  for (const imageScaleType of ['fit-xy', 'fit-x', 'fit-y', 'fit-start', 'fit-center', 'fit-end', 'center',
+    'center-inside', 'center-crop', 'focus-crop', 'fit-bottom-start', 'matrix']) {
+    const decoded = await requestNativeObservations(request(response({imageScaleType: native(imageScaleType)})));
+    assert.deepEqual(decoded.hosts[2].facts.imageScaleType, native(imageScaleType));
+  }
+  for (const textDecorationLine of ['none', 'underline', 'line-through', 'underline line-through']) {
+    const decoded = await requestNativeObservations(request(response({textDecorationLine: native(textDecorationLine)})));
+    assert.deepEqual(decoded.hosts[2].facts.textDecorationLine, native(textDecorationLine));
+  }
+});
+
 test('foreign roots, units, duplicate rows or unrequested hosts reject the whole observation', async () => {
   for (const raw of [{...response(), rootReactTag: 99}, {...response(), fixtureReactTag: 99}, {...response(), unit: 'px'},
     {...response(), hosts: [{reactTag: 99, facts: {}}]}, {...response(), hosts: [{reactTag: 13, facts: {}}, {reactTag: 13, facts: {}}]}]) {
@@ -274,6 +318,22 @@ test('the physical source policy preserves disagreeing Fabric diagnostics and na
   assert.equal(measured.diagnostics.nativeCoordinates.publicRootReadback?.rect.y, 0);
   assert.deepEqual((title.diagnostics as {publicMeasurement: unknown}).publicMeasurement,
     {api: 'bounding-client-rect', rect: {x: 10, y: 44, width: 100, height: 30}});
+});
+
+test('observed text styles normalize without exposing internal image presence as loaded or fit', async () => {
+  const {options, payload} = scene();
+  for (const row of payload.hosts) Object.assign(row.facts, {fontStyle: native('italic'), letterSpacing: native(-2.5),
+    textDecorationLine: native('underline'), textShadow: native('none'), textTransform: native('uppercase'),
+    imageHasImage: native(true), imageScaleType: native('fit-center')});
+  const measured = await collectNativeScreen(options);
+  const title = measured.elements.find(element => element.tag === 'RN:Text')!;
+  assert.equal((title.style as Record<string, string>).fontStyle, 'italic');
+  assert.equal((title.style as Record<string, string>).letterSpacing, '-2.5px');
+  assert.equal((title.style as Record<string, string>).textDecorationLine, 'underline');
+  assert.equal((title.style as Record<string, string>).textShadow, 'none');
+  assert.equal((title.style as Record<string, string>).textTransform, undefined);
+  assert.equal(JSON.stringify(measured).includes('imageHasImage'), false);
+  assert.equal(JSON.stringify(measured).includes('fit-center'), false);
 });
 
 test('native scope is the registered welcome root, and unmount during the UI turn discards the whole capture', async () => {

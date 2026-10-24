@@ -207,11 +207,14 @@ test('an attached image box does not imply loaded pixels or a fit mode', async (
     Object.defineProperty(image, key, {get() {throw new Error('Image internals were read.');}});
   }
   registry.register(image, {kind: 'image'});
+  setNativeObservation(image, {imageHasImage: true, imageScaleType: 'fit-center'});
   const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844}, [image]);
   const measured = await collectTestScene({root, registry, platform: 'android', viewport: {width: 390, height: 844, deviceScaleFactor: 3}});
   const record = measured.elements.find(element => element.tag === 'RN:Image')!;
   assert.deepEqual(record.box, {x: 20, y: 30, width: 100, height: 24});
   assert.deepEqual(record.image, {kind: 'image'});
+  assert.equal(JSON.stringify(measured).includes('imageHasImage'), false);
+  assert.equal(JSON.stringify(measured).includes('fit-center'), false);
   for (const property of ['image.loaded', 'image.fit']) {
     assert.ok(measured.unavailable.some(fact => fact.element === record.id && fact.property === property));
   }

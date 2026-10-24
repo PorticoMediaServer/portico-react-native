@@ -88,6 +88,12 @@ For a pre/post-observation scope rejection only, an optional
 predicate. Exceptions and all other stages cannot carry it; no predicate values,
 view IDs, tree details or native error text are exported.
 Native paint does not fall back to diagnostic styles or stale registered paint.
+Optional native text styles are accepted only as bounded observed paint facts:
+normal/italic, signed logical letter spacing, the four decoration combinations,
+and an actually proved absent text shadow. Text transform remains unavailable.
+Image presence and scale-type mechanisms remain internal; a retained/intermediate
+drawable is not current-request decode completion and does not supply canonical
+image loaded/fit fields or new diagnostic fields.
 Unassociated family labels remain unavailable; they never become a requested CSS
 family chain or an observed typographic identity.
 The checked canonical identity field is `style.resolvedFontFamily`, supplied only

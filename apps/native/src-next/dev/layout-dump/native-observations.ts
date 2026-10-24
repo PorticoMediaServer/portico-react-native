@@ -3,8 +3,12 @@ export const nativeObservationProperties = [
   'isFocused', 'effectiveOpacity', 'backgroundColor', 'effectiveBackgroundColor',
   'borderRadius', 'boxShadow', 'textColor', 'fontFamily', 'fontSize', 'fontWeight',
   'lineHeight', 'textLineRects', 'windowRect',
+  'fontStyle', 'letterSpacing', 'textDecorationLine', 'textShadow', 'textTransform', 'imageHasImage', 'imageScaleType',
 ] as const;
 export type NativeObservationProperty = typeof nativeObservationProperties[number];
+export const nativeImageScaleTypes = ['fit-xy', 'fit-x', 'fit-y', 'fit-start', 'fit-center', 'fit-end', 'center',
+  'center-inside', 'center-crop', 'focus-crop', 'fit-bottom-start', 'matrix'] as const;
+export type NativeImageScaleType = typeof nativeImageScaleTypes[number];
 export type NativeObservedRect = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativeObservationValue = boolean | number | string | NativeObservedRect | readonly NativeObservedRect[];
 export type NativeObservationFact = Readonly<{value: NativeObservationValue; source: string}> | Readonly<{unavailable: string}>;
@@ -53,6 +57,7 @@ const reasons = new Set([
   'input-opaque', 'not-text', 'paint-unprovable', 'font-family-unavailable',
   'unsupported-background', 'unsupported-outline', 'unsupported-shadow',
   'unsupported-transform', 'unsupported-text-layout', 'root-changed',
+  'not-image', 'image-state-unavailable', 'unsupported-image-scale',
 ]);
 const unavailable = (reason: string): NativeObservationFact => Object.freeze({unavailable: reason});
 const assetLike = /url\s*\(|(?:https?|file|data|content|asset|blob):|[\\/]|\.(?:png|jpe?g|webp|svg|ttf|otf|woff2?)(?:[?#]|$)/i;
@@ -86,12 +91,22 @@ function fact(property: NativeObservationProperty, raw: unknown): NativeObservat
   if (typeof source !== 'string' || !/^android\.[A-Za-z0-9_.+\-]{1,150}$/.test(source)) return unavailable('invalid-native-fact');
   let accepted: NativeObservationValue | undefined;
   switch (property) {
-    case 'isFocused': if (typeof value === 'boolean') accepted = value; break;
+    case 'isFocused': case 'imageHasImage': if (typeof value === 'boolean') accepted = value; break;
     case 'effectiveOpacity': if (finite(value) && value >= 0 && value <= 1) accepted = value; break;
     case 'backgroundColor': case 'effectiveBackgroundColor': case 'textColor': if (rgba(value)) accepted = value; break;
     // A raw system label is not associated typographic-name metadata. The
     // checked native implementation currently withholds every family fact.
     case 'fontFamily': return unavailable('font-family-unavailable');
+    case 'textTransform': return unavailable('paint-unprovable');
+    case 'fontStyle': if (value === 'normal' || value === 'italic') accepted = value; break;
+    case 'letterSpacing': if (finite(value)) accepted = value; break;
+    case 'textDecorationLine':
+      if (value === 'none' || value === 'underline' || value === 'line-through' || value === 'underline line-through') accepted = value;
+      break;
+    case 'textShadow': if (value === 'none') accepted = value; break;
+    case 'imageScaleType':
+      if (typeof value === 'string' && nativeImageScaleTypes.some(scale => scale === value)) accepted = value;
+      break;
     case 'fontSize': case 'lineHeight': if (finite(value) && value > 0) accepted = value; break;
     case 'fontWeight': if (finite(value) && Number.isInteger(value) && value >= 1 && value <= 1000) accepted = value; break;
     case 'borderRadius': if (finite(value) && value >= 0) accepted = value; break;

@@ -1,5 +1,5 @@
 import {NativeObservationError, requestNativeObservations, type NativeHostFacts, type NativeObservationBridge,
-  type NativeObservationProperty, type NativeObservedRect} from './native-observations.ts';
+  nativeImageScaleTypes, type NativeImageScaleType, type NativeObservationProperty, type NativeObservedRect} from './native-observations.ts';
 
 export type NativeObservedHost = Readonly<{
   style: Readonly<Record<string, string>>;
@@ -10,6 +10,9 @@ export type NativeObservedHost = Readonly<{
   textRectsSource?: string;
   windowRect?: NativeObservedRect;
   windowRectSource?: string;
+  /** Native renderer mechanisms only; neither implies canonical loaded/fit. */
+  imageHasImage?: boolean;
+  imageScaleType?: NativeImageScaleType;
   unavailable: Readonly<Record<string, string>>;
 }>;
 export type NativeTreeObservationRequest = Readonly<{
@@ -26,18 +29,21 @@ function normalized(facts: NativeHostFacts): NativeObservedHost {
     missing[property] = `Native ${property} unavailable: ${fact.unavailable}`;
     return undefined;
   };
-  for (const [native, canonical] of [['backgroundColor', 'backgroundColor'], ['textColor', 'color'], ['boxShadow', 'boxShadow']] as const) {
+  for (const [native, canonical] of [['backgroundColor', 'backgroundColor'], ['textColor', 'color'], ['boxShadow', 'boxShadow'],
+    ['fontStyle', 'fontStyle'], ['textDecorationLine', 'textDecorationLine'], ['textShadow', 'textShadow']] as const) {
     const observed = value(native); if (typeof observed === 'string') style[canonical] = observed;
   }
-  for (const property of ['fontSize', 'lineHeight', 'borderRadius'] as const) {
+  for (const property of ['fontSize', 'lineHeight', 'borderRadius', 'letterSpacing'] as const) {
     const observed = value(property); if (typeof observed === 'number') style[property] = `${observed}px`;
   }
   const weight = value('fontWeight'); if (typeof weight === 'number') style.fontWeight = String(weight);
   // Never promote a requested CSS chain or unassociated native system label.
   value('fontFamily');
+  value('textTransform');
   if (missing.fontFamily) {missing.resolvedFontFamily = missing.fontFamily; delete missing.fontFamily;}
   const focus = value('isFocused'), opacity = value('effectiveOpacity'), background = value('effectiveBackgroundColor');
   const lines = value('textLineRects'), window = value('windowRect');
+  const imagePresent = value('imageHasImage'), imageScale = value('imageScaleType');
   return Object.freeze({style: Object.freeze(style),
     ...(typeof focus === 'boolean' ? {focused: focus} : {}),
     ...(typeof opacity === 'number' ? {effectiveOpacity: opacity} : {}),
@@ -46,6 +52,9 @@ function normalized(facts: NativeHostFacts): NativeObservedHost {
       textRectsSource: 'source' in facts.textLineRects ? facts.textLineRects.source : undefined} : {}),
     ...(window && typeof window === 'object' && !Array.isArray(window) ? {windowRect: window as NativeObservedRect,
       windowRectSource: 'source' in facts.windowRect ? facts.windowRect.source : undefined} : {}),
+    ...(typeof imagePresent === 'boolean' ? {imageHasImage: imagePresent} : {}),
+    ...(typeof imageScale === 'string' && nativeImageScaleTypes.some(scale => scale === imageScale)
+      ? {imageScaleType: imageScale as NativeImageScaleType} : {}),
     unavailable: Object.freeze(missing)});
 }
 const absent = (reason: string): NativeObservedHost => Object.freeze({style: Object.freeze({}),
