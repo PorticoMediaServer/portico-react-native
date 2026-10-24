@@ -35,7 +35,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'},
     '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {}, '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => motion},
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': focusModel, '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './model': shellModel,
-    './PhoneTabBar': {}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
+    './PhoneTabBar': {}, './MediumRail': {MediumRail: 'MediumRail'}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
     './NativePlaybackLayer': {}, './DesktopHeader': {},
   });
   const frames = new Map<number, FrameRequestCallback>(); let sequence = 0;

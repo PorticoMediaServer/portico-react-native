@@ -23,7 +23,7 @@ test('the real shell mounts one persistent player and a separate box-none watch 
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'},
     '../kit/shell': {}, '../kit/browse': {}, '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => ({transforms: false, timing: () => ({duration: 0})})},
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': focus, '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './model': model,
-    './PhoneTabBar': {}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
+    './PhoneTabBar': {}, './MediumRail': {MediumRail: 'MediumRail'}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
     './NativePlaybackLayer': {NativePlaybackLayer: 'PersistentPlaybackLayer'}, './DesktopHeader': {},
   });
   const rootHost = createHookHost(() => {root = NativeShell({runtime});});

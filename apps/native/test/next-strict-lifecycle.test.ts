@@ -257,7 +257,7 @@ async function shellSession(state: ReturnType<typeof lifecycle>, runtime: Native
     '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}})}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': {tvFocusIds, sameDestination},
     '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'}, '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {},
-    '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'},
+    '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'}, './MediumRail': {MediumRail: 'MediumRail'},
     './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './TVRail': {}, './TVProfileMenu': {}, './NativePlaybackLayer': {}, './DesktopHeader': {},
   });
   const shell = mount(NativeShell, {runtime});
