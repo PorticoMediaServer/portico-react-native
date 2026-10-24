@@ -230,6 +230,12 @@ export class NativePlaybackRuntime {
     this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.publish(); }));
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
     this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
+    this.offs.push(this.choices.subscribe(() => {
+      // Source binding resets these choices while changed() is still selecting
+      // the next source. That path applies once after the new source is ready.
+      if (this.updating || this.transitionEpoch !== undefined || !this.active()) return;
+      this.applyOptions(); this.publish();
+    }));
     this.offs.push(this.o.api.subscribeRoute(() => this.routeChanged()));
     this.offs.push(this.o.events.on('session.updated', event => { if (this.active() && event.resource?.kind === 'session') this.path.transport.sessionUpdated(event.resource.id, event.revision, event.data); }));
     this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
@@ -908,7 +914,14 @@ export class NativePlaybackRuntime {
     this.path.setRate(rate);
     const session = this.currentSession(), plan = this.subtitleService?.getSnapshot().plan;
     this.path.setTracks(session?.presentation.audioTrackId, session?.presentation.subtitle?.trackId ?? null);
-    const style = captionStyle(this.choices.get('subtitleSize', fence.playback, settings.subtitleSize), this.choices.get('subtitleBackground', fence.playback, settings.subtitleBackground));
+    const style = captionStyle({
+      ...settings.subtitles,
+      size: this.choices.get('subtitleSize', fence.playback, settings.subtitles.size),
+      // The existing player offers three box overrides. Outline/shadow remain
+      // genuine profile choices; do not narrow them to that older choice set.
+      background: this.choices.has('subtitleBackground', fence.playback)
+        ? this.choices.get('subtitleBackground', fence.playback, 'none') : settings.subtitles.background,
+    });
     const binding = {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation};
     let subtitles: Record<string, unknown> | null = null;
     const visible = this.displaySubtitles && this.expanded;

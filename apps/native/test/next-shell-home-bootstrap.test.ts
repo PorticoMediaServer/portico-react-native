@@ -30,9 +30,11 @@ function deferred<T>() {
 function preferenceData(deviceClass: DeviceClass, speed: number) {
   const effective = {'playback.defaultSpeed': speed, 'audiobooks.defaultSpeed': 1.65, 'playback.skipBackMs': 13_000,
     'playback.introSkip': 'ask', 'playback.recapSkip': 'auto', 'playback.creditsSkip': 'off',
-    'playback.subtitleSize': 'large', 'playback.subtitleBackground': 'translucent'};
+    'playback.subtitleSize': 'large', 'playback.subtitleBackground': 'translucent',
+    'playback.subtitleColor': 'white', 'playback.subtitlePosition': 'bottom', 'playback.subtitleFont': 'default',
+    'playback.keepSubtitleStyling': true, 'playback.useSystemCaptionStyle': false};
   return {deviceClass, registryRevision: 'preferences-actual-test', registry: {revision: 'preferences-actual-test',
-    fields: Object.entries(effective).map(([key, value]) => ({key, type: typeof value === 'number' ? 'number' : 'string',
+    fields: Object.entries(effective).map(([key, value]) => ({key, type: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'string',
       default: key === 'playback.defaultSpeed' ? 1 : value, group: key.split('.')[0], labelKey: 'preferences.' + key, scopes: ['profile-server', 'profile-device-class']}))},
     documents: ['profile-server', 'profile-device-class'].map(scope => ({scope, revision: 2, activeRevision: 2, digest: 'd'.repeat(64), values: scope === 'profile-device-class' ? effective : {}})),
     effective, effectiveSource: Object.fromEntries(Object.keys(effective).map(key => [key, 'profile-device-class'])), clampedFields: []};
