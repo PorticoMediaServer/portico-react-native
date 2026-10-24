@@ -16,7 +16,7 @@ function backOwner() {
 }
 const shared = (back: ReturnType<typeof backOwner>) => ({
   react: {...React, default: React},
-  'react-native': {BackHandler: back.api, Platform: {isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
+  'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
   '../../../../../packages/i18n/src': {defaultI18n},
   '../../../../../packages/client-core/src/route-identity': {routeOrigin},
   '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'PIN refused'})},
