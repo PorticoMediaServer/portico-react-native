@@ -1360,6 +1360,7 @@ internal class PorticoMpvController(private val context: Context) {
     captionStyle = style
     val render = PorticoMpvSupport.map(scoped(command?.get("subtitles"))?.get("render"))
     core?.set("sub-ass-override", PorticoMpvSupport.captionAssOverride(style, render?.get("kind")))
+    core?.set("sub-align-y", if (PorticoMpvSupport.captionAtTop(style, false)) "top" else "bottom")
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
     // Plain/stripped text uses the same canonical/system colour as the cue view.
     // An ASS track retaining its file style ignores these fallback properties
