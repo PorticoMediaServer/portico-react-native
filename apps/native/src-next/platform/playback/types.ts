@@ -10,7 +10,7 @@ import type {CapabilityOverrides} from '../../../../../packages/client-core/src/
 import type {DockState, DockTransition, PlaybackDock, PlaybackFence} from '../../../../../packages/player-core/src';
 import type {SkipMode} from '../../../../../packages/player-core/src';
 import type {EngineFeatures, EngineKind, EngineSetting} from './engine-choice';
-import type {EngineSelection, NativePlaybackTransport} from './NativePlaybackCoordinator';
+import type {EngineSelection, NativeBinding, NativePlaybackTransport} from './NativePlaybackCoordinator';
 import type {NativeListeningV1Control} from '../../../../../packages/client-core/src/playback/native-listening';
 import type {Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-core/src/home-selection/types';
@@ -57,6 +57,8 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: NativePlaybackCapabilities; engine: EngineKind; lease: string;
   effectiveRate: number; supportedRates: readonly number[];
+  /** Actual native external source readiness. Absent=unknown; null=unready. Not PiP support. */
+  externalPresentationBinding?: NativeBinding | null;
   retired: boolean;
 }>;
 

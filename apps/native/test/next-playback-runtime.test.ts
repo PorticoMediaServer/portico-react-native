@@ -257,6 +257,30 @@ test('a start creates the actual queue and session and commands the native port 
   } finally { d.runtime.dispose(); }
 });
 
+test('only an accepted current native fact publishes external readiness and old binaries remain unknown', async () => {
+  const d = fixture();
+  try {
+    await d.start('movie-1');
+    assert.equal(d.runtime.getSnapshot().externalPresentationBinding, undefined);
+    const binding = {...d.engine.lastCommand.binding};
+    d.engine.emit('progress', {externalPresentationBinding: binding});
+    assert.deepEqual(d.runtime.getSnapshot().externalPresentationBinding, binding);
+    assert.ok(Object.isFrozen(d.runtime.getSnapshot().externalPresentationBinding));
+    d.engine.emit('progress', {externalPresentationBinding: {...binding, generation: binding.generation + 1}});
+    assert.equal(d.runtime.getSnapshot().externalPresentationBinding, null);
+    d.engine.emit('progress', {externalPresentationBinding: binding});
+    assert.deepEqual(d.runtime.getSnapshot().externalPresentationBinding, binding);
+    d.engine.emit('progress', {externalPresentationBinding: null});
+    assert.equal(d.runtime.getSnapshot().externalPresentationBinding, null);
+    d.engine.emit('progress');
+    assert.equal(d.runtime.getSnapshot().externalPresentationBinding, undefined);
+    await d.start('movie-2');
+    d.engine.emit('progress', {externalPresentationBinding: binding});
+    assert.equal(d.runtime.getSnapshot().externalPresentationBinding, null, 'the old presentation never grants readiness to a replacement');
+    d.changeAuthority(); assert.equal(d.runtime.getSnapshot().externalPresentationBinding, undefined);
+  } finally {d.runtime.dispose();}
+});
+
 test('pause, resume and a correlated seek change real engine commands, while stale fences do nothing', async () => {
   const d = fixture();
   try {

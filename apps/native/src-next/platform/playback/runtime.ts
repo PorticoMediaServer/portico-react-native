@@ -24,7 +24,8 @@ import {SubtitleService} from '../../../../../packages/client-core/src/subtitles
 import type {PlaybackSubject, CardSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
 import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker} from '../../../../../packages/player-core/src';
-import {NativePlaybackCoordinator} from './NativePlaybackCoordinator';
+import {NativePlaybackCoordinator, type NativeBinding} from './NativePlaybackCoordinator';
+import {nativeExternalPresentationBinding, sameNativePresentation} from './external-presentation';
 import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
 import {captionStyle} from './caption-style';
@@ -93,6 +94,7 @@ export class NativePlaybackRuntime {
   private subtitleService?: SubtitleService;
   private subtitleOff?: () => void;
   private subtitleFileController?: AbortController;
+  private externalPresentationBinding?: NativeBinding | null;
   private fonts?: SubtitleFonts | 'pending';
   private fontsKey?: string;
   private detail?: SourceDetail;
@@ -218,8 +220,9 @@ export class NativePlaybackRuntime {
   private routeChanged(): void {
     if (!this.active()) return;
     const route = this.o.api.getRouteSnapshot();
-    if (route && route.phase !== 'ready') this.cancelSnapshot();
+    if (route && route.phase !== 'ready') {this.cancelSnapshot(); this.externalPresentationBinding = null;}
     this.coordinator.setConnection(!route || route.phase === 'ready');
+    if (route && route.phase !== 'ready') this.publish();
   }
   refreshAuthority = async (): Promise<void> => {
     if (!this.active()) return;
@@ -713,6 +716,7 @@ export class NativePlaybackRuntime {
   }
   private selectSource(key: string): void {
     this.cancelSnapshot();
+    this.externalPresentationBinding = undefined;
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
     this.sourceController?.abort();
     this.subtitleOff?.(); this.subtitleOff = undefined;
@@ -826,9 +830,15 @@ export class NativePlaybackRuntime {
     const currentIndex = fence?.kind === 'queue' ? view?.items.findIndex(item => item.entryId === fence.entryId) ?? -1 : -1;
     const ready = !!fence && !this.retired && (playback.phase === 'ready' || playback.phase === 'starting');
     const session = this.currentSession();
+    const nativeBinding = this.coordinator.getBinding(), acknowledgement = this.externalPresentationBinding;
+    const externalPresentationBinding = acknowledgement === undefined ? undefined : acknowledgement && fence && !this.retired
+      && !playback.pendingSeek && !playback.failedSeek && playback.phase !== 'error' && nativeBinding
+      && sameNativePresentation(acknowledgement, nativeBinding) && acknowledgement.intentId === playback.intentId
+      && acknowledgement.sessionId === fence.sessionId && acknowledgement.generation === fence.generation
+      && acknowledgement.itemId === playback.itemId ? acknowledgement : null;
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
-      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, retired: this.retired,
+      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding, retired: this.retired,
       capabilities: Object.freeze({play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
@@ -857,6 +867,7 @@ export class NativePlaybackRuntime {
     }
   }
   private applyFact(fact: any): void {
+    this.externalPresentationBinding = nativeExternalPresentationBinding(fact, this.coordinator.getBinding());
     this.path.engineFact(fact);
     const before = this.playback.getSnapshot();
     if (typeof fact.effectiveRate === 'number') this.effectiveRate = fact.effectiveRate;
