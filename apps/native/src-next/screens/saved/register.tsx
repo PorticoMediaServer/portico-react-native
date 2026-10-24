@@ -1,4 +1,4 @@
-import React, {useSyncExternalStore} from 'react';
+import React, {useMemo, useSyncExternalStore} from 'react';
 import {Platform, View, useWindowDimensions} from 'react-native';
 import type {MessageId} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src/index';
@@ -85,7 +85,7 @@ function SavedRouteHost({entry, runtime, libraries, open, back}: {
   open: (route: Parameters<typeof openNativeSavedView>[1]) => void; back: () => void;
 }) {
   const active = useSyncExternalStore(entry.view.activation.subscribe, entry.view.activation.getSnapshot);
-  const route = nativeSavedRouteTarget(entry.route);
+  const route = useMemo(() => nativeSavedRouteTarget(entry.route), [entry.route]);
   const common = {destination: entry.view.source, activation: entry.view.activation, runtime};
   const body = route.view === 'playlists' || route.view === 'collections' || route.view === 'views'
     ? <SavedDirectoryScreen {...common} route={route as NativeSavedDirectoryRoute} actions={entry.view.actions} libraries={libraries} back={back} open={open}/>
