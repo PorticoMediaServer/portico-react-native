@@ -15,7 +15,7 @@ import {StateView} from '../kit/states';
 import {OwnerTag} from '../kit/shell';
 import {HomeSelectionBars} from './HomeSelectionBars';
 import {HomeSelectionOverlays} from './HomeSelectionOverlays';
-import {nativeAccountMenu} from './account';
+import {nativeAccountMenu, nativeMenuRouteAvailable} from './account';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeRailDestination, titleRoute, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
@@ -239,7 +239,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   const render = (route: NativeShellRoute) => runtime && context.current() ? routes.render(route, runtime) : null;
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
-  return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV);}, attach: value => {runtime = value;},
+  return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
       railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
