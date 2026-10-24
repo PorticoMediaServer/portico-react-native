@@ -33,7 +33,9 @@ test('a real screen-owned Library destination is remembered and a late initial r
   const page = createHookHost(() => {tree = session.type({runtime, snapshot});});
   try {
     await act(() => page.mount());
-    await act(() => {snapshot = {...snapshot, destination: {kind: 'library', libraryId: 'new'}}; page.rerender();});
+    await act(() => {snapshot = {...snapshot, contentVisible: false}; page.rerender();});
+    assert.equal(nodes(tree).some(node => node.type === 'PhoneTabBar'), false, 'a full-screen account route draws no tab bar underneath');
+    await act(() => {snapshot = {...snapshot, contentVisible: true, destination: {kind: 'library', libraryId: 'new'}}; page.rerender();});
     assert.deepEqual(writes, ['new']);
     await act(() => {snapshot = {...snapshot, destination: {kind: 'home'}}; page.rerender(); finish('old');});
     await act(() => nodes(tree).find(node => node.type === 'PhoneTabBar').props.onSelect('libraries'));
