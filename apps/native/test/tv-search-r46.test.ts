@@ -157,8 +157,10 @@ test('the drawn empty page is states.html#f18 and its genre tiles keep the drawn
   const browse = style(textNode(tree, defaultI18n.t('next.search.browseInstead'))!.props.style);
   assert.deepEqual(browse, {...browseType(theme, 32, 700, -.019), color: colors.text, marginBottom: 22});
   // states.html#f18's .sres ends at --safe-r, so its two drawn columns are (1140 - 96 - 26) / 2 and keep the producer's order.
-  console.log('TVSEARCH-TILES ' + JSON.stringify({texts: textOf(tree).slice(0, 20), focusable: elements(tree).filter(node => node.type === 'Focusable').length,
-    ids: elements(tree).map(node => node.props.testID).filter((id: unknown) => typeof id === 'string' && id.includes('genre'))}));
+  console.log('TVSEARCH-TILES ' + JSON.stringify({texts: textOf(tree).slice(0, 20),
+    funcs: elements(tree).filter(node => typeof node.type === 'function').map(node => node.type.name),
+    genreExport: typeof TVSearchGenre,
+    sameName: elements(tree).filter(node => typeof node.type === 'function' && node.type.name === 'TVSearchGenre').length}));
   const tiles = elements(tree).filter(node => node.type === 'TVSearchGenre');
   assert.deepEqual(tiles.map(node => node.props.genre.id), ['Crime', 'Drama', 'Adventure', 'Animation']);
   assert.deepEqual(tiles.map(node => node.props.width), [509, 509, 509, 509]);
