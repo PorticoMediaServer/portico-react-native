@@ -29,6 +29,7 @@ import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
 import {captionStyle} from './caption-style';
 import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
+import {uploadPickedSubtitle} from './subtitle-file-upload';
 import {deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
 import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
@@ -91,6 +92,7 @@ export class NativePlaybackRuntime {
   private sourceKey = '';
   private subtitleService?: SubtitleService;
   private subtitleOff?: () => void;
+  private subtitleFileController?: AbortController;
   private fonts?: SubtitleFonts | 'pending';
   private fontsKey?: string;
   private detail?: SourceDetail;
@@ -944,7 +946,26 @@ export class NativePlaybackRuntime {
     const service = this.subtitleService, epoch = this.sourceEpoch, key = this.sourceKey;
     const plan = service?.getSnapshot().plan;
     if (!service || !plan || fence.kind !== 'queue' || !this.matches(fence) || plan.sessionId !== fence.sessionId || plan.generation !== fence.generation) return undefined;
-    return boundSubtitleControls(service, () => this.matches(fence) && this.subtitleService === service && this.sourceEpoch === epoch && this.sourceKey === key);
+    const current = () => this.matches(fence) && this.subtitleService === service && this.sourceEpoch === epoch && this.sourceKey === key
+      && service.getSnapshot().plan?.sourceId === plan.sourceId;
+    const picker = this.o.subtitleFilePicker, sourceSignal = this.sourceController?.signal;
+    return boundSubtitleControls(service, current, picker && sourceSignal ? async (metadata, caller) => {
+      if (!current()) return false;
+      this.subtitleFileController?.abort();
+      const controller = new AbortController(); this.subtitleFileController = controller;
+      const abort = () => controller.abort();
+      sourceSignal.addEventListener('abort', abort, {once: true});
+      if (sourceSignal.aborted) controller.abort();
+      try {
+        return await uploadPickedSubtitle(picker, async (input, lifetime) => {
+          await service.save(input, undefined, lifetime);
+          if (service.getSnapshot().error) throw new Error(serviceText('player.subtitles.changeFailed'));
+        }, {signal: controller.signal, isCurrent: current}, caller, metadata);
+      } finally {
+        sourceSignal.removeEventListener('abort', abort); controller.abort();
+        if (this.subtitleFileController === controller) this.subtitleFileController = undefined;
+      }
+    } : undefined);
   };
   cast = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.o.openDestinations) await this.o.openDestinations(fence); };
 

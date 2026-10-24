@@ -1,5 +1,6 @@
 import type {SubtitleService} from '../../../../../packages/client-core/src/subtitles';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
+import type {NativeSubtitleFileLifetime, NativeSubtitleFileMetadata} from './subtitle-file-upload';
 
 type SourceService = Pick<SubtitleService, 'getSnapshot' | 'refresh' | 'refreshSources' | 'search' | 'apply' | 'save' | 'retry'>;
 export type NativePlaybackSubtitleUpload = Parameters<SubtitleService['save']>[0];
@@ -10,11 +11,13 @@ export type NativePlaybackSubtitleControls = Readonly<{
   apply: (candidateId: string, scope: 'personal' | 'shared', rights: string) => Promise<void>;
   save: (input: NativePlaybackSubtitleUpload) => Promise<void>;
   retry: () => Promise<void>;
+  /** Present only when an actual platform picker is installed. False means no file was saved. */
+  addFile?: (metadata: NativeSubtitleFileMetadata, lifetime: NativeSubtitleFileLifetime) => Promise<boolean>;
 }>;
 
 /** The current runtime's service remains the only writer. A retained sheet cannot use these
  * commands after its full playback fence, authority, service or source lifetime changes. */
-export function boundSubtitleControls(service: SourceService, isCurrent: () => boolean): NativePlaybackSubtitleControls {
+export function boundSubtitleControls(service: SourceService, isCurrent: () => boolean, addFile?: NonNullable<NativePlaybackSubtitleControls['addFile']>): NativePlaybackSubtitleControls {
   const assertCurrent = () => { if (!isCurrent()) throw new Error(serviceText('player.opt.unavailable')); };
   const run = async (action: () => Promise<void>): Promise<void> => {
     assertCurrent();
@@ -35,5 +38,11 @@ export function boundSubtitleControls(service: SourceService, isCurrent: () => b
     }),
     save: (input: NativePlaybackSubtitleUpload) => run(() => service.save(input)),
     retry: () => run(() => service.retry()),
+    ...(addFile ? {addFile: async (metadata: NativeSubtitleFileMetadata, lifetime: NativeSubtitleFileLifetime) => {
+      assertCurrent();
+      const saved = await addFile(metadata, lifetime);
+      if (saved) assertCurrent();
+      return saved;
+    }} : {}),
   });
 }

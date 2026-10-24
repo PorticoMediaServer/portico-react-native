@@ -18,6 +18,7 @@ import type {SelectionContext} from '../../../../../packages/client-core/src/sel
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
+import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
@@ -78,6 +79,8 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   timers?: Timers;
   /** Optional actual destination binding. Its absence removes Cast from capabilities and API. */
   openDestinations?: (fence: PlaybackFence) => Promise<void>;
+  /** Platform-owned picker only; upload stays in the one current-source SubtitleService. */
+  subtitleFilePicker?: NativeSubtitleFilePicker;
 }>;
 
 export interface NativePlaybackAdapter {

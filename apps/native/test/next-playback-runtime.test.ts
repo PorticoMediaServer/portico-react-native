@@ -14,6 +14,7 @@ import type {HomeSelectionPlaybackItem} from '../../../packages/client-core/src/
 import type {SelectionContext} from '../../../packages/client-core/src/selection-model/index.ts';
 import type {VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
 import type {Marker} from '../../../packages/client-core/src/playback-v1/types.ts';
+import type {NativeSubtitleFilePicker} from '../src-next/platform/playback/subtitle-file-upload.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} from '../src-next/shell/watch-outlet.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
@@ -59,7 +60,7 @@ class Engine implements NativePlaybackTransport {
 
 const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
 const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
-function fixture(groupedVersions = false) {
+function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker) {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
@@ -132,7 +133,7 @@ function fixture(groupedVersions = false) {
     events: {on(type, listener) { const set = eventListeners.get(type) ?? new Set(); set.add(listener); eventListeners.set(type, set); return () => { set.delete(listener); }; }, onResync(listener) { resyncListeners.add(listener); return () => { resyncListeners.delete(listener); }; }},
     settings: () => settings, subscribeSettings: listener => { settingsListeners.add(listener); return () => { settingsListeners.delete(listener); }; },
     requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: 'native', choose: () => 'native', transport: () => engine},
-    engineFeatures: () => nativeEngineFeatures, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; },
+    engineFeatures: () => nativeEngineFeatures, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker,
     timers: {
       setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, run: () => { timers.delete(id); fn(); }}); return id; },
       clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
@@ -156,9 +157,7 @@ function fixture(groupedVersions = false) {
   };
 }
 
-test('subtitle controls use the real source service and retire with its session and authority', async () => {
-  const d = fixture();
-  d.respond(request => {
+function subtitleResponse(d: ReturnType<typeof fixture>, request: FakeRequest): FakeResponse | undefined {
     const match = /^\/v1\/items\/([^/]+)\/playback\/([^/]+)\/subtitles$/.exec(request.path);
     if (match) return {status: 200, headers: {}, body: {version: 1, sessionId: decodeURIComponent(match[2]), generation: d.runtime.playback.getSnapshot().session!.generation,
       sourceId: 'physical-source-1', revision: 1, catalogRevision: 1, renderer: 'external_text', mode: 'off', offAvailable: true, offsetUs: '0', selected: null, resources: [], discovered: []}};
@@ -166,12 +165,18 @@ test('subtitle controls use the real source service and retire with its session 
       itemId: decodeURIComponent(request.path.split('/')[3]), revision: 1, canShare: false,
       sources: [{id: 'physical-source-1', durationUs: '180000000', inventoryRevision: 1, available: true, timingKnown: true}], resources: [], discovered: [], provider: {id: 'provider', enabled: true}}};
     if (request.method === 'POST' && request.path.endsWith('/subtitles/search')) return {status: 200, headers: {}, body: {version: 1, page: 1, candidates: []}};
-  });
+    if (request.method === 'POST' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path) && record(request.body)) return {status: 200, headers: {}, body: {operationId: request.body.operationId, resourceId: 'uploaded-resource', revision: 1, catalogRevision: 2}};
+}
+
+test('subtitle controls use the real source service and retire with its session and authority', async () => {
+  const d = fixture();
+  d.respond(request => subtitleResponse(d, request));
   try {
     assert.equal(d.runtime.getSnapshot().fence, undefined);
     await d.start('movie-1');
     const fence = d.runtime.getSnapshot().fence!, controls = d.runtime.subtitleControls(fence);
     assert.ok(controls, 'controls require the actual loaded plan for this session/generation');
+    assert.equal(controls.addFile, undefined, 'an absent platform picker never advertises Add file');
     await controls.search('en', 'provider query', 1);
     assert.ok(d.requests.some(request => request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles/search' && record(request.body) && request.body.sourceId === 'physical-source-1'));
     await d.start('movie-2');
@@ -185,6 +190,51 @@ test('subtitle controls use the real source service and retire with its session 
     await assert.rejects(currentControls.refresh());
     assert.equal(d.runtime.subtitleControls(current), undefined);
   } finally { d.runtime.dispose(); }
+});
+
+test('the installed picker uploads through the actual current source service and preserves caller metadata', async () => {
+  const d = fixture(false, {pick: async () => ({data: 'SURYCg==', companion: 'U1VCCg==', format: 'idx', title: 'Chosen file'})});
+  d.respond(request => subtitleResponse(d, request));
+  try {
+    await d.start('movie-1');
+    const controls = d.runtime.subtitleControls(d.runtime.getSnapshot().fence!)!;
+    assert.ok(controls.addFile);
+    assert.equal(await controls.addFile({language: 'fr', rights: 'Viewer supplied rights', scope: 'personal', offsetUs: '-500000'}, versionLifetime()), true);
+    const upload = d.requests.find(request => request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles');
+    assert.ok(upload && record(upload.body));
+    assert.deepEqual(upload.body, {data: 'SURYCg==', companion: 'U1VCCg==', format: 'idx', title: 'Chosen file', language: 'fr', rights: 'Viewer supplied rights', scope: 'personal', offsetUs: '-500000', operationId: upload.body.operationId, sourceId: 'physical-source-1', expectedRevision: 0});
+  } finally {d.runtime.dispose();}
+});
+
+test('retiring the real source cancels its picker and a late native result cannot upload to the replacement', async () => {
+  let finish!: (value: {data: string; format: 'srt'; title: string}) => void, pickerSignal: AbortSignal | undefined;
+  const d = fixture(false, {pick: signal => {pickerSignal = signal; return new Promise(resolve => {finish = resolve;});}});
+  d.respond(request => subtitleResponse(d, request));
+  try {
+    await d.start('movie-1');
+    const controls = d.runtime.subtitleControls(d.runtime.getSnapshot().fence!)!;
+    const pending = controls.addFile!({language: 'en', rights: '', scope: 'personal', offsetUs: '0'}, versionLifetime());
+    await d.start('movie-2');
+    assert.equal(pickerSignal?.aborted, true); assert.equal(await pending, false);
+    finish({data: 'U1JUCg==', format: 'srt', title: 'Late file'}); await settle();
+    assert.equal(d.requests.filter(request => request.method === 'POST' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path)).length, 0);
+  } finally {d.runtime.dispose();}
+});
+
+test('a sheet close during a real subtitle upload aborts its request and cannot acknowledge its late receipt', async () => {
+  const d = fixture(false, {pick: async () => ({data: 'U1JUCg==', format: 'srt', title: 'Chosen file'})});
+  let finish!: (response: FakeResponse) => void, upload: FakeRequest | undefined;
+  d.respond(request => {
+    if (request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles') {upload = request; return new Promise(resolve => {finish = resolve;});}
+    return subtitleResponse(d, request);
+  });
+  try {
+    await d.start('movie-1');
+    const caller = new AbortController(), controls = d.runtime.subtitleControls(d.runtime.getSnapshot().fence!)!;
+    const pending = controls.addFile!({language: 'en', rights: '', scope: 'personal', offsetUs: '0'}, {signal: caller.signal, isCurrent: () => !caller.signal.aborted});
+    await settle(); assert.ok(upload); caller.abort(); assert.equal(upload.signal?.aborted, true);
+    finish(subtitleResponse(d, upload)!); assert.equal(await pending, false);
+  } finally {d.runtime.dispose();}
 });
 
 test('a start creates the actual queue and session and commands the native port at the requested position', async () => {
