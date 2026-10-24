@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
-import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
+import {NativeShellNavigation} from '../src-next/shell/routes';
 import {sameAuthority, type ShellAuthority} from '../src-next/shell/model';
 import {nativeReadRouteAllowed} from '../src-next/screens/read/platform';
 import {NativeReadingContinueBindings, type NativeReadingContinuePage, type NativeReadingContinueRow} from '../src-next/screens/read/continue-bindings';
@@ -88,9 +88,8 @@ test('open reads the exact resident row and leaves the canonical source facts un
 });
 
 test('forged, evicted and unavailable rows are refused before the Read door', async t => {
-  let load = 0;
   const f = fixture(call => {
-    if (call.url.pathname === '/v1/reading/continue') return json(load++ === 0 ? pageOf([row('item')]) : pageOf([row('item')]));
+    if (call.url.pathname === '/v1/reading/continue') return json(pageOf([row('item')]));
     if (call.url.pathname.endsWith('/reading/versions')) return json(versions());
     throw new Error('unexpected ' + call.url.pathname);
   });
