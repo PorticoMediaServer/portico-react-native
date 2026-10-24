@@ -20,12 +20,14 @@ const preference: readonly SubtitleKind[] = ['ass', 'pgs', 'vobsub', 'dvb', 'tex
 /** A subtitle file's address as the server gives it (the shape `subtitles.ts` in the shared package accepts): the cue document, an original, a styled track's font list, or an image track's line count. */
 const originalPath = /^\/v1\/media\/subtitles\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[1-9]\d*(?:\.vtt|\/original\.(?:ass|ssa|sup|idx|sub|mks)|\/fonts|\/lines)?$/;
 
-export type SubtitleDelivery = Readonly<{format: SubtitleKind; url?: string; fontsUrl?: string; linesUrl?: string}>;
+type SubtitleFileClock = Readonly<{timeDomain?: string; offsetMs?: number}>;
+export type SubtitleDelivery = SubtitleFileClock & Readonly<{format: SubtitleKind; url?: string; companionUrl?: string; fontsUrl?: string; linesUrl?: string}>;
 export type SubtitleFonts = Readonly<{key: string; fonts: readonly Readonly<{name: string; url: string}>[]}>;
-export type SubtitleRender = Readonly<{
+export type SubtitleRender = SubtitleFileClock & Readonly<{
   kind: SubtitleKind;
   embedded?: Readonly<{language?: string; title?: string}>;
   url?: string;
+  companionUrl?: string;
   fonts?: readonly Readonly<{name: string; url: string}>[];
 }>;
 
@@ -42,12 +44,23 @@ export function planEngineOf(session: PlaybackSession | undefined, v1: Session |
 
 const path = (v: unknown) => (typeof v === 'string' && v.length <= 1024 && originalPath.test(v) ? v : undefined);
 
+/** File timing is already the complete correction. Preserve it separately from
+ * the selection plan's fallback offset; the engine chooses once, never adds. */
+function fileClock(value: unknown): SubtitleFileClock {
+  if (!value || typeof value !== 'object') return {};
+  const clock = value as {timeDomain?: unknown; offsetMs?: unknown};
+  return {
+    ...(typeof clock.timeDomain === 'string' && clock.timeDomain.length > 0 && clock.timeDomain.length <= 64 && !/[\x00-\x1f\x7f]/.test(clock.timeDomain) ? {timeDomain: clock.timeDomain} : {}),
+    ...(typeof clock.offsetMs === 'number' && Number.isSafeInteger(clock.offsetMs) ? {offsetMs: clock.offsetMs} : {}),
+  };
+}
+
 /** The ways the server offers to hand a track to the device (`deliveries`), kept only as addresses of this kind of file. */
 export function deliveriesOf(resource: SubtitleResource | null | undefined): readonly SubtitleDelivery[] {
   const out: SubtitleDelivery[] = [];
   for (const d of (resource?.deliveries ?? []).slice(0, 8)) {
     if (!kinds.includes(d.format as SubtitleKind)) continue;
-    out.push({format: d.format as SubtitleKind, ...(path(d.url) ? {url: path(d.url)} : {}), ...(path(d.fontsUrl) ? {fontsUrl: path(d.fontsUrl)} : {}), ...(path(d.linesUrl) ? {linesUrl: path(d.linesUrl)} : {})});
+    out.push({format: d.format as SubtitleKind, ...(path(d.url) ? {url: path(d.url)} : {}), ...(path(d.companionUrl) ? {companionUrl: path(d.companionUrl)} : {}), ...(path(d.fontsUrl) ? {fontsUrl: path(d.fontsUrl)} : {}), ...(path(d.linesUrl) ? {linesUrl: path(d.linesUrl)} : {}), ...fileClock(d)});
   }
   return out;
 }
@@ -81,7 +94,7 @@ function chosenOriginal(plan: SubtitlePlan | null | undefined, v1: Session | und
   if (shown && shown.delivery === 'device') {
     const files = v1!.presentation.subtitles.filter(s => s.trackId === shown.trackId && kindOfFormat(s.format) !== 'text');
     const file = preference.map(kind => files.find(s => kindOfFormat(s.format) === kind)).find(Boolean);
-    if (file && path(file.url)) return {format: kindOfFormat(file.format), url: file.url, ...(path(file.fontsUrl) ? {fontsUrl: file.fontsUrl} : {}), ...(path(file.linesUrl) ? {linesUrl: file.linesUrl} : {})};
+    if (file && path(file.url)) return {format: kindOfFormat(file.format), url: file.url, ...(path(file.companionUrl) ? {companionUrl: file.companionUrl} : {}), ...(path(file.fontsUrl) ? {fontsUrl: file.fontsUrl} : {}), ...(path(file.linesUrl) ? {linesUrl: file.linesUrl} : {}), ...fileClock(file)};
   }
   if (!plan || plan.mode !== 'track' || !plan.selected) return undefined;
   const deliveries = deliveriesOf(plan.selected).filter(d => !!d.url);
@@ -163,6 +176,8 @@ export function engineSubtitleRender(plan: SubtitlePlan | null, session: Playbac
     kind,
     ...(inFile ? {embedded: Object.freeze({...(track?.language ? {language: track.language} : {}), ...(track?.title ? {title: track.title} : {})})} : {}),
     ...(url ? {url} : {}),
+    ...(url && original?.companionUrl ? {companionUrl: absolute(original.companionUrl)} : {}),
+    ...fileClock(original),
     ...(list.length ? {fonts: Object.freeze(list)} : {}),
   });
 }
