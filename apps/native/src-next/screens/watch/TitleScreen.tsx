@@ -20,6 +20,8 @@ import {NativeShowSettingsSheet} from './ShowSettingsSheet';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
+import {usePlatformPosture} from '../../platform/platformPosture';
+import {mediumRailMetrics} from '../../shell/model';
 
 export type NativeTitleScreenProps = Readonly<{
   controller: NativeTitleController;
@@ -61,7 +63,14 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const openEpisode = useSyncExternalStore(controller.episode.subscribe, controller.episode.getSnapshot);
   const menuIsOpen = (entry: ContentEntry) => !!menuEntry && menuEntry.id === entry.id && menuEntry.kind === entry.kind && menuEntry.libraryId === entry.libraryId;
   const theme = useTheme(), viewport = useWindowDimensions(), t = defaultI18n.t;
-  const bodyWidth = props.watch?.width ?? viewport.width;
+  const posture = usePlatformPosture();
+  const fold = posture.status === 'available' && posture.window?.width === viewport.width && posture.window.height === viewport.height
+    ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.left < viewport.width) : undefined;
+  const rail = mediumRailMetrics.width;
+  const divider = fold ? Math.min(viewport.width - 280, Math.max(rail + 280, fold.bounds.left)) : viewport.width;
+  const twoPane = !props.watch && theme.platform === 'tablet' && viewport.width > viewport.height && !!fold;
+  const leftWidth = twoPane ? divider - rail : viewport.width, rightWidth = twoPane ? viewport.width - divider : viewport.width;
+  const bodyWidth = props.watch?.width ?? (twoPane ? rightWidth : viewport.width);
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), titlePlay = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
   const [seasonsOpen, setSeasonsOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [settingsBusy, setSettingsBusy] = useState(false);
@@ -159,16 +168,14 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     {label: t('title.studio'), value: workspace?.show.studio ?? detail?.facts?.studio},
     {label: t('title.added'), value: detail?.item.addedAt ? new Intl.DateTimeFormat(text.locale ?? 'en-US', {month: 'long', day: 'numeric', year: 'numeric'}).format(new Date(detail.item.addedAt)) : undefined},
   ].filter(row => row.value);
-  const credits = detail?.metadata.credits ?? [], creditNames = (departments: readonly string[]) =>
+  // A show's own workspace carries its credits; a movie's detail read carries them.
+  const credits = detail?.metadata.credits ?? (workspace?.show.credits ?? []).map(credit => ({
+    id: credit.id ?? `show-credit-${credit.ordinal}`, name: credit.name, role: credit.role ?? '', department: credit.department ?? '',
+    provider: '', ...(credit.portraitUrl ? {portraitUrl: credit.portraitUrl} : {})})), creditNames = (departments: readonly string[]) =>
     [...new Set(credits.filter(credit => departments.includes(credit.department.toLowerCase())).map(credit => credit.name))];
   const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
   const castNames = [...new Set(credits.filter(credit => ['acting', 'cast'].includes(credit.department.toLowerCase())).map(credit => credit.name))];
-  return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
-      remember(event.nativeEvent.contentOffset.y);
-      const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-      if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
-    }} scrollEventThrottle={32}>
+  const heroNode = (
       <View style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
         <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}/>
         <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
@@ -215,7 +222,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </View>}
         </View>
       </View>
-      <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
+  );
+  const bodyNode = (
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
         {selectedTab === 'episodes' && workspace && (theme.isTV ? <TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
           episodes={episodes} nextUp={workspace.nextUp} show={{title: workspace.show.title, overview: workspace.show.overview}}
@@ -284,15 +292,34 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </View> : null}
         </View>)}
       </View>
-    </ScrollView>{header}
-    {!theme.isTV && workspace && <NativeSeasonsSheet open={seasonsOpen} onOpenChange={setSeasonsOpen} seasons={snapshot.seasons} total={workspace.seasonTotalCount ?? snapshot.seasons.length}
-      selectedId={workspace.selected.seasonId ?? null} onSelect={id => {void controller.season(id).catch(props.reportError);}} onMore={() => {void controller.moreSeasons().catch(props.reportError);}}
-      hideWatched={snapshot.place.hideWatched} onHideWatched={value => {void controller.hideWatched(value).catch(props.reportError);}}/>}
-    {!theme.isTV && workspace && props.owner && <NativeShowSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} showTitle={workspace.show.title}
-      episode={snapshot.episodes[0]} settings={workspace.settings} busy={settingsBusy} onSave={value => {
-        setSettingsBusy(true);
-        void controller.saveSettings(value).then(() => setSettingsOpen(false)).catch(props.reportError).finally(() => setSettingsBusy(false));
-      }}/>}
+  );
+  return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    {twoPane ? <View style={{flex: 1, flexDirection: 'row'}}>
+      <ScrollView style={{width: leftWidth, alignSelf: 'stretch'}} scrollEventThrottle={32} showsVerticalScrollIndicator={false}>
+        {heroNode}
+        <View style={{paddingHorizontal: 20, paddingTop: 18, paddingBottom: 48, gap: 10}}>
+          {credits.length ? <><Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
+            <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/></> : null}
+          {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text> : null}
+          {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: defaultI18n.list(writers)})}</Text> : null}
+        </View>
+      </ScrollView>
+      <View style={{width: rightWidth}}>
+        <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
+        <ScrollView ref={scroll} onScroll={event => {
+          const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+          if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
+        }} scrollEventThrottle={32}>{bodyNode}</ScrollView>
+      </View>
+    </View> : <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
+      remember(event.nativeEvent.contentOffset.y);
+      const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+      if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
+    }} scrollEventThrottle={32}>
+      {heroNode}
+      <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
+      {bodyNode}
+    </ScrollView>}{header}
   </View>;
 }
 
