@@ -160,7 +160,7 @@ test('television refuses Continue and open before membership or any IO', async t
 test('dispose aborts a pending page and a late reply never becomes a replacement', async t => {
   let release!: (value: Response) => void, signal: AbortSignal | undefined;
   const pending = new Promise<Response>(resolve => {release = resolve;});
-  const f = fixture(call => {signal = call.init.signal; return pending;});
+  const f = fixture(call => {signal = call.init.signal ?? undefined; return pending;});
   t.after(() => f.bindings.dispose());
   const load = f.bindings.continue();
   await until(() => signal !== undefined);
@@ -178,7 +178,7 @@ test('dispose aborts a pending page and a late reply never becomes a replacement
 test('a caller cancel aborts the page and ignores its late reply', async t => {
   let release!: (value: Response) => void, signal: AbortSignal | undefined;
   const pending = new Promise<Response>(resolve => {release = resolve;});
-  const f = fixture(call => {signal = call.init.signal; return pending;});
+  const f = fixture(call => {signal = call.init.signal ?? undefined; return pending;});
   t.after(() => f.bindings.dispose());
   const caller = new AbortController(), load = f.bindings.continue({}, caller.signal);
   await until(() => signal !== undefined);
