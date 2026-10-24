@@ -13,6 +13,7 @@ test('TV Library requires a real summary of the same captured definition and sav
   const navigation = new NativeShellNavigation(authority, () => authority);
   navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'actual'}}, authority);
   const {react} = hooks(), posts: any[] = [], summaries: unknown[] = [], errors: unknown[] = [];
+  let suggestedName: string | undefined = 'Actual domain conditions';
   let registered = 0, factory: any, ports: any, membership: any, disposed = 0;
   const operationId = '12345678-1234-4123-8123-123456789abc';
   const {registerNativeTVLibrary} = await screenModule(new URL('../src-next/tv/library/module.tsx', import.meta.url), {
@@ -26,7 +27,7 @@ test('TV Library requires a real summary of the same captured definition and sav
   });
   assert.equal(registered, 0, 'importing an unbound TV module cannot install a placeholder naming flow');
   const namingUI = () => 'actual caller-owned keyboard';
-  registerNativeTVLibrary({summarize: (definition: unknown) => {summaries.push(definition); return 'Actual domain summary';}, renderNaming: namingUI});
+  registerNativeTVLibrary({suggestName: (definition: unknown, capabilities: unknown) => {summaries.push({definition, capabilities}); return suggestedName;}, renderNaming: namingUI});
   assert.equal(registered, 1);
   const context = {current: () => true, navigation, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}),
     api: {request: async (_path: string, method?: string, body?: unknown) => {
@@ -37,23 +38,27 @@ test('TV Library requires a real summary of the same captured definition and sav
   const definition = {libraryId: 'actual', pivot: 'movies', query: {field: 'favorite', operator: 'equals', value: true}, sort: [{field: 'title', direction: 'asc'}], presentation: 'grid'};
   const entry = {id: 'actual-card', libraryId: 'actual', kind: 'movie', title: 'Actual title'};
   let resident = [entry], capture = definition;
-  const source = {phase: 'ready', library: {id: 'actual'}, tab: {}, discover: {appended: []}, collection: {residentItems: () => resident}, defaultSort: {field: 'title', direction: 'asc'}};
+  const capabilities = {actual: 'same-library-capabilities'};
+  const source = {phase: 'ready', library: {id: 'actual'}, capabilities, tab: {}, discover: {appended: []}, collection: {residentItems: () => resident}, defaultSort: {field: 'title', direction: 'asc'}};
   const destination = {getSnapshot: () => source, captureSavedView: () => capture};
   const actions = ports.actions(destination), draft = {predicates: [definition.query], sort: definition.sort[0]};
   try {
     assert.equal(membership.contains(entry), true); resident = []; assert.equal(membership.contains(entry), false);
     actions.saveView(destination, draft);
     const outlet = module.renderOverlays({}), input = outlet.props.store.getSnapshot();
-    assert.equal(input.controller.getSnapshot().name, 'Actual domain summary');
-    assert.strictEqual(summaries[0], definition); assert.strictEqual(input.definition, definition);
+    assert.equal(input.controller.getSnapshot().name, 'Actual domain conditions');
+    assert.strictEqual((summaries[0] as any).definition, definition); assert.strictEqual(input.definition, definition);
+    assert.strictEqual((summaries[0] as any).capabilities, capabilities);
     assert.equal(outlet.props.bindings.renderNaming, namingUI, 'no phone sheet is substituted');
     assert.equal(posts.length, 0, 'opening the keyboard is not a save mutation');
     capture = {...definition, query: {field: 'watched', operator: 'equals', value: true}};
     input.controller.setName('Edited actual name'); await input.controller.save();
     assert.equal(posts.length, 1); assert.deepEqual(posts[0].definition, definition); assert.equal(posts[0].name, 'Edited actual name');
     assert.equal(outlet.props.store.getSnapshot(), undefined, 'only the actual saved receipt closes the keyboard');
+    suggestedName = undefined;
     actions.saveView(destination, draft);
     const pending = outlet.props.store.getSnapshot();
+    assert.equal(pending.controller.getSnapshot().name, '', 'a withheld summary starts empty, without a local name or an error');
     navigation.open({kind: 'shell', destination: {kind: 'home'}}, authority);
     assert.equal(pending.controller.getSnapshot().open, false);
     await pending.controller.save(); assert.equal(posts.length, 1, 'navigation retirement cannot revive the old save');

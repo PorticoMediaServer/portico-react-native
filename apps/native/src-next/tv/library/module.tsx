@@ -1,6 +1,7 @@
 import React, {useSyncExternalStore} from 'react';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
+import type {BrowseCapabilities} from '../../../../../packages/client-core/src/browse';
 import {browseNameId} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -15,8 +16,9 @@ import {NativeLibrarySaveView} from '../../screens/library/save-view';
 
 export type NativeTVLibraryNaming = Readonly<{controller: NativeLibrarySaveView; definition: SavedDefinition; suggestedName: string}>;
 export type NativeTVLibraryBindings = Readonly<{
-  /** Canonical domain summary, also used by Saved tiles. Never derive labels here. */
-  summarize: (definition: SavedDefinition) => string;
+  /** Canonical conditions-only suggestion from the shared summary producer.
+   * Undefined means an empty field under §38, never a locally derived name. */
+  suggestName: (definition: SavedDefinition, capabilities: BrowseCapabilities) => string | undefined;
   /** The TV name keyboard owns its frame and Back/Save-view focus return. */
   renderNaming: (input: NativeTVLibraryNaming, runtime: NativeShellRuntime, onBack: () => void) => React.ReactNode;
 }>;
@@ -70,9 +72,10 @@ export function createNativeTVLibraryModule(context: NativeShellBootstrapContext
       return {...actions, saveView: (actual: NativeLibraryDestination, draft: NativeLibraryViewDraft) => {
         if (disposed || !lifetime.current() || !activation.getSnapshot().visible || actual !== destination || !nativeLibraryCanSave(actual.getSnapshot(), draft)) return;
         try {
-          const definition = actual.captureSavedView(draft), revision = context.navigation.getSnapshot().revision;
-          const suggestedName = bindings.summarize(definition);
-          if (!suggestedName.trim()) throw Object.assign(new Error('native_saved_view_summary_unavailable'), {code: 'invalid_response'});
+          const definition = actual.captureSavedView(draft), capabilities = actual.getSnapshot().capabilities, revision = context.navigation.getSnapshot().revision;
+          if (!capabilities) throw Object.assign(new Error('native_saved_view_capabilities_unavailable'), {code: 'invalid_response'});
+          const suggestion = bindings.suggestName(definition, capabilities);
+          const suggestedName = suggestion !== undefined && suggestion.length <= 200 ? suggestion : '';
           closeNaming();
           const controller = new NativeLibrarySaveView({api: context.api, scope: lifetime.scope, definition, requestId: common.requestId,
             current: () => !disposed && lifetime.current() && activation.getSnapshot().visible && context.navigation.getSnapshot().revision === revision,
