@@ -1,6 +1,7 @@
-import {PersonalSavedService, isPersonalSavedRoute, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
+import {PersonalSavedService, isPersonalSavedRoute, type PersonalResource, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
 import {SavedService, fetchSavedSummary, type SavedApi, type SavedLandingSummary, type SavedRoute, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {NativeSavedViewRenamePort} from './rename-view';
 
 export type NativeSavedViewSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -37,6 +38,37 @@ export class NativeSavedViewDestination {
     this.state.personal?.entries.some(value => !value.hidden && value.media === entry) === true
   );
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
+  /** The canonical per-resource Saved service, only for the exact arrived view
+   * object it currently serves. A directory row or another kind offers no port. */
+  viewRename(resource: PersonalResource): Readonly<{port: NativeSavedViewRenamePort; current: () => boolean}> | undefined {
+    this.current();
+    if (this.disposed || this.state.phase !== 'ready' || this.state.route?.view !== 'resource'
+      || this.state.route.resourceId !== resource.id) return;
+    const service = this.personal;
+    if (!service) return;
+    const snapshot = service.getSnapshot();
+    // A fresh opening has no claim on a canonical command the owner still holds.
+    // This gate is only for new binding creation; an existing controller's own
+    // POST/refresh/retry must stay current through pending/retryPending.
+    if (snapshot.pending || snapshot.retryPending) return;
+    const loaded = snapshot.resource;
+    if (loaded !== resource || loaded.kind !== 'view' || !loaded.actions.includes('update')) return;
+    const generation = this.generation;
+    const valid = (): boolean => {
+      if (!this.current() || this.disposed || generation !== this.generation || this.personal !== service) return false;
+      if (this.state.route?.view !== 'resource' || this.state.route.resourceId !== resource.id) return false;
+      const live = service.getSnapshot().resource;
+      return !!live && live.kind === 'view' && live.id === resource.id && live.serverId === resource.serverId;
+    };
+    const port: NativeSavedViewRenamePort = {
+      getSnapshot: () => service.getSnapshot(),
+      subscribe: listener => valid() ? service.subscribe(listener) : () => {},
+      mutate: intent => valid() && intent.action === 'update' && typeof intent.name === 'string'
+        ? service.mutate({action: 'update', name: intent.name}) : Promise.resolve(false),
+      retry: () => valid() ? service.retry() : Promise.resolve(false),
+    };
+    return Object.freeze({port, current: valid});
+  }
   private publish(patch: Partial<NativeSavedViewSnapshot>): void {
     if (!this.current()) return;
     this.state = Object.freeze({...this.state, saved: this.saved?.getSnapshot(), personal: this.personal?.getSnapshot(), ...patch});
