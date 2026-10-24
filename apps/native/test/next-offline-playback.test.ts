@@ -95,6 +95,17 @@ test('native file resolution requires the exact still-admitted local session, no
   assert.deepEqual(x.network, []);
 });
 
+test('a parked source reopens the actual device entry with a fresh genuine journal play and session', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true), original = source.session();
+  x.setLoad(async () => ({...x.media, playId: 'play_reopened-journal'}));
+  const reopened = await x.owner.reopen(source, () => true), session = reopened.session();
+  assert.notEqual(session.id, original.id); assert.equal(reopened.media.playId, 'play_reopened-journal');
+  assert.equal(x.owner.fence(session, 2)?.playId, 'play_reopened-journal');
+  await assert.rejects(x.owner.reopen({...source}, () => true), 'an unowned source object cannot name a bookmark');
+  x.setEntries([]); await assert.rejects(x.owner.reopen(reopened, () => true));
+  assert.deepEqual(x.network, []);
+});
+
 test('same entry IDs cannot authorize replaced artifacts, another viewer or ambiguous rows', async () => {
   for (const change of ['hash','bytes','viewer','duplicate'] as const) {
     const x = setup(), source = await x.owner.prepare(x.entry,() => true), receipt = x.entry.receipt!;

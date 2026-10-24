@@ -74,6 +74,18 @@ export class NativeOfflinePlayback {
         entryId: source.entryId, playId: media.playId, artifact: source.artifact});
     } catch { return; }
   }
+  /** A parked bookmark reopens its actual device entry and journal play. Neither
+   * the old URL nor a structurally similar source object can authorize it. */
+  async reopen(source: NativeOfflineSource, isCurrent: () => boolean): Promise<NativeOfflineSource> {
+    if (!isCurrent() || !source.current() || this.sessions.get(source.media.playId)?.source !== source) throw unavailable();
+    const entries = this.device.getSnapshot().entries.filter(entry => entry.id === source.entryId);
+    if (entries.length !== 1) throw unavailable();
+    const fresh = await this.prepare(entries[0]!, isCurrent);
+    if (!isCurrent() || !source.current() || fresh.preparationId !== source.preparationId
+      || fresh.artifact.sha256 !== source.artifact.sha256 || fresh.artifact.bytes !== source.artifact.bytes
+      || fresh.metadata.kind !== source.metadata.kind) throw unavailable();
+    return fresh;
+  }
   async prepare(entry: OfflineEntry, isCurrent: () => boolean): Promise<NativeOfflineSource> {
     const owner = this.owner(), claims = entry.receipt?.claims;
     if (this.disposed || !owner || !claims || !text(entry.id) || !text(entry.itemId) || claims.itemId !== entry.itemId
