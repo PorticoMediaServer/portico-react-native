@@ -1769,3 +1769,47 @@ test('late combined cleanup refuses a session that does not match its returned q
     assert.equal(d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session', {id: created})), false);
   } finally {release?.(); d.runtime.dispose();}
 });
+
+
+const timelineBodies = (requests: FakeRequest[]) => requests.filter(request => request.method === 'POST' && request.path.endsWith('/timeline')).map(request => request.body as Record<string, any>);
+
+test('accepted renderer output reaches the existing timeline as an immutable scalar whitelist, with no plan inference', async () => {
+  const d = fixture();
+  try {
+    await d.start('movie-1'); await d.runtime.flush();
+    assert.equal(timelineBodies(d.requests).at(-1)?.observedPlayback, undefined, 'source quality and session plan are not observed output');
+    const measured = {video: {width: 1920, height: 1080, privatePath: '/not-a-report-field'}, hardwareModel: 'not-a-report-field'};
+    d.engine.emit('progress', {observedPlayback: measured});
+    measured.video.width = 9;
+    await d.runtime.flush(); await settle();
+    assert.deepEqual(timelineBodies(d.requests).at(-1)?.observedPlayback, {video: {width: 1920, height: 1080}});
+    assert.equal(Object.isFrozen(d.runtime.path.controller.getSnapshot().observation?.observedPlayback?.video), true);
+    d.engine.emit('progress', {observedPlayback: {}}); await d.runtime.flush();
+    assert.deepEqual(timelineBodies(d.requests).at(-1)?.observedPlayback, {}, 'explicit empty renderer snapshot clears output');
+    d.engine.emit('progress'); await d.runtime.flush();
+    assert.equal(timelineBodies(d.requests).at(-1)?.observedPlayback, undefined, 'omitted renderer facts remain unknown');
+    d.engine.position = 47; d.engine.emit('progress', {observedPlayback: {audio: {channels: Infinity}}});
+    await d.runtime.flush();
+    const last = timelineBodies(d.requests).at(-1)!;
+    assert.equal(last.positionMs, 47000); assert.deepEqual(last.observedPlayback, {}, 'invalid output clears without dropping progress/lease');
+  } finally {d.runtime.dispose();}
+});
+
+test('renderer output cannot cross a presentation generation or stale native binding', async () => {
+  const d = fixture();
+  try {
+    await d.start('movie-1'); const previous = d.engine.lastCommand.binding, source = d.runtime.getSnapshot();
+    d.engine.emit('progress', {observedPlayback: {video: {width: 1920, height: 1080}}}); await d.runtime.flush();
+    const quality = source.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!;
+    await d.runtime.chooseQuality(source.fence!, quality); await settle();
+    assert.notEqual(d.engine.lastCommand.binding.generation, previous.generation);
+    const current = d.runtime.path.controller.getSnapshot().observation;
+    assert.equal(current?.observedPlayback, undefined, 'replacement never inherits prior output facts');
+    d.runtime.path.engineFact({type: 'progress', position: 91, binding: previous, observedPlayback: {video: {width: 999}}});
+    assert.equal(d.runtime.path.controller.getSnapshot().observation, current, 'common path rejects old same-session presentation before parsing/reporting');
+    d.engine.emit('progress', {binding: previous, observedPlayback: {video: {width: 888}}});
+    await d.runtime.flush(); await settle();
+    const last = timelineBodies(d.requests).at(-1)!;
+    assert.equal(last.generation, d.engine.lastCommand.binding.generation); assert.equal(last.observedPlayback, undefined);
+  } finally {d.runtime.dispose();}
+});
