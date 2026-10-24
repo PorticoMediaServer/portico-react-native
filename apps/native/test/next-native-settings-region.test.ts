@@ -4,17 +4,18 @@ import {createI18n, defaultI18n, resolveRegion} from '../../../packages/i18n/src
 import {parsePreferenceSnapshot, type PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {regionPreferences} from '../../../packages/client-core/src/preference-effects';
 import {nativeRuntimeRegionText} from '../src-next/screens/settings/runtime-region';
+import {nativeGuideRegion, nativeGuideClock} from '../src-next/screens/settings-live/guide-presentation';
 import type {NativeShellBootstrapContext, RestoredNativeShellRuntime} from '../src-next/shell/bootstrap';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
 const device = {locales: ['en-CA'], timeZone: 'UTC'};
 const deferred = () => {let resolve!: () => void; const promise = new Promise<void>(done => {resolve = done;}); return {promise, resolve};};
-function preferences(locale = 'en-US', formats = 'en-US', revision = 1): PreferenceSnapshot {
+function preferences(locale = 'en-US', formats = 'en-US', revision = 1, hourCycle = 'auto'): PreferenceSnapshot {
   const effective = {
     'playback.defaultSpeed': 1, 'audiobooks.defaultSpeed': 1, 'playback.skipBackMs': 10000, 'playback.skipForwardMs': 30000,
     'playback.introSkip': 'ask', 'playback.recapSkip': 'ask', 'playback.creditsSkip': 'off',
     'playback.subtitleSize': 'medium', 'playback.subtitleBackground': 'translucent',
-    'region.locale': locale, 'region.formats': formats, 'region.hourCycle': 'auto', 'region.dateOrder': 'auto', 'region.firstDay': 'auto', 'region.sizeUnits': 'binary',
+    'region.locale': locale, 'region.formats': formats, 'region.hourCycle': hourCycle, 'region.dateOrder': 'auto', 'region.firstDay': 'auto', 'region.sizeUnits': 'binary',
   };
   return parsePreferenceSnapshot({deviceClass: 'mobile', registryRevision: 'region-fixture', registry: {revision: 'region-fixture',
     fields: Object.entries(effective).map(([key, value]) => ({key, type: key === 'region.locale' ? 'locale' : typeof value === 'number' ? 'number' : 'string',
@@ -110,4 +111,27 @@ test('a real Settings ACK republishes bootstrap text only after confirmation and
     off(); runtime.dispose();
     assert.throws(() => runtime!.text.locale, {name: 'AbortError'});
   } finally {release.resolve(); runtime?.dispose(); await app.unmount(); app.disposeLoader();}
+});
+
+
+test('Guide clock borrows the same confirmed format locale and hour-cycle independently of UI language', () => {
+  let confirmed = preferences('en-US', 'de-DE', 1, 'h23'), current = true;
+  const text = nativeRuntimeRegionText({current: () => current, preferences: () => confirmed}, () => device);
+  const original = text.region;
+  assert.equal(text.locale, 'en-US'); assert.equal(text.region, original, 'one memoized formatter region');
+  assert.deepEqual(nativeGuideRegion(text), {locale: 'de-DE', hour12: false});
+  const instant = Date.UTC(2026, 9, 24, 13, 5);
+  assert.equal(nativeGuideClock(nativeGuideRegion(text).locale, 'UTC', nativeGuideRegion(text).hour12, false)(instant), '13:05');
+  confirmed = preferences('en-GB', 'en-US', 2, 'h12');
+  assert.notEqual(text.region, original); assert.equal(text.locale, 'en-GB');
+  const next = nativeGuideRegion(text);
+  assert.deepEqual(next, {locale: 'en-US', hour12: true});
+  assert.equal(nativeGuideClock(next.locale, 'UTC', next.hour12, false)(instant), '1:05 PM');
+  current = false; assert.throws(() => text.region, {name: 'AbortError'});
+});
+
+test('Guide preserves genuine auto-hour resolution and the previous old-runtime fallback', () => {
+  const text = nativeRuntimeRegionText({current: () => true, preferences: () => preferences('en-US', 'en-GB')}, () => device);
+  assert.equal(nativeGuideRegion(text).hour12, text.region.hour12);
+  assert.deepEqual(nativeGuideRegion({locale: 'en-CA'}), {locale: 'en-CA', hour12: defaultI18n.region.hour12});
 });
