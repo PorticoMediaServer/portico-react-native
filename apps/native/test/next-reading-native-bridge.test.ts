@@ -24,6 +24,7 @@ type Reply = {done: boolean; bodyBase64: string};
 async function fixture(t: TestContext) {
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
   const before = {request: runtime.networkRequest, open: runtime.networkStreamOpen, read: runtime.networkStreamRead, cancel: runtime.cancelQueueRequest, bytes: runtime.networkBytesRequest};
+  const authority = new AbortController();
   let current = true, nativeReads = 0, mode: 'exact' | 'stall' | 'truncated' = 'exact';
   let late: ((reply: Reply) => void) | undefined;
   const streams = new Map<string, number>(), cancelled = new Set<string>(), calls: string[] = [], packets: string[] = [];
@@ -49,7 +50,7 @@ async function fixture(t: TestContext) {
   };
   runtime.cancelQueueRequest = (id: string) => {assert.ok(streams.has(id)); assert.equal(cancelled.has(id), false); cancelled.add(id);};
   const api = new HttpLocalApi('http://127.0.0.1:39143', 'native-bridge-test-token', nativeServerFetch('server'));
-  const client = api.reading({viewer: {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', role: 'member'}, isCurrent: () => current});
+  const client = api.reading({viewer: {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', role: 'member'}, isCurrent: () => current, signal: authority.signal});
   const session = await client.open({itemId: 'item', sourceId: 'source'});
   let input: ((message: string) => void) | undefined;
   const host = createReadingHost({session, channel: 'native_bridge_channel_123', preferences: () => preferences, initialProgress: await session.progress(), current: () => current,
@@ -65,7 +66,7 @@ async function fixture(t: TestContext) {
   const guest = await connection.ready;
   return {guest, packets, calls, streams, cancelled, get reads() {return nativeReads;}, setMode(value: typeof mode) {mode = value;},
     releaseLate() {late?.({done: false, bodyBase64: Buffer.from(bytes.subarray(0, 49152)).toString('base64')});},
-    retire() {current = false; host.dispose();}};
+    retire() {current = false; authority.abort(); host.dispose();}};
 }
 
 test('canonical native facade crosses the trusted sequential bridge with demand-only 48KiB pulls and exact EOF', async t => {
@@ -75,7 +76,7 @@ test('canonical native facade crosses the trusted sequential bridge with demand-
   while (true) {
     const next = await reader.read(); if (next.done) break;
     assert.ok(next.value.length <= 49152); assert.deepEqual(next.value, bytes.subarray(offset, offset + next.value.length)); offset += next.value.length;
-    const reads = f.reads; await new Promise(resolve => setImmediate(resolve)); assert.equal(f.reads, reads, 'no upstream read without guest demand');
+    const reads: number = f.reads; await new Promise(resolve => setImmediate(resolve)); assert.equal(f.reads, reads, 'no upstream read without guest demand');
   }
   reader.releaseLock(); assert.equal(offset, bytes.length); assert.equal(f.reads, 4); assert.equal(f.cancelled.size, 1);
   assert.ok(f.packets.every(packet => !packet.includes('native-bridge-test-token') && !packet.includes('127.0.0.1') && !packet.includes('Authorization')));
