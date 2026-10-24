@@ -105,10 +105,10 @@ test('the selected presentation preserves its explicit companion and complete fi
   for (const offsetMs of [-1750, 0, 3250]) {
     const listed = v1({subtitle: {trackId: 'res-1', kind: 'vobsub', delivery: 'device'}, subtitles: [
       {trackId: 'other-track', format: 'vobsub', url: base + '/original.idx', offsetMs: 9000},
-      {trackId: 'res-1', format: 'vobsub', url: base + '/original.idx', companionUrl: '/v1/media/subtitles/g1/res-1/4/original.sub', timeDomain: 'source-relative', offsetMs},
+      {trackId: 'res-1', format: 'vobsub', url: base + '/original.idx', companionUrl: base + '/original.sub', timeDomain: 'source-relative', offsetMs},
     ]});
     assert.deepEqual(engineSubtitleRender(selected, session('hls'), all, absolute, undefined, listed), {
-      kind: 'vobsub', url: absolute(base + '/original.idx'), companionUrl: absolute('/v1/media/subtitles/g1/res-1/4/original.sub'), timeDomain: 'source-relative', offsetMs,
+      kind: 'vobsub', url: absolute(base + '/original.idx'), companionUrl: absolute(base + '/original.sub'), timeDomain: 'source-relative', offsetMs,
     });
   }
   assert.equal(selected.offsetUs, '250000', 'the plan remains a separate fallback, never summed into the file correction');
