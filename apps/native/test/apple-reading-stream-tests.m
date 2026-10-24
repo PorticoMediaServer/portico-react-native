@@ -129,7 +129,7 @@ static void actualCancel(NSUInteger mode) {
   int peer=accept(listener,NULL,NULL);if(peer<0)return;int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
   struct timeval timeout={3,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
   char request[8192]={0};ssize_t count=0;while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
-  const char *header="HTTP/1.1 200 OK\r\nContent-Length: 49153\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));
+  const char *header="HTTP/1.1 200 OK\r\nContent-Length: 33554432\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));
   if(mode!=1){uint8_t initial[49152]={0};sendAll(peer,initial,sizeof(initial));}
   dispatch_semaphore_signal(accepted);
   dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC));
