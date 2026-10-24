@@ -76,14 +76,14 @@ test('open reads the exact resident row and leaves the canonical source facts un
   });
   t.after(() => f.bindings.dispose());
   const loaded = await f.bindings.continue();
-  const actual = loaded.items[0]!, before = structuredClone(actual);
+  const actual = loaded.items[0]!, before = JSON.stringify(actual);
   f.admit(actual);
   assert.equal(await f.bindings.open(actual), true);
   assert.deepEqual(f.navigation.getSnapshot().route, {kind: 'read', itemId: 'item', sourceId: 'source'});
   assert.equal(f.calls.length, 2);
   assert.ok(f.calls[1]!.url.pathname.endsWith('/items/item/reading/versions'));
   assert.ok(f.calls.every(call => call.method === 'GET'), 'no session prepare, progress write or replacement request');
-  assert.deepEqual(actual, before);
+  assert.equal(JSON.stringify(actual), before);
   assert.ok(Object.isFrozen(actual) && Object.isFrozen(actual.progress) && Object.isFrozen(actual.progress.location));
 });
 
