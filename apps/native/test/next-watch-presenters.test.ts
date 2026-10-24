@@ -124,14 +124,11 @@ test('real version preview owns confirmation and exact physical DELETE receipt, 
 test('the real menu-to-chooser presenter keeps its sheet until start settles and aborts explicit close', async () => {
   for (const close of [false, true]) {
     const d = await fixture(), held = deferred<void>(); let selection: any;
-    const destination = new NativeVersionChooserController({capture: d.capture, options: offered,
-      rows: [{id: 'asset', heading: 'Actual edition', detail: ''}], hostCurrent: () => d.presenters.hostCurrent(d.capture), sourceCurrent: () => d.presenters.current(d.capture),
-      start: async (_input, next) => {selection = next; await held.promise;}});
     try {
       d.presenters.close();
       // The actual capture entry needs its genuine playback target for selection.
       const capture = {...d.capture, entry: {...d.capture.entry, playback: {itemId: 'movie'}}};
-      const actual = new NativeVersionChooserController({capture, options: offered, rows: destination.rows,
+      const actual = new NativeVersionChooserController({capture, options: offered, rows: [{id: 'asset', heading: 'Actual edition', detail: ''}],
         hostCurrent: () => d.presenters.hostCurrent(capture), sourceCurrent: () => d.presenters.current(capture),
         start: async (_input, next) => {selection = next; await held.promise;}});
       d.presenters.openMenu(capture, {fileInfo: async () => {}, differentVersion: async () => {d.presenters.openVersions(capture, actual);}});
@@ -142,6 +139,6 @@ test('the real menu-to-chooser presenter keeps its sheet until start settles and
       assert.equal(selection.lifetime.signal.aborted, false);
       if (close) {d.presenters.close(); assert.equal(selection.lifetime.signal.aborted, true);}
       held.resolve(); await starting; assert.equal(d.presenters.getSnapshot(), undefined);
-    } finally {held.resolve(); destination.dispose(); d.dispose();}
+    } finally {held.resolve(); d.dispose();}
   }
 });

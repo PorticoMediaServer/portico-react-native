@@ -144,7 +144,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const destination = new NativeVersionChooserController({capture: captured, options: offered,
       rows: nativeVersionChoices(offered, captured.entry.id, nativeVersionNames(defaultI18n.t, defaultI18n.locale), failedVersionId), selectedVersionId,
       hostCurrent: () => hostCurrent(captured), sourceCurrent: () => current(captured), start: startVersion, onDispose: () => {destinations.delete(destination);}});
-    if (!destination.rows.length) {destination.dispose(); return;}
+    if (!destination.rows.length || destination.rows.some(row => !row.heading.trim())) {destination.dispose(); return;}
     destinations.add(destination); ports.openVersions(captured, destination);
   };
   const versions = async (captured: NativeWatchCapture, failedVersionId?: string): Promise<void> => {
@@ -163,7 +163,8 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     // A failed options read must not replace the independent real File info action.
     const offered = entry.playback?.itemId === entry.id ? await request(captured, signal => options.options(entry.id, {}, signal)).catch(error => {if (current(captured)) ports.title.reportError(error); return undefined;}) : undefined;
     if (!current(captured)) return;
-    const hasVersions = !!ports.openVersions && !!ports.startVersion && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
+    const hasVersions = !!ports.openVersions && !!ports.startVersion && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length
+      && nativeVersionChoices(offered, entry.id, nativeVersionNames(defaultI18n.t, defaultI18n.locale)).every(row => !!row.heading.trim());
     ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {

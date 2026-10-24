@@ -20,8 +20,8 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
   const body = <ScrollView testID="watch-version-rows" contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0}}>
     <View style={theme.isTV ? undefined : {marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
       {rows.map((row, index) => <Focusable key={row.id} ref={index === entry ? first : undefined} focusId={`watch-version-${row.id}`} testID={`watch-version-${row.id}`}
-        focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && index === entry} disabled={value.busy}
-        onPress={() => choose(row.id)} style={({focused}) => ({minHeight: theme.isTV ? 54 : 64, paddingHorizontal: theme.isTV ? 14 : 16,
+        focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && index === entry}
+        onPress={() => {if (!value.busy) choose(row.id);}} style={({focused}) => ({minHeight: theme.isTV ? 54 : 64, paddingHorizontal: theme.isTV ? 14 : 16,
           paddingVertical: theme.isTV ? 14 : 10, marginBottom: theme.isTV ? 14 : 0, borderRadius: theme.isTV ? 12 : 0,
           backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'})}>
         {({focused}) => <>
