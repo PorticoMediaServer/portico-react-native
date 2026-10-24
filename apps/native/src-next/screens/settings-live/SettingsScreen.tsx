@@ -3,7 +3,8 @@ import {Dimensions, Platform, ScrollView, Text, View} from 'react-native';
 import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, readComposite, compositePatch, type SettingsPage, type SettingsRow as Row} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
 import {COMMON_LANGUAGES, languageName, MAX_LANGUAGES} from '../../../../../packages/client-core/src/presentation/language-list';
-import {defaultI18n, supportedLocales} from '../../../../../packages/i18n/src';
+import {localeChoices} from '../../../../../packages/client-core/src/presentation/region-choices';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import {resetRecommendations} from '../../../../../packages/client-core/src/recommendation-feedback';
 import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
@@ -160,7 +161,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
           control={row.control.type === 'switch' ? <Switch testID={id} checked={value === true} accessibilityLabel={t(row.label)} disabled={state.busy} onCheckedChange={next => change(row, next)}/>
             : row.control.type === 'choice' ? <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={row.control.choices.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)}))} onValueChange={next => {const choice = row.control.type === 'choice' ? row.control.choices.find(choice => String(choice.value) === next) : undefined; if (choice) change(row, choice.value);}} disabled={state.busy}/>
               : row.control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
-                : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={supportedLocales.map(locale => ({value: locale, label: locale}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
+                : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}</View>
     </View>)}
     {page.sections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
