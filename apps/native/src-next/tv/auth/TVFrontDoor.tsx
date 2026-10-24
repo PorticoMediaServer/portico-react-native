@@ -1,5 +1,5 @@
-import React from 'react';
-import {Image, Text, View, useWindowDimensions} from 'react-native';
+import React, {useCallback, useLayoutEffect, useMemo, useRef} from 'react';
+import {Image, Text, View, StyleSheet, findNodeHandle, useWindowDimensions, type TextProps, type TextStyle} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {ColourBackdrop} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
@@ -7,6 +7,33 @@ import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {shellLayout} from '../../shell/model';
+import type {HostRegistration} from '../../dev/layout-dump/index';
+
+/** Only this presenter's public heading is observed; supplied error content and
+ * Button internals keep their own owners. No resolved paint/font is inferred. */
+function useHeadingMeasurement(text: string, style: TextStyle[], width: number, height: number) {
+  const registration = useRef<HostRegistration | undefined>(undefined), native = useRef<Text | null>(null);
+  const input = useRef({style});
+  const ref = useCallback((host: Text | null) => {
+    registration.current?.unregister(); registration.current = undefined; native.current = host;
+    if (typeof __DEV__ !== 'undefined' && __DEV__ && host) {
+      const {registerNativeHost} = require('../../dev/layout-dump/index') as typeof import('../../dev/layout-dump/index');
+      registration.current = registerNativeHost(host, {kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(input.current.style)});
+    }
+  }, []);
+  useLayoutEffect(() => {
+    input.current = {style};
+    if (!registration.current) return;
+    registration.current.update({kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(style)});
+    registration.current.invalidateTextLayout(); registration.current.invalidateResolvedStyle();
+  }, [text, style, width, height]);
+  useLayoutEffect(() => () => {registration.current?.unregister(); registration.current = undefined; native.current = null;}, []);
+  const onTextLayout = useCallback<NonNullable<TextProps['onTextLayout']>>(event => {
+    if (native.current && findNodeHandle(native.current) === event.nativeEvent.target) registration.current?.recordTextLayout(event.nativeEvent.lines);
+  }, []);
+  const onLayout = useCallback(() => {registration.current?.invalidateTextLayout(); registration.current?.invalidateResolvedStyle();}, []);
+  return typeof __DEV__ !== 'undefined' && __DEV__ ? {ref, onTextLayout, onLayout} : {};
+}
 
 export type TVFrontDoorProps = Readonly<{
   busy: boolean; error?: React.ReactNode;
@@ -22,6 +49,10 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const theme = useTheme(), window = useWindowDimensions(), canvas = shellLayout(window.width, window.height, true), id = 'tv.auth.front-door';
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: 0}, {regionId: id, childId: 'portico'});
   const textStyle = nativeType({size: 26, weight: 700, lineHeight: 'normal', tracking: 0}, theme.textScale);
+  const title = defaultI18n.t('web.signin.welcomeHome');
+  const titleStyle = useMemo(() => [nativeType({size: 88, weight: 800, lineHeight: 88, tracking: -.045}, theme.textScale),
+    {color: theme.colors.text, marginBottom: 56}], [theme.textScale, theme.colors.text]);
+  const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
   return <View testID="tv-front-door" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
@@ -29,8 +60,7 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
       <View style={{position: 'absolute', left: 200, top: 0, bottom: 0, width: 900, justifyContent: 'center'}}>
         <Image source={require('../../../assets/wordmark.png')} accessibilityLabel={defaultI18n.t('accounts.brand')}
           resizeMode="contain" style={{position: 'absolute', left: 0, top: 72, width: 174, height: 40}}/>
-        <Text accessibilityRole="header" style={[nativeType({size: 88, weight: 800, lineHeight: 88, tracking: -.045}, theme.textScale),
-          {color: theme.colors.text, marginBottom: 56}]}>{defaultI18n.t('web.signin.welcomeHome')}</Text>
+        <Text {...measurement} accessibilityRole="header" style={titleStyle}>{title}</Text>
         {error && <View accessibilityRole="alert" style={{marginBottom: 16}}>{error}</View>}
         <FocusRegion id={id} entry="portico" order={['portico', 'local']} orientation="horizontal" enabled={!busy} style={{flexDirection: 'row', gap: 36}}>
           <Button focusId="portico" testID="tv-front-door-portico" disabled={busy} onPress={() => {if (!busy) onPortico();}}
