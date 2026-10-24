@@ -26,6 +26,7 @@ export function installNativePublicMeasurement(root: () => object | null, isCurr
       'accounts-welcome-portico/label': 'primary-action-label',
       'accounts-welcome-local': 'secondary-action',
       'accounts-welcome-local/label': 'secondary-action-label',
+      'tv-front-door': 'screen',
       'tv-front-door-title': 'title',
       'tv-front-door-portico': 'primary-action',
       'tv-front-door-portico/label': 'primary-action-label',
