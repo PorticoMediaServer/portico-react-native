@@ -49,7 +49,7 @@ test('an unready snapshot is unconfirmed and never exposes a held value or compo
   for (const snapshot of snapshots) {
     const facts = nativeSettingsEqualizerFacts(snapshot);
     assert.deepEqual(facts, {state: 'unconfirmed', pending: snapshot.pending});
-    assert.deepEqual(Object.keys(facts), ['pending', 'state']);
+    assert.deepEqual(Object.keys(facts).sort(), ['pending', 'state']);
     assert.equal('value' in facts, false);
   }
 });
