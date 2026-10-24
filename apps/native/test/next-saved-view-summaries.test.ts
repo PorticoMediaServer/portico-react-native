@@ -277,3 +277,58 @@ test('a retired owner stops local words and subscriptions without disposing the 
     assert.equal(binding.line(resource, defaultI18n), undefined, 'an idempotent start cannot revive a retired owner');
   } finally {binding.dispose(); destination.dispose(); reader.dispose();}
 });
+
+test('one borrowed reader drops the old window as soon as a replacement starts and cannot revive a retired owner', async () => {
+  const owner = {current: true};
+  const context = testContext();
+  const directories: {shape: string | null; gate: ReturnType<typeof deferred<unknown>>}[] = [];
+  const capabilities: {library: string; pivot: string; gate: ReturnType<typeof deferred<unknown>>}[] = [];
+  const api = fakeApi(path => {
+    const url = new URL(path, 'https://test.invalid');
+    if (url.pathname.endsWith('/saved/summary')) return summary();
+    if (url.pathname.includes('saved-resources')) {
+      const entry = {shape: url.searchParams.get('shape'), gate: deferred<unknown>()};
+      directories.push(entry); return entry.gate.promise;
+    }
+    if (url.pathname.endsWith('/browse-capabilities')) {
+      const entry = {library: url.pathname.split('/')[3]!, pivot: url.searchParams.get('pivot')!, gate: deferred<unknown>()};
+      capabilities.push(entry); return entry.gate.promise;
+    }
+    return hubList(url.searchParams.get('view') ?? 'watchlist');
+  });
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const reader = readerFor(api);
+  const binding = createNativeSavedViewSummaryBinding(context.context, destination, () => owner.current, reader);
+  try {
+    const first = destination.select({view: 'views'});
+    directories[0]!.gate.resolve(directory([viewWire('a')]));
+    await first;
+    const a = destination.getSnapshot().personal!.resources[0]!;
+    const started = binding.start(); await tick();
+    capabilities[0]!.gate.resolve(capability('movies', 'movies'));
+    await started; await tick();
+    assert.equal(binding.line(a, defaultI18n), lineOf(a));
+
+    const replacing = destination.select({view: 'views', shape: 'squares'});
+    assert.equal(destination.getSnapshot().phase, 'loading');
+    assert.equal(binding.line(a, defaultI18n), undefined, 'the old page object is gone as soon as its window is replaced');
+    directories[1]!.gate.resolve(directory([viewWire('b')]));
+    await replacing;
+    const b = destination.getSnapshot().personal!.resources[0]!;
+    assert.equal(binding.line(b, defaultI18n), undefined, 'a replaced window has no vocabulary until its own read lands');
+    capabilities[1]!.gate.resolve(capability('movies', 'movies'));
+    await tick();
+    assert.equal(binding.line(b, defaultI18n), lineOf(b));
+    assert.equal(binding.line(a, defaultI18n), undefined);
+
+    const third = destination.select({view: 'views', shape: 'posters'});
+    assert.equal(binding.line(b, defaultI18n), undefined);
+    directories[2]!.gate.resolve(directory([viewWire('c')]));
+    await third;
+    const c = destination.getSnapshot().personal!.resources[0]!;
+    owner.current = false; context.emit();
+    capabilities[2]!.gate.resolve(capability('movies', 'movies'));
+    await tick();
+    assert.equal(binding.line(c, defaultI18n), undefined, 'a late reply cannot supply words after the owner retires');
+  } finally {binding.dispose(); destination.dispose(); reader.dispose();}
+});
