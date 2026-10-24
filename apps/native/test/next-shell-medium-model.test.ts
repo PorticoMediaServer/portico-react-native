@@ -9,7 +9,11 @@ test('shellLayout moves 600-1023 to the drawn medium rail and keeps phone and de
     const medium = shellLayout(width, height, false);
     assert.deepEqual({kind: medium.kind, tabs: medium.tabs, rail: medium.rail, panel: medium.panel}, {kind: 'tablet', tabs: false, rail: true, panel: 'side'}, `${width}x${height}`);
   }
+  const landscapePhone = shellLayout(914, 411, false);
+  assert.deepEqual({kind: landscapePhone.kind, tabs: landscapePhone.tabs, rail: landscapePhone.rail, panel: landscapePhone.panel},
+    {kind: 'phone', tabs: true, rail: false, panel: 'bottom'}, 'phone-guide 2 keeps the phone chrome in landscape');
   const desktop = shellLayout(1024, 700, false);
+  assert.equal(shellLayout(1400, 500, false).kind, 'desktop', 'a short desktop window keeps the desktop shell');
   assert.deepEqual({kind: desktop.kind, tabs: desktop.tabs, rail: desktop.rail}, {kind: 'desktop', tabs: false, rail: false});
   assert.deepEqual({tabs: shellLayout(1920, 1080, true).tabs, rail: shellLayout(1920, 1080, true).rail}, {tabs: false, rail: false});
 });
