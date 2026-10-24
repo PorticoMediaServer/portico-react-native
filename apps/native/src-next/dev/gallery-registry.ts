@@ -11,14 +11,15 @@ export function galleriesForPlatform(galleries: readonly Gallery[], platform: Ga
   return galleries.filter(gallery => !gallery.platforms || gallery.platforms.includes(platform));
 }
 
-/** The existing Portico URL scheme opens a development gallery without editing an entry file. */
-export function kitSelectionFromURL(value: string | null): {gallery?: string} | undefined {
+/** The existing Portico URL scheme opens a development gallery without editing an entry file.
+ * `window=1` draws the selected gallery full-window for a pixel capture, with no catalogue chrome. */
+export function kitSelectionFromURL(value: string | null): {gallery?: string; window?: boolean} | undefined {
   if (!value) return;
   try {
     const url = new URL(value);
     if (url.protocol !== 'portico:' || url.hostname !== 'kit' || !['', '/'].includes(url.pathname)) return;
     const gallery = url.searchParams.get('gallery');
-    return gallery ? {gallery} : {};
+    return gallery ? (url.searchParams.get('window') === '1' ? {gallery, window: true} : {gallery}) : {};
   } catch {return;}
 }
 

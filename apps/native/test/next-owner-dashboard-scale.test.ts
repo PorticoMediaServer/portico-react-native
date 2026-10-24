@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
 import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
+import {kitSelectionFromURL} from '../src-next/dev/gallery-registry';
 import {
   appendOwnerSessions, OWNER_COMPACT_ROW_PX, OWNER_STREAM_CARD_LIMIT, ownerCompactWindow, ownerDerivedTotals, ownerStreamNote, ownerStreamTotals, ownerStreamView, ownerUsesCompactRows,
   type OwnerSessionTotals,
@@ -86,4 +87,10 @@ test('Show all appends the server pages in their own order and never repeats a s
   const merged = appendOwnerSessions(first, page);
   assert.deepEqual(merged.map(value => value.id), ['a', 'b', 'c']);
   assert.equal(appendOwnerSessions(merged, []), merged);
+});
+
+test('the dev gallery can be drawn full-window for a pixel capture', () => {
+  assert.deepEqual(kitSelectionFromURL('portico://kit?gallery=shell-owner-dashboard-busy&window=1'), {gallery: 'shell-owner-dashboard-busy', window: true});
+  assert.deepEqual(kitSelectionFromURL('portico://kit?gallery=shell-owner-dashboard-busy'), {gallery: 'shell-owner-dashboard-busy'});
+  assert.deepEqual(kitSelectionFromURL('portico://kit/'), {});
 });
