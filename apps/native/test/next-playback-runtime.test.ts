@@ -171,22 +171,22 @@ function subtitleResponse(d: ReturnType<typeof fixture>, request: FakeRequest): 
 }
 
 function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number | undefined = 1250) {
-  let burned = false;
-  const resource = () => ({id: 'rich-resource', sourceId: 'physical-source-1', revision: 3, scope: 'personal', language: 'en', title: 'Actual rich resource',
-    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: burned ? 'burn_in' : 'client', default: false, forced: false});
+  const burned = new Set<string>();
+  const resource = (sessionId = d.runtime.playback.getSnapshot().session?.id) => ({id: 'rich-resource', sourceId: 'physical-source-1', revision: 3, scope: 'personal', language: 'en', title: 'Actual rich resource',
+    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: sessionId && burned.has(sessionId) ? 'burn_in' : 'client', default: false, forced: false});
   d.respond(async request => {
     const match = /^\/v1\/items\/([^/]+)\/playback\/([^/]+)\/subtitles$/.exec(request.path);
-    if (match) {const selected = resource(); return {status: 200, headers: {}, body: {version: 1, sessionId: decodeURIComponent(match[2]), generation: d.runtime.playback.getSnapshot().session!.generation,
-      sourceId: selected.sourceId, revision: burned ? 2 : 1, catalogRevision: 1, renderer: selected.renderer, mode: 'track', offAvailable: true, offsetUs: '500000', selected, resources: [selected], discovered: []}};}
+    if (match) {const sessionId = decodeURIComponent(match[2]), selected = resource(sessionId); return {status: 200, headers: {}, body: {version: 1, sessionId, generation: d.runtime.playback.getSnapshot().session!.generation,
+      sourceId: selected.sourceId, revision: burned.has(sessionId) ? 2 : 1, catalogRevision: 1, renderer: selected.renderer, mode: 'track', offAvailable: true, offsetUs: '500000', selected, resources: [selected], discovered: []}};}
     if (request.method === 'GET' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path)) {
       const response = subtitleResponse(d, request)!;
       return {...response, body: {...response.body as object, resources: [resource()]}};
     }
     if (request.method === 'POST' && request.path === routePath('create_queue') || /^\/v1\/playback\/sessions(?:\/[^/]+)?$/.test(request.path)) {
-      if (request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn') burned = true;
+      if (request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn') burned.add(decodeURIComponent(request.path.split('/').at(-1)!));
       const response = await d.server.handle(request);
       const shape = (session: any) => ({...session, presentation: {...session.presentation,
-        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: burned ? 'burn' : 'device'},
+        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: burned.has(session.id) ? 'burn' : 'device'},
         subtitles: [{trackId: 'rich-resource', format: 'vobsub', url: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.idx`,
           companionUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.sub`, timeDomain: 'source-relative', ...(offsetMs === undefined ? {} : {offsetMs})}]}});
       const body = response.body as any;

@@ -1008,7 +1008,7 @@ export class NativePlaybackRuntime {
       try {return this.active() && !controller.signal.aborted && !lifetime.signal.aborted && lifetime.isCurrent()
         && epoch === this.externalEpoch && start === this.startEpoch && state.intentId === playback.intentId
         && state.session?.id === original.id && session?.id === original.id
-        && queue?.id === original.queue!.queueId && queue.current?.entryId === original.queue!.entryId
+        && queue?.id === original.queue!.queueId && queue.currentEntryId === original.queue!.entryId && queue.currentPlaybackId === original.id
         && (generation === undefined || state.session.generation === generation);}
       catch {return false;}
     };
