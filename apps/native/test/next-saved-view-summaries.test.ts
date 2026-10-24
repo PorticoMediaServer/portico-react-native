@@ -430,3 +430,31 @@ test('the line follows the actual i18n and the newest capability with no cached 
     assert.equal(binding.line(replaced, defaultI18n), undefined, 'the newest capability withholds the withdrawn sort');
   } finally {binding.dispose(); destination.dispose(); reader.dispose();}
 });
+
+test('an observed owner retirement is permanent on the render path and emits nothing', async () => {
+  const calls: Call[] = [];
+  const api = fakeApi(answerSaved(() => [viewWire('latched')]), calls);
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const reader = readerFor(api);
+  const owner = {current: true};
+  const binding = createNativeSavedViewSummaryBinding(testContext().context, destination, () => owner.current, reader);
+  try {
+    await destination.select({view: 'views'});
+    const resource = destination.getSnapshot().personal!.resources[0]!;
+    await binding.start(); await tick();
+    assert.equal(binding.line(resource, defaultI18n), lineOf(resource));
+    let notifications = 0;
+    binding.subscribe(() => {notifications++;});
+    const revision = binding.getSnapshot();
+    owner.current = false;
+    assert.equal(binding.line(resource, defaultI18n), undefined, 'the render path observes the retired owner');
+    assert.equal(notifications, 0, 'retiring from render emits no React notification');
+    assert.equal(binding.getSnapshot(), revision, 'the render path does not bump the store revision');
+    owner.current = true;
+    assert.equal(binding.line(resource, defaultI18n), undefined, 're-entering the same owner cannot revive old words');
+    await binding.start();
+    assert.equal(binding.line(resource, defaultI18n), undefined, 'an idempotent start cannot revive the retired owner');
+    assert.equal(destination.getSnapshot().phase, 'ready', 'the borrowed Saved source is untouched');
+    assert.ok(reader.line(resource, defaultI18n), 'the borrowed reader is untouched');
+  } finally {binding.dispose(); destination.dispose(); reader.dispose();}
+});

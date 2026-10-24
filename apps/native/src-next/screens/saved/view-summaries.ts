@@ -59,13 +59,13 @@ export function createNativeSavedViewSummaryBinding(
 
   const live = (): boolean => !disposed && !retired && lifetime.current() && ownerCurrent();
   const emit = (): void => {revision++; for (const listener of [...listeners]) listener();};
-  const retire = (): void => {
+  const retire = (notify = true): void => {
     if (disposed || retired) return;
     retired = true; window = EMPTY;
     stopSource?.(); stopSource = undefined;
     stopReader?.(); stopReader = undefined;
     stopOwner?.(); stopOwner = undefined;
-    emit();
+    if (notify) emit();
   };
   /** Runs outside render: a lost owner stops this binding without touching the owner's services. */
   const check = (): boolean => {if (!live()) retire(); return live();};
@@ -95,7 +95,8 @@ export function createNativeSavedViewSummaryBinding(
     return startPromise;
   };
   const line = (resource: PersonalResource, text: SavedViewSummaryText): string | undefined => {
-    if (!live() || !window.includes(resource) || !arrivedWindow(source.getSnapshot()).includes(resource)) return undefined;
+    if (!live()) {retire(false); return undefined;}
+    if (!window.includes(resource) || !arrivedWindow(source.getSnapshot()).includes(resource)) return undefined;
     return reader.line(resource, text);
   };
   const dispose = (): void => {
