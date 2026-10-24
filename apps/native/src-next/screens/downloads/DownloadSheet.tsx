@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {Text, View} from 'react-native';
+import {NativeModules, Platform, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {downloadBytes, downloadReasonMessage, type DownloadOptionsView, type DownloadQualityOption} from '../../../../../packages/client-core/src/downloads';
 import type {DownloadEpisodes} from '../../../../../packages/client-core/src/download-requests';
@@ -10,6 +10,9 @@ import {useTheme} from '../../kit/theme';
 import {BottomSheet} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {createNativeDownloadsDevice} from './device';
+import {nativeDeviceSettings} from '../../platform/device-settings';
+import type {EngineSetting} from '../../platform/playback/engine-choice';
+import {originalMayNotPlay} from './original-opens';
 import {closeNativeDownload, getNativeDownloadSnapshot, subscribeNativeDownload, type NativeDownloadRequest} from './request';
 
 type ContainerOptions = Readonly<{quality: string; label: string; available: boolean; estimated: boolean; estimatedBytes: number; unavailableCount: number}>;
@@ -80,7 +83,11 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
   </Focusable>;
   const titleOption = (option: DownloadQualityOption) => qualityRow({quality: option.quality, label: option.label, available: option.available,
     size: option.available ? option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes) : downloadReasonMessage(option.reason ?? ''),
-    note: option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, meta: busy === option.quality ? t('downloads.adding') : undefined});
+    note: [option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter(Boolean).join(' · ') || undefined,
+    meta: busy === option.quality ? t('downloads.adding') : undefined});
+  const engine = ((): EngineSetting | undefined => {try {const value = nativeDeviceSettings(context).read('playerEngine'); return value === 'native' || value === 'mpv' ? value : 'automatic';} catch {return undefined;}})();
+  const cannotOpen = !!view && originalMayNotPlay(view.source.container, {platform: Platform.OS === 'ios' ? 'apple' : 'android',
+    mpv: Platform.OS === 'android' && (NativeModules.PorticoMpvPlaybackModule as undefined | {available?: boolean})?.available === true, player: engine ?? 'automatic'});
   const blocked = view && !view.policy.allowDownloads;
   const storage = view?.storage.remainingBytes;
   return <BottomSheet open onOpenChange={open => {if (!open) close();}} testID="native-download-sheet" title={t('action.download')} description={request.title} fitContent
