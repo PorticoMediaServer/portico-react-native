@@ -11,11 +11,11 @@ import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon, type IconName} from '../../kit/Icon';
-import {SettingsRow, SettingsSearchResults, LanguageList} from '../../kit/shell';
+import {SettingsRow, SettingsSearchResults, LanguageList, type LanguageOption} from '../../kit/shell';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {StateView} from '../../kit/states';
-import {Dialog} from '../../kit/overlays';
+import {Dialog, Menu} from '../../kit/overlays';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
 import {NativeTVKeyboard} from '../destinations';
@@ -134,6 +134,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
 function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
+  // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
+  const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string}>[]; apply: (value: string) => void}>>();
+  const [languages, setLanguages] = useState<Readonly<{testID: string; title: string; help?: string; value: readonly LanguageOption[]; available: readonly LanguageOption[]; limit: number; apply: (value: readonly LanguageOption[]) => void}>>();
   const [confirmation, setConfirmation] = useState<'signOut' | 'resetRecommendations'>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
   const cancel = useRef<View>(null);
   useSyncExternalStore(devicePreferences.subscribe, () => page.sections.flatMap(section => section.rows).filter(row => row.kind === 'composite' && row.storage === 'device').map(row => devicePreferences.read((row as Extract<Row, {kind: 'composite'}>).id)).join('|'));
@@ -173,10 +176,28 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         const value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
         if (value === undefined) return null;
         const scope = settingsScopeLabel(row.scope, theme.isTV ? 'tv' : 'phone');
-        return <SettingsRow key={id} testID={id} label={t(row.label)} description={row.help ? t(row.help) : undefined} scope={scope ? t(scope) : undefined} first={index === 0} dependent={!!row.when}
-          control={row.control.type === 'switch' ? <Switch testID={id} checked={value === true} accessibilityLabel={t(row.label)} disabled={state.busy} onCheckedChange={next => change(row, next)}/>
-            : row.control.type === 'choice' ? <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={row.control.choices.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)}))} onValueChange={next => {const choice = row.control.type === 'choice' ? row.control.choices.find(choice => String(choice.value) === next) : undefined; if (choice) change(row, choice.value);}} disabled={state.busy}/>
-              : row.control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
+        const copy = {label: t(row.label), description: row.help ? t(row.help) : undefined, scope: scope ? t(scope) : undefined, first: index === 0, dependent: !!row.when};
+        const control = row.control;
+        if (theme.isTV && control.type !== 'switch') {
+          if (control.type === 'languages') {
+            const selected = (Array.isArray(value) ? value : []).map(language => ({id: language, label: languageName(language, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}));
+            const available = COMMON_LANGUAGES.map(language => ({id: language, label: languageName(language, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}));
+            return <SettingsRow key={id} testID={id} {...copy} value={selected.length ? defaultI18n.list(selected.map(language => language.label)) : t('next.shell.native.noLanguages')}
+              onPress={() => setLanguages({testID: id, title: copy.label, help: copy.description, value: selected, available, limit: MAX_LANGUAGES, apply: next => change(row, next.map(language => language.id))})}/>;
+          }
+          const options = control.type === 'choice' ? control.choices.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)})) : localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}));
+          const current = String(value);
+          return <SettingsRow key={id} testID={id} {...copy} value={options.find(option => option.value === current)?.label ?? current}
+            onPress={() => setChoices({title: copy.label, help: copy.description, value: current, options, apply: next => {
+              if (control.type === 'choice') {const choice = control.choices.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}
+              else change(row, next);
+            }})}/>;
+        }
+        const choiceList = control.type === 'choice' ? control.choices : undefined;
+        return <SettingsRow key={id} testID={id} {...copy}
+          control={control.type === 'switch' ? <Switch testID={id} checked={value === true} accessibilityLabel={t(row.label)} disabled={state.busy} onCheckedChange={next => change(row, next)}/>
+            : choiceList ? <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={choiceList.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)}))} onValueChange={next => {const choice = choiceList.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}} disabled={state.busy}/>
+              : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}</View>
     </View>)}
@@ -190,5 +211,11 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         const work = confirmation === 'signOut' ? ports.accountActions.signOut() : controller.lifetime.request(signal => resetRecommendations(ports.context.api, {serverId: controller.lifetime.authority.serverId, operationId: ports.requestId(), signal}));
         void work.then(() => {if (controller.lifetime.current()) setConfirmation(undefined);}, error => {if (controller.lifetime.current()) setActionError(error);}).finally(() => {if (controller.lifetime.current()) setActionBusy(false);});
       }}>{t(confirmation === 'signOut' ? 'action.signOut' : 'settings.resetRecommendations.confirm')}</Button></View>}><View/></Dialog>
+    {theme.isTV && <Menu testID="settings-value-sheet" open={choices !== undefined} onOpenChange={open => {if (!open) setChoices(undefined);}} presentation="sideSheet"
+      title={choices?.title} description={choices?.help} initialFocusId={choices?.value}
+      items={choices ? choices.options.map(option => ({id: option.value, label: option.label, selected: option.value === choices.value, onSelect: () => {const apply = choices.apply; setChoices(undefined); apply(option.value);}})) : []}/>}
+    {theme.isTV && <Dialog testID="settings-language-sheet" open={languages !== undefined} onOpenChange={open => {if (!open) setLanguages(undefined);}} title={languages?.title} description={languages?.help} placement="side" width={640}>
+      {languages && <LanguageList testID={languages.testID} label={languages.title} value={languages.value} available={languages.available} limit={languages.limit} onChange={languages.apply}/>}
+    </Dialog>}
   </>;
 }
