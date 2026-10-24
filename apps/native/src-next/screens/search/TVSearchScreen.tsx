@@ -1,4 +1,4 @@
-import React, {useEffect, useId, useMemo, useRef, useSyncExternalStore} from 'react';
+import React, {useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -25,6 +25,20 @@ import {nativeSearchGenreTiles} from './genre-tiles';
 
 const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
+/** Drawn measurements from tv.html#f5 (.sres left/right/.top-r/.meta/.trk) and states.html#f18 (.genres right inset). */
+const resultsLeft = 780;
+const tvSearchR46 = {
+  results: {position: 'absolute', left: resultsLeft, right: 0, top: 64, bottom: 0},
+  section: {marginTop: 46},
+  heading: {flexDirection: 'row', alignItems: 'baseline', gap: 14},
+  track: {flexDirection: 'row', gap: 28, marginTop: 30},
+  topResult: {marginTop: 44},
+  topRow: {flexDirection: 'row', gap: 36, alignItems: 'center'},
+  meta: {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 26, rowGap: 10, marginBottom: 14},
+  metaProgress: {width: 160},
+  genreClip: {position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 16, overflow: 'hidden'},
+  genreCopy: {position: 'absolute', left: 30, bottom: 26},
+} as const;
 export type NativeTVSearchScreenProps = Readonly<{
   destination: NativeSearchDestination; runtime: NativeShellRuntime; activation: NativeDestinationActivationPort;
   explore: NativeSearchExplorePort; actions: NativeSearchActions; selection?: NativeSearchSelectionPort; copy: NativeSearchTVCopy;
@@ -34,7 +48,7 @@ export type NativeTVSearchScreenProps = Readonly<{
  * Only the shared keyboard requests entry focus; result arrival never moves it. */
 export function TVSearchScreen({destination, runtime, activation, explore, actions, selection, copy}: NativeTVSearchScreenProps) {
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
-  const theme = useTheme(), dimensions = useWindowDimensions(), scroll = useRef<ScrollView>(null);
+  const theme = useTheme(), dimensions = useWindowDimensions(), scroll = useRef<ScrollView>(null), [keyboardRow, setKeyboardRow] = useState<string>();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot), authority = runtime.getSnapshot().authority;
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
@@ -51,7 +65,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   useEffect(() => runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
   const run = (work: Promise<void>) => {void work.catch(runtime.reportError);};
   const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
-  const resultsWidth = Math.max(0, dimensions.width - 780 - 72);
+  const resultsWidth = Math.max(0, dimensions.width - resultsLeft - theme.layout.gutter.tvRight);
   return <View testID="native-tv-search-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View testID="tv-search-query" accessibilityLabel={t('web.shell.search')} style={{position: 'absolute', left: theme.gutter, top: 64, width: 500, height: 80, borderRadius: 16,
@@ -60,14 +74,14 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
       <Text numberOfLines={1} style={[browseType(theme, 34, 700), {color: theme.colors.text, flexShrink: 1}]}>{state.text || t('web.search.placeholder')}</Text>
       {typed && <View style={{width: 3, height: 40, marginLeft: -12, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>}
     </View>
-    <View style={{position: 'absolute', left: theme.gutter, top: 176}}><NativeTVKeyboard id={ids.searchKeyboard} value={state.text}
+    <View style={{position: 'absolute', left: theme.gutter, top: 176}}><NativeTVKeyboard id={ids.searchKeyboard} value={state.text} onRowFocus={setKeyboardRow}
       onChangeText={value => destination.setText(value)} activation={active} leftRegionId={ids.rail} rightRegionId={ids.searchResults}/></View>
     {!empty && <View style={{position: 'absolute', left: theme.gutter, top: 792, width: 500, flexDirection: 'row', alignItems: 'flex-start', gap: 18}}>
       <View style={{width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08)}}><Icon name="i-mic" size={28} color={theme.colors.textSecondary}/></View>
       <Text style={[browseType(theme, 20, 400, 0, 29), {color: theme.colors.textTertiary, flex: 1}]}><Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t(copy.preferToTalk)}</Text>{' '}{t(copy.voiceHint)}</Text>
     </View>}
-    <FocusRegion id={ids.searchResults} entry={firstResult} enabled={active.visible} edges={{left: ids.searchKeyboard}}
-      style={{position: 'absolute', left: 780, right: 72, top: 64, bottom: 0}}>
+    <FocusRegion id={ids.searchResults} entry={firstResult} enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboard}}
+      style={tvSearchR46.results}>
       <ScrollView ref={scroll} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
         if (state.group === 'all' || state.search.phase !== 'ready') return;
         const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
@@ -94,11 +108,11 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
               style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</View>}
         </>}
         {top && <TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/>}
-        {typed && !empty && !problem && shown.map(group => <View key={group.id} style={{marginTop: 42}}>
-          <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 14}}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
+        {typed && !empty && !problem && shown.map(group => <View key={group.id} style={tvSearchR46.section}>
+          <View style={tvSearchR46.heading}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
             {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>
           {group.status === 'error' && <StateView {...runtime.error({code: group.errorCode}, () => run(destination.retry()))}/>}
-          <View style={{flexDirection: 'row', flexWrap: state.group === 'all' ? undefined : 'wrap', gap: 28, marginTop: 30}}>
+          <View style={[tvSearchR46.track, {flexWrap: state.group === 'all' ? 'nowrap' : 'wrap'}]}>
             {group.items.slice(0, state.group === 'all' ? 4 : group.items.length).map(entry => <SearchGridCard key={nativeSearchEntryKey(group.id, entry)} entry={entry} group={group.id} width={196}
               runtime={runtime} actions={actions} selection={selection?.item(group.id, entry)} disabled={!active.visible}/>)}</View>
         </View>)}
@@ -108,31 +122,44 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   </View>;
 }
 
-function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: NativeSearchGenre; runtime: NativeShellRuntime; width: number; disabled: boolean; onPress: () => void}) {
+export function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: NativeSearchGenre; runtime: NativeShellRuntime; width: number; disabled: boolean; onPress: () => void}) {
   const theme = useTheme(), gradient = useId();
   return <Focusable focusId={`genre:${genre.id}`} testID={`tv-search-genre-${encodeURIComponent(genre.id)}`} disabled={disabled} onPress={onPress}
-    accessibilityLabel={genre.name} focusRadius={16} style={{width, height: 200, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-    <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={200}/>
-    <Svg pointerEvents="none" width={width} height={200} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset=".55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={200} fill={`url(#${gradient})`}/></Svg>
-    <View style={{position: 'absolute', left: 30, bottom: 26}}><Text style={[browseType(theme, 36, 800, -.025), {color: theme.colors.text}]}>{genre.name}</Text>
+    accessibilityLabel={genre.name} focusRadius={16} style={{width, height: 200, borderRadius: 16, backgroundColor: theme.colors.raised}}>
+    <View style={tvSearchR46.genreClip}>
+      <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={200}/>
+      <Svg pointerEvents="none" width={width} height={200} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset=".55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={200} fill={`url(#${gradient})`}/></Svg>
+    </View>
+    <View style={tvSearchR46.genreCopy}><Text style={[browseType(theme, 36, 800, -.025), {color: theme.colors.text}]}>{genre.name}</Text>
       <Text style={[browseType(theme, 20, 400), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('next.selection.titles', {count: genre.count})}</Text></View>
   </Focusable>;
 }
 
-function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}: Pick<NativeTVSearchScreenProps, 'runtime' | 'actions'> & {entry: SearchEntry; group: SearchGroup; selection?: ReturnType<NativeSearchSelectionPort['item']>; disabled: boolean}) {
+/** tv.html#f5 draws the season count as .tv .tag; tagSpec is the canonical tag. */
+export function TVSearchTag({children}: {children: React.ReactNode}) {
+  const theme = useTheme(), tag = theme.spec.tag;
+  return <View style={{paddingHorizontal: tag.paddingX[theme.platform], paddingVertical: tag.paddingY, borderRadius: tag.radius[theme.platform],
+    borderWidth: tag.borderWidth[theme.platform], borderColor: alpha(theme.colors.text, tag.borderAlpha)}}>
+    <Text style={[theme.type.tag, {color: theme.colors.text}]}>{children}</Text>
+  </View>;
+}
+
+export function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}: Pick<NativeTVSearchScreenProps, 'runtime' | 'actions'> & {entry: SearchEntry; group: SearchGroup; selection?: ReturnType<NativeSearchSelectionPort['item']>; disabled: boolean}) {
   const theme = useTheme(), anchor = useRef<View>(null), content = media(entry) ? entry : undefined, kind = topResultKindLabel(group);
   const text = content && cardText(homeSubject(content), 'search', runtime.text), title = content?.displayTitle || entry.title;
+  const progress = text?.progress, caption = text?.caption.filter(part => part.id !== 'year') ?? [];
   return <CardFrame focusId={nativeSearchEntryKey(group, entry)} testID="tv-search-top-result" title={title} disabled={disabled} selection={selection}
     menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen?.(entry, group)} onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, anchor)}
-    style={{marginTop: 44}} pressableStyle={{flexDirection: 'row', gap: 36, alignItems: 'center'}}>
+    style={tvSearchR46.topResult} pressableStyle={tvSearchR46.topRow}>
     {state => <><ArtFrame width={480} height={270} radius={14} focused={state.focused} hovered={state.hovered} holding={state.holding} selected={selection?.selected}>
       <Artwork source={runtime.artwork(content?.backdropUrl ?? entry.posterUrl)} width={480} height={270}/></ArtFrame>
       <View style={{flex: 1}}><Text style={[browseType(theme, 20, 700), {color: theme.colors.accentStrong, marginBottom: 10}]}>{t('search.topResult')}</Text>
         <Text numberOfLines={3} style={[browseType(theme, 52, 800, -.04, 52), {color: theme.colors.text, marginBottom: 14}]}>{title}</Text>
-        <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginBottom: 14}}>{content?.year !== undefined && <Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{content.year}</Text>}
-          {kind && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
-          {text && <Parts parts={text.caption.filter(part => part.id !== 'year')} style={browseType(theme, 20, 600)}/>}</View>
-        {!!content?.duration && content.progressSeconds !== undefined && <Progress value={content.progressSeconds / content.duration} style={{width: 180, marginBottom: 10}}/>}
-        {text && <Parts parts={text.detail} style={browseType(theme, 20, 600)}/>}</View></>}
+        <View style={tvSearchR46.meta}>{content?.year !== undefined && <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{content.year}</Text>}
+          {kind && <Text style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
+          {caption.map(part => part.id === 'season-count' ? <TVSearchTag key={part.id}>{part.text}</TVSearchTag>
+            : <Text key={part.id} style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{part.text}</Text>)}
+          {progress !== undefined && progress > 0 && <View style={tvSearchR46.metaProgress}><Progress value={progress}/></View>}</View>
+        <Parts parts={text?.detail} style={browseType(theme, 24, 400)}/></View></>}
   </CardFrame>;
 }
