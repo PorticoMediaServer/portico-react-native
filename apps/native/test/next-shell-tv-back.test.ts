@@ -42,7 +42,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}, nativeMenuRouteAvailable: () => true}, './library-scan': {libraryScanReadiness: () => ({ok: true})}, '../screens/downloads/DownloadSheet': {NativeDownloadSheet: 'NativeDownloadSheet'},
     './home-windows': {planHomeWindows},
-    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return 'retained';}, renderOverlays: () => 'overlay', back: () => routeConsumes, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
+    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return ['retained'];}, renderOverlays: () => ['overlay'], back: () => routeConsumes, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
     '../screens/read/platform': readPlatform, '../screens/native-screen-services': screenServices,
     '../screens/home/entry-lifetime': {nativeHomeEntryLifetime},
   });
@@ -128,6 +128,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   navigation.open({kind: 'home-customize'}, authority);
   const routes = bindings.renderRoutes();
   assert.deepEqual(renderOrder, ['active', 'retained'], 'current module exists before its retained native views are requested');
-  assert.deepEqual(routes.props.children, ['retained', 'active', 'overlay'], 'retained views stay below the active route and module overlays above it');
+  const flattened = (node: any): string[] => typeof node === 'string' ? [node] : Array.isArray(node) ? node.flatMap(flattened) : node?.props?.children ? flattened(node.props.children) : [];
+  assert.deepEqual(routes.props.children.flatMap(flattened), ['retained', 'active', 'overlay'], 'retained views stay below the active route and module overlays above it');
   cleanup(); bindings.dispose(); navigation.dispose(); home.dispose();
 });
