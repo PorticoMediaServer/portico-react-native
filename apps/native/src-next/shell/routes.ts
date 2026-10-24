@@ -28,7 +28,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'server-dashboard'}
   | {kind: 'server-segments'}
   | {kind: 'collection'; libraryId: string; collectionId: string; title: string}
-  | {kind: 'library-save-view' | 'library-mark-all' | 'library-edit-pins' | 'library-settings'; libraryId: string}
+  | {kind: 'library-mark-all' | 'library-edit-pins' | 'library-settings'; libraryId: string}
 >;
 
 export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.freeze({kind: 'title', entry});

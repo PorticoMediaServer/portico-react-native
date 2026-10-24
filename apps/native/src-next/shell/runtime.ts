@@ -16,6 +16,8 @@ import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
 import type {NativeWatchOutletPort} from './watch-outlet';
 
+type LibraryMenuWithoutSave<T> = T extends unknown ? Omit<T, 'onSaveView' | 'canSaveView'> : never;
+
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
   destination: ShellDestination;
@@ -66,7 +68,9 @@ export interface NativeShellRuntime {
   renderRoutes: () => ReactNode;
   /** Persistent watch chrome above the one native picture surface. */
   renderWatch?: () => ReactNode;
-  libraryMenu: (library: Library) => LibraryMenuProps;
+  /** The screen supplies Save view and its canSave rule from its own live draft.
+   * The omit distributes so the owned/member menu union survives. */
+  libraryMenu: (library: Library) => LibraryMenuWithoutSave<LibraryMenuProps>;
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
   renderHomeEmpty: () => ReactNode;
