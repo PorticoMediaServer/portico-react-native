@@ -26,6 +26,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   const home = new HomeService({request: async () => JSON.parse(JSON.stringify(raw))});
   await home.load();
   const renderOrder: string[] = [];
+  let routeConsumes = false;
   let back: () => boolean = () => false, expanded = false, pageCalls = 0, pageConsumes = true;
   const screenServices = await screenModule(new URL('../src-next/screens/native-screen-services.tsx', import.meta.url), {
     react: h.react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
@@ -41,7 +42,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows},
-    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return 'retained';}, renderOverlays: () => 'overlay', back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
+    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return 'retained';}, renderOverlays: () => 'overlay', back: () => routeConsumes, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
     '../screens/read/platform': readPlatform, '../screens/native-screen-services': screenServices,
     '../screens/home/entry-lifetime': {nativeHomeEntryLifetime},
   });
@@ -90,10 +91,33 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   assert.equal(back(), true); assert.equal(pageCalls, 1);
   pageConsumes = false;
   assert.equal(back(), false, 'Home opening state falls through to OS on second Back');
+  navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
+  navigation.open({kind: 'shell', destination: {kind: 'home'}}, authority);
+  assert.equal(back(), false, 'Home opening state still delegates to OS despite retained history');
+  assert.deepEqual(navigation.getSnapshot().destination, {kind: 'home'});
   const removeRail = bindings.registerTVRailBack(() => true);
   navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
   assert.equal(back(), true, 'rail Back returns to its actual page even away from Home');
   removeRail();
+  let searchCalls = 0;
+  const firstSearch = bindings.registerTVPageBack(() => {throw new Error('retired Search handler');}, {kind: 'search'});
+  const removeSearch = bindings.registerTVPageBack(() => {searchCalls++; return true;}, {kind: 'search'});
+  firstSearch();
+  navigation.open({kind: 'shell', destination: {kind: 'search'}}, authority);
+  routeConsumes = true; assert.equal(back(), true); assert.equal(searchCalls, 0, 'registered overlay/Watch consumes before page');
+  routeConsumes = false; expanded = true;
+  assert.equal(back(), false); assert.equal(searchCalls, 0, 'expanded player retains Back before Search');
+  expanded = false;
+  const railSearch = bindings.registerTVRailBack(() => true);
+  assert.equal(back(), true); assert.equal(searchCalls, 0, 'rail handles Back before Search'); railSearch();
+  assert.equal(back(), true); assert.equal(searchCalls, 1, 'visible Search has its own page Back');
+  navigation.open(titleRoute(entry), authority);
+  const beforeTitle = searchCalls;
+  back(); assert.equal(searchCalls, beforeTitle, 'retained Search cannot consume Title Back');
+  navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
+  back(); assert.equal(searchCalls, beforeTitle, 'Search cannot consume another destination Back');
+  removeSearch();
+  navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
   navigation.open(titleRoute(entry), authority);
   assert.deepEqual(bindings.getState().destination, {kind: 'saved'}, 'a title retains its real origin for Back');
   assert.deepEqual(bindings.getState().railDestination, {kind: 'library', libraryId: 'movies'}, 'rail highlights the authorized title library');

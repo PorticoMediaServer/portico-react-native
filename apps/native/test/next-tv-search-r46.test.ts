@@ -54,7 +54,7 @@ async function screen(react: unknown) {
       SEARCH_CHIPS: [{id: 'all', label: 'search.chip.all'}, {id: 'movies', label: 'search.chip.movies'}], topSearchResult: () => top,
       searchGroupLabel: () => 'search.chip.movies', topResultKindLabel: () => 'search.kind.show'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
-    '../../kit/cards/primitives': {ArtFrame: 'ArtFrame', CardFrame: 'CardFrame', Parts: 'Parts', Progress: 'Progress'}, '../../kit/focus': {FocusRegion: 'FocusRegion'},
+    '../../kit/cards/primitives': {ArtFrame: 'ArtFrame', CardFrame: 'CardFrame', Parts: 'Parts', Progress: 'Progress'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({})},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/browse/presentation': presentation,
     '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {homeSubject: (content: unknown) => content},
     './model': {nativeSearchEntryKey}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
@@ -182,7 +182,7 @@ test('the drawn keyboard is f5 six-column grid with Space, Delete and Clear and 
   const host = hooks();
   const {NativeTVKeyboard} = await screenModule(new URL('../src-next/screens/search/TVKeyboard.tsx', import.meta.url), {
     react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({})}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => theme},
     '../destinations/useEntryFocus': {useDestinationEntryFocus: (_activation: unknown, address: unknown) => {entryRequests.push(address);}},
     '../destinations/focus': {}, './keyboard': {applyNativeTVKeyboardKey, nativeTVKeyboardRows},

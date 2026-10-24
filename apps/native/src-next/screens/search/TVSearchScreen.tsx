@@ -9,7 +9,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork} from '../../kit/artwork';
 import {Chip, Focusable} from '../../kit/controls';
 import {ArtFrame, CardFrame, Parts, Progress} from '../../kit/cards/primitives';
-import {FocusRegion} from '../../kit/focus';
+import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -51,7 +51,17 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   const theme = useTheme(), dimensions = useWindowDimensions(), scroll = useRef<ScrollView>(null), [keyboardRow, setKeyboardRow] = useState<string>();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot), authority = runtime.getSnapshot().authority;
-  const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
+  const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]), registry = useFocusRegistry();
+  useEffect(() => {
+    if (!active.visible) return;
+    return runtime.registerTVPageBack?.(() => {
+      const current = activation.getSnapshot();
+      // Retained/hidden pages, overlays and the rail never lend Search their Back.
+      if (!current.visible || current.revision !== active.revision || registry.capture()?.regionId !== ids.searchResults) return false;
+      // focusRegion uses only current enabled native key hosts and their real row memory.
+      return registry.focusRegion(keyboardRow ?? ids.searchKeyboardRow(0));
+    }, {kind: 'search'});
+  }, [activation, active.visible, active.revision, ids, keyboardRow, registry, runtime]);
   const typed = !!state.text.trim(), groups = orderedSearchGroups(state.groups);
   const genreTiles = nativeSearchGenreTiles(landing.genres, 'tv');
   const empty = typed && state.search.phase === 'ready' && groups.every(group => group.status === 'success' && group.totalCount === 0);
