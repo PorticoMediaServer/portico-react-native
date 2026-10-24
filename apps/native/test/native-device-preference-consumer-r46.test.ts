@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {NativeModules} from './react-native-stub.mjs';
+import {parsePreferenceSnapshot, type PreferenceSnapshot, type PreferencePatch} from '../../../packages/client-core/src/preferences';
+import {bindNativeServerPreferences, nativeServerPreferences} from '../src-next/platform/server-preferences';
 import {NativeQueueStore} from '../src-next/platform/queue-storage';
 import {bindNativeDeviceSettings, nativeDeviceSettings} from '../src-next/platform/device-settings';
 import {nativeDevicePreferences} from '../src-next/screens/settings-live/device-preference-consumer';
@@ -157,4 +159,114 @@ test('a replacement context gets its own source and facade, never the retired on
   assert.equal(nextConsumer.read('forceStereo'), false);
   assert.equal(JSON.parse(state.raw!).forceStereo, false);
   assert.throws(() => oldConsumer.read('forceStereo'), {name: 'AbortError'});
+}));
+
+function motionSnapshot(value: 'follow' | 'reduce', revision = 7, bound = true, stored = true): PreferenceSnapshot {
+  const key = 'appearance.motion';
+  return parsePreferenceSnapshot({deviceClass: 'mobile', deviceBound: bound, registryRevision: 'motion-row', registry: {revision: 'motion-row', fields: [
+    {key, type: 'string', default: stored ? 'follow' : value, allowedValues: ['follow', 'reduce'], group: 'appearance', labelKey: `preferences.${key}`, scopes: ['profile-device']},
+  ]}, documents: (bound ? ['profile-server', 'profile-device-class', 'profile-device'] : ['profile-server', 'profile-device-class']).map(scope => ({scope, revision, activeRevision: revision, digest: 'd'.repeat(64), values: scope === 'profile-device' && stored ? {[key]: value} : {}})),
+  effective: {[key]: value}, effectiveSource: {[key]: bound && stored ? 'profile-device' : 'default'}, clampedFields: []});
+}
+
+async function motionFixture(initial = motionSnapshot('follow')) {
+  const f = await fixture(); let snapshot = initial;
+  const calls: {scope: string; deviceClass: string; revision: number; values: PreferencePatch}[] = [];
+  let respond: (values: PreferencePatch) => Promise<PreferenceSnapshot> = async values => motionSnapshot(values['appearance.motion'] === 'reduce' ? 'reduce' : 'follow', snapshot.documents[0]!.revision + 1);
+  Object.assign(f.context, {preferences: () => snapshot});
+  const source = bindNativeServerPreferences(f.context, {
+    read: async () => snapshot,
+    apply: async (scope, deviceClass, revision, values) => {calls.push({scope, deviceClass, revision, values}); return respond(values);},
+    accept: next => {snapshot = next; for (const listener of [...f.listeners]) listener(); return snapshot;},
+  });
+  return {...f, server: source, calls, respond: (next: typeof respond) => {respond = next;}, replace: (next: PreferenceSnapshot) => {snapshot = next;}};
+}
+
+test('motion borrows canonical profile-device values and waits for the exact CAS acknowledgement before rereading', async () => records(async state => {
+  const f = await motionFixture(motionSnapshot('reduce', 7, true, false)), consumer = nativeDevicePreferences(f.context);
+  assert.equal(consumer.read('reduceMotion'), true, 'effective default is not confused with a missing local override');
+  assert.equal(nativeServerPreferences(f.context), f.server);
+  const begun = deferred(), ack = deferred(), seen: boolean[] = [];
+  const off = consumer.subscribe(() => seen.push(consumer.read('reduceMotion') === true));
+  f.respond(async () => {begun.resolve(); await ack.promise; return motionSnapshot('follow', 8);});
+  let settled = false;
+  const writing = consumer.write('reduceMotion', true).then(value => {settled = true; return value;});
+  await begun.promise;
+  assert.deepEqual(f.calls, [{scope: 'profile-device', deviceClass: 'mobile', revision: 7, values: {'appearance.motion': 'reduce'}}]);
+  assert.equal(settled, false); assert.deepEqual(seen, []); assert.equal(consumer.read('reduceMotion'), true);
+  ack.resolve();
+  assert.equal(await writing, false, 'return actual committed effective value, never echo the requested true');
+  assert.deepEqual(seen, [false]); assert.equal(consumer.read('reduceMotion'), false);
+  assert.equal(await consumer.write('forceStereo', true), true); assert.equal(consumer.read('reduceMotion'), false);
+  assert.equal(state.saves, 1, 'only the separate forceStereo change writes the installation record');
+  off(); assert.equal(f.listeners.size, 0); assert.equal(nativeServerPreferences(f.context), f.server);
+}));
+
+test('motion uses the latest revision, maps false to follow and retains confirmed state on refusal', async () => records(async state => {
+  const f = await motionFixture(motionSnapshot('reduce')), consumer = nativeDevicePreferences(f.context);
+  f.replace(motionSnapshot('reduce', 12));
+  assert.equal(await consumer.write('reduceMotion', false), false);
+  assert.deepEqual(f.calls[0], {scope: 'profile-device', deviceClass: 'mobile', revision: 12, values: {'appearance.motion': 'follow'}});
+  let notifications = 0; const off = consumer.subscribe(() => {notifications++;});
+  f.respond(async () => {throw new Error('motion CAS refused');});
+  await assert.rejects(consumer.write('reduceMotion', true), /motion CAS refused/);
+  assert.equal(consumer.read('reduceMotion'), false); assert.equal(notifications, 0); assert.equal(state.saves, 0);
+  await assert.rejects(consumer.write('reduceMotion', 'reduce'), /Invalid setting value/);
+  assert.equal(f.calls.length, 2, 'invalid input never reaches the canonical writer'); off();
+}));
+
+test('motion fails closed without the actual bound row and never changes installation preferences', async () => records(async state => {
+  const f = await motionFixture(motionSnapshot('follow', 7, false, false)), consumer = nativeDevicePreferences(f.context);
+  assert.equal(consumer.read('reduceMotion'), undefined);
+  await assert.rejects(consumer.write('reduceMotion', true), {code: 'unsupported'});
+  const full = motionSnapshot('follow');
+  f.replace({...full, registry: {...full.registry, fields: []}});
+  assert.equal(consumer.read('reduceMotion'), undefined);
+  await assert.rejects(consumer.write('reduceMotion', false), {code: 'unsupported'});
+  assert.deepEqual(f.calls, []); assert.equal(state.saves, 0);
+}));
+
+test('motion late acknowledgement cannot publish or return a value after authority retirement', async () => records(async state => {
+  const f = await motionFixture(), consumer = nativeDevicePreferences(f.context), begun = deferred(), ack = deferred();
+  let notifications = 0; const off = consumer.subscribe(() => {notifications++;});
+  f.respond(async () => {begun.resolve(); await ack.promise; return motionSnapshot('reduce', 8);});
+  const writing = consumer.write('reduceMotion', true); await begun.promise; f.retire(); ack.resolve();
+  await assert.rejects(writing, {name: 'AbortError'});
+  assert.throws(() => consumer.read('reduceMotion'), {name: 'AbortError'});
+  await assert.rejects(consumer.write('reduceMotion', false), {name: 'AbortError'});
+  assert.equal(notifications, 0); assert.equal(f.context.preferences().effective['appearance.motion'], 'follow'); assert.equal(state.saves, 0); off();
+}));
+
+function textSizeSnapshot(value: 'standard' | 'large', revision: number): PreferenceSnapshot {
+  const key = 'appearance.textSize';
+  return parsePreferenceSnapshot({deviceClass: 'television', deviceBound: true, registryRevision: 'text-size-row', registry: {revision: 'text-size-row', fields: [
+    {key, type: 'string', default: 'standard', allowedValues: ['standard', 'large'], group: 'appearance', labelKey: `preferences.${key}`, scopes: ['profile-device']},
+  ]}, documents: ['profile-server', 'profile-device-class', 'profile-device'].map(scope => ({scope, revision, activeRevision: revision, digest: 'd'.repeat(64), values: scope === 'profile-device' ? {[key]: value} : {}})),
+    effective: {[key]: value}, effectiveSource: {[key]: 'profile-device'}, clampedFields: []});
+}
+
+test('TV text-size row borrows the same canonical source and returns its durable committed choice', async () => records(async state => {
+  const f = await motionFixture(textSizeSnapshot('standard', 21)), consumer = nativeDevicePreferences(f.context), begun = deferred(), ack = deferred();
+  assert.equal(consumer.read('textSize'), 'standard'); assert.equal(consumer.read('reduceMotion'), undefined);
+  let notifications = 0; const off = consumer.subscribe(() => {notifications++;});
+  f.respond(async () => {begun.resolve(); await ack.promise; return textSizeSnapshot('large', 22);});
+  let settled = false; const writing = consumer.write('textSize', 'large').then(value => {settled = true; return value;});
+  await begun.promise;
+  assert.deepEqual(f.calls[0], {scope: 'profile-device', deviceClass: 'television', revision: 21, values: {'appearance.textSize': 'large'}});
+  assert.equal(settled, false); assert.equal(consumer.read('textSize'), 'standard'); assert.equal(notifications, 0);
+  ack.resolve(); assert.equal(await writing, 'large'); assert.equal(consumer.read('textSize'), 'large'); assert.equal(notifications, 1);
+  f.respond(async () => textSizeSnapshot('large', 23));
+  assert.equal(await consumer.write('textSize', 'standard'), 'large', 'the actual committed reread wins over the requested choice');
+  assert.deepEqual(f.calls[1], {scope: 'profile-device', deviceClass: 'television', revision: 22, values: {'appearance.textSize': 'standard'}});
+  const confirmed = f.server.getSnapshot();
+  f.respond(async () => {throw new Error('text-size CAS refused');});
+  await assert.rejects(consumer.write('textSize', 'standard'), /text-size CAS refused/);
+  assert.equal(f.server.getSnapshot(), confirmed); assert.equal(consumer.read('textSize'), 'large');
+  for (const invalid of [true, false, 'huge']) await assert.rejects(consumer.write('textSize', invalid), /Invalid setting value/);
+  assert.equal(f.calls.length, 3, 'invalid choices do not reach the writer');
+  assert.equal(state.saves, 0, 'appearance never adds an installation-record field');
+  assert.equal(nativeServerPreferences(f.context), f.server); off();
+  assert.equal(f.listeners.size, 0); assert.equal(nativeServerPreferences(f.context), f.server);
+  f.retire(); assert.throws(() => consumer.read('textSize'), {name: 'AbortError'});
+  await assert.rejects(consumer.write('textSize', 'standard'), {name: 'AbortError'});
 }));

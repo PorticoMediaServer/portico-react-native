@@ -5,6 +5,7 @@ import type {HomeService} from '../../../../packages/client-core/src/home-servic
 import type {HomeChannel, HomeCollection, HomeRow, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {TextEnvironment} from '../../../../packages/client-core/src/presentation/kit-model';
+import type {I18n} from '../../../../packages/i18n/src';
 import type {ArtworkSource, AmbientArtSource, ProfileOption} from '../kit/artwork';
 import type {AccountMenuProps} from '../kit/shell/AccountShell';
 import type {LibraryMenuProps} from '../kit/browse';
@@ -54,7 +55,7 @@ export interface NativeShellRuntime {
   getSnapshot: () => NativeShellSnapshot;
   home: HomeService;
   memory: LastLibraryMemory;
-  text: TextEnvironment;
+  text: Omit<TextEnvironment, 't'> & Pick<I18n, 't'> & Readonly<{region?: I18n['region']}>;
   actions: NativeHomeActions;
   artwork: (path: string | undefined) => ArtworkSource | undefined;
   ambient: (path: string | undefined) => AmbientArtSource | undefined;

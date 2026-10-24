@@ -62,6 +62,8 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: NativePlaybackCapabilities; engine: EngineKind; lease: string;
   effectiveRate: number; supportedRates: readonly number[];
+  /** Present only for a current mpv image track with known mixed forced lines. */
+  forcedOnly?: Readonly<{on: boolean}>;
   /** Actual native external source readiness. Absent=unknown; null=unready. Not PiP support. */
   externalPresentationBinding?: NativeBinding | null;
   /** Installed retained-view request port, not a claim of support or a started PiP session. */
@@ -106,6 +108,7 @@ export interface NativePlaybackAdapter {
   change: (fence: PlaybackFence, choices: PlaybackChoices) => Promise<void>;
   chooseQuality: (fence: PlaybackFence, quality: QualityOption) => Promise<void>;
   setRate: (fence: PlaybackFence, rate: number) => void;
+  setForcedOnly?: (fence: PlaybackFence, on: boolean) => boolean;
   subtitleControls: (fence: PlaybackFence) => NativePlaybackSubtitleControls | undefined;
   /** Fresh read only; never adopts/replans the session or fabricates report facts. */
   readSession?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<Session | undefined>;

@@ -4,7 +4,6 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {GestureDetector} from 'react-native-gesture-handler';
 import Animated, {useAnimatedStyle, type SharedValue} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Pattern, Rect, Stop} from 'react-native-svg';
-import {defaultI18n} from '../../../../../packages/i18n/src';
 import {defaultRecordingOptions} from '../../../../../packages/client-core/src/dvr';
 import {dayPrimeTime, stripDays} from '../../../../../packages/client-core/src/channel-guide';
 import {programmeFactParts} from '../../../../../packages/client-core/src/presentation/kit-model';
@@ -25,13 +24,13 @@ import type {NativeLiveController} from './live-controller';
 import type {NativeRecordingsController} from './recordings-controller';
 import {NativeRecordingsScreen} from './RecordingsScreen';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {nativeGuideClock, nativeProgrammeCaption} from './guide-presentation';
+import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
 
 export function NativeLiveScreen({controller, recordings, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId'>; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = defaultI18n.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
+  const theme = useTheme(), t = runtime.text.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), guide = controller.guide;
   const data = useSyncExternalStore(guide.subscribe, guide.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
@@ -71,7 +70,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
   const laterNow = useAnimatedStyle(() => ({display: now >= (panActive ? panPosition.value / px + (end - start) : end) ? 'flex' : 'none'}), [panActive, start, end, px, now]);
   const overscan = panActive ? (end - start) / 2 : 0;
   const groups = [...new Set((source ? [source] : state.sources).flatMap(value => value.groups))];
-  const locale = runtime.text.locale ?? defaultI18n.region.formatLocale, hour12 = defaultI18n.region.hour12;
+  const {locale, hour12} = nativeGuideRegion(runtime.text);
   const clock = useMemo(() => nativeGuideClock(locale, state.options.timezone, hour12, theme.isTV), [locale, state.options.timezone, hour12, theme.isTV]);
   const goNow = () => setStart(floorTo(now, SLOT_MS) - (theme.isTV || phone ? SLOT_MS : 0));
   const nowX = (now - start) * px, inNowSpan = now >= start && now < end;
@@ -104,15 +103,17 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
     : <NativeLivePhonePicker testID="live-source" accessibilityLabel={t('channels.source')} value={state.options.sourceId} options={sourceOptions.map(option => ({id: option.value, label: option.label}))} onChange={chooseSource} style={{height: 34, borderWidth: 1, borderColor: theme.colors.lineStrong, borderRadius: 9, paddingHorizontal: 12, gap: 8}}>{sourceLabel}</NativeLivePhonePicker>
     : <Select testID="live-source" accessibilityLabel={t('channels.source')} value={state.options.sourceId} options={sourceOptions} onValueChange={chooseSource}/>;
   const chooseDay = (day: string) => Number(day) === today ? goNow() : setStart(dayPrimeTime(Number(day), state.options.timezone));
-  const shortDate = (day: number) => defaultI18n.formatDate(day, {weekday: 'short', month: 'short', day: 'numeric', timeZone: state.options.timezone});
-  const dayName = (day: number) => day === today ? t('guide.today') : day === days[1] ? t('guide.tomorrow') : defaultI18n.formatDate(day, {weekday: 'long', timeZone: state.options.timezone});
+  const shortDate = useMemo(() => nativeGuideDate(locale, state.options.timezone, {weekday: 'short', month: 'short', day: 'numeric'}), [locale, state.options.timezone]);
+  const longDay = useMemo(() => nativeGuideDate(locale, state.options.timezone, {weekday: 'long'}), [locale, state.options.timezone]);
+  const fullDate = useMemo(() => nativeGuideDate(locale, state.options.timezone, {weekday: 'long', month: 'short', day: 'numeric'}), [locale, state.options.timezone]);
+  const dayName = (day: number) => day === today ? t('guide.today') : day === days[1] ? t('guide.tomorrow') : longDay(day);
   const dayPicker = phone ? <NativeLivePhonePicker testID="live-day" accessibilityLabel={t('guide.day')} value={String(currentDay)} disabled={daysCount < 1} onChange={chooseDay}
     options={days.map(day => ({id: String(day), label: dayName(day), trailing: shortDate(day)}))} style={{gap: 6}} menuWidth={252}>
       <Icon name="i-cal" size={17} color={theme.colors.textTertiary}/>
       <Text style={[shellType(13.5, 700), {color: theme.colors.text}]}>{dayName(currentDay)}</Text>
       {!landscape && <Text style={[shellType(13.5, 600), {color: theme.colors.textTertiary}]}>{shortDate(currentDay)}</Text>}
     </NativeLivePhonePicker>
-    : <Select testID="live-day" accessibilityLabel={t('guide.day')} disabled={daysCount < 1} value={String(currentDay)} options={days.map(day => ({value: String(day), label: day === today ? t('guide.today') : defaultI18n.formatDate(day, {weekday: 'long', month: 'short', day: 'numeric', timeZone: state.options.timezone})}))} onValueChange={chooseDay}/>;
+    : <Select testID="live-day" accessibilityLabel={t('guide.day')} disabled={daysCount < 1} value={String(currentDay)} options={days.map(day => ({value: String(day), label: day === today ? t('guide.today') : fullDate(day)}))} onValueChange={chooseDay}/>;
   const sortOptions = [{value: 'number', label: t('channels.sortNumber')}, {value: 'name', label: t('channels.sortName')}];
   const chooseSort = (sort: string) => select({sort: sort as 'number' | 'name'});
   const sortPicker = phone ? <NativeLivePhonePicker testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={sortOptions.map(option => ({id: option.value, label: option.label}))} onChange={chooseSort} placement="bottom-end" secondary>{sortOptions.find(option => option.value === state.options.sort)?.label}</NativeLivePhonePicker>
@@ -184,7 +185,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
 }
 
 function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index, controller, runtime, start, end, now, channelWidth, rowHeight, px, list, onOpen, rail, watch}: {panPosition: SharedValue<number>; panActive: boolean; laneWidth: number; clock: (at: number) => string | undefined; entryEnabled: boolean; index: number; controller: NativeLiveController; runtime: NativeShellRuntime; start: number; end: number; now: number; channelWidth: number; rowHeight: number; px: number; list: boolean; onOpen: (channel: GuideChannelRow, program?: GuideProgram, node?: View | null) => void; rail: string; watch: (channel: GuideChannelRow) => void}) {
-  const theme = useTheme(), t = defaultI18n.t, guide = controller.guide;
+  const theme = useTheme(), t = runtime.text.t, guide = controller.guide;
   useSyncExternalStore(listener => guide.subscribePage(guide.pageOf(index), listener), () => guide.getSnapshot().version);
   const overscan = panActive ? (end - start) / 2 : 0;
   const channel = guide.channelAt(index), programs = channel?.guide === 'none' ? {programs: [], complete: true, failed: false} : guide.programsFor(index, start - overscan, end + overscan);
@@ -199,8 +200,8 @@ function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index,
   const channelRef = useRef<View>(null), programRefs = useRef(new Map<string, View>());
   if (!channel) return <View style={{height: rowHeight, marginBottom: rowGap, backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}/>;
   const logo = runtime.artwork(channel.logoUrl);
-  const current = nowNext(programs.programs, now);
-  if (list && !theme.isTV) return <NativeLiveListRow channel={channel} programme={current.now} next={current.next} now={now} runtime={runtime} height={rowHeight} onOpen={node => onOpen(channel, current.now, node)}/>;
+  const current = nowNext(programs.programs, now), nextText = nativeGuideNext(current.next, clock, runtime.text);
+  if (list && !theme.isTV) return <NativeLiveListRow channel={channel} programme={current.now} next={current.next} now={now} runtime={runtime} clock={clock} height={rowHeight} onOpen={node => onOpen(channel, current.now, node)}/>;
   return <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', gap: theme.isTV ? 18 : phoneGrid ? 2 : 8}}>
     <FocusRegion id={column} entry="channel" edges={{left: rail, right: cellsRegion}} style={{width: channelWidth - (theme.isTV ? 18 : phoneGrid ? 2 : 8)}}>
       <Focusable ref={channelRef} focusId="channel" testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
@@ -209,23 +210,23 @@ function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index,
       </Focusable>
     </FocusRegion>
     <FocusRegion id={cellsRegion} entry={first?.id} orientation="horizontal" edges={{left: column}} style={{flex: 1, overflow: 'hidden'}} onLayout={entry}>
-      {list ? <Focusable ref={node => {if (node) programRefs.current.set('now', node);}} focusId={first?.id ?? 'now'} testID={`live-now-${channel.id}`} onPress={() => onOpen(channel, current.now, programRefs.current.get('now'))} style={{height: rowHeight, padding: 14, backgroundColor: theme.colors.raised, borderRadius: 12, gap: 8}}><ScreenText>{current.now?.title ?? t('guide.noInformation')}</ScreenText>{current.next && <Text style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textSecondary}]}>{t('guide.next', {title: current.next.title, time: defaultI18n.time(current.next.start)})}</Text>}</Focusable>
-        : <Animated.View style={[{flex: 1}, shift]}>{cells.map(cell => <NativeLiveGuideCell key={cell.program?.id ?? `gap:${cell.start}`} cell={cell} gapLabel={defaultI18n.t(channel.guide === 'none' ? 'guide.noGuide' : 'guide.noInformation')} loading={cell.kind === 'gap' && !programs.complete && !programs.failed} failed={cell.kind === 'gap' && programs.failed} retry={() => guide.invalidate()} left={cell.x - overscan * px + (phoneGrid ? 2 : 0)} laneWidth={laneWidth} panPosition={panPosition} panActive={panActive} start={start} now={now} px={px} rowHeight={rowHeight} compact={phoneGrid} clock={clock} runtime={runtime} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} refNode={node => {const id = cell.program?.id ?? `gap:${cell.start}`; if (node) programRefs.current.set(id, node); else programRefs.current.delete(id);}} onPress={() => onOpen(channel, cell.program, programRefs.current.get(cell.program?.id ?? `gap:${cell.start}`))}/>)}</Animated.View>}
+      {list ? <Focusable ref={node => {if (node) programRefs.current.set('now', node);}} focusId={first?.id ?? 'now'} testID={`live-now-${channel.id}`} onPress={() => onOpen(channel, current.now, programRefs.current.get('now'))} style={{height: rowHeight, padding: 14, backgroundColor: theme.colors.raised, borderRadius: 12, gap: 8}}><ScreenText>{current.now?.title ?? t('guide.noInformation')}</ScreenText>{nextText && <Text style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textSecondary}]}>{nextText}</Text>}</Focusable>
+        : <Animated.View style={[{flex: 1}, shift]}>{cells.map(cell => <NativeLiveGuideCell key={cell.program?.id ?? `gap:${cell.start}`} cell={cell} gapLabel={runtime.text.t(channel.guide === 'none' ? 'guide.noGuide' : 'guide.noInformation')} loading={cell.kind === 'gap' && !programs.complete && !programs.failed} failed={cell.kind === 'gap' && programs.failed} retry={() => guide.invalidate()} left={cell.x - overscan * px + (phoneGrid ? 2 : 0)} laneWidth={laneWidth} panPosition={panPosition} panActive={panActive} start={start} now={now} px={px} rowHeight={rowHeight} compact={phoneGrid} clock={clock} runtime={runtime} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} refNode={node => {const id = cell.program?.id ?? `gap:${cell.start}`; if (node) programRefs.current.set(id, node); else programRefs.current.delete(id);}} onPress={() => onOpen(channel, cell.program, programRefs.current.get(cell.program?.id ?? `gap:${cell.start}`))}/>)}</Animated.View>}
     </FocusRegion>
   </View>;
 }
 
-function NativeLiveListRow({channel, programme, next, now, runtime, height, onOpen}: {channel: GuideChannelRow; programme?: GuideProgram; next?: GuideProgram; now: number; runtime: NativeShellRuntime; height: number; onOpen: (node: View | null) => void}) {
-  const theme = useTheme(), node = useRef<View>(null), logo = runtime.artwork(channel.logoUrl);
+function NativeLiveListRow({channel, programme, next, now, runtime, clock, height, onOpen}: {channel: GuideChannelRow; programme?: GuideProgram; next?: GuideProgram; now: number; runtime: NativeShellRuntime; clock: (at: number) => string | undefined; height: number; onOpen: (node: View | null) => void}) {
+  const theme = useTheme(), node = useRef<View>(null), logo = runtime.artwork(channel.logoUrl), nextText = nativeGuideNext(next, clock, runtime.text);
   const remaining = programme && programmeFactParts({startMs: programme.start, endMs: programme.end}, runtime.text, now).find(fact => fact.id === 'remaining');
   const progress = programme && programme.end > programme.start ? Math.max(0, Math.min(1, (now - programme.start) / (programme.end - programme.start))) : undefined;
   return <Focusable ref={node} testID={`live-list-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={[channel.name, programme?.title].filter(Boolean).join(' ')} onPress={() => onOpen(node.current)} focusKind="row" style={{height, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', gap: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
     <View style={{width: 46, alignItems: 'center', gap: 5}}>{(logo || channel.mark && channel.sourceId) && <View style={{width: 46, height: 46, borderRadius: 11, overflow: 'hidden'}}><GuideChannelArt channel={channel} source={logo} size={46}/></View>}<Text style={[shellType(11.5, 700), {color: theme.colors.textTertiary}]}>{channel.number}</Text></View>
     <View style={{flex: 1, minWidth: 0}}>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><Text numberOfLines={1} style={[shellType(12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{channel.name}</Text>{channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}<ProgrammeFlags programme={programme}/>{remaining && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textSecondary, marginLeft: 'auto'}]}>{remaining.text}</Text>}</View>
-      <Text numberOfLines={1} style={[shellType(16, 700, 'normal', -.01), {color: theme.colors.text, marginTop: 3}]}>{programme?.title ?? defaultI18n.t('guide.noInformation')}</Text>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><Text numberOfLines={1} style={[shellType(12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{channel.name}</Text>{channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}<ProgrammeFlags programme={programme} text={runtime.text}/>{remaining && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textSecondary, marginLeft: 'auto'}]}>{remaining.text}</Text>}</View>
+      <Text numberOfLines={1} style={[shellType(16, 700, 'normal', -.01), {color: theme.colors.text, marginTop: 3}]}>{programme?.title ?? runtime.text.t('guide.noInformation')}</Text>
       {progress !== undefined && <View style={{height: 3, borderRadius: 2, backgroundColor: theme.colors.lineStrong, marginTop: 8, overflow: 'hidden'}}><View style={{height: '100%', width: `${progress * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>}
-      {next && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textTertiary, marginTop: 7}]}>{defaultI18n.t('guide.next', {title: next.title, time: defaultI18n.time(next.start)})}</Text>}
+      {nextText && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textTertiary, marginTop: 7}]}>{nextText}</Text>}
     </View>
   </Focusable>;
 }
@@ -244,13 +245,13 @@ function NativeLiveGuideCell({cell, gapLabel, loading, failed, retry, left, lane
     return {width: clipped ? isTV ? 20 : 10 : 0, opacity: clipped ? 1 : 0};
   }, [clippedStart, left, panActive, start, px, isTV]);
   if (loading) return <SkeletonBlock testID={`${testID}-loading`} width={cellWidth} height={rowHeight - (compact ? 6 : 0)} radius={compact ? 8 : 12} style={{position: 'absolute', left, top: compact ? 3 : 0}}/>;
-  if (failed) return <Focusable ref={refNode} focusId={`gap:${cell.start}`} testID={`${testID}-error`} accessibilityRole="button" accessibilityLabel={defaultI18n.t('guide.tileFailed')} onPress={retry} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: theme.colors.raised}}><Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}><Text numberOfLines={2} style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textTertiary}]}>{defaultI18n.t('guide.tileFailed')}</Text></Animated.View></Focusable>;
+  if (failed) return <Focusable ref={refNode} focusId={`gap:${cell.start}`} testID={`${testID}-error`} accessibilityRole="button" accessibilityLabel={runtime.text.t('guide.tileFailed')} onPress={retry} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: theme.colors.raised}}><Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}><Text numberOfLines={2} style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textTertiary}]}>{runtime.text.t('guide.tileFailed')}</Text></Animated.View></Focusable>;
   return <Focusable ref={refNode} focusId={cell.program?.id ?? `gap:${cell.start}`} testID={testID} accessibilityRole="button" accessibilityLabel={cell.program?.title ?? gapLabel} onPress={onPress} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: background, borderWidth: !theme.isTV && gap ? 1 : 0, borderColor: theme.colors.line, overflow: 'hidden'}}>
     {!theme.isTV && gap && <View pointerEvents="none" style={{position: 'absolute', inset: 0}}><Svg width="100%" height="100%" accessible={false}><Defs><Pattern id={`${fadeId}-gap`} patternUnits="userSpaceOnUse" width={14} height={14} patternTransform="rotate(45)"><Rect width={7} height={14} fill={theme.colors.text} fillOpacity={.035}/></Pattern></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId}-gap)`}/></Svg></View>}
     <Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}>
       <View style={{flexDirection: 'row', alignItems: 'flex-start'}}>{!theme.isTV && cell.program?.recording && <View style={{width: 7, height: 7, borderRadius: 4, marginTop: 4.5, marginRight: 5, backgroundColor: theme.colors.record}}/>}<Animated.View style={[{overflow: 'hidden'}, clip]}><Icon name="i-left" size={theme.isTV ? 16 : 10} color={theme.colors.textTertiary}/></Animated.View><Text numberOfLines={narrow ? 1 : 2} ellipsizeMode={narrow ? "tail" : "clip"} style={[shellType(theme.isTV ? 22 : gap ? 12.5 : narrow ? 12 : 13, gap && !theme.isTV ? 600 : 700), {color: !theme.isTV && (gap || cell.state === 'past') ? theme.colors.textTertiary : theme.colors.text, lineHeight: theme.isTV ? undefined : narrow ? 15 : 16, flexShrink: 1}]}>{cell.program?.title ?? gapLabel}</Text>{!theme.isTV && <View pointerEvents="none" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 8}}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={fadeId} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={background} stopOpacity="0"/><Stop offset="1" stopColor={background}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId})`}/></Svg></View>}</View>
       {(cell.tier === 'full' || cell.tier === 'title2') && <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 5, marginTop: theme.isTV ? 8 : 3}}>
-        <ProgrammeFlags programme={cell.program} grid/>
+        <ProgrammeFlags programme={cell.program} grid text={runtime.text}/>
         {theme.isTV && cell.program?.recording && <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.record}}/>}
         {nativeProgrammeCaption(cell.program, cell.state === 'now', theme.isTV, clock, runtime.text).map((caption, captionIndex) => <Text key={captionIndex} numberOfLines={1} style={[shellType(theme.isTV ? 18 : 11.5), {color: !theme.isTV && cell.state === 'now' ? theme.colors.textSecondary : theme.colors.textTertiary, opacity: !theme.isTV && cell.state === 'past' ? .65 : 1, flexShrink: captionIndex ? 1 : 0, lineHeight: theme.isTV ? undefined : 14}]}>{caption}</Text>)}
       </View>}
@@ -259,8 +260,8 @@ function NativeLiveGuideCell({cell, gapLabel, loading, failed, retry, left, lane
   </Focusable>;
 }
 
-function ProgrammeFlags({programme, grid = false}: {programme?: GuideProgram; grid?: boolean}) {
-  const theme = useTheme(), t = defaultI18n.t;
+function ProgrammeFlags({programme, grid = false, text}: {programme?: GuideProgram; grid?: boolean; text: NativeShellRuntime['text']}) {
+  const theme = useTheme(), t = text.t;
   const gridFlag = grid && !theme.isTV;
   return <>
     {programme?.flags?.live && <View style={{flexDirection: 'row', gap: 6, alignItems: 'center', ...(gridFlag ? {backgroundColor: alpha(theme.colors.record, .18), borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1} : {})}}>
@@ -273,7 +274,7 @@ function ProgrammeFlags({programme, grid = false}: {programme?: GuideProgram; gr
 }
 
 function ProgrammeHeader({channel, programme, now, runtime, busy, onFavorite}: {channel: GuideChannelRow; programme?: GuideProgram; now: number; runtime: NativeShellRuntime; busy: boolean; onFavorite: () => void}) {
-  const theme = useTheme(), t = defaultI18n.t, logo = runtime.artwork(channel.logoUrl), onNow = programme && programme.start <= now && programme.end > now;
+  const theme = useTheme(), t = runtime.text.t, logo = runtime.artwork(channel.logoUrl), onNow = programme && programme.start <= now && programme.end > now;
   return <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 16 : 10, marginBottom: theme.isTV ? 32 : 16}}>
     {(logo || channel.mark && channel.sourceId) && <View style={{width: theme.isTV ? 56 : 34, height: theme.isTV ? 56 : 34, borderRadius: theme.isTV ? 10 : 7, overflow: 'hidden'}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : 34}/></View>}
     <View style={{flex: 1, flexDirection: 'row', gap: 16, alignItems: 'center'}}><Text style={[shellType(theme.isTV ? 24 : 13, 700), {color: theme.colors.text}]}>{channel.name}</Text><Text style={[shellType(theme.isTV ? 22 : 13, 700), {color: theme.colors.textSecondary}]}>{channel.number}</Text></View>

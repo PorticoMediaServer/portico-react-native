@@ -519,7 +519,7 @@ internal class PorticoMpvController(private val context: Context) {
         "sub-use-margins" to "no", "sub-ass-force-margins" to "no",
         // The family is the ordinary system face's own name, in the fonts folder with the faces for
         // other scripts (PorticoMpvFonts): a line mixing scripts draws each letter in a face that has it.
-        "sub-font" to PorticoMpvFonts.ordinaryFamily(), "sub-fonts-dir" to PorticoMpvFonts.fallbackDirectory(context).path,
+        "sub-font" to PorticoMpvFonts.captionFamily(captionStyle), "sub-fonts-dir" to PorticoMpvFonts.fallbackDirectory(context).path,
         "sub-font-size" to "45", "sub-margin-y" to "58", "sub-color" to "1.0/1.0/1.0/1.0",
         "sub-border-style" to "background-box", "sub-back-color" to "0.0/0.0/0.0/0.7",
         "sub-outline-size" to "0", "sub-border-size" to "0", "sub-shadow-offset" to "0",
@@ -1358,17 +1358,22 @@ internal class PorticoMpvController(private val context: Context) {
   private fun applyCaptionStyle(style: Map<*, *>?) {
     val same = style == captionStyle
     captionStyle = style
+    val render = PorticoMpvSupport.map(scoped(command?.get("subtitles"))?.get("render"))
+    core?.set("sub-ass-override", PorticoMpvSupport.captionAssOverride(style, render?.get("kind")))
+    core?.set("sub-font", PorticoMpvFonts.captionFamily(style))
+    core?.set("sub-align-y", if (PorticoMpvSupport.captionAtTop(style, false)) "top" else "bottom")
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
-    // This increment applies profile colour on the app's plain cue view only.
-    // Preserve the core renderer's existing fallback until rich-track styling
-    // and keepStyling are composed together; never recolour an authored ASS file.
-    val (text, box) = PorticoMpvSupport.captionColors(context, style, applyProfileColour = false)
+    // Plain/stripped text uses the same canonical/system colour as the cue view.
+    // An ASS track retaining its file style ignores these fallback properties
+    // through sub-ass-override=scale above, retaining caption size scaling.
+    val (text, box) = PorticoMpvSupport.captionColors(context, style)
+    val edge = PorticoMpvSupport.mpvCaptionEdges(style, box)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
-    core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
-    val edge = android.graphics.Color.alpha(box) < 77
-    core?.set("sub-border-style", if (edge) "outline-and-shadow" else "background-box")
-    core?.set("sub-border-size", if (edge) "3" else "0")
-    core?.set("sub-outline-size", if (edge) "3" else "0")
+    core?.set("sub-back-color", PorticoMpvSupport.captionColor(edge.backColor))
+    core?.set("sub-border-style", if (edge.boxed) "background-box" else "outline-and-shadow")
+    core?.set("sub-border-size", edge.outline.toString())
+    core?.set("sub-outline-size", edge.outline.toString())
+    core?.set("sub-shadow-offset", edge.shadow.toString())
     if (!same) overlayListeners.toList().forEach { it() }
   }
 

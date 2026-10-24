@@ -309,6 +309,17 @@ internal object PorticoMpvSupport {
     return if (scale.isFinite() && scale in 0.5..3.0) scale else 1.0
   }
 
+  /** Only the actual ASS/SSA render kind opts into file-style policy. The
+   * pinned mpv's scale mode keeps authored styles while honoring caption size;
+   * strip mode renders its text with the existing subtitle style.
+   * no bitmap or plain-text track inherits an earlier ASS override. */
+  fun captionAssOverride(style: Map<*, *>?, kind: Any?): String =
+      if (kind != "ass") "scale" else when (style?.get("keepStyling")) {
+        true -> "scale"
+        false -> "strip"
+        else -> "scale"
+      }
+
   /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
   fun styleBackground(style: Map<*, *>?): String {
     val value = style?.get("background") as? String
@@ -350,6 +361,23 @@ internal object PorticoMpvSupport {
     val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
       else when (styleBackground(style)) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
     return text to box
+  }
+
+  data class CaptionEdges(val backColor: Int, val boxed: Boolean, val outline: Int, val shadow: Int)
+
+  /** Existing mpv edge primitives, only for explicit app appearance. A system
+   * style or old command keeps its already-resolved background and edge rule. */
+  fun mpvCaptionEdges(style: Map<*, *>?, background: Int): CaptionEdges {
+    if (style?.get("useSystemCaptionStyle") == false) {
+      when (style["background"]) {
+        "outline" -> return CaptionEdges(0, false, 3, 0)
+        // sub-back-color also supplies sub-shadow-color: black paint without
+        // background-box draws a shadow, while transparent paint cannot.
+        "shadow" -> return CaptionEdges(0xff000000.toInt(), false, 0, 2)
+      }
+    }
+    val boxed = (background ushr 24) >= 77
+    return CaptionEdges(background, boxed, if (boxed) 0 else 3, 0)
   }
 
   /** mpv's floating point red/green/blue/alpha syntax. */

@@ -1,6 +1,7 @@
 import type {CompositeId} from '../../../../../packages/client-core/src/presentation/settings-structure';
-import type {SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
+import {settingsBinding, readSettingsBinding, settingsBindingPatch, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import {nativeServerPreferences, type NativeServerPreferences} from '../../platform/server-preferences';
 import {bindNativeDevicePreferences} from '../settings/device-preference-bindings';
 
 export type NativeDevicePreferenceValue = string | boolean;
@@ -31,6 +32,21 @@ const rows: Readonly<Partial<Record<CompositeId, Row>>> = Object.freeze({
   }),
 });
 
+/** These structure rows are canonical profile-device preferences, not
+ * installation-record fields. Their published codecs and exact values win. */
+const profileDeviceRows: Readonly<Partial<Record<CompositeId, Row>>> = Object.freeze({
+  reduceMotion: Object.freeze({
+    row: 'appearance.motion',
+    shown: (current: unknown) => current === 'reduce' ? true : current === 'follow' ? false : undefined,
+    asked: (value: NativeDevicePreferenceValue) => value === true ? 'reduce' : value === false ? 'follow' : undefined,
+  }),
+  textSize: Object.freeze({
+    row: 'appearance.textSize',
+    shown: (current: unknown) => current === 'standard' || current === 'large' ? current : undefined,
+    asked: (value: NativeDevicePreferenceValue) => value === 'standard' || value === 'large' ? value : undefined,
+  }),
+});
+
 export type NativeDevicePreferences = Readonly<{
   read: (id: CompositeId) => NativeDevicePreferenceValue | undefined;
   write: (id: CompositeId, value: NativeDevicePreferenceValue) => Promise<NativeDevicePreferenceValue>;
@@ -47,14 +63,45 @@ export function nativeDevicePreferences(context: NativeShellBootstrapContext): N
   const existing = bound.get(context);
   if (existing) return existing;
   const preferences = bindNativeDevicePreferences(context);
+  let server: NativeServerPreferences | undefined;
+  // Borrow the already-installed preference source only when a row uses it.
+  const profileDevice = (id: CompositeId) => {
+    const row = profileDeviceRows[id]; if (!row) return;
+    try {server ??= nativeServerPreferences(context);} catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'unsupported') return;
+      throw error;
+    }
+    const snapshot = server.getSnapshot(), binding = settingsBinding(row.row);
+    if (!binding || binding.form !== 'preferences' || binding.fields || binding.scope !== 'profile-device') return;
+    const value = readSettingsBinding(binding, {preferences: snapshot});
+    const document = snapshot.documents.find(item => item.scope === binding.scope);
+    if (!value || !document || row.shown(value.effective) === undefined) return;
+    return {source: server, snapshot, binding, document, value, row};
+  };
   const facade: NativeDevicePreferences = Object.freeze({
     read: id => {
+      if (profileDeviceRows[id]) {const current = profileDevice(id); return current?.row.shown(current.value.effective);}
       const row = rows[id];
       if (!row) return undefined;
       const value: SettingsBindingValue | undefined = preferences.read(row.row);
       return value ? row.shown(value.current) : undefined;
     },
     write: async (id, value) => {
+      if (profileDeviceRows[id]) {
+        const current = profileDevice(id);
+        if (!current) throw unsupported();
+        const asked = current.row.asked(value);
+        if (asked === undefined) throw new Error('Invalid setting value.');
+        const {source, snapshot, binding, document} = current;
+        const patch = settingsBindingPatch(binding, asked, {preferences: snapshot});
+        const written = patch.values[binding.key];
+        if (patch.form !== 'preferences' || Object.keys(patch.values).length !== 1 || typeof written !== 'string') throw unsupported();
+        await source.applyPreferences('profile-device', snapshot.deviceClass, document.revision, {[binding.key]: written});
+        const confirmed = profileDevice(id);
+        const committed = confirmed?.row.shown(confirmed.value.effective);
+        if (committed === undefined) throw new Error('native_device_preference_unreadable');
+        return committed;
+      }
       const row = rows[id];
       if (!row) throw unsupported();
       const confirmed: SettingsBindingValue = await preferences.write(row.row, row.asked(value));
