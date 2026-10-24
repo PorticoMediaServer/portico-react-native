@@ -325,7 +325,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
     renderDownloads: () => <NativeDownloadSheet context={context}/>,
     libraryMenu: library => {
-      const common = {read: isReadingLibraryKind(library.kind), onSaveView: () => open({kind: 'library-save-view', libraryId: library.id}),
+      const common = {read: isReadingLibraryKind(library.kind),
         onMarkAll: () => open({kind: 'library-mark-all', libraryId: library.id}), onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};
       return management ? {...common, owner: true as const, ownerTag, onLibrarySettings: () => open({kind: 'library-settings', libraryId: library.id}), onScan: () => run(async () => {
         if (!context.current()) return; await management.selectLibrary(library.id);
