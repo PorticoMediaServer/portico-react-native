@@ -932,6 +932,7 @@ export class NativePlaybackRuntime {
     let subtitles: Record<string, unknown> | null = null;
     let forcedPath: string | undefined;
     const visible = this.displaySubtitles && this.expanded;
+    const burned = session?.presentation.subtitle?.delivery === 'burn' || plan?.mode === 'track' && plan.renderer === 'burn_in';
     const drawn = deviceDrawnTrack(plan, session), selected = plan?.mode === 'track' && !this.subtitleService?.getSnapshot().suppressed ? plan.selected : null;
     const listUrl = fontsUrlOf(plan, session);
     if (visible && listUrl && listUrl !== this.fontsKey) {
@@ -941,7 +942,7 @@ export class NativePlaybackRuntime {
       }).catch(() => { if (this.active() && epoch === this.sourceEpoch && this.fontsKey === listUrl) { this.fonts = parseSubtitleFonts(null, listUrl); this.applyOptions(); } });
     }
     if (plan) subtitles = {binding, mode: 'off', revision: plan.revision};
-    if (visible && plan && (selected || drawn)) {
+    if (visible && plan && !burned && (selected || drawn)) {
       // mediaUrl enforces the current selected origin/media grant. No raw URL concatenation.
       const engine = this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native';
       // A native engine may genuinely install the rich subtitle producer too.
@@ -950,7 +951,7 @@ export class NativePlaybackRuntime {
       const render = engineSubtitleRender(plan, state.session, rendering, path => this.o.api.mediaUrl(path), this.fonts, session);
       if (selected && plan.documentUrl || render) {
         const resource = selected ?? drawn?.resource;
-        if (engine === 'mpv' && plan.renderer !== 'burn_in' && session?.presentation.subtitle?.delivery !== 'burn') {
+        if (engine === 'mpv') {
           // The service keeps a route-relative media path. Resolve it through
           // the same authority-local route used by the actual native producer.
           try {forcedPath = forcedImageLinesPath(this.o.api.mediaUrl(state.session.streamUrl), render, resource, linesUrlOf(plan, session));}

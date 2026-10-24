@@ -177,10 +177,10 @@ function subtitleResponse(d: ReturnType<typeof fixture>, request: FakeRequest): 
     if (request.method === 'POST' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path) && record(request.body)) return {status: 200, headers: {}, body: {operationId: request.body.operationId, resourceId: 'uploaded-resource', revision: 1, catalogRevision: 2}};
 }
 
-function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number | undefined = 1250, lines?: {engine: 'native' | 'mpv'; read(request: FakeRequest): FakeResponse | Promise<FakeResponse>}) {
+function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number | undefined = 1250, lines?: {engine: 'native' | 'mpv'; burned?: boolean; read(request: FakeRequest): FakeResponse | Promise<FakeResponse>}) {
   const burned = new Set<string>();
   const resource = (sessionId = d.runtime.playback.getSnapshot().session?.id) => ({id: 'rich-resource', sourceId: 'physical-source-1', revision: 3, scope: 'personal', language: 'en', title: 'Actual rich resource',
-    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: sessionId && burned.has(sessionId) ? 'burn_in' : 'client', default: false, forced: false});
+    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: lines?.burned || sessionId && burned.has(sessionId) ? 'burn_in' : 'client', default: false, forced: false});
   d.respond(async request => {
     if (lines && request.method === 'GET' && request.path.endsWith('/lines')) return lines.read(request);
     const match = /^\/v1\/items\/([^/]+)\/playback\/([^/]+)\/subtitles$/.exec(request.path);
@@ -194,7 +194,7 @@ function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number |
       if (request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn') burned.add(decodeURIComponent(request.path.split('/').at(-1)!));
       const response = await d.server.handle(request);
       const shape = (session: any) => ({...session, presentation: {...session.presentation, ...(lines ? {engine: lines.engine} : {}),
-        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: burned.has(session.id) ? 'burn' : 'device'},
+        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: lines?.burned || burned.has(session.id) ? 'burn' : 'device'},
         subtitles: [{trackId: 'rich-resource', format: 'vobsub', url: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.idx`,
           companionUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.sub`, ...(lines ? {linesUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/lines`} : {}), timeDomain: 'source-relative', ...(offsetMs === undefined ? {} : {offsetMs})}]}});
       const body = response.body as any;
@@ -565,6 +565,13 @@ test('unknown, invalid, all-forced and unforced image metadata never enable the 
   richSubtitleResponses(d, 1250, {engine: 'native', read: () => {throw new Error('Native filtering is not installed.');}});
   try {await d.start('movie-1'); assert.equal(d.runtime.getSnapshot().forcedOnly, undefined); assert.equal(d.requests.some(request => request.path.endsWith('/lines')), false);}
   finally {d.runtime.dispose();}
+  const burned = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, false, undefined, 'mpv');
+  richSubtitleResponses(burned, 1250, {engine: 'mpv', burned: true, read: () => {throw new Error('Burned captions have no device filter.');}});
+  try {
+    await burned.start('movie-1'); assert.equal(burned.runtime.getSnapshot().subtitles?.plan?.renderer, 'burn_in');
+    assert.equal(burned.engine.lastCommand.subtitles.mode, 'off'); assert.equal(burned.runtime.getSnapshot().forcedOnly, undefined);
+    assert.equal(burned.requests.some(request => request.path.endsWith('/lines')), false);
+  } finally {burned.runtime.dispose();}
 });
 
 test('late image counts cannot grant a filter after source replacement, collapse or authority retirement', async () => {
