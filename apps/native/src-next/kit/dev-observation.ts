@@ -1,13 +1,13 @@
 import {useCallback, useLayoutEffect, useRef, type ForwardedRef, type ReactNode} from 'react';
-import {findNodeHandle, type Image, type Text, type TextProps, type View} from 'react-native';
+import {findNodeHandle, type Text, type TextProps, type View} from 'react-native';
 import type {HostFacts, HostRegistration} from '../dev/layout-dump/index';
 import {useHostRef} from './focus/useHostRef';
 
-type Facts = HostFacts & Readonly<{kind: 'text' | 'view' | 'image'}>;
+type Facts = HostFacts & Readonly<{kind: 'text' | 'view'}>;
 const dev = () => typeof __DEV__ !== 'undefined' && __DEV__;
 
 /** Curated, DEV-only observations of existing hosts; no new native view or text renderer. */
-export function useNativeObservation<T extends View | Text | Image>(facts: Facts, forwarded?: ForwardedRef<T>, textRevision?: ReactNode) {
+export function useNativeObservation<T extends View | Text>(facts: Facts, forwarded?: ForwardedRef<T>, textRevision?: ReactNode) {
   const lease = useRef<HostRegistration | undefined>(undefined), input = useRef(facts);
   const onHost = useCallback((host: T | null) => {
     lease.current?.unregister(); lease.current = undefined;
