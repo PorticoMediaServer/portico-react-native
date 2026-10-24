@@ -26,6 +26,8 @@ export type SelectProps = Omit<FocusableProps, 'children'> & {
   label?: React.ReactNode;
   description?: React.ReactNode;
   error?: React.ReactNode;
+  /** A drawn value row: the label sits at the left of the same control as its value. */
+  rowLabel?: React.ReactNode;
   placeholder?: React.ReactNode;
   textStyle?: StyleProp<TextStyle>;
   pickerContext?: React.ReactNode;
@@ -38,7 +40,7 @@ export type RichSelectProps = SelectProps;
 const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function NativeSelect({
   options, value, defaultValue, onValueChange, open, defaultOpen = false, onOpenChange,
   label, description, error, placeholder, rich, style, textStyle, pickerContext, pickerTitle, pickerDescription, pickerFooter, onPress, disabled, accessibilityLabel,
-  accessibilityState, testID, ...props
+  accessibilityState, testID, rowLabel, ...props
 }, ref) {
   const theme = useTheme();
   const trigger = useRef<View>(null);
@@ -59,7 +61,7 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
     if (typeof ref === 'function') ref(node); else if (ref) ref.current = node;
   }, [ref]);
   const blocked = disabled || focusedValue === undefined;
-  const title = label ?? accessibilityLabel ?? selected?.label ?? placeholder;
+  const title = rowLabel ?? label ?? accessibilityLabel ?? selected?.label ?? placeholder;
   return <View style={styles.container}>
     {label !== undefined ? <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{label}</Text> : null}
     <Focusable {...props} ref={setRef} accessibilityRole="combobox" accessibilityLabel={accessibilityLabel ?? (typeof label === 'string' ? label : undefined)}
@@ -71,7 +73,10 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
         paddingHorizontal: theme.isTV ? 20 : 16, gap: theme.isTV ? 20 : 14,
         borderColor: error ? theme.colors.danger : isOpen ? theme.colors.accent : 'transparent',
         backgroundColor: theme.colors.raisedBright, opacity: blocked ? .45 : 1}, typeof style === 'function' ? style(state) : style]}>
-      <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, styles.label, {fontFamily: fontFamilies[700], color: selected ? theme.colors.text : theme.colors.textTertiary}, textStyle]}>{selected?.label ?? placeholder}</Text>
+      {rowLabel !== undefined
+        ? <><Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontFamily: fontFamilies[700], color: theme.colors.text, flex: 1, minWidth: 0}, textStyle]}>{rowLabel}</Text>
+          <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontFamily: fontFamilies[700], color: theme.colors.textTertiary, flexShrink: 1}, textStyle]}>{selected?.label ?? placeholder}</Text></>
+        : <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, styles.label, {fontFamily: fontFamilies[700], color: selected ? theme.colors.text : theme.colors.textTertiary}, textStyle]}>{selected?.label ?? placeholder}</Text>}
       <Icon name="i-updown" size={theme.isTV ? 26 : 18} color={theme.colors.textTertiary} />
     </Focusable>
     {error !== undefined ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{error}</Text>

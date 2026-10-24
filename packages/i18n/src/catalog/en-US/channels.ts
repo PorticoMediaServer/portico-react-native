@@ -88,6 +88,7 @@ export const channelMessages = {
   'guide.allEpisodes': 'All episodes',
   'guide.thisChannel': 'This channel',
   'guide.anyChannel': 'Any channel',
+  'guide.dayMenuNote': 'Picking another day jumps to {time} that evening. This guide has listings through {day}.',
   'guide.seriesSet': 'Series recording set up. New airings are added as the guide updates.',
   'guide.scheduledBody': 'This program will be recorded.',
   'guide.viewRecordings': 'View recordings',
