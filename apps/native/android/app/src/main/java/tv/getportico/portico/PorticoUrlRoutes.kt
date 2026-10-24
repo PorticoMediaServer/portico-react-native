@@ -15,6 +15,9 @@ internal object PorticoUrlRoutes {
   private val IDENTIFIER = Regex("^[A-Za-z0-9_-]+$")
   private val CODE = Regex("^[A-Za-z0-9-]+$")
   private val TOKEN = Regex("^[A-Za-z0-9_.~-]+$")
+  private const val PUBLIC_MEASUREMENT = "portico://native-layout?specimen=signed-out-welcome"
+  private const val REFUSED_MEASUREMENT = "portico://native-layout"
+  private val MEASUREMENT_ATTEMPT = Regex("""^portico:[/\\]*(?:[^/?#]*@)?native-layout""", RegexOption.IGNORE_CASE)
   private val ACCOUNT_TABS = setOf("profiles", "sessions", "security")
 
   /** Hosts whose https links open the app (the manifest's app links). */
@@ -104,9 +107,20 @@ internal object PorticoUrlRoutes {
       uri.host == "join" && bare(uri) && uri.encodedQuery == null && fragmentPairs(uri).size == 2 &&
           safeInvitationCode(fragmentValue(uri, "code")) && safeServerOrigin(fragmentValue(uri, "server"))
 
+  private fun isPublicMeasurement(raw: String) = BuildConfig.DEBUG && raw == PUBLIC_MEASUREMENT
+
+  /** DEBUG only: preserve an attempted measurement as a fixed public refusal,
+   * never as a normal launch or an arbitrary URL containing caller data. */
+  internal fun debugMeasurementRoute(raw: String, host: String?): String? {
+    if (!BuildConfig.DEBUG) return null
+    if (isPublicMeasurement(raw)) return PUBLIC_MEASUREMENT
+    return if (host.equals("native-layout", ignoreCase = true) || MEASUREMENT_ATTEMPT.containsMatchIn(raw.trim())) REFUSED_MEASUREMENT else null
+  }
+
   /** The single decision, for warm opens and cold launches alike. */
   fun allows(uri: Uri): Boolean {
     if (uri.scheme != "portico" || uri.userInfo != null || uri.port != -1) return false
+    if (isPublicMeasurement(uri.toString())) return true
     // Only an invitation carries a fragment (its token or code); every other route refuses one.
     if (uri.encodedFragment != null) return isInvite(uri) || isJoin(uri)
     return isAccountReturn(uri) || isContentRoute(uri) || isDownloads(uri) || isAccount(uri) || isDevice(uri) || isTogetherJoin(uri)
@@ -160,7 +174,10 @@ internal object PorticoUrlRoutes {
    */
   fun filtered(intent: Intent?): Intent? {
     val data = intent?.data ?: return intent
-    val route = when (data.scheme) {
+    // MainActivity calls this same filter before both initial and warm RN delivery.
+    // Release never evaluates this exception, including malformed-attempt handling.
+    val measurement = if (BuildConfig.DEBUG) debugMeasurementRoute(data.toString(), data.host) else null
+    val route = measurement?.let { Uri.parse(it) } ?: when (data.scheme) {
       "portico" -> data.takeIf { allows(it) }
       "https" -> route(data)
       else -> null
