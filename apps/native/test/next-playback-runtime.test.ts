@@ -524,8 +524,9 @@ test('complete caption preferences update the same bound subtitle source and ret
     assert.deepEqual(d.runtime.getSnapshot().fence, fence);
     assert.equal(original.color, 'white', 'an old command is not mutated');
     assert.equal(d.requests.slice(sent).some(request => request.method !== 'GET'), false, 'appearance does not replan or replace the session');
-    d.runtime.choices.set('subtitleSize', fence.playback, 'small');
-    d.runtime.choices.set('subtitleBackground', fence.playback, 'opaque');
+    assert.equal(d.runtime.choices.set('subtitleSize', fence.playback, 'small'), true);
+    assert.equal(d.runtime.choices.set('subtitleBackground', fence.playback, 'opaque'), true);
+    await settle();
     assert.deepEqual(d.engine.lastCommand.subtitles.style, {...subtitles, size: 'small', scale: 0.8, background: 'opaque'});
     d.changeAuthority(); await settle();
     const count = d.engine.commands.length;
