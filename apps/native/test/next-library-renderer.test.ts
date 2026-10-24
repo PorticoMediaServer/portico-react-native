@@ -21,6 +21,14 @@ test('the Library descriptor requires the actual authorized ID and never supplie
     '../read/platform': {hiddenReadingLibraryOnTV},
     '../destinations/lifetime': {nativeDestinationLifetime},
     './play-selection': {createNativeLibraryPlaySelection},
+    // The TV Library module owns only the F-LIB-52 Save view surface; the page
+    // and every action stay the real Library destination beneath it.
+    './tv-library': {
+      createNativeTVLibraryNamingStore: () => ({subscribe: () => () => {}, getSnapshot: () => undefined, open: () => false, close: () => false, dispose: () => {}}),
+      nativeTVLibraryActions: (actions: unknown) => actions,
+      nativeTVNamingPanelId: (_authority: unknown, libraryId: string) => `tv.${JSON.stringify(libraryId)}.naming`,
+      NativeTVLibrarySurface: 'NativeTVLibrarySurface',
+    },
   });
   assert.equal(exportedPlay, createNativeLibraryPlaySelection, 'the barrel exposes the actual headless producer');
   const viewer = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', role: 'owner'};
@@ -45,7 +53,10 @@ test('the Library descriptor requires the actual authorized ID and never supplie
       assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'reading'}}, {}), null, `${kind} cannot enter a TV library body`);
     }
     libraries = [{id: 'audio', name: 'Actual audiobooks', kind: 'audiobook'}];
-    assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'audio'}}, {}).props.destination.getSnapshot().library.id, 'audio');
+    // TV composes the one Save view surface around the same actual page.
+    const tvAudio = renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'audio'}}, {});
+    assert.equal(tvAudio.props.panelId, 'tv."audio".naming');
+    assert.equal(tvAudio.props.library.props.destination.getSnapshot().library.id, 'audio');
     libraries = []; assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {}), null);
     assert.equal(element.props.destination.getSnapshot().collection, undefined);
     current = false; assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {}), null);
