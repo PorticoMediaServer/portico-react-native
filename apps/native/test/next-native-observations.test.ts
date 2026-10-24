@@ -190,6 +190,22 @@ test('native scope is the registered welcome root, and unmount during the UI tur
   await assert.rejects(pending, failure('scope-changed'));
 });
 
+test('verified nonzero window coordinates remain nonzero provenance and never turn fullViewport true', async () => {
+  const {options, root, payload} = scene(24);
+  root.measureInWindow = callback => callback(0, 24, 390, 844);
+  for (const row of payload.hosts) {
+    row.facts.windowRect.value.y += 24;
+    row.facts.textLineRects = native([{x: 10, y: 44, width: 100, height: 30}]);
+  }
+  const measured = await collectNativeScreen(options);
+  assert.equal(measured.fullViewport, false);
+  const gap = measured.unavailable.find(item => item.property === 'fullViewport')!;
+  assert.match(gap.reason, /coordinate-space=window \(verified same-host API agreement\)/);
+  assert.match(gap.reason, /raw x=0, y=24/);
+  assert.deepEqual(measured.elements.find(element => element.tag === 'RN:Text')!.textRects,
+    [{x: 10, y: 20, width: 100, height: 30}]);
+});
+
 test('missing or duplicate registered fixture roots cannot invoke native observation', async () => {
   const {options, fixture, registry} = scene();
   let calls = 0;

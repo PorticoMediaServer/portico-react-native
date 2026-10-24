@@ -118,7 +118,10 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
       && sameNativeExtent(left.width, right.width) && sameNativeExtent(left.height, right.height);
     nativeWindowCoordinatesVerified = !!rootBox && 'rect' in readback && sameRect(rootBox, rootWindow)
       && sameRect(readback.rect, rootWindow) && registry.revision() === revision;
-    if (rootGap) rootGap.reason += `; native windowRect source=${native.get(root)?.windowRectSource}, raw=${JSON.stringify(rootWindow)}; same-host measureInWindow readback=${'rect' in readback ? JSON.stringify(readback.rect) : 'unavailable'}; coordinate relationship=${nativeWindowCoordinatesVerified ? 'verified window agreement' : 'unknown'}`;
+    if (rootGap) {
+      if (nativeWindowCoordinatesVerified) rootGap.reason = rootGap.reason.replace('coordinate-space=unknown', 'coordinate-space=window (verified same-host API agreement)');
+      rootGap.reason += `; native windowRect source=${native.get(root)?.windowRectSource}, raw=${JSON.stringify(rootWindow)}; same-host measureInWindow readback=${'rect' in readback ? JSON.stringify(readback.rect) : 'unavailable'}; coordinate relationship=${nativeWindowCoordinatesVerified ? 'verified window agreement' : 'unknown'}`;
+    }
   }
   const walk = async (node: Node, parent: string | null, id: string): Promise<void> => {
     if (signal?.aborted) {missing('root', 'captureState', 'capture cancelled'); return;}
