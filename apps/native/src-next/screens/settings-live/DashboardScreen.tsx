@@ -20,6 +20,7 @@ import {Screen, ScreenText, useScreenEntry} from './Screen';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeDashboardController} from './dashboard-controller';
 import {nativeDashboardIdentity} from './dashboard-presentation';
+import {NativeOwnerDashboardPhone} from './owner-dashboard/use-owner-dashboard';
 
 /** TV never exposes a mutation, secret, settings document or inferred administrator action. */
 export function NativeDashboardScreen({controller, ports, runtime, deniedFallback}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; deniedFallback: React.ReactNode}) {
@@ -33,6 +34,8 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
   // Ruling17.3: a forbidden direct destination falls back to the first permitted account
   // Settings page. Render that genuine surface while Accounts performs the route transition.
   if (state.admission === 'denied') return <>{deniedFallback}</>;
+  // The phone draws the owner Dashboard page from owner-dashboard.html; the TV keeps its Settings surface.
+  if (!theme.isTV) return <NativeOwnerDashboardPhone controller={controller} ports={ports} runtime={runtime}/>;
   const health = healthFacts(state.health, state.storage);
   const facts: ServerFact[] = state.health?.facts.database ? [{id: 'state', text: t(health.degraded ? 'next.shell.health.attention' : 'next.shell.health.normal'), tone: health.degraded ? 'warning' : 'normal'}] : [];
   if (health.uptimeSeconds !== undefined) facts.push({id: 'uptime', text: t('settings.server.health.upFor', {duration: defaultI18n.duration(health.uptimeSeconds)})});
