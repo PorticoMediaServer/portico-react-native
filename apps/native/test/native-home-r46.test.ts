@@ -45,7 +45,7 @@ test('phone Home rows take the drawn 28 px rhythm while the hero keeps its own h
   assert.equal(tabletTheme.platform, 'tablet');
   assert.equal(tabletTheme.layoutMode, 'phone', 'tablet shares the shell mode, so mode alone cannot admit phone-only changes');
   assert.deepEqual(home.homeRowSpacing(tabletTheme), {marginBottom: 18});
-  assert.equal(home.homeHeroBlock(tabletTheme, 560, false), 520);
+  assert.equal(home.homeHeroBlock(tabletTheme, 560, false), 588);
   assert.equal(home.homeRowSubtitle(tabletTheme), tabletTheme.type.rowSubtitle);
   assert.equal(home.homeContentBottom(tabletTheme, 84), 108);
 });

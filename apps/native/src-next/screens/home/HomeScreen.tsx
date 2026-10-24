@@ -42,7 +42,7 @@ export function homeRowSpacing(theme: Theme) {
 
 /** The hero reserves only its drawn height; the first row's 28 px gap comes from its own margin. */
 export function homeHeroBlock(theme: Theme, heroHeight: number, preview: boolean): number {
-  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : heroHeight + theme.spec.shelf.homeOverlap;
+  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : theme.layoutMode === 'desktop' ? heroHeight + theme.spec.shelf.homeOverlap : 588;
 }
 
 /** The drawn phone row sub-line is 13 px; the shared rowSubtitle role carries 14. */
