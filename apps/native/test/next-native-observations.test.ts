@@ -78,8 +78,29 @@ test('native scope rejection discards the capture without reading or forwarding 
   let reads = 0;
   const bridge = {observe: async () => {throw {code: 'layout_observation_scope',
     get message() {reads++; throw new Error('private native detail');}};}};
-  await assert.rejects(requestNativeObservations({...request(response()), bridge}), failure('scope-changed'));
+  await assert.rejects(requestNativeObservations({...request(response()), bridge}), (error: unknown) =>
+    failure('scope-changed')(error) && (error as NativeObservationError).boundary === 'native-scope-rejected-while-js-current');
   assert.equal(reads, 0);
+});
+
+test('scope failure boundaries preserve every currentness fence without exporting native details', async () => {
+  for (const [failsAt, expected, nativeCalls] of [[1, 'js-before-native', 0], [2, 'js-before-native', 0],
+    [3, 'js-after-native', 1], [4, 'js-after-decode', 1]] as const) {
+    let checks = 0, calls = 0;
+    await assert.rejects(requestNativeObservations({...request(response()), isCurrent: () => ++checks < failsAt,
+      bridge: {observe: async () => {calls++; return response();}}}), (error: unknown) =>
+      failure('scope-changed')(error) && (error as NativeObservationError).boundary === expected);
+    assert.equal(calls, nativeCalls);
+  }
+  let live = true, rawReads = 0;
+  await assert.rejects(requestNativeObservations({...request(response()), isCurrent: () => live,
+    bridge: {observe: async () => {
+      live = false;
+      throw {get code() {rawReads++; return 'layout_observation_scope';},
+        get message() {rawReads++; return 'private native detail';}};
+    }}}), (error: unknown) => failure('scope-changed')(error)
+      && (error as NativeObservationError).boundary === 'js-after-native');
+  assert.equal(rawReads, 0);
 });
 
 test('fixture retirement and abort discard native results and fence the queued call', async () => {

@@ -74,6 +74,10 @@ it does not claim to interrupt a native UI turn already queued.
 Native replies are validated against captured root/fixture/host tags. Unknown
 fields, raw error messages, requested styles, URLs and asset references are not
 forwarded. Real false/zero facts remain distinct from unavailable observations.
+Failed scope captures carry only an allowlisted adapter boundary: before native,
+after native, after decode, or native scope rejection while JS is still current.
+The boundary does not expose native errors or identify which native guard failed;
+all currentness and publication checks remain in force.
 Native paint does not fall back to diagnostic styles or stale registered paint.
 Unassociated family labels remain unavailable; they never become a requested CSS
 family chain or an observed typographic identity.

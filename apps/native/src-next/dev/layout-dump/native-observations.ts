@@ -26,8 +26,9 @@ export type NativeObservationRequest = Readonly<{
   signal?: AbortSignal;
 }>;
 type Failure = 'invalid-request' | 'invalid-response' | 'scope-changed' | 'cancelled' | 'native-error';
+type FailureBoundary = 'js-before-native' | 'js-after-native' | 'js-after-decode' | 'native-scope-rejected-while-js-current';
 export class NativeObservationError extends Error {
-  constructor(readonly code: Failure) {super(`Native observation unavailable: ${code}`);}
+  constructor(readonly code: Failure, readonly boundary?: FailureBoundary) {super(`Native observation unavailable: ${code}`);}
 }
 
 const object = (value: unknown): value is object => typeof value === 'object' && value !== null;
@@ -119,28 +120,30 @@ export async function requestNativeObservations(request: NativeObservationReques
   if (!tag(rootReactTag) || !tag(fixtureReactTag) || rootReactTag === fixtureReactTag || ids.length === 0 || ids.length > 2000
       || ids.some(id => !tag(id)) || new Set(ids).size !== ids.length) throw new NativeObservationError('invalid-request');
   const current = () => {try {return isCurrent();} catch {return false;}};
-  const guard = () => {
-    if (signal?.aborted) throw new NativeObservationError('cancelled');
-    if (!current()) throw new NativeObservationError('scope-changed');
+  const guard = (boundary: FailureBoundary) => {
+    if (signal?.aborted) throw new NativeObservationError('cancelled', boundary);
+    if (!current()) throw new NativeObservationError('scope-changed', boundary);
   };
-  guard();
+  guard('js-before-native');
   let abort: (() => void) | undefined;
   try {
-    const pending = Promise.resolve().then(() => {guard(); return bridge.observe(rootReactTag, fixtureReactTag, ids);});
+    const pending = Promise.resolve().then(() => {guard('js-before-native'); return bridge.observe(rootReactTag, fixtureReactTag, ids);});
     const cancelled = new Promise<never>((_resolve, reject) => {
       abort = () => reject(new NativeObservationError('cancelled'));
       signal?.addEventListener('abort', abort, {once: true});
       if (signal?.aborted) abort();
     });
     const raw = signal ? await Promise.race([pending, cancelled]) : await pending;
-    guard();
+    guard('js-after-native');
     const result = decode(raw, {rootReactTag, fixtureReactTag}, ids);
-    guard();
+    guard('js-after-decode');
     return result;
   } catch (error) {
     if (error instanceof NativeObservationError) throw error;
-    guard();
-    if (object(error) && own(error, 'code') === 'layout_observation_scope') throw new NativeObservationError('scope-changed');
+    guard('js-after-native');
+    if (object(error) && own(error, 'code') === 'layout_observation_scope') {
+      throw new NativeObservationError('scope-changed', 'native-scope-rejected-while-js-current');
+    }
     throw new NativeObservationError('native-error');
   } finally {
     if (abort) signal?.removeEventListener('abort', abort);
