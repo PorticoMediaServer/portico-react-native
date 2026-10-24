@@ -1,6 +1,6 @@
 import test, {type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
-import {HttpLocalApi, createReadingHost, connectReadingHost} from '../../../packages/client-core/src';
+import {HttpLocalApi, ReadingError, createReadingHost, connectReadingHost} from '../../../packages/client-core/src';
 import {parsePreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
 import {nativeServerFetch} from '../src-next/platform/server-connections';
@@ -24,12 +24,13 @@ type Reply = {done: boolean; bodyBase64: string};
  * trusted host/guest protocol below are the actual MAIN implementations. */
 async function fixture(t: TestContext) {
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
-  const before = {request: runtime.networkRequest, open: runtime.networkStreamOpen, read: runtime.networkStreamRead, cancel: runtime.cancelQueueRequest, bytes: runtime.networkBytesRequest};
+  const before = {request: runtime.networkRequest, open: runtime.networkStreamOpen, read: runtime.networkStreamRead, cancel: runtime.cancelQueueRequest, bytes: runtime.networkBytesRequest, id: runtime.playbackRequestId};
   let dispose: (() => Promise<void>) | undefined;
   t.after(async () => {try {await dispose?.();} finally {
     runtime.networkRequest = before.request; runtime.networkStreamOpen = before.open; runtime.networkStreamRead = before.read;
-    runtime.cancelQueueRequest = before.cancel; runtime.networkBytesRequest = before.bytes;
+    runtime.cancelQueueRequest = before.cancel; runtime.networkBytesRequest = before.bytes; runtime.playbackRequestId = before.id;
   }});
+  let requestId = 0; runtime.playbackRequestId = () => `native-bridge-${++requestId}`;
   const authority = new AbortController();
   let current = true, nativeReads = 0, mode: 'exact' | 'stall' | 'truncated' = 'exact';
   let late: ((reply: Reply) => void) | undefined;
@@ -71,7 +72,7 @@ async function fixture(t: TestContext) {
   const guest = await connection.ready;
   return {guest, packets, calls, streams, cancelled, get reads() {return nativeReads;}, setMode(value: typeof mode) {mode = value;},
     releaseLate() {late?.({done: false, bodyBase64: Buffer.from(bytes.subarray(0, 49152)).toString('base64')});},
-    retire() {current = false; authority.abort(); host.dispose();}};
+    retire(reason?: unknown) {current = false; authority.abort(reason); host.dispose();}};
 }
 
 test('canonical native facade crosses the trusted sequential bridge with demand-only 48KiB pulls and exact EOF', async t => {
@@ -98,10 +99,11 @@ test('guest child cancellation reaches the same native request after metadata an
   await until(() => f.cancelled.size === 2); assert.equal(f.streams.size, 2);
 });
 
-test('authority retirement aborts an in-flight guest pull and never sends cleanup using replacement authority', async t => {
+for (const retirement of [{reason: undefined, code: 'reading_unavailable'}, {reason: new ReadingError('source_changed'), code: 'source_changed'}])
+test(`authority retirement preserves ${retirement.code}, aborts the guest pull and never cleans up as replacement authority`, async t => {
   const f = await fixture(t); f.setMode('stall'); const reader = (await f.guest.session.openSequential!()).getReader();
-  const pending = assert.rejects(reader.read(), coded('cancelled')); await until(() => f.reads === 1);
-  const calls = f.calls.length; f.retire(); await pending; await until(() => f.cancelled.size === 1);
+  const pending = assert.rejects(reader.read(), coded(retirement.code)); await until(() => f.reads === 1);
+  const calls = f.calls.length; f.retire(retirement.reason); await pending; await until(() => f.cancelled.size === 1);
   assert.equal(f.guest.session.signal.aborted, true); f.releaseLate(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.calls.length, calls); reader.releaseLock();
 });
