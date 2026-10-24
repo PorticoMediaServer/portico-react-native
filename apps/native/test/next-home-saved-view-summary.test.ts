@@ -6,8 +6,11 @@ import type {LibraryContentApi} from '../../../packages/client-core/src/library-
 import type {PersonalResource} from '../../../packages/client-core/src/personal-saved';
 import {savedViewSummary} from '../../../packages/client-core/src/presentation/saved-view-summary';
 import {NativeHomeSavedViewSummaries} from '../src-next/screens/home/saved-view-summaries';
-import {screenModule} from './helpers/screen-harness.mjs';
-import {createTheme} from '../src-next/kit/theme';
+import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {serverTextLabel} from '../../../packages/client-core/src/presentation/server-text';
+import type {HomeLayoutView} from '../../../packages/client-core/src/home';
+import {NativeHomeCustomizeController} from '../src-next/screens/home/customize-controller';
+import {createTheme, nativeType} from '../src-next/kit/theme';
 
 const pivot = {id: 'movies', labelKey: 'library.tab.movies', entityKinds: ['movie'], defaultSort: [{field: 'title', direction: 'asc'}], supportedViews: ['grid'], browsable: true} as const;
 const capability: BrowseCapabilities = {
@@ -70,15 +73,35 @@ test('unadmitted libraries and other server resources start no reads, and a mism
 
 for (const isTV of [false, true]) test(`actual ${isTV ? 'TV' : 'phone'} Home chooser draws only computed lines and preserves the selected real resource`, async () => {
   const theme = createTheme({width: isTV ? 1920 : 390, isTV});
-  const {HomeSavedViewChoices} = await screenModule(new URL('../src-next/screens/home/HomeCustomize.tsx', import.meta.url), {
-    react: {default: {createElement: (type: unknown, props: unknown, ...children: unknown[]) => ({type, props: {...props as object, children: children.length === 1 ? children[0] : children}})}},
+  const h = hooks();
+  const {HomeSavedViewChoices, HomeCustomize} = await screenModule(new URL('../src-next/screens/home/HomeCustomize.tsx', import.meta.url), {
+    react: h.react,
     'react-native': {ScrollView: 'Scroll', Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../../../../packages/client-core/src/presentation/server-text': {}, '../../kit/controls': {Focusable: 'Row'}, '../../kit/focus': {}, '../../kit/Icon': {Icon: 'Icon'},
-    '../../kit/overlays': {}, '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {useTheme: () => theme}, './customize-controller': {},
+    '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel}, '../../kit/controls': {Focusable: 'Row', Button: 'Button', Switch: 'Switch'}, '../../kit/focus': {useFocusRegistry: () => ({})}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/overlays': {BottomSheet: 'Sheet', SidePanel: 'Panel', Dialog: 'Dialog'}, '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType, useTheme: () => theme}, './customize-controller': {},
   });
   const resources = [view('drawn'), view('withheld')], selected: PersonalResource[] = [];
   const tree = HomeSavedViewChoices({views: resources, i18n: defaultI18n, summary: (resource: PersonalResource) => resource === resources[0] ? 'COMPUTED' : undefined, onChoose: (resource: PersonalResource) => selected.push(resource)});
-  const text = nodes(tree).filter(node => node.type === 'Text').map(node => node.props.children);
+  const text = nodes(tree).filter(node => node.type === 'Text').flatMap(node => node.props.children);
   assert.deepEqual(text, ['drawn', 'COMPUTED', 'withheld']);
   nodes(tree).find(node => node.type === 'Row').props.onPress(); assert.equal(selected[0], resources[0]);
+  const layout: HomeLayoutView = {revision: 1, rowOrder: ['continue'], hiddenRowIds: [], rows: [
+    {id: 'continue', title: 'Continue', kind: 'continue', artworkShape: 'landscape', required: true, hideable: false, reorderable: true, hidden: false},
+  ]};
+  let writes = 0;
+  const controller = new NativeHomeCustomizeController({current: () => true, requestId: async () => 'request', savedViews: {serverId: 'server', isCurrent: resource => resources.includes(resource)},
+    home: {loadLayout: async () => layout, saveLayout: async () => {writes++; return layout;}, resetLayout: async () => {writes++;}}});
+  await controller.load(); assert.equal(controller.addSavedView(resources[0]), true);
+  const t = defaultI18n.t, copy = {
+    title: t('home.customize.action'), instruction: t('next.home.layoutTVInstruction'), alwaysOn: t('home.customize.alwaysOn'), addView: t('home.customize.addView'), reset: t('action.reset'), save: t('action.save'),
+    conflictTitle: t('next.home.layoutChangedTitle'), conflictBody: t('next.home.layoutChangedBodyCompact'), reload: t('next.home.reloadLayout'), keepEditing: t('next.home.keepEditing'),
+    move: t('next.home.layoutMoveAction'), drop: t('next.home.layoutDropAction'), putBack: t('next.home.layoutPutBackAction'),
+  };
+  const body = h.render(() => HomeCustomize({controller, copy, i18n: defaultI18n, onClose() {}, onAddView() {}, testID: 'customize', summary: () => 'COMPUTED'}));
+  const rowWords = nodes(body).filter(node => node.type === 'Text').flatMap(node => node.props.children);
+  assert.ok(rowWords.includes('COMPUTED'), 'the newly chosen transient row uses the same computed-line port');
+  assert.equal(rowWords.includes(resources[0].summary), false);
+  assert.equal(controller.getSnapshot().rows.at(-1)!.savedView, resources[0]);
+  assert.equal(writes, 0, 'rendering the chosen view does not persist a resource or layout');
+  controller.dispose();
 });
