@@ -57,3 +57,17 @@ for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search
     }
   } finally {host.unmount();}
 });
+
+test('File info draws the real version cards, the informational note and the owner part', () => {
+  const texts = (node: any): string[] => Array.isArray(node) ? node.flatMap(texts)
+    : node?.props ? [typeof node.props.children === 'string' ? node.props.children : '', ...texts(node.props.children)] : [];
+  const model = {files: [{id: 'v1', display: {heading: {text: 'Version 1'}, summary: [{text: '4K HDR'}],
+    video: [{id: 'v', parts: [{id: 'codec', text: 'HEVC'}]}], audio: [{id: 'a', parts: [{id: 'lang', text: 'English'}]}], subtitles: []},
+    rows: [{id: 'resolution', label: 'Resolution', parts: [{text: '4K'}]}, {id: 'size', label: 'Size', parts: [{text: '61.4 GB'}]},
+      {id: 'length', label: 'Length', parts: [{text: '2 h 46 min'}]}]}],
+    owner: {heading: 'Location and manage', locations: [], actions: []}} as any;
+  const tree = NativeFileInfoContent({model, onManage() {}}), words = texts(tree);
+  assert.ok(words.includes('Version 1'));
+  assert.ok(words.includes(defaultI18n.t('next.overlays.native.fileInfoNote')));
+  assert.ok(words.includes('Location and manage'));
+});

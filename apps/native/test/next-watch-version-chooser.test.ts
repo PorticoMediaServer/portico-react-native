@@ -32,6 +32,7 @@ test('actual phone chooser draws only two-line buttons, stored title and Done; a
   rows[1].props.onPress(); assert.deepEqual(choices, ['v2']);
   nodes.find(node => node.props.testID === 'watch-versions-done').props.onPress(); assert.equal(closed, 1);
   assert.ok(nodes.some(node => node.type === 'Text' && node.props.children.includes('Stored title: Special Edition')));
+  assert.deepEqual(rows.map(node => value.destination.rows[value.destination.rows.findIndex(row => `watch-version-${row.id}` === node.props.testID)]?.heading), ['Director’s Cut', '4K Dolby Vision', '1080p']);
   assert.equal(nodes.some(node => node.type === 'Icon' || node.props.accessibilityRole === 'radio'), false);
 });
 
