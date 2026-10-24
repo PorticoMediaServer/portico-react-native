@@ -71,3 +71,37 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   retainedSaved.dispose(); assert.equal(disconnects, 0, 'old disposal leaves the newer singleton connection intact');
   second.dispose(); assert.equal(disconnects, 1); assert.equal(disposed, 2);
 });
+
+test('Saved and Downloads leases expose the same installed offline command without another connection owner', async () => {
+  const host = hooks(), listeners = new Set<() => void>(); let connections = 0, disconnects = 0;
+  const entry = {id: 'download', itemId: 'item', owner: 'owner', state: 'ready'};
+  const snapshot = {entries: [entry], supported: true, ready: true};
+  const calls: {entry: unknown; lifetime: {signal: AbortSignal; isCurrent: () => boolean}}[] = [];
+  const source = {getSnapshot: () => snapshot, subscribe: () => () => {}, open: async () => {}, adopt() {},
+    connect: () => {connections++;}, disconnect: () => {disconnects++;}, playable: () => ''};
+  const {createNativeDownloadsDevice} = await screenModule(new URL('../src-next/screens/downloads/device.ts', import.meta.url), {
+    react: host.react,
+    '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {dispose() {}}},
+    '../destinations/lifetime': {nativeDestinationLifetime}, './playback': {createNativeOfflineEntryPlayback},
+    '../../platform/offline-downloads': {offlineDownloads: source, createNativeOfflineDownloadsAdapter: (_: undefined, actual: unknown) => actual},
+  });
+  const viewer = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile'};
+  let route: object = {kind: 'downloads'}, revision = 1;
+  const context = {current: () => true, session: () => ({viewer}), authority: () => ({...viewer, epoch: 'epoch'}),
+    api: {baseUrl: 'https://server.test', mediaUrl: (path: string) => path},
+    playback: {startOffline: async (entry: unknown, lifetime: {signal: AbortSignal; isCurrent: () => boolean}) => {calls.push({entry, lifetime});}},
+    navigation: {getSnapshot: () => ({route, revision}), subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}},
+    subscribeAuthority: () => () => {},
+  };
+  const downloads = createNativeDownloadsDevice(context), saved = createNativeDownloadsDevice(context);
+  try {
+    await downloads.device.open(); await saved.device.open(); assert.equal(connections, 1);
+    await downloads.device.openOffline(entry); assert.equal(calls[0].entry, entry);
+    assert.equal(calls[0].lifetime.isCurrent(), true);
+    downloads.dispose(); assert.equal(disconnects, 0); assert.equal(calls[0].lifetime.signal.aborted, false);
+    route = {kind: 'shell', destination: {kind: 'saved'}}; revision++;
+    for (const listener of [...listeners]) listener();
+    await saved.device.openOffline(entry); assert.equal(calls[1].entry, entry); assert.equal(connections, 1);
+  } finally {downloads.dispose(); saved.dispose();}
+  assert.equal(disconnects, 1); assert.equal(listeners.size, 0);
+});
