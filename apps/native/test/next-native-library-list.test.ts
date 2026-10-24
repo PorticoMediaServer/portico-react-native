@@ -18,6 +18,7 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
   let browseReads = 0;
   const app = await standardHomeApp({mountUI: false, nativeResponse: async (request: {path: string; method: string; body?: unknown}) => {
     const path = new URL(request.path, 'https://fixture.invalid').pathname;
+    if (path === '/v1/libraries') return {status: 200, body: {items: [{id: 'movies', name: 'Movies', kind: 'movie'}]}};
     if (path === '/v1/libraries/movies/browse-capabilities') return {status: 200, body: capabilities};
     if (path === '/v1/libraries/movies/browse' && request.method === 'POST') {
       browseReads++; const body = request.body as BrowseRequestBody;
@@ -35,9 +36,9 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
     let context!: NativeShellBootstrapContext;
     runtime = await restoreNativeShellRuntime(value => {context = value; return createNativeShellBindings(value);}, {onAuthorityEnded() {}});
     assert.ok(runtime); await app.mount({runtime});
-    context.navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'movies'}}, context.authority()); await app.settle();
+    assert.equal(context.navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'movies'}}, context.authority()), true); await app.settle();
     const movies = app.hosts().find((host: any) => host.props.accessibilityRole === 'tab' && host.props.accessibilityLabel === 'Movies');
-    assert.ok(movies); movies.props.onPress(); await app.settle();
+    assert.ok(movies, JSON.stringify({libraries: context.libraries(), tabs: app.hosts().filter((host: any) => host.props.accessibilityRole === 'tab').map((host: any) => host.props.accessibilityLabel)})); movies.props.onPress(); await app.settle();
     const grid = app.hosts().find((host: any) => host.props.testID === 'library-grid'); assert.ok(grid);
     grid.props.onLayout({nativeEvent: {layout: {width: 390, height: 600}}}); await app.settle();
     grid.props.onScroll({contentOffset: {x: 0, y: 800}}); await app.settle();
