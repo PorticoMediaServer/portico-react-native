@@ -133,12 +133,31 @@ test('complete declared style is explicit current registration evidence, never i
     first.update({kind: 'view', flattenedStyle, declaredStyleComplete: true});
     assert.equal(registry.read(node)?.declaredStyleComplete, false);
   }
+  const unsafe: Record<string, unknown> = {backgroundColor: 'url(https://example.invalid/private.png)'};
+  first.update({kind: 'view', flattenedStyle: unsafe, declaredStyleComplete: true});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  Object.defineProperty(unsafe, 'opacity', {get() {throw new Error('Style getter was read.');}});
+  first.update({kind: 'view', flattenedStyle: unsafe, declaredStyleComplete: true});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
   const current = registry.register(node, {kind: 'view', flattenedStyle: {}, declaredStyleComplete: true});
   first.update({kind: 'view', flattenedStyle: {opacity: 0}});
   first.unregister();
   assert.equal(registry.read(node)?.declaredStyleComplete, true);
   current.unregister();
   assert.equal(registry.read(node), undefined);
+});
+
+test('declared shadow offsets curate bounded scalars without retaining objects or reading accessors', () => {
+  const raw = {shadowOffset: {width: -2, height: 3.5}, textShadowOffset: {width: 0, height: 2},
+    textShadowColor: '#07101880', textShadowRadius: 30, textDecorationLine: 'underline'};
+  assert.deepEqual(curateFlattenedStyle(raw), {shadowOffsetX: -2, shadowOffsetY: 3.5,
+    textShadowOffsetX: 0, textShadowOffsetY: 2, textShadowColor: '#07101880', textShadowRadius: 30, textDecorationLine: 'underline'});
+  const offset = {height: 2};
+  Object.defineProperty(offset, 'width', {get() {throw new Error('Offset getter was read.');}});
+  const registry = createNativeMeasurementRegistry(), node = {};
+  registry.register(node, {kind: 'text', flattenedStyle: {textShadowOffset: offset}, declaredStyleComplete: true});
+  assert.deepEqual(registry.read(node)?.flattenedStyle, {});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
 });
 
 test('diagnostics cannot supply measured paint/font facts and invalidation does not invent defaults', () => {
