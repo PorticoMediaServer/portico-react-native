@@ -91,6 +91,21 @@ test('no destination action is offered until a genuine approved presenter is ins
   } finally {d.screens.dispose();}
 });
 
+test('genuine version eligibility does not require optional display metadata or invent missing facts', async () => {
+  const d = fixture();
+  d.respond(async () => ({...offered, versions: [{id: 'v1'}, {id: 'v2'}]}));
+  try {
+    await d.screens.menu(entry, () => true);
+    assert.equal(typeof d.menus[0][1].differentVersion, 'function');
+    await d.menus[0][1].differentVersion();
+    const destination = d.versions[0][1];
+    assert.deepEqual(destination.rows, [{id: 'v1', heading: '', detail: ''}, {id: 'v2', heading: '', detail: ''}]);
+    await destination.choose('v2');
+    assert.equal(d.starts[0][1].versionId, 'v2');
+    assert.equal(d.starts[0][1].options.versions.length, 2);
+  } finally {d.screens.dispose();}
+});
+
 test('opening the chooser refreshes the canonical offer and withholds a removed version group', async () => {
   const d = fixture();
   try {
