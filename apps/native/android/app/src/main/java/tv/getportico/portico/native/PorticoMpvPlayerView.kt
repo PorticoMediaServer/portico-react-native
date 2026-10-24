@@ -161,7 +161,8 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
     subtitle.measure(MeasureSpec.makeMeasureSpec(line, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec((h * 0.6f).toInt(), MeasureSpec.AT_MOST))
     val textHeight = subtitle.measuredHeight
     val x = left + (w - line) / 2
-    val y = if (controller?.overlayCue?.top == true) top + (8 * density).toInt() else top + h - Math.max((8 * density).toInt(), (h * 0.08f).toInt()) - textHeight
+    val y = if (PorticoMpvSupport.captionAtTop(controller?.captionStyle, controller?.overlayCue?.top == true)) top + (8 * density).toInt()
+      else top + h - Math.max((8 * density).toInt(), (h * PorticoMpvSupport.captionBottomInset(controller?.captionStyle)).toInt()) - textHeight
     subtitle.layout(x, y, x + line, y + textHeight)
   }
 

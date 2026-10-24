@@ -297,7 +297,8 @@ internal object PorticoMpvSupport {
    * The viewer's caption size from the system's Accessibility settings, as a scale on the
    * engine's own subtitle size (1 when the viewer has not set one).
    */
-  fun captionScale(context: Context): Double {
+  fun captionScale(context: Context, style: Map<*, *>? = null): Double {
+    if (style?.get("useSystemCaptionStyle") == false) return 1.0
     val scale = try { (context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager)?.fontScale?.toDouble() } catch (_: Exception) { null } ?: 1.0
     return if (scale.isFinite() && scale > 0) scale.coerceIn(0.5, 3.0) else 1.0
   }
@@ -314,10 +315,33 @@ internal object PorticoMpvSupport {
     return if (value == "none" || value == "opaque") value else "translucent"
   }
 
-  fun captionColors(context: Context, style: Map<*, *>?): Pair<Int, Int> {
+  /** An explicit canonical choice wins; old two-field commands retain the old
+   * CaptioningManager-enabled behavior until their producer is upgraded. */
+  fun usesSystemCaptionStyle(style: Map<*, *>?, enabled: Boolean): Boolean =
+      (style?.get("useSystemCaptionStyle") as? Boolean) ?: enabled
+
+  fun captionForeground(style: Map<*, *>?): Int = when (style?.get("color")) {
+    "yellow" -> android.graphics.Color.YELLOW
+    "cyan" -> android.graphics.Color.CYAN
+    "green" -> android.graphics.Color.GREEN
+    "pink" -> 0xffff80bf.toInt()
+    else -> android.graphics.Color.WHITE
+  }
+
+  fun captionAtTop(style: Map<*, *>?, authoredTop: Boolean): Boolean =
+      authoredTop || style?.get("position") == "top"
+
+  fun captionBottomInset(style: Map<*, *>?): Float = if (style?.get("position") == "raised") .20f else .08f
+
+  private fun systemCaptionStyle(context: Context, style: Map<*, *>?): CaptioningManager.CaptionStyle? {
     val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
-    val system = try { if (manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
-    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else android.graphics.Color.WHITE
+    return try { if (manager != null && usesSystemCaptionStyle(style, manager.isEnabled)) manager.userStyle else null } catch (_: Exception) { null }
+  }
+
+  fun captionColors(context: Context, style: Map<*, *>?, applyProfileColour: Boolean = true): Pair<Int, Int> {
+    val system = systemCaptionStyle(context, style)
+    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor
+      else if (applyProfileColour) captionForeground(style) else android.graphics.Color.WHITE
     val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
       else when (styleBackground(style)) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
     return text to box
@@ -330,16 +354,13 @@ internal object PorticoMpvSupport {
       .joinToString("/") { decimal(it / 255.0, 3) }
 
   /**
-   * The look of the line the app draws: Portico's caption style (the profile's size and
-   * background, sent with the subtitle command) on top of the system's. The size the viewer set
-   * for captions in Accessibility always multiplies. The system's colours are used only while the
-   * viewer has captions switched on there and that style names a colour; otherwise Portico's.
+   * The existing plain-text line. Canonical colour and the explicit system-style
+   * preference are applied on the same retained view; no output fact is inferred.
    * `base` is the size in pixels before either scale.
    */
   fun styleCaptionLine(line: android.widget.TextView, context: Context, style: Map<*, *>?, base: Float, italic: Boolean) {
-    val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
-    val system = try { if (manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
-    val size = base * captionScale(context).toFloat() * styleScale(style).toFloat()
+    val system = systemCaptionStyle(context, style)
+    val size = base * captionScale(context, style).toFloat() * styleScale(style).toFloat()
     line.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size)
     val face = try { system?.typeface } catch (_: Exception) { null } ?: android.graphics.Typeface.DEFAULT
     line.setTypeface(face, if (italic) android.graphics.Typeface.ITALIC else android.graphics.Typeface.NORMAL)
