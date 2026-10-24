@@ -5,7 +5,7 @@ import type {TextEnvironment} from '../../../../../packages/client-core/src/pres
 
 type Owner = Readonly<{current: () => boolean; preferences: () => PreferenceSnapshot}>;
 const keys = ['region.locale', 'region.hourCycle', 'region.formats', 'region.dateOrder', 'region.firstDay', 'region.sizeUnits'] as const;
-export type NativeRuntimeRegionText = TextEnvironment & Readonly<{refreshDeviceRegion: () => boolean}>;
+export type NativeRuntimeRegionText = Omit<TextEnvironment, 't'> & Readonly<{t: I18n['t']; refreshDeviceRegion: () => boolean}>;
 
 /** Borrows the confirmed bootstrap snapshot. This memoises formatters, not a
  * preference reader, default, writer or independent preference lifetime. */
