@@ -61,3 +61,27 @@ exactly zero; recorded host/window numbers are never rounded or replaced.
 
 These APIs alone establish no mounted-screen score. Actual App/Kit hooks,
 compatible DEV execution and the shared offline comparator are still required.
+
+`createAndroidNativeTreeObserver()` constructs the optional `observe` install
+option only in DEV Android when the checked `PorticoLayoutObservation` module
+exists. The existing public App install supplies it; no second root, global,
+registry or route is introduced. The collector discovers the public host tree
+once, selects exactly one registered `accounts-welcome` or `tv-front-door`
+fixture View, and binds native requests to that View and the full-screen root.
+Missing/duplicate scope prevents the native call. Retirement aborts publication;
+it does not claim to interrupt a native UI turn already queued.
+
+Native replies are validated against captured root/fixture/host tags. Unknown
+fields, raw error messages, requested styles, URLs and asset references are not
+forwarded. Real false/zero facts remain distinct from unavailable observations.
+Native paint does not fall back to diagnostic styles or stale registered paint.
+Unassociated family labels remain unavailable; they never become a requested CSS
+family chain or an observed typographic identity.
+
+An optional native window rectangle is coordinate evidence, not a replacement
+for a collector box. A failing `fullViewport` reason retains the selected API,
+unverified space, raw logical rectangle and same-host native/callback readback.
+Native window text runs are withheld unless the selected root API, actual
+`measureInWindow` and native window rectangle agree on the same live attachment.
+No API is selected because its origin is zero, and no offset is subtracted to
+fit an authored frame.

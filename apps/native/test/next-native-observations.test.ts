@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {NativeObservationError, requestNativeObservations} from '../src-next/dev/layout-dump/native-observations.ts';
+import {createNativeTreeObserver, createAndroidNativeTreeObserver} from '../src-next/dev/layout-dump/native-observer.ts';
+import {collectNativeScreen} from '../src-next/dev/layout-dump/collect.ts';
+import {createNativeMeasurementRegistry} from '../src-next/dev/layout-dump/registry.ts';
 
 const native = (value: unknown) => ({value, source: 'android.observed.SDK'});
 const response = (facts: Record<string, unknown> = {}) => ({version: 1, unit: 'dp', rootReactTag: 11, fixtureReactTag: 12,
@@ -52,6 +55,14 @@ test('foreign roots, units, duplicate rows or unrequested hosts reject the whole
   }
 });
 
+test('native window evidence preserves negative origins and fractional extents without becoming a chosen box', async () => {
+  const rect = {x: -4.5, y: 12.25, width: 390.125, height: 844.5};
+  const result = await requestNativeObservations(request(response({windowRect: {value: rect,
+    source: 'android.View.transformMatrixToGlobal+getLocationInWindow.boundsDp'}})));
+  assert.deepEqual(result.hosts[2].facts.windowRect, {value: rect,
+    source: 'android.View.transformMatrixToGlobal+getLocationInWindow.boundsDp'});
+});
+
 test('invalid IDs, duplicate IDs and retired fixture refuse before entering native', async () => {
   let calls = 0;
   const base = {...request(response()), bridge: {observe: async () => {calls++; return response();}}};
@@ -98,4 +109,94 @@ test('request tag identity is captured before asynchronous native work', async (
   base.rootReactTag = 99; base.fixtureReactTag = 98; base.hostReactTags.push(999);
   await pending;
   assert.deepEqual(observed, [11, 12, [11, 12, 13]]);
+});
+
+function scene(origin = 0) {
+  const title = {nodeType: 1, nodeName: 'RN:Text', isConnected: true, childNodes: [],
+    getBoundingClientRect: () => ({x: 10, y: 20 + origin, width: 100, height: 30})};
+  const fixture = {nodeType: 1, nodeName: 'RN:View', isConnected: true, childNodes: [title],
+    getBoundingClientRect: () => ({x: 0, y: origin, width: 390, height: 844})};
+  const root = {nodeType: 1, nodeName: 'RN:View', isConnected: true, childNodes: [fixture],
+    getBoundingClientRect: () => ({x: 0, y: origin, width: 390, height: 844}),
+    measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) => callback(0, 0, 390, 844)};
+  const registry = createNativeMeasurementRegistry();
+  const scope = registry.register(fixture, {kind: 'view', semanticId: 'accounts-welcome'});
+  registry.register(title, {kind: 'text', semanticId: 'public-title', flattenedStyle: {fontSize: 99, color: 'red'}})
+    .recordTextLayout([{text: 'Public Welcome', x: 0, y: 0, width: 100, height: 30}]);
+  const tags = new Map<object, number>([[root, 11], [fixture, 12], [title, 13]]);
+  const facts = {isFocused: native(false), effectiveOpacity: native(1),
+    backgroundColor: native('rgba(0, 0, 0, 1)'), effectiveBackgroundColor: native('rgba(0, 0, 0, 1)'),
+    borderRadius: native(0), boxShadow: {unavailable: 'unsupported-shadow'},
+    textColor: native('rgba(237, 245, 250, 1)'), fontSize: native(24), fontWeight: native(700), lineHeight: native(30),
+    fontFamily: native('Manrope ExtraBold'), textLineRects: native([{x: 10, y: 20, width: 100, height: 30}])};
+  const payload = {version: 1, unit: 'dp', rootReactTag: 11, fixtureReactTag: 12,
+    hosts: [11, 12, 13].map(reactTag => ({reactTag, facts: {...facts,
+      windowRect: {value: reactTag === 13 ? {x: 10, y: 20, width: 100, height: 30} : {x: 0, y: 0, width: 390, height: 844},
+        source: 'android.View.transformMatrixToGlobal+getLocationInWindow.boundsDp'}}}))};
+  const observer = createNativeTreeObserver({bridge: {observe: async () => payload}, tagForHost: host => tags.get(host)});
+  const options = {root, registry, observe: observer, isCurrent: () => true,
+    viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const};
+  return {root, fixture, title, registry, scope, payload, observer, options};
+}
+
+test('collector uses observed native paint and same-window runs without promoting diagnostics or unassociated family labels', async () => {
+  const {options} = scene();
+  const measured = await collectNativeScreen(options);
+  const title = measured.elements.find(element => element.tag === 'RN:Text')!;
+  assert.equal(measured.fullViewport, true);
+  assert.deepEqual(title.style, {backgroundColor: 'rgba(0, 0, 0, 1)', color: 'rgba(237, 245, 250, 1)',
+    fontSize: '24px', lineHeight: '30px', borderRadius: '0px', fontWeight: '700'});
+  assert.deepEqual(title.diagnostics, {flattenedStyle: {fontSize: 99, color: 'red'}});
+  assert.equal(title.ownText, 'Public Welcome');
+  assert.deepEqual(title.textRects, [{x: 10, y: 20, width: 100, height: 30}]);
+  assert.equal(title.focused, false);
+  assert.equal('fontFamily' in (title.style as object), false);
+  assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'fontFamily'));
+  assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'boxShadow'));
+});
+
+test('coordinate disagreement records all observed APIs without selecting zero or mixing native runs into another space', async () => {
+  const {options} = scene(24);
+  const measured = await collectNativeScreen(options);
+  const title = measured.elements.find(element => element.tag === 'RN:Text')!;
+  assert.equal(measured.fullViewport, false);
+  assert.deepEqual(measured.root, {x: 0, y: 0, width: 390, height: 844});
+  assert.equal(title.ownText, 'Public Welcome');
+  assert.equal(title.textRects, undefined);
+  const gap = measured.unavailable.find(item => item.property === 'fullViewport')!;
+  assert.match(gap.reason, /API=getBoundingClientRect.*raw x=0, y=24/);
+  assert.match(gap.reason, /native windowRect.*getLocationInWindow.*"y":0/);
+  assert.match(gap.reason, /measureInWindow readback=.*"y":0/);
+  assert.match(gap.reason, /coordinate relationship=unknown/);
+});
+
+test('native scope is the registered welcome root, and unmount during the UI turn discards the whole capture', async () => {
+  const {options, scope, payload} = scene();
+  let finish!: (value: unknown) => void;
+  const observe = createNativeTreeObserver({bridge: {observe: () => new Promise(resolve => {finish = resolve;})},
+    tagForHost: host => host === options.root ? 11 : options.registry.read(host)?.kind === 'view' ? 12 : 13});
+  const pending = collectNativeScreen({...options, observe});
+  for (let index = 0; index < 5 && !finish; index++) await Promise.resolve();
+  assert.equal(typeof finish, 'function');
+  scope.unregister(); finish(payload);
+  await assert.rejects(pending, failure('scope-changed'));
+});
+
+test('missing or duplicate registered fixture roots cannot invoke native observation', async () => {
+  const {options, fixture, registry} = scene();
+  let calls = 0;
+  const observe = async () => {calls++; return new Map();};
+  await assert.rejects(collectNativeScreen({...options, observe, isCurrent: undefined}), /current public fixture guard/);
+  const other = {...fixture, childNodes: []}; options.root.childNodes.push(other as typeof fixture);
+  registry.register(other, {kind: 'view', semanticId: 'tv-front-door'});
+  const measured = await collectNativeScreen({...options, observe});
+  assert.equal(calls, 0);
+  assert.ok(measured.unavailable.some(fact => fact.property === 'nativeObservation'));
+});
+
+test('production observer construction never loads native modules', () => {
+  const globals = globalThis as typeof globalThis & {__DEV__?: boolean};
+  const before = globals.__DEV__;
+  try {globals.__DEV__ = false; assert.equal(createAndroidNativeTreeObserver(), undefined);}
+  finally {if (before === undefined) delete globals.__DEV__; else globals.__DEV__ = before;}
 });
