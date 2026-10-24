@@ -8,7 +8,7 @@ import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const profile = {id: 'locked', name: 'Actual locked profile', art: 'mint', primary: false, pinRequired: true};
-const theme = createTheme({isTV: true, width: 1920});
+const theme = createTheme({isTV: true, width: 1920}), menuCalls: string[] = [];
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 function backOwner() {
   const listeners = new Set<() => boolean>();
@@ -16,7 +16,7 @@ function backOwner() {
 }
 const shared = (back: ReturnType<typeof backOwner>) => ({
   react: {...React, default: React},
-  'react-native': {BackHandler: back.api, Platform: {isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
+  'react-native': {BackHandler: back.api, Platform: {isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, TVEventControl: {enableTVMenuKey: () => menuCalls.push('enable'), disableTVMenuKey: () => menuCalls.push('disable')}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
   '../../../../../packages/i18n/src': {defaultI18n},
   '../../../../../packages/client-core/src/route-identity': {routeOrigin},
   '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'PIN refused'})},
@@ -31,6 +31,7 @@ const shared = (back: ReturnType<typeof backOwner>) => ({
 
 test('TV entry Forgot PIN keeps the same account operation and returns to the same pad with empty boxes', async () => {
   const back = backOwner(), calls: string[] = [];
+  menuCalls.length = 0;
   const service = {subscribe: () => () => {}, getSnapshot: () => ({phase: 'pending'}), start: async () => {},
     cancel: async () => {calls.push('cancel-code');}, pause: () => {calls.push('pause-code');}};
   class SignIn {
@@ -60,7 +61,9 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {calls.push('complete');}});});
   await act(() => host.mount());
   try {
+    assert.deepEqual(menuCalls, ['disable'], 'the root front door permits the native Menu exit');
     await act(() => tree.props.onLocal());
+    assert.equal(menuCalls.at(-1), 'enable', 'a non-root entry retains Menu delivery');
     await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Field').props.onChangeText('https://verified.example'));
     await act(() => tree.props.primaryAction.onPress());
     assert.equal(tree.type, 'Code');
@@ -90,6 +93,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     assert.deepEqual(calls, baseline);
   } finally {host.unmount();}
   assert.equal(calls.filter(c => c === 'dispose').length, 1, 'the operation retires only at actual entry unmount');
+  assert.equal(menuCalls.at(-1), 'disable', 'unmount returns Menu delivery to the next owner');
 });
 
 test('TV profile-switch hand-off preserves its current family, selection controller and server PIN attempts', async () => {

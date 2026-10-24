@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {BackHandler, Linking, NativeModules, Platform, Text, View} from 'react-native';
+import {BackHandler, Linking, NativeModules, Platform, TVEventControl, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
@@ -45,6 +45,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
   const lifetime = useRef(true), directoryAttempt = useRef(0), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
+  const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
+  busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
@@ -99,7 +101,18 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     if (Platform.isTV && (stage === 'tv-credentials' || stage === 'factor' || stage === 'tv-required-setup')) {void run(returnToTVCode); return;}
     if (stage === initialStage) onBack?.(); else reset();
   };
-  useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {if (busy || adoptingTV.current) return true; if (stage === 'welcome' && !onBack) return false; back(); return true;}); return () => listener.remove();});
+  backRef.current = back;
+  useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {
+    if (busyRef.current || adoptingTV.current) return true;
+    if (stageRef.current === 'welcome' && !onBackRef.current) return false;
+    backRef.current(); return true;
+  }); return () => listener.remove();}, []);
+  useEffect(() => {
+    if (!Platform.isTV) return;
+    if (stage !== 'welcome' || onBack) TVEventControl.enableTVMenuKey();
+    else TVEventControl.disableTVMenuKey();
+    return () => TVEventControl.disableTVMenuKey();
+  }, [stage, onBack]);
   const consume = (result: Result) => {
     if (!lifetime.current) return;
     if (result.kind === 'required-setup') {
