@@ -3,6 +3,7 @@
 #import <netinet/in.h>
 #import <unistd.h>
 #import <mach/mach.h>
+#import <errno.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wincomplete-implementation"
