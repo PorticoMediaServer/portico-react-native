@@ -49,7 +49,7 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
   const changed = () => {
     if (!current()) return;
     void state.source.load().catch(error => {if (current()) services.reportError(error);});
-    for (const entry of views.values()) void entry.view.refresh().catch((error: unknown) => {if (current()) services.reportError(error);});
+    for (const entry of views.values()) void entry.view.source.refresh().catch((error: unknown) => {if (current()) services.reportError(error);});
   };
   const back = () => {if (current()) context.navigation.back(context.authority());};
   const open = (route: Parameters<typeof openNativeSavedView>[1]) => {if (current()) openNativeSavedView(context, route);};
