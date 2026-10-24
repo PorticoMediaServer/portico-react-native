@@ -1,5 +1,5 @@
 import React, {useCallback, useLayoutEffect, useMemo, useRef} from 'react';
-import {Image, Text, View, StyleSheet, findNodeHandle, useWindowDimensions, type TextProps, type TextStyle} from 'react-native';
+import {Image, Text, View, StyleSheet, findNodeHandle, useWindowDimensions, type ImageStyle, type TextProps, type TextStyle} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {ColourBackdrop} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
@@ -19,13 +19,13 @@ function useHeadingMeasurement(text: string, style: TextStyle[], width: number, 
     registration.current?.unregister(); registration.current = undefined; native.current = host;
     if (typeof __DEV__ !== 'undefined' && __DEV__ && host) {
       const {registerNativeHost} = require('../../dev/layout-dump/index') as typeof import('../../dev/layout-dump/index');
-      registration.current = registerNativeHost(host, {kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(input.current.style)});
+      registration.current = registerNativeHost(host, {kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(input.current.style), declaredStyleComplete: true});
     }
   }, []);
   useLayoutEffect(() => {
     input.current = {style};
     if (!registration.current) return;
-    registration.current.update({kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(style)});
+    registration.current.update({kind: 'text', semanticId: 'tv-front-door-title', flattenedStyle: StyleSheet.flatten(style), declaredStyleComplete: true});
     registration.current.invalidateTextLayout(); registration.current.invalidateResolvedStyle();
   }, [text, style, width, height]);
   useLayoutEffect(() => () => {registration.current?.unregister(); registration.current = undefined; native.current = null;}, []);
@@ -53,17 +53,22 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const textStyle = nativeType({size: 26, weight: 700, lineHeight: 'normal', tracking: 0}, theme.textScale);
   const title = defaultI18n.t('web.signin.welcomeHome');
   const titleStyle = useMemo(() => [nativeType({size: 88, weight: 800, lineHeight: 88, tracking: -.045}, theme.textScale),
-    {color: theme.colors.text, marginBottom: 56}], [theme.textScale, theme.colors.text]);
+    // connect40's `.tvl h1`: text-shadow 0 2px 30px rgba(7,16,24,.5), the ink at 50%.
+    {color: theme.colors.text, marginBottom: 56,
+      textShadowColor: 'rgba(7, 16, 24, 0.5)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 30}],
+  [theme.textScale, theme.colors.text]);
   const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
-  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door'});
-  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark'});
-  return <View ref={rootObservation.ref} testID="tv-front-door" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  const rootStyle = {flex: 1, backgroundColor: theme.colors.ink};
+  const wordmarkStyle: ImageStyle = {position: 'absolute', left: 0, top: 72, width: 174, height: 40};
+  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(rootStyle) : undefined, declaredStyleComplete: typeof __DEV__ !== 'undefined' && __DEV__ ? true : undefined});
+  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark', flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined, declaredStyleComplete: typeof __DEV__ !== 'undefined' && __DEV__ ? true : undefined});
+  return <View ref={rootObservation.ref} testID="tv-front-door" style={rootStyle}>
     <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
       <ColourBackdrop shape="side" fill/>
       <View style={{position: 'absolute', left: 200, top: 0, bottom: 0, width: 900, justifyContent: 'center'}}>
         <Image ref={wordmarkObservation.ref} source={require('../../../assets/wordmark.png')} accessibilityLabel={defaultI18n.t('accounts.brand')}
-          resizeMode="contain" style={{position: 'absolute', left: 0, top: 72, width: 174, height: 40}}/>
+          resizeMode="contain" style={wordmarkStyle}/>
         <Text {...measurement} accessibilityRole="header" style={titleStyle}>{title}</Text>
         {error && <View accessibilityRole="alert" style={{marginBottom: 16}}>{error}</View>}
         <FocusRegion id={id} entry="portico" order={['portico', 'local']} orientation="horizontal" enabled={!busy} style={{flexDirection: 'row', gap: 36}}>

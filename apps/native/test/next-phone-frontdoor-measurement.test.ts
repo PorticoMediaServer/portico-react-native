@@ -61,6 +61,7 @@ test('frontdoor heading records only actual native text lines and diagnostic sty
     const heading = f.heading(); heading.props.ref(nativeHost);
     assert.equal(f.imports(), 1); assert.equal(f.registry.read(nativeHost)!.kind, 'text');
     assert.equal(f.registry.read(nativeHost)!.semanticId, 'accounts-welcome-title');
+    assert.equal(f.registry.read(nativeHost)!.declaredStyleComplete, true);
     assert.equal(f.registry.read(nativeHost)!.flattenedStyle.fontSize, 42);
     assert.deepEqual(f.registry.read(nativeHost)!.measuredStyle, {}, 'input styles never become observed native paint/fonts');
     assert.equal(await f.registry.measureTextRectangles(nativeHost), undefined, 'no host-box or scale-derived glyph rectangles');
@@ -115,6 +116,7 @@ test('the existing brand Image owns a DEV lease without changing its asset or pr
     ref(first);
     assert.equal(f.registry.read(first)!.kind, 'image');
     assert.equal(f.registry.read(first)!.semanticId, 'accounts-welcome-wordmark');
+    assert.equal(f.registry.read(first)!.declaredStyleComplete, true);
     assert.deepEqual(f.registry.read(first)!.flattenedStyle, props.style, 'declared style is the same resolved style rendered by the Image');
     assert.deepEqual(f.registry.read(first)!.measuredStyle, {}, 'declared inputs are not native-observed paint');
     await f.title('Public translated welcome');
@@ -140,6 +142,7 @@ test('the existing welcome View owns a DEV scope lease that retires on replaceme
     assert.equal(typeof ref, 'function'); ref(first);
     assert.equal(f.registry.read(first)!.kind, 'view');
     assert.equal(f.registry.read(first)!.semanticId, 'accounts-welcome');
+    assert.equal(f.registry.read(first)!.declaredStyleComplete, true);
     assert.deepEqual(f.registrations.find(registration => registration.host === first)!.facts.flattenedStyle, root.props.style, 'the callback supplies the same theme-resolved style rendered by the View');
     assert.deepEqual(f.registry.read(first)!.flattenedStyle, {backgroundColor: root.props.style.backgroundColor}, 'collector curation excludes flex layout from declared paint');
     assert.deepEqual(f.registry.read(first)!.measuredStyle, {}, 'declared inputs are not native-observed paint');
