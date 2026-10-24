@@ -56,12 +56,13 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
     {color: theme.colors.text, marginBottom: 56}], [theme.textScale, theme.colors.text]);
   const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
   const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door'});
+  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'tv-front-door-wordmark'});
   return <View ref={rootObservation.ref} testID="tv-front-door" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
       <ColourBackdrop shape="side" fill/>
       <View style={{position: 'absolute', left: 200, top: 0, bottom: 0, width: 900, justifyContent: 'center'}}>
-        <Image source={require('../../../assets/wordmark.png')} accessibilityLabel={defaultI18n.t('accounts.brand')}
+        <Image ref={wordmarkObservation.ref} source={require('../../../assets/wordmark.png')} accessibilityLabel={defaultI18n.t('accounts.brand')}
           resizeMode="contain" style={{position: 'absolute', left: 0, top: 72, width: 174, height: 40}}/>
         <Text {...measurement} accessibilityRole="header" style={titleStyle}>{title}</Text>
         {error && <View accessibilityRole="alert" style={{marginBottom: 16}}>{error}</View>}
