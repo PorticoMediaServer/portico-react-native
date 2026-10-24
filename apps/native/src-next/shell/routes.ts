@@ -1,5 +1,6 @@
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
+import type {SavedRoute} from '../../../../packages/client-core/src/saved';
 import {sameAuthority, type ShellAuthority, type ShellDestination} from './model';
 
 /** Descriptors are requests to the registered phase owner, never synthesized screen content. */
@@ -20,6 +21,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'edit-pins'}
   | {kind: 'search-genre'; value: string; label: string}
   | {kind: 'search-genres'}
+  | {kind: 'saved-view'; view: SavedRoute}
   | {kind: 'saved-destination'; destination: Readonly<{kind: 'playlist' | 'collection'; id: string}>}
   | {kind: 'server-dashboard'}
   | {kind: 'library-save-view' | 'library-mark-all' | 'library-edit-pins' | 'library-settings'; libraryId: string}
