@@ -41,6 +41,7 @@
 		A59F00000000000000000001 /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A59F00000000000000000002 /* AVKit.framework */; };
 		A5A000000000000000000001 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5A000000000000000000002 /* ImageIO.framework */; };
 		A60900000000000000000001 /* PorticoNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60900000000000000000002 /* PorticoNetwork.swift */; };
+		A6F900000000000000000001 /* PorticoReadingByteStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F900000000000000000002 /* PorticoReadingByteStream.swift */; };
 		A60900000000000000000003 /* PorticoNetworkBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A60900000000000000000004 /* PorticoNetworkBridge.m */; };
 		B83956C1361284A1D39FCC18 /* PorticoSystemMedia.m in Sources */ = {isa = PBXBuildFile; fileRef = B7023956C1361284A1D39FCC /* PorticoSystemMedia.m */; };
 		B8D323CC79103ABDE5034C83 /* PorticoIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B752D323CC79103ABDE5034C /* PorticoIntents.swift */; };
@@ -98,6 +99,7 @@
 		A59F00000000000000000002 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		A5A000000000000000000002 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		A60900000000000000000002 /* PorticoNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoNetwork.swift; sourceTree = "<group>"; };
+		A6F900000000000000000002 /* PorticoReadingByteStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoReadingByteStream.swift; sourceTree = "<group>"; };
 		A60900000000000000000004 /* PorticoNetworkBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoNetworkBridge.m; sourceTree = "<group>"; };
 		B7023956C1361284A1D39FCC /* PorticoSystemMedia.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PorticoSystemMedia.m; path = ../Native/PorticoSystemMedia.m; sourceTree = "<group>"; };
 		B752D323CC79103ABDE5034C /* PorticoIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PorticoIntents.swift; path = Portico/PorticoIntents.swift; sourceTree = "<group>"; };
@@ -190,6 +192,7 @@
 				A6B00000000000000000020A /* Portico-Bridging-Header.h */,
 				A59100000000000000000002 /* PorticoAccountAuth.m */,
 				A60900000000000000000002 /* PorticoNetwork.swift */,
+				A6F900000000000000000002 /* PorticoReadingByteStream.swift */,
 				B752D323CC79103ABDE5034C /* PorticoIntents.swift */,
 				B772FDD8857E9E1BF4BA7927 /* PorticoActivity.m */,
 				A6F100000000000000000002 /* PorticoHaptics.m */,
@@ -438,6 +441,7 @@
 			files = (
 				A57A00000000000000000001 /* PorticoPlayer.m in Sources */,
 				A60900000000000000000001 /* PorticoNetwork.swift in Sources */,
+				A6F900000000000000000001 /* PorticoReadingByteStream.swift in Sources */,
 				B8D323CC79103ABDE5034C83 /* PorticoIntents.swift in Sources */,
 				B8FDD8857E9E1BF4BA79276F /* PorticoActivity.m in Sources */,
 				A6F100000000000000000001 /* PorticoHaptics.m in Sources */,

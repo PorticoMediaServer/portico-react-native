@@ -51,7 +51,9 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
       if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
       host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot,
-        initialProgress, current, send: message => {if (current()) view.current?.injectJavaScript(readerDelivery(message));},
+        // Core fences ordinary packets. Its credentialless retirement packet
+        // must still reach the captured guest after this authority has ended.
+        initialProgress, current, send: message => {view.current?.injectJavaScript(readerDelivery(message));},
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
       setState({url});
     })().catch(() => {if (current()) {setState({failed: true});} void dispose().catch(() => {});});
