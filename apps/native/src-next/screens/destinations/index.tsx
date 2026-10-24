@@ -74,6 +74,8 @@ export {NativeGenreBrowseDestination} from '../search/genre-browse';
 export type {NativeGenreBrowseSnapshot} from '../search/genre-browse';
 export {nativeSearchRememberHistory, openNativeSearchGenre, openNativeSearchGenres, createNativeSearchGenreController} from '../search/navigation';
 export type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
+export {openNativeSavedView, createNativeSavedHubController, createNativeSavedViewController} from '../saved/navigation';
+export type {NativeSavedViewRoute} from '../saved/navigation';
 export type {NativeSavedDownloadsCopy} from '../saved/SavedDownloadCard';
 export {createNativeSavedRenderer};
 export type {NativeSavedRendererPorts} from '../saved/renderer';

@@ -1,5 +1,6 @@
 import {PersonalSavedService, isPersonalSavedRoute, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
 import {SavedService, fetchSavedSummary, type SavedApi, type SavedLandingSummary, type SavedRoute, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 
 export type NativeSavedViewSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -28,6 +29,13 @@ export class NativeSavedViewDestination {
   constructor(options: NativeSavedViewDestination['options']) {this.options = options;}
   private current(): boolean {if (!this.disposed && !this.options.current()) this.dispose(); return !this.disposed;}
   getSnapshot = (): NativeSavedViewSnapshot => {this.current(); return this.state;};
+  /** Borrowed entry actions require the actual current producer object, not a
+   * matching ID copied from another page, occurrence or viewer. */
+  contains = (entry: ContentEntry): boolean => this.current() && (
+    this.state.saved?.projection?.sections.some(section => section.entries.some(value => value.kind !== 'playlist' &&
+      (value.kind === 'playlist_entry' ? !value.hidden && value.media === entry : value === entry))) === true ||
+    this.state.personal?.entries.some(value => !value.hidden && value.media === entry) === true
+  );
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private publish(patch: Partial<NativeSavedViewSnapshot>): void {
     if (!this.current()) return;
