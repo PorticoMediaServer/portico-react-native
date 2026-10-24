@@ -25,7 +25,7 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   state: GroupSessionSnapshot; group: Group; controller: NativeTogetherController; media: NativeTogetherMedia;
   ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime;
 }) {
-  const theme = useTheme(), t = defaultI18n.t;
+  const theme = useTheme(), t = runtime.text.t;
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const controls = ids.surface('together.room.controls'), queueRegion = ids.surface('together.room.queue'), people = ids.surface('together.room.people'), footer = ids.surface('together.room.footer');
   const playback = useSyncExternalStore(ports.context.playback.subscribe, ports.context.playback.getSnapshot);
