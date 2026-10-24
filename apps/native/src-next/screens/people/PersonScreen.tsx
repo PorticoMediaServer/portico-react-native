@@ -73,7 +73,7 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
     {!!known.length && <View style={{marginTop: 16}}>
       <Text accessibilityRole="header" style={[browseType(theme, 19, 800), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 14}]}>{t('web.person.knownFor')}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 4, gap: 12}}>
-        {known.map(entry => <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-known-${entry.id}`} title={entry.title} width={96} artwork={runtime.artwork(entry.posterUrl)}
+        {known.map(entry => <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={96} artwork={runtime.artwork(entry.posterUrl)}
           caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)}/>)}
       </ScrollView>
     </View>}
@@ -94,7 +94,7 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
           const index = row * columns + column;
           if (index >= (state.total ?? page.pageInfo.total)) return null;
           const credit = collection.itemAt(index), entry = credit?.media;
-          return entry && credit ? <PosterCard key={index} testID={`person-credit-${index}`} density="grid" title={entry.title} width={width} artwork={runtime.artwork(entry.posterUrl)}
+          return entry && credit ? <PosterCard key={index} testID={`person-credit-${index}`} density="grid" title={entry.displayTitle || entry.title} width={width} artwork={runtime.artwork(entry.posterUrl)}
             caption={credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context'}] : credit.role ? [{id: 'role', text: credit.role, role: 'context'}] : []}
             onNavigate={() => actions.open(entry)}/> : <View key={index} testID={`person-credit-placeholder-${index}`} style={{width, height: width * 1.5 + 44, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
         })}
