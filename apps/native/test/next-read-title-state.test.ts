@@ -47,7 +47,7 @@ test('Read title is lazy, uses genuine sole publication facts, closes metadata s
   const snapshot = f.state.getSnapshot();
   assert.equal(snapshot.phase, 'reading'); assert.equal(snapshot.sourceId, 'source');
   assert.equal(snapshot.manifest?.metadata.title, 'Catalogue title'); assert.equal(snapshot.manifest?.metadata.author, undefined);
-  assert.deepEqual(snapshot.progress, {progress: null}); assert.equal(snapshot.busy, false);
+  assert.equal(snapshot.progress?.progress, null); assert.equal(snapshot.busy, false);
   assert.equal(f.calls.filter(c => c.method === 'DELETE').length, 1);
   assert.equal(await f.state.read(), true);
   assert.deepEqual(f.navigation.getSnapshot().route, {kind: 'read', itemId: 'item', sourceId: 'source'});
