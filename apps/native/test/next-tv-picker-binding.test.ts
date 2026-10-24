@@ -63,6 +63,10 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Field').props.onChangeText('https://verified.example'));
     await act(() => tree.props.primaryAction.onPress());
     assert.equal(tree.type, 'Code');
+    const codeStatus = tree.props.status, statusChildren = React.Children.toArray(codeStatus.props.children);
+    assert.equal(statusChildren.some(child => typeof child === 'string'), false, 'the TV code status never hands a bare string to a View');
+    assert.ok(statusChildren.some(child => React.isValidElement<{children?: React.ReactNode}>(child) && child.type === 'Text' && child.props.children === defaultI18n.t('activation.codeRefreshes')),
+      'the activation note is a Text with the existing type');
     await act(() => tree.props.onTypeCredentials());
     assert.equal(tree.type, 'Credentials');
     await act(() => {tree.props.onUsernameChange('person'); tree.props.onPasswordChange('test password');});
