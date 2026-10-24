@@ -3,6 +3,7 @@ import test from 'node:test';
 import type {SearchGroup} from '../../../packages/client-core/src/search';
 import type {NativeShellBootstrapContext, RestoredNativeShellRuntime} from '../src-next/shell/bootstrap';
 import {createNativeSearchController} from '../src-next/screens/search/controller';
+import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
 const deferred = () => {let resolve!: () => void; const promise = new Promise<void>(done => {resolve = done;}); return {promise, resolve};};
@@ -55,6 +56,19 @@ test('Search actions preserve exact current media/Person/channel identities with
     const before = f.context.navigation.getSnapshot();
     f.actions.open({...person}, 'people'); f.actions.open(person, 'movies'); assert.equal(f.context.navigation.getSnapshot(), before);
     assert.equal(f.actions.canMenu(person, 'people'), false); assert.equal(f.actions.canMenu(channel, 'live-tv'), false); assert.equal(f.actions.canMenu(movie, 'movies'), true);
+    const host = hooks();
+    const {homeCardText} = await import('../src-next/screens/home/model');
+    const {nativeSearchEntryKey} = await import('../src-next/screens/search/model');
+    const {SearchGridCard} = await screenModule(new URL('../src-next/screens/search/SearchGridCard.tsx', import.meta.url), {
+      react: host.react, 'react-native': {View: 'View'},
+      '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
+      '../home/model': {homeCardText}, './model': {nativeSearchEntryKey},
+    });
+    const personCard = host.render(() => SearchGridCard({entry: person, group: 'people', runtime: f.runtime, actions: f.actions, width: 120}));
+    const movieCard = host.render(() => SearchGridCard({entry: movie, group: 'movies', runtime: f.runtime, actions: f.actions, width: 120}));
+    assert.equal(personCard.props.onMore, undefined, 'a non-media entity receives no fake media-menu command');
+    assert.equal(typeof movieCard.props.onMore, 'function');
+
     f.actions.open(person, 'people'); assert.deepEqual(f.context.navigation.getSnapshot().route, {kind: 'person', personId: person.navigation!.entityId});
     assert.equal('libraryId' in person, false); f.context.navigation.back(f.context.authority());
     f.actions.open(channel, 'live-tv'); assert.deepEqual(f.context.navigation.getSnapshot().route, {kind: 'channel', sourceId: 'actual-guide-source', channelId: 'actual-channel'});
