@@ -134,6 +134,42 @@ test('native scope stages accept only the agreed scalar userInfo while JS remain
   assert.equal(reads, 0);
 });
 
+test('native first-false scope names stay bounded to current nonexception scope stages', async () => {
+  const checks = ['activity-intent-current', 'root-tag-current', 'root-attached', 'decor-attached',
+    'decor-current', 'root-window-current', 'decor-window-current', 'root-in-decor', 'fixture-found',
+    'fixture-tag-current', 'fixture-attached', 'fixture-window-current', 'fixture-in-root'];
+  const reject = (userInfo: unknown, current = () => true) => requestNativeObservations({...request(response()),
+    isCurrent: current, bridge: {observe: async () => {throw {code: 'layout_observation_scope', userInfo};}}});
+  for (const stage of ['pre-observation-scope', 'post-observation-scope']) {
+    for (const check of checks) {
+      await assert.rejects(reject({nativeObservationStage: stage, nativeObservationScopeCheck: check}),
+        (error: unknown) => failure('scope-changed')(error)
+          && (error as NativeObservationError).nativeObservationScopeCheck === check);
+    }
+  }
+  for (const stage of [undefined, 'observation', 'root-walk', 'pre-observation-scope-exception', 'post-observation-scope-exception']) {
+    await assert.rejects(reject({nativeObservationStage: stage, nativeObservationScopeCheck: 'fixture-found'}),
+      (error: unknown) => failure('scope-changed')(error)
+        && (error as NativeObservationError).nativeObservationScopeCheck === undefined);
+  }
+  let reads = 0;
+  for (const userInfo of [{nativeObservationScopeCheck: '/private/detail'}, {nativeObservationScopeCheck: 0},
+    {nativeObservationScopeCheck: 'fixture-found-exception'},
+    {get nativeObservationScopeCheck() {reads++; throw new Error('private native detail');}}]) {
+    Object.defineProperty(userInfo, 'nativeObservationStage', {value: 'pre-observation-scope'});
+    await assert.rejects(reject(userInfo),
+      (error: unknown) => failure('scope-changed')(error)
+        && (error as NativeObservationError).nativeObservationScopeCheck === undefined);
+  }
+  let live = true;
+  await assert.rejects(requestNativeObservations({...request(response()), isCurrent: () => live, bridge: {observe: async () => {
+    live = false;
+    throw {code: 'layout_observation_scope', get userInfo() {reads++; throw new Error('private native detail');}};
+  }}}), (error: unknown) => failure('scope-changed')(error)
+    && (error as NativeObservationError).nativeObservationScopeCheck === undefined);
+  assert.equal(reads, 0);
+});
+
 test('fixture retirement and abort discard native results and fence the queued call', async () => {
   let live = true, settle!: (raw: unknown) => void, calls = 0;
   const pending = requestNativeObservations({...request(response()), isCurrent: () => live,

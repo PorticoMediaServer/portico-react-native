@@ -31,9 +31,14 @@ const nativeStages = ['admission', 'ui-current', 'root-resolve', 'root-attachmen
   'pre-observation-scope', 'observation', 'post-observation-scope', 'response'] as const;
 type NativeStage = typeof nativeStages[number];
 type NativeObservationStage = NativeStage | `${NativeStage}-exception`;
+const nativeScopeChecks = ['activity-intent-current', 'root-tag-current', 'root-attached', 'decor-attached',
+  'decor-current', 'root-window-current', 'decor-window-current', 'root-in-decor', 'fixture-found',
+  'fixture-tag-current', 'fixture-attached', 'fixture-window-current', 'fixture-in-root'] as const;
+type NativeObservationScopeCheck = typeof nativeScopeChecks[number];
 export class NativeObservationError extends Error {
   constructor(readonly code: Failure, readonly boundary?: FailureBoundary,
-    readonly nativeObservationStage?: NativeObservationStage) {super(`Native observation unavailable: ${code}`);}
+    readonly nativeObservationStage?: NativeObservationStage,
+    readonly nativeObservationScopeCheck?: NativeObservationScopeCheck) {super(`Native observation unavailable: ${code}`);}
 }
 
 const object = (value: unknown): value is object => typeof value === 'object' && value !== null;
@@ -150,7 +155,11 @@ export async function requestNativeObservations(request: NativeObservationReques
       const userInfo = own(error, 'userInfo'), stage = object(userInfo) ? own(userInfo, 'nativeObservationStage') : undefined;
       const accepted = typeof stage === 'string' && nativeStages.some(name => stage === name || stage === `${name}-exception`)
         ? stage as NativeObservationStage : undefined;
-      throw new NativeObservationError('scope-changed', 'native-scope-rejected-while-js-current', accepted);
+      const check = object(userInfo) && (accepted === 'pre-observation-scope' || accepted === 'post-observation-scope')
+        ? own(userInfo, 'nativeObservationScopeCheck') : undefined;
+      const acceptedCheck = typeof check === 'string' && nativeScopeChecks.some(name => check === name)
+        ? check as NativeObservationScopeCheck : undefined;
+      throw new NativeObservationError('scope-changed', 'native-scope-rejected-while-js-current', accepted, acceptedCheck);
     }
     throw new NativeObservationError('native-error');
   } finally {

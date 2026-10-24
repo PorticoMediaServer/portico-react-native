@@ -82,6 +82,10 @@ If the checked native rejection also supplies `userInfo.nativeObservationStage`,
 only the agreed operation name (with optional `-exception`) survives in the
 sanitized failure. Unknown values and getters are ignored, and stale JS scope
 prevents reading that field at all. No native error text or view identity escapes.
+For a pre/post-observation scope rejection only, an optional
+`nativeObservationScopeCheck` retains the agreed name of the first false existing
+predicate. Exceptions and all other stages cannot carry it; no predicate values,
+view IDs, tree details or native error text are exported.
 Native paint does not fall back to diagnostic styles or stale registered paint.
 Unassociated family labels remain unavailable; they never become a requested CSS
 family chain or an observed typographic identity.
