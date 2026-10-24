@@ -10,6 +10,11 @@ on:
         type: string
         required: false
         default: ''
+      apple_reading_commit:
+        description: Public-only Reading Foundation test source (full published commit)
+        type: string
+        required: false
+        default: ''
   workflow_call:
     inputs:
       legacy_compatibility:
@@ -22,6 +27,7 @@ env:
   CI_BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
 jobs:
   javascript:
+    if: ${{ !inputs.apple_reading_commit }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
@@ -55,11 +61,28 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 10
     concurrency:
-      group: apple-contracts-${{ github.workflow }}-${{ github.ref }}
+      group: apple-contracts-${{ github.workflow }}-${{ inputs.apple_reading_commit || github.ref }}
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
+      - name: Validate requested public test source
+        if: ${{ inputs.apple_reading_commit != '' }}
+        env:
+          SOURCE_COMMIT: ${{ inputs.apple_reading_commit }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || exit 2
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.apple_reading_commit || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Public Reading stream Foundation tests
+        if: ${{ inputs.apple_reading_commit != '' }}
+        env:
+          PORTICO_APPLE_TEST_OUT_DIR: ${{ runner.temp }}/apple-reading
+          CI: '1'
+        run: bash apps/native/scripts/check-apple-reading-stream.sh
       - name: Check the URL allowlist and download callback ownership
+        if: ${{ !inputs.apple_reading_commit }}
         run: |
           swiftc -O -o "$RUNNER_TEMP/portico-url-routes" apps/native/tvos/Portico/PorticoURLRoutes.swift apps/native/test/porticourlroutes-tests.swift
           "$RUNNER_TEMP/portico-url-routes"
@@ -67,10 +90,32 @@ jobs:
           "$RUNNER_TEMP/portico-download-attempts"
           clang -fobjc-arc -framework Foundation -framework Security -o "$RUNNER_TEMP/portico-installation-storage" apps/native/test/native-installation-storage-tests.m
           "$RUNNER_TEMP/portico-installation-storage"
-      - name: Public Foundation-only Reading and playback tests
+      - name: Affected Reading stream Foundation tests
+        if: ${{ !inputs.apple_reading_commit }}
+        env:
+          PORTICO_APPLE_TEST_OUT_DIR: ${{ runner.temp }}/apple-reading
+          CI: '1'
         run: |
           set -euo pipefail
-          for name in apple-reading-bytes apple-presentation-readiness apple-subtitle-offset apple-subtitle-payload; do
+          git rev-parse --verify "$CI_BASE^{commit}" > /dev/null
+          set +e
+          git diff --quiet "$CI_BASE" HEAD -- \
+            'apps/native/Native/PorticoReading*' \
+            'apps/native/test/apple-reading*' \
+            apps/native/scripts/check-apple-reading-stream.sh \
+            apps/native/ios/Portico.xcodeproj/project.pbxproj
+          changed=$?
+          set -e
+          case "$changed" in
+            0) echo 'Reading source unchanged; Foundation stream check is nightly.' ;;
+            1) bash apps/native/scripts/check-apple-reading-stream.sh ;;
+            *) exit "$changed" ;;
+          esac
+      - name: Public Foundation-only Reading and playback tests
+        if: ${{ !inputs.apple_reading_commit }}
+        run: |
+          set -euo pipefail
+          for name in apple-presentation-readiness apple-subtitle-offset apple-subtitle-payload; do
             xcrun clang -fobjc-arc -fblocks -framework Foundation -framework AVFoundation "apps/native/test/${name}-tests.m" -o "$RUNNER_TEMP/$name"
             "$RUNNER_TEMP/$name"
           done
