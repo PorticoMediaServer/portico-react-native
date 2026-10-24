@@ -29,7 +29,6 @@ import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
 import {authorizedHome, homeCardText, homePlayTarget, pageAtVisibleEnd, platformRows} from './model';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
-const t = defaultI18n.t;
 
 /**
  * Phone Home measurements the drawn frame states outside the shared kit:
@@ -62,7 +61,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const registry = useFocusRegistry();
   const focusRevision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const ids = useMemo(() => tvFocusIds(authority), [authority]);
-  const theme = useTheme(), dimensions = useWindowDimensions();
+  const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t;
+  const labels = useMemo(() => ({t, has: defaultI18n.has}), [t]);
   const desktop = theme.layoutMode === 'desktop';
   const heroHeight = theme.isTV ? 820 : theme.spec.hero.homeHeight[theme.platform];
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
@@ -160,9 +160,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   } satisfies HomeCandidate : undefined;
   const candidates: readonly HomeCandidate[] = useMemo(() => document ? homeSpotlightModels(document).map(model => ({
     id: model.entry.id, title: model.entry.displayTitle || model.entry.title, entry: model.entry, overview: model.overview,
-    reason: serverTextLabel(defaultI18n, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
+    reason: serverTextLabel(labels, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
-  })) : [], [document, runtime.text]);
+  })) : [], [document, runtime.text, labels, t]);
   const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
     foreground={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
     onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : heroHeight}/>;
@@ -217,7 +217,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       {theme.isTV && preview && <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height: heroHeight, backgroundColor: theme.colors.ink}}><FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
         renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1, includeFontPadding: false}]}>{part.text}</Text>)}</View>}
         renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
-        renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds}/>}
+        renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds} text={runtime.text}/>}
         onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/></View>}
     </View>
     {rows.map((row, rowIndex) => {
@@ -237,7 +237,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const paging = theme.isTV && waitingItem && !row.live && !row.collection ? {hasMore: !!row.nextCursor || !!pending?.loading,
         loading: !!pending?.loading || !!snapshot.paging?.has(row.id) || !shown, failed: !!pending?.failed && pending.cursor === row.nextCursor,
         waitingId, waitingItem, fulfilled: pending?.fulfilled, requestNext: () => {if (shown && current()) void pages.request(sourceRow, waitingId);}} : undefined;
-      const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
+      const title = serverTextLabel(labels, presentation.title), subtitle = serverTextLabel(labels, presentation.subtitle);
       // The drawn phone subtitle is 13 px; the shared role carries 14 until the kit models it.
       const rowSubtitle = subtitle ? theme.layoutMode === 'phone' && theme.platform === 'phone'
         ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
@@ -310,7 +310,7 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
 }
 
 function HomeCollectionCard({row, runtime, width, visible, current, onFocus}: {row: HomeRow; runtime: NativeShellRuntime; width: number; visible: boolean; current: () => boolean; onFocus: () => void}) {
-  const anchor = useRef<View>(null), collection = row.collection!;
+  const anchor = useRef<View>(null), collection = row.collection!, t = runtime.text.t;
   return <CollectionBanner onFocus={onFocus} title={collection.collection.name} kindLabel={t('next.home.collection')}
     covers={collection.members.flatMap(entry => {const artwork = runtime.artwork(entry.posterUrl); return artwork ? [artwork] : [];})}
     body={homeCollectionCaption(collection, runtime.text)[0]?.text} width={width} backdrop={runtime.artwork(collection.backdropUrl)} ambient={runtime.ambient(collection.backdropUrl)} visible={visible}
@@ -320,16 +320,16 @@ function HomeCollectionCard({row, runtime, width, visible, current, onFocus}: {r
 }
 
 function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, onItemFocus, current, focus, viewportWidth}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; onVisibleKeys: (keys: readonly string[]) => void; onItemFocus: (item: HomeChannel) => void; current: () => boolean; focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>; viewportWidth: number}) {
-  const theme = useTheme(), live = row.live!;
+  const theme = useTheme(), live = row.live!, labels = {t: runtime.text.t, has: defaultI18n.has};
   // Projection time, expiry and server-issued marks define the bounded row. No lineup scan.
   const observed = Date.parse(live.observedAt);
   if (Date.now() >= Date.parse(live.expiresAt)) return null;
   // The drawn live row carries its server-authored sub-line ("Synthetic Live TV").
-  const subtitle = serverTextLabel(defaultI18n, row.subtitleText);
+  const subtitle = serverTextLabel(labels, row.subtitleText);
   const rowSubtitle = subtitle && theme.layoutMode === 'phone' && theme.platform === 'phone'
     ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
     : undefined;
-  return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
+  return <Row title={serverTextLabel(labels, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
     itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange} onVisibleKeys={onVisibleKeys} onItemFocus={onItemFocus}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}
     renderItem={(item: HomeChannel, context) => <HomeChannelCard rowId={row.id} item={item} context={context} runtime={runtime} current={current} visible={visible} observed={observed} width={itemWidth}/>}/>;
