@@ -66,12 +66,16 @@ static BOOL waitFor(BOOL (^ready)(void)) {
  while(!ready()&&until.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
  return ready();
 }
+static BOOL waitForLimit(NSTimeInterval limit,BOOL (^ready)(void)){
+ NSDate *until=[NSDate dateWithTimeIntervalSinceNow:limit];while(!ready()&&until.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];return ready();
+}
 /** Real NSURLSession data/delegate scheduling and suspension, without a device,
  * auth state or TLS claim. The loopback peer generates bytes, never stores a PDF. */
 static BOOL sendAll(int peer,const void *bytes,NSUInteger length) {
  NSUInteger sent=0;while(sent<length){ssize_t next=send(peer,(const uint8_t *)bytes+sent,length-sent,0);if(next<=0)return NO;sent+=(NSUInteger)next;}return YES;
 }
 static void actualPullStream(BOOL chunked) {
+ const NSUInteger total=2097152+17;
  int listener=socket(AF_INET,SOCK_STREAM,0);check(listener>=0,"loopback socket");
  struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
  check(bind(listener,(struct sockaddr *)&address,sizeof(address))==0&&listen(listener,1)==0,"private ephemeral loopback listener");
@@ -83,12 +87,12 @@ static void actualPullStream(BOOL chunked) {
   struct timeval timeout={5,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(peer,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
   char request[8192]={0};ssize_t count=0;
   while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
-  const char *header=chunked?"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n":"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: 2097152\r\nConnection: close\r\n\r\n";
+  char header[256];if(chunked)snprintf(header,sizeof(header),"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");else snprintf(header,sizeof(header),"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n",(unsigned long)total);
   if(strstr(request,"GET /v1/reading/sessions/live/source HTTP/1.1")&&!strstr(request,"Range:")){
    sendAll(peer,header,strlen(header));unsigned char bytes[16384];for(NSUInteger i=0;i<sizeof(bytes);i++)bytes[i]=(uint8_t)i;
    NSUInteger sent=0;
-   while(sent<2097152){if(chunked&&!sendAll(peer,"4000\r\n",6))break;if(!sendAll(peer,bytes,sizeof(bytes)))break;sent+=sizeof(bytes);if(chunked&&!sendAll(peer,"\r\n",2))break;}
-   if(chunked&&sent==2097152)sendAll(peer,"0\r\n\r\n",5);
+   while(sent<total){NSUInteger amount=MIN(sizeof(bytes),total-sent);char size[24];int n=snprintf(size,sizeof(size),"%lx\r\n",(unsigned long)amount);if(chunked&&!sendAll(peer,size,(NSUInteger)n))break;if(!sendAll(peer,bytes,amount))break;sent+=amount;if(chunked&&!sendAll(peer,"\r\n",2))break;}
+   if(chunked&&sent==total)sendAll(peer,"0\r\n\r\n",5);
   }
   shutdown(peer,SHUT_RDWR);close(peer);
  });
@@ -114,8 +118,8 @@ static void actualPullStream(BOOL chunked) {
  }
  if(!done)cancel(request);
  close(listener);BOOL serverClosed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0;
- if(!valid||!done||received!=2097152)fprintf(stderr,"Real stream: valid=%d done=%d received=%lu pulls=%lu error=%s failure=%s\n",valid,done,(unsigned long)received,(unsigned long)pulls,[state[@"error"] UTF8String]?:"none",[state[@"failure"] UTF8String]?:"none");
- check(valid&&done&&received==2097152&&pulls>42,"real two-MiB source arrives as exact demand-driven <=48KiB pulls and genuine EOF");
+ if(!valid||!done||received!=total)fprintf(stderr,"Real stream: valid=%d done=%d received=%lu pulls=%lu error=%s failure=%s\n",valid,done,(unsigned long)received,(unsigned long)pulls,[state[@"error"] UTF8String]?:"none",[state[@"failure"] UTF8String]?:"none");
+ check(valid&&done&&received==total&&pulls>42,"real two-MiB plus17 source arrives as exact demand-driven <=48KiB pulls and genuine EOF");
  check(serverClosed&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real peer, request and admission close");
 }
 
@@ -156,6 +160,52 @@ static void actualCancel(NSUInteger mode) {
  check(waitFor(^BOOL{@synchronized(state){return state[@"error"]!=nil;}})&&[state[@"error"]isEqual:@"cancelled"]&&!state[@"read"],"real cancellation rejects rather than reporting EOF");
  close(listener);BOOL closed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC))==0;
  check(closed&&disconnected&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real opening/read/owner cancellation closes peer and admission");
+}
+
+static void actualResponse(NSInteger status,NSString *text,BOOL delayed,BOOL silent){
+ NSData *body=[text dataUsingEncoding:NSUTF8StringEncoding];
+ int listener=socket(AF_INET,SOCK_STREAM,0);struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+ check(listener>=0&&bind(listener,(struct sockaddr *)&address,sizeof(address))==0&&listen(listener,1)==0,"response fixture listener");
+ socklen_t length=sizeof(address);getsockname(listener,(struct sockaddr *)&address,&length);
+ dispatch_group_t served=dispatch_group_create();dispatch_semaphore_t headersSent=dispatch_semaphore_create(0),release=dispatch_semaphore_create(0);
+ __block BOOL clientClosed=NO;
+ dispatch_group_async(served,dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+  int peer=accept(listener,NULL,NULL);if(peer<0)return;int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));struct timeval timeout={3,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+  char request[8192]={0};ssize_t used=0;while(used<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t n=recv(peer,request+used,sizeof(request)-1-used,0);if(n<=0)break;used+=n;}
+  char header[256];NSUInteger declared=silent?33554432:(status==304?4096:body.length);
+  snprintf(header,sizeof(header),"HTTP/1.1 %ld Result\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n",(long)status,(unsigned long)declared);sendAll(peer,header,strlen(header));dispatch_semaphore_signal(headersSent);
+  if(delayed||silent)dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,(silent?21:6)*NSEC_PER_SEC));
+  if(silent){char byte;clientClosed=recv(peer,&byte,1,0)==0;}else if(body.length)sendAll(peer,body.bytes,body.length);
+  shutdown(peer,SHUT_RDWR);close(peer);
+ });
+ NSObject *realOwner=[NSObject new];NSMutableDictionary *state=[NSMutableDictionary new];
+ NSString *url=[NSString stringWithFormat:@"http://127.0.0.1:%u/v1/reading/sessions/response/source",ntohs(address.sin_port)];
+ PorticoQueueRequest *request=PorticoReadingStreamRequest(NSUUID.UUID.UUIDString,url,@{},realOwner,^(id value){@synchronized(state){state[@"headers"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+ [PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_stream_busy"];
+ check(dispatch_semaphore_wait(headersSent,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0,"wire headers sent before optional body delay");
+ if(silent){
+  __block BOOL requested=NO;
+  BOOL timed=waitForLimit(18,^{BOOL metadata,error;@synchronized(state){metadata=state[@"headers"]!=nil;error=state[@"error"]!=nil;}
+   if(metadata&&!requested&&!error){requested=YES;PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});}return error;
+  });
+  dispatch_semaphore_signal(release);
+  check(timed&&[state[@"error"]isEqual:@"timeout"]&&!state[@"read"],"headers plus silence uses existing timeout, never empty success or EOF");
+ }else{
+  if(delayed){[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.1]];check(!state[@"read"],"delayed body never arrives before explicit read");dispatch_semaphore_signal(release);}
+  check(waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}})&&!state[@"error"],"first-byte or end-of-body metadata resolves");
+  check([state[@"headers"][@"status"]isEqual:@(status)]&&[state[@"headers"] count]==2,"actual status/headers preserved without body reinterpretation");
+  PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+  check(waitFor(^BOOL{@synchronized(state){return state[@"read"]||state[@"error"];}})&&!state[@"error"],"empty/delayed/error body read settles");
+  if(body.length){
+   NSData *received=[[NSData alloc]initWithBase64EncodedString:state[@"read"][@"bodyBase64"] options:0];check([received isEqual:body]&&[state[@"read"][@"done"]isEqual:@NO],"first explicit read returns exactly the native-held body bytes");
+   @synchronized(state){[state removeObjectForKey:@"read"];}
+   PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+   check(waitFor(^BOOL{@synchronized(state){return state[@"read"]||state[@"error"];}})&&!state[@"error"],"body is followed by actual EOF");
+  }
+  check([state[@"read"]isEqual:@{@"done":@YES,@"bodyBase64":@""}],"empty response or final read is exactly empty EOF");
+ }
+ close(listener);BOOL closed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC))==0;
+ check(closed&&(!silent||clientClosed)&&request.completed&&!request.data&&!request.streamDriver&&!PorticoQueueRequests.count&&PorticoQueueActive==0&&PorticoQueueReads==0,"response EOF/timeout closes peer and releases request admission");
 }
 
 int main(void){@autoreleasepool{
@@ -228,5 +278,9 @@ int main(void){@autoreleasepool{
  check(PorticoQueueActive==0&&PorticoQueueReads==0&&!PorticoQueueRequests.count,"all admission slots/handles released exactly once");
  for(NSUInteger attempt=0;attempt<10;attempt++)actualPullStream(attempt%2==1);
  for(NSUInteger mode=1;mode<=3;mode++)actualCancel(mode);
+ actualResponse(200,@"x",YES,NO);
+ for(NSNumber *status in @[@200,@204,@304])actualResponse(status.integerValue,@"",NO,NO);
+ actualResponse(403,@"denied",NO,NO);
+ actualResponse(200,@"",NO,YES);
  printf("Apple Reading pull stream: %lu checks passed\n",(unsigned long)checks);return 0;
 }}
