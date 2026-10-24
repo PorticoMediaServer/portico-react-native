@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {routePath} from '../../../packages/contracts/src/routes';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
@@ -17,7 +18,7 @@ function fixture() {
   let reply = async (url: URL): Promise<unknown> => {
     if (url.pathname.endsWith('/saved/summary')) return {serverId: 'server', viewerFence: 'Saved-summary-own-fence', revision: {catalog: 4, viewer: 8},
       myList: {posters: 12, squares: 3}, favorites: {posters: 5, squares: 2}, playlists: 4, collections: 7, savedViews: 6};
-    if (url.pathname.endsWith('/saved-pins')) return {serverId: 'server', viewerFence: 'pins-own-fence', revision: 3,
+    if (url.pathname === routePath('get_saved_pins_order')) return {serverId: 'server', viewerFence: 'pins-own-fence', revision: 3,
       order: [{kind: 'collection', id: 'stored-resource', name: 'Stored collection', pinRevision: 2}]};
     if (url.pathname.includes('/saved-resources')) return {serverId: 'server', viewerFence: 'resource-own-fence', revision: 7, resources: [], nextCursor: ''};
     const view = url.searchParams.get('view')!;
@@ -48,7 +49,7 @@ test('Saved hub uses genuine pins and current membership; route capture keeps so
   try {
     assert.deepEqual(f.paths, []);
     assert.equal(hub.activation.getSnapshot(), hub.activation.getSnapshot());
-    await hub.source.load(); assert.equal(hub.source.getSnapshot().phase, 'ready');
+    await hub.source.load(); assert.equal(hub.source.getSnapshot().phase, 'ready', JSON.stringify(hub.source.getSnapshot().error));
     const entry = hub.source.getSnapshot().myList.projection!.sections[0].entries[0];
     assert.equal(entry.kind, 'movie');
     if (entry.kind !== 'movie') throw new Error('expected actual movie');
