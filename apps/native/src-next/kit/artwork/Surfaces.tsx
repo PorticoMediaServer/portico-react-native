@@ -4,6 +4,7 @@ import Reanimated from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
+import {useNativeObservation} from '../dev-observation';
 import {ArtworkAlphaMask} from '../../platform/ArtworkAlphaMask';
 import {Artwork} from './Artwork';
 import {artworkArrivalDuration} from './model';
@@ -23,6 +24,7 @@ function GlowLayer({glows, background}: {glows: readonly Glow[]; background?: st
 /** Colours only: safe before authentication and on restriction/owner state surfaces. */
 export function ColourBackdrop({shape = 'side', fill = false, width, height, style, testID}: ColourBackdropProps) {
   const {colors} = useTheme();
+  const observation = useNativeObservation<View>({kind: 'view', semanticId: 'colour-backdrop'});
   const blue = colors.accentDeep, green = colors.generatedGreen;
   const glows: readonly Glow[] = shape === 'side' ? [
     {x: 0.86, y: 0.04, rx: 0.44, ry: 0.66, colour: blue, stops: [[0, 0.46], [0.46, 0.15], [0.74, 0]]},
@@ -37,7 +39,7 @@ export function ColourBackdrop({shape = 'side', fill = false, width, height, sty
     {x: -0.08, y: 0.3, rx: 0.84, ry: 0.44, colour: green, stops: [[0, 0.5], [0.52, 0.13], [0.78, 0]]},
     {x: 0.3, y: 0, rx: 0.7, ry: 0.4, colour: colors.ambient, stops: [[0, 0.8], [0.72, 0]]},
   ];
-  return <View pointerEvents="none" accessible={false} testID={testID} style={[StyleSheet.absoluteFillObject, {backgroundColor: colors.ink}, width !== undefined ? {width} : undefined,
+  return <View ref={observation.ref} pointerEvents="none" accessible={false} testID={testID} style={[StyleSheet.absoluteFillObject, {backgroundColor: colors.ink}, width !== undefined ? {width} : undefined,
     height !== undefined ? {height, bottom: undefined} : shape === 'top' && !fill ? {height: 560, bottom: undefined} : undefined, style]}>
     <GlowLayer glows={glows}/>
   </View>;

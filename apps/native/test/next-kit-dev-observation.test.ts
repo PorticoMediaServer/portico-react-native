@@ -68,3 +68,22 @@ test('production preserves the original host ref and exposes no measurement text
     assert.equal(binding.ref, ref); assert.deepEqual(binding.textProps, {}); assert.equal(f.imports(), 0); assert.deepEqual(f.observations, []);
   } finally {f.dispose();}
 });
+
+
+test('image host observation keeps the forwarded ref lifecycle and never reads asset props or records text', async () => {
+  const f = await fixture(true), forwarded: unknown[] = [];
+  try {
+    const first = {handle: 11, get props(): never {throw new Error('asset props must not be read');}}, second = {handle: 22};
+    const binding = f.render({kind: 'image', semanticId: 'public-wordmark'}, (host: unknown) => {forwarded.push(host);});
+    binding.ref(first);
+    assert.equal(f.observations[0].host, first);
+    binding.textProps.onTextLayout({nativeEvent: {target: 11, lines: []}});
+    assert.equal(f.observations[0].lines, undefined);
+    const cleanup = binding.ref(second);
+    assert.equal(f.observations[0].active, false);
+    assert.equal(f.observations[1].active, true);
+    cleanup();
+    assert.equal(f.observations[1].active, false);
+    assert.deepEqual(forwarded, [first, null, second, null]);
+  } finally {f.dispose();}
+});
