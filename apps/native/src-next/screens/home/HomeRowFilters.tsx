@@ -11,14 +11,13 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {NativeHomeRowController} from './row-controller';
 import {nativeRowFilterChange, nativeRowFilterField, nativeRowFilterValues} from './row-filters';
-import {homeBrowseLabel} from './HomeSeeAll';
+import {homeBrowseLabel} from './browse-label';
 
 type Facet = Readonly<{search: string; status: 'loading' | 'ready' | 'error'; page?: BrowseFacetPage; error?: unknown}>;
-const t = defaultI18n.t;
 const leaves = (node: BrowseNode): readonly ToolbarPredicate[] => 'field' in node ? [node] : 'not' in node ? [] : ('all' in node ? node.all : node.any).flatMap(leaves);
 
 export function HomeRowFilters({controller, runtime, onClose}: {controller: NativeHomeRowController; runtime: NativeShellRuntime; onClose: () => void}) {
-  const theme = useTheme(), now = useRef(new Date()).current;
+  const theme = useTheme(), now = useRef(new Date()).current, t = runtime.text.t, labels = {t, has: defaultI18n.has};
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [draft, setDraft] = useState<readonly BrowseNode[]>(state.filters), [counts, setCounts] = useState<readonly BrowseCount[]>([]);
   const [open, setOpen] = useState<readonly string[]>([]), [facets, setFacets] = useState<Readonly<Record<string, Facet>>>({});
@@ -65,7 +64,7 @@ export function HomeRowFilters({controller, runtime, onClose}: {controller: Nati
   }
   const selectedCount = counts.find(count => count.id === (state.selectedKind ?? 'all'));
   const footer = selectedCount && !selectedCount.totalIsLowerBound ? <View style={{alignItems: 'stretch'}}><Button onPress={() => {if (controller.setFilters(draft)) onClose();}}>{t('next.browse.native.showResults', {results: t('count.titles', {count: selectedCount.total})})}</Button></View> : undefined;
-  const body = <FilterBuilder focusPrefix={`home-row-filters:${controller.rowId}`} model={model} labels={{field: homeBrowseLabel, sort: homeBrowseLabel, quick: homeBrowseLabel}} openFields={open} fields={fields}
+  const body = <FilterBuilder focusPrefix={`home-row-filters:${controller.rowId}`} model={model} labels={{field: value => homeBrowseLabel(value, labels), sort: value => homeBrowseLabel(value, labels), quick: value => homeBrowseLabel(value, labels)}} openFields={open} fields={fields}
     onFieldOpenChange={(id, next) => {setOpen(previous => next ? [...previous.filter(value => value !== id), id] : previous.filter(value => value !== id));
       const field = state.capabilities!.fields.find(value => value.id === id); if (next && field && filterControlOf(field) === 'values') void load(field, facets[id]?.search ?? '');}}
     onFieldChange={(id, value) => {const field = state.capabilities!.fields.find(candidate => candidate.id === id); if (!field) return;

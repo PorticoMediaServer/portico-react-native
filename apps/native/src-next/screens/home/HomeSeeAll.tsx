@@ -1,8 +1,7 @@
 import React, {useEffect, useRef, useSyncExternalStore, type RefObject} from 'react';
 import {Text, View} from 'react-native';
-import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {browseNameId} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {homeEntryCapabilities} from '../../../../../packages/client-core/src/home-selection';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -17,15 +16,11 @@ import {SkeletonBlock, StateView} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {authorityKey} from '../../shell/model';
+import {homeBrowseLabel} from './browse-label';
 import {homeCardText} from './model';
 import {NativeHomeRowController} from './row-controller';
 
-const t = defaultI18n.t;
-export function homeBrowseLabel(value: {id: string; labelKey?: string}): string {
-  const id = browseNameId(value.id, value.labelKey, defaultI18n.has);
-  if (!id) throw Object.assign(new Error('native_browse_copy_unavailable'), {code: 'invalid_response'});
-  return t(id as MessageId);
-}
+export {homeBrowseLabel};
 
 /** Requested row only. Membership IDs locate grid cells; displayed episodes and
  * their actual playback targets retain their independent server identities. */
@@ -35,7 +30,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   onMenu?: (entry: ContentEntry, anchor: RefObject<View | null>) => void; onFilters: () => void; onReshuffle: () => void;
   kindLabel: (id: string) => string; selection?: LayoutSelection;
 }) {
-  const theme = useTheme(), registry = useFocusRegistry();
+  const theme = useTheme(), registry = useFocusRegistry(), t = runtime.text.t, labels = {t, has: defaultI18n.has};
   const visible = useRef(active); visible.current = active;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const data = useSyncExternalStore(controller.collection.subscribe, controller.collection.getSnapshot);
@@ -52,7 +47,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   const model = browseToolbarModel(state.capabilities, 'movies', state.filters, state.sort, {t: runtime.text.t, locale: runtime.text.locale,
     textEntry: !theme.isTV, scope: 'group', owner: runtime.getSnapshot().account.viewerRole === 'owner'});
   const total = state.counts.find(value => value.id === (state.selectedKind ?? 'all'));
-  const title = serverTextLabel(defaultI18n, row.titleText, row.title);
+  const title = serverTextLabel(labels, row.titleText, row.title);
   const reason = row.reason?.text ?? row.why ?? row.subtitleText;
   const artwork = row.entries.find(entry => entry.backdropUrl || entry.posterUrl);
   const tv = theme.isTV, gutter = tv ? 200 : theme.gutter, width = tv ? 200 : theme.spec.card.width.poster[theme.platform];
@@ -64,12 +59,12 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
           <Icon name="i-left" size={tv ? 22 : 16} color={theme.colors.textTertiary}/><Text style={[nativeType({size: tv ? 22 : 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.home.shell.home')}</Text>
         </Focusable>
         <Text accessibilityRole="header" style={[nativeType({size: tv ? 62 : 30, weight: 800, tracking: -.04, lineHeight: tv ? 62 : 30}, theme.textScale), {color: theme.colors.text, marginBottom: 12}]}>{title}</Text>
-        {reason && <Text style={[nativeType({size: tv ? 24 : 15, weight: 400, tracking: 0, lineHeight: tv ? 34.8 : 22}, theme.textScale), {maxWidth: tv ? 1100 : undefined, color: theme.colors.textSecondary, marginBottom: 24}]}>{serverTextLabel(defaultI18n, reason)}</Text>}
+        {reason && <Text style={[nativeType({size: tv ? 24 : 15, weight: 400, tracking: 0, lineHeight: tv ? 34.8 : 22}, theme.textScale), {maxWidth: tv ? 1100 : undefined, color: theme.colors.textSecondary, marginBottom: 24}]}>{serverTextLabel(labels, reason)}</Text>}
         <View style={{flexDirection: 'row', gap: tv ? 16 : 10}}><Button focusId="play" icon="i-play" size={tv ? 'hero' : undefined} onPress={() => onPlay(false)}>{t('entry.play')}</Button>
           <Button focusId="shuffle" variant="glass" icon="i-shuffle" size={tv ? 'hero' : undefined} onPress={() => onPlay(true)}>{t('title.shuffle')}</Button></View>
       </View>
       <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
-        <SortMenu sorts={model.sorts} value={model.sort} label={homeBrowseLabel} onValueChange={controller.setSort}
+        <SortMenu sorts={model.sorts} value={model.sort} label={value => homeBrowseLabel(value, labels)} onValueChange={controller.setSort}
           onReshuffle={onReshuffle}/>
         <FiltersButton count={state.filters.length} onPress={onFilters}/>
         <View style={{width: 1, height: tv ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
@@ -78,7 +73,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
         <View style={{width: 1, height: tv ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
         {model.quick.filter(quick => ['unwatched', 'in-progress'].includes(quick.id)).map(quick => <QuickToggle key={quick.id} checked={quick.active} onCheckedChange={checked => {
           const remaining = state.filters.filter(node => JSON.stringify(node) !== JSON.stringify(quick.query)); controller.setFilters(checked ? [...remaining, quick.query] : remaining);
-        }}>{quick.label?.text ?? homeBrowseLabel(quick)}</QuickToggle>)}
+        }}>{quick.label?.text ?? homeBrowseLabel(quick, labels)}</QuickToggle>)}
         {total && <Text style={[theme.type.caption, {marginLeft: 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count: total.total})}</Text>}
       </View>
       {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0))} variant="centered"/> :
