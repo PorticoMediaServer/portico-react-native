@@ -112,3 +112,10 @@ The existing DEV App root uses `collapsable: false` to retain a physical contain
 A materialized Fabric `FormsView` alone can still have flattened children mounted
 as native siblings. The scoped native observer must verify actual root/fixture
 containment and current attachment before publishing; the prop is not that proof.
+
+The public synthetic `test/check-native-window-contract.mjs` check imports the
+single validator from an exact checked server archive supplied as
+`PORTICO_RUNNER_SECONDARY_SOURCE`. Run it with declared Node 24 and
+`--experimental-transform-types`. It verifies physical/Fabric disagreement,
+strict native-box rederivation, declared missing bounds and input redaction;
+it does not read private references or establish native runtime acceptance.
