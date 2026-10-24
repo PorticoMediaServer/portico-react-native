@@ -519,7 +519,7 @@ internal class PorticoMpvController(private val context: Context) {
         "sub-use-margins" to "no", "sub-ass-force-margins" to "no",
         // The family is the ordinary system face's own name, in the fonts folder with the faces for
         // other scripts (PorticoMpvFonts): a line mixing scripts draws each letter in a face that has it.
-        "sub-font" to PorticoMpvFonts.ordinaryFamily(), "sub-fonts-dir" to PorticoMpvFonts.fallbackDirectory(context).path,
+        "sub-font" to PorticoMpvFonts.captionFamily(captionStyle), "sub-fonts-dir" to PorticoMpvFonts.fallbackDirectory(context).path,
         "sub-font-size" to "45", "sub-margin-y" to "58", "sub-color" to "1.0/1.0/1.0/1.0",
         "sub-border-style" to "background-box", "sub-back-color" to "0.0/0.0/0.0/0.7",
         "sub-outline-size" to "0", "sub-border-size" to "0", "sub-shadow-offset" to "0",
@@ -1360,6 +1360,7 @@ internal class PorticoMpvController(private val context: Context) {
     captionStyle = style
     val render = PorticoMpvSupport.map(scoped(command?.get("subtitles"))?.get("render"))
     core?.set("sub-ass-override", PorticoMpvSupport.captionAssOverride(style, render?.get("kind")))
+    core?.set("sub-font", PorticoMpvFonts.captionFamily(style))
     core?.set("sub-align-y", if (PorticoMpvSupport.captionAtTop(style, false)) "top" else "bottom")
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
     // Plain/stripped text uses the same canonical/system colour as the cue view.
