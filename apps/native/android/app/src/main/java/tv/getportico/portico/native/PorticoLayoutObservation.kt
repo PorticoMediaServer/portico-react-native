@@ -73,10 +73,23 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
         if (found == null) { rejectScope(promise, stage); return@runOnUiThread }
         stage = LayoutObservationPolicy.Stage.PRE_OBSERVATION_SCOPE
         val fixture = found[fixtureReactTag.toInt()]
-        fun scopeCurrent() = intentCurrent() && root.id == rootReactTag.toInt() && root.isAttachedToWindow && decor.isAttachedToWindow &&
-          activity.window?.decorView === decor && root.windowToken == window && decor.windowToken == window &&
-          descendant(root, decor) && fixture != null && fixture.id == fixtureReactTag.toInt() && fixture.isAttachedToWindow && fixture.windowToken == window && descendant(fixture, root)
-        if (!scopeCurrent()) { rejectScope(promise, stage); return@runOnUiThread }
+        fun scopeFailure() = LayoutObservationPolicy.scopeFailure { check -> when (check) {
+          LayoutObservationPolicy.ScopeCheck.ACTIVITY_INTENT_CURRENT -> intentCurrent()
+          LayoutObservationPolicy.ScopeCheck.ROOT_TAG_CURRENT -> root.id == rootReactTag.toInt()
+          LayoutObservationPolicy.ScopeCheck.ROOT_ATTACHED -> root.isAttachedToWindow
+          LayoutObservationPolicy.ScopeCheck.DECOR_ATTACHED -> decor.isAttachedToWindow
+          LayoutObservationPolicy.ScopeCheck.DECOR_CURRENT -> activity.window?.decorView === decor
+          LayoutObservationPolicy.ScopeCheck.ROOT_WINDOW_CURRENT -> root.windowToken == window
+          LayoutObservationPolicy.ScopeCheck.DECOR_WINDOW_CURRENT -> decor.windowToken == window
+          LayoutObservationPolicy.ScopeCheck.ROOT_IN_DECOR -> descendant(root, decor)
+          LayoutObservationPolicy.ScopeCheck.FIXTURE_FOUND -> fixture != null
+          LayoutObservationPolicy.ScopeCheck.FIXTURE_TAG_CURRENT -> fixture != null && fixture.id == fixtureReactTag.toInt()
+          LayoutObservationPolicy.ScopeCheck.FIXTURE_ATTACHED -> fixture != null && fixture.isAttachedToWindow
+          LayoutObservationPolicy.ScopeCheck.FIXTURE_WINDOW_CURRENT -> fixture != null && fixture.windowToken == window
+          LayoutObservationPolicy.ScopeCheck.FIXTURE_IN_ROOT -> fixture != null && descendant(fixture, root)
+        } }
+        val before = scopeFailure()
+        if (before != null) { rejectScope(promise, stage, check = before); return@runOnUiThread }
         stage = LayoutObservationPolicy.Stage.OBSERVATION
         val budget = LayoutObservationPolicy.TextBudget()
         val hosts = requested.map { tag ->
@@ -95,7 +108,8 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
             view.windowToken != window || !descendant(view, root))) unavailableFacts("root-changed") else observed)
         }
         stage = LayoutObservationPolicy.Stage.POST_OBSERVATION_SCOPE
-        if (!scopeCurrent()) { rejectScope(promise, stage); return@runOnUiThread }
+        val after = scopeFailure()
+        if (after != null) { rejectScope(promise, stage, check = after); return@runOnUiThread }
         stage = LayoutObservationPolicy.Stage.RESPONSE
         promise.resolve(Arguments.makeNativeMap(mapOf("version" to 1, "unit" to "dp", "rootReactTag" to rootReactTag.toInt(),
           "fixtureReactTag" to fixtureReactTag.toInt(), "hosts" to hosts)))
@@ -106,8 +120,8 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     }
   }
 
-  private fun rejectScope(promise: Promise, stage: LayoutObservationPolicy.Stage, exception: Boolean = false) {
-    promise.reject("layout_observation_scope", "layout_observation_scope", Arguments.makeNativeMap(LayoutObservationPolicy.failure(stage, exception)))
+  private fun rejectScope(promise: Promise, stage: LayoutObservationPolicy.Stage, exception: Boolean = false, check: LayoutObservationPolicy.ScopeCheck? = null) {
+    promise.reject("layout_observation_scope", "layout_observation_scope", Arguments.makeNativeMap(LayoutObservationPolicy.failure(stage, exception, check)))
   }
 
   private fun facts(view: View, decor: View, budget: LayoutObservationPolicy.TextBudget): Map<String, Any> {
@@ -273,8 +287,19 @@ internal object LayoutObservationPolicy {
     ROOT_WALK("root-walk"), PRE_OBSERVATION_SCOPE("pre-observation-scope"), OBSERVATION("observation"),
     POST_OBSERVATION_SCOPE("post-observation-scope"), RESPONSE("response")
   }
-  // Typed finite phase only: never a Throwable, class, target value, tag or diagnostic sentence.
-  fun failure(stage: Stage, exception: Boolean): Map<String, String> = mapOf("nativeObservationStage" to (stage.code + if (exception) "-exception" else ""))
+  enum class ScopeCheck(val code: String) {
+    ACTIVITY_INTENT_CURRENT("activity-intent-current"), ROOT_TAG_CURRENT("root-tag-current"), ROOT_ATTACHED("root-attached"),
+    DECOR_ATTACHED("decor-attached"), DECOR_CURRENT("decor-current"), ROOT_WINDOW_CURRENT("root-window-current"),
+    DECOR_WINDOW_CURRENT("decor-window-current"), ROOT_IN_DECOR("root-in-decor"), FIXTURE_FOUND("fixture-found"),
+    FIXTURE_TAG_CURRENT("fixture-tag-current"), FIXTURE_ATTACHED("fixture-attached"), FIXTURE_WINDOW_CURRENT("fixture-window-current"),
+    FIXTURE_IN_ROOT("fixture-in-root")
+  }
+  fun scopeFailure(passes: (ScopeCheck) -> Boolean): ScopeCheck? = ScopeCheck.entries.firstOrNull { !passes(it) }
+  // Typed finite phase/check only: never a Throwable, class, target value, tag or diagnostic sentence.
+  fun failure(stage: Stage, exception: Boolean, check: ScopeCheck? = null): Map<String, String> =
+    mapOf("nativeObservationStage" to (stage.code + if (exception) "-exception" else "")) +
+      if (!exception && check != null && (stage == Stage.PRE_OBSERVATION_SCOPE || stage == Stage.POST_OBSERVATION_SCOPE))
+        mapOf("nativeObservationScopeCheck" to check.code) else emptyMap()
   const val MAX_HOSTS = 2000
   const val MAX_NODES = 20000
   const val MAX_LINES = 512
