@@ -182,6 +182,7 @@ export function deviceDrawnTrack(plan: SubtitlePlan | null | undefined, v1: Sess
  * fetched (`'pending'`) nothing is returned, so the track is added once, with its fonts.
  */
 export function engineSubtitleRender(plan: SubtitlePlan | null, session: PlaybackSession, rendering: readonly string[], absolute: (path: string) => string, fonts?: SubtitleFonts | 'pending', v1?: Session): SubtitleRender | undefined {
+  if (v1?.presentation.subtitle?.delivery === 'burn' || plan?.mode === 'track' && plan.renderer === 'burn_in') return undefined;
   const drawn = deviceDrawnTrack(plan, v1);
   const selected = plan && plan.mode === 'track' ? plan.selected : null;
   const track = selected ?? drawn?.resource;

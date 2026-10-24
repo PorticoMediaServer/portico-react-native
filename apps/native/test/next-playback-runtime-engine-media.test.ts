@@ -13,6 +13,14 @@ const base = '/v1/media/subtitles/g1/res-1/3';
 
 const v1 = (more: Record<string, unknown> = {}): any => ({id: 's', revision: '1', kind: 'vod', role: 'local', state: 'playing', lease: {reportEveryMs: 10000}, presentation: {generation: 1, mode: 'direct', url: '/v1/media/g1/file', startPositionMs: 0, engine: 'native', subtitles: [], decision: {}, quality: {mode: 'original'}, ...more}});
 
+test('an actual burned caption is never drawn again from an available original', () => {
+  const selected = resource({format: 'pgs', renderer: 'burn_in', deliveries: [{format: 'pgs', url: base + '/original.sup', linesUrl: base + '/lines'}]});
+  const burned = v1({subtitle: {trackId: 'res-1', kind: 'pgs', delivery: 'burn'}, subtitles: [{trackId: 'res-1', format: 'pgs', url: base + '/original.sup'}]});
+  assert.equal(engineSubtitleRender(plan(selected, {renderer: 'burn_in'}), session('hls'), all, absolute, undefined, burned), undefined);
+  assert.equal(engineSubtitleRender(plan(selected, {renderer: 'client'}), session('hls'), all, absolute, undefined, burned), undefined, 'the current session burn also refuses an old client plan');
+  assert.equal(engineSubtitleRender(plan(selected, {renderer: 'burn_in'}), session('hls'), all, absolute), undefined);
+});
+
 test('the engine the plan named is read from the server\'s account of the same presentation', () => {
   assert.deepEqual(planEngineOf(session('direct'), v1({engine: 'mpv'})), {engine: 'mpv', stale: false});
   assert.deepEqual(planEngineOf(session('hls'), v1()), {engine: 'native', stale: false});
