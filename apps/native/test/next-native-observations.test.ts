@@ -252,6 +252,10 @@ test('collector uses observed native paint and same-window runs without promotin
   assert.equal('fontFamily' in (title.style as object), false);
   assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'resolvedFontFamily'));
   assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'boxShadow'));
+  for (const property of ['fontStyle', 'letterSpacing', 'textTransform', 'textDecorationLine', 'textShadow']) {
+    assert.equal((title.style as Record<string, unknown>)[property], undefined);
+    assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === property));
+  }
 });
 
 test('the physical source policy preserves disagreeing Fabric diagnostics and native animation geometry', async () => {
