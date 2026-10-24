@@ -1,6 +1,7 @@
 import type {PlaybackSession} from '../../../../../packages/client-core/src/index';
 import type {Session} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {SubtitlePlan, SubtitleResource} from '../../../../../packages/client-core/src/subtitles';
+import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 
 /**
  * What crosses between the player screen and an engine that does more than the platform's own
@@ -99,6 +100,28 @@ function chosenOriginal(plan: SubtitlePlan | null | undefined, v1: Session | und
   if (!plan || plan.mode !== 'track' || !plan.selected) return undefined;
   const deliveries = deliveriesOf(plan.selected).filter(d => !!d.url);
   return preference.map(kind => deliveries.find(d => d.format === kind)).find(Boolean);
+}
+
+/** External AVPlayer composition cannot carry app-drawn captions. Only the
+ * actual selected track and complete current file correction may request burn.
+ * The existing change wire is integer milliseconds: never round a fractional
+ * file correction or invent one when the current plan is unavailable. */
+export function externalSubtitlePreparation(plan: SubtitlePlan | null | undefined, session: Session):
+  Readonly<{kind: 'carried'} | {kind: 'unavailable'} | {kind: 'burn'; choices: PlaybackChoices; sourceId: string; trackId: string}> {
+  const shown = session.presentation.subtitle;
+  if (!shown) return {kind: plan?.mode === 'track' ? 'unavailable' : 'carried'};
+  if (shown.delivery === 'burn') return {kind: 'carried'};
+  if (!['device', 'sidecar'].includes(shown.delivery) || !session.versionId || !plan || plan.sessionId !== session.id || plan.generation !== session.presentation.generation) return {kind: 'unavailable'};
+  const resource = plan.mode === 'track' ? plan.selected : plan.resources.find(value => value.id === shown.trackId);
+  if (!resource || !resource.enabled || resource.retired || resource.id !== shown.trackId || resource.sourceId !== plan.sourceId) return {kind: 'unavailable'};
+  const original = chosenOriginal(plan, session);
+  const text = session.presentation.subtitles.find(file => file.trackId === shown.trackId && kindOfFormat(file.format) === 'text');
+  const fileOffset = original?.offsetMs ?? text?.offsetMs;
+  const planOffset = /^-?(?:0|[1-9]\d*)$/.test(plan.offsetUs) ? Number(plan.offsetUs) / 1000 : NaN;
+  const offsetMs = fileOffset ?? planOffset;
+  if (!Number.isSafeInteger(offsetMs)) return {kind: 'unavailable'};
+  return {kind: 'burn', sourceId: plan.sourceId, trackId: shown.trackId,
+    choices: {subtitleTrackId: shown.trackId, subtitleDelivery: 'burn', subtitleOffsetMs: offsetMs}};
 }
 
 /**

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi} from '../../../packages/client-core/src';
-import {parsePreferenceSnapshot, type PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
+import {PreferencesReader} from '../../../packages/client-core/src/preferences-reader';
+import {bindNativeServerPreferences} from '../src-next/platform/server-preferences';
+import {currentPreferenceSnapshot, parsePreferenceSnapshot, type PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {nativeReadingPreferencesAvailable, nativeReadingSettingsPreferences, nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
 import type {ShellAuthority} from '../src-next/shell/model';
 import {NativeShellNavigation} from '../src-next/shell/routes';
@@ -22,7 +24,7 @@ function snapshot(revision = 3, overrides: Record<string, unknown> = {}): Prefer
     effective: Object.fromEntries(fields.map(field => [field.key, overrides[field.key] ?? field.default])),
     effectiveSource: Object.fromEntries(fields.map(field => [field.key, field.key in overrides ? 'profile-server' : 'default'])), clampedFields: []});
 }
-function fixture() {
+async function fixture() {
   let preferences = snapshot(), valid = true;
   const authority: ShellAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'a'.repeat(64)};
   const authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>();
@@ -38,15 +40,19 @@ function fixture() {
   const owner = {api, authority: () => authority, current: () => valid, preferences: () => preferences,
     subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
     subscribePreferences: (listener: () => void) => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};}};
+  const reader = new PreferencesReader(api, {serverId: authority.serverId, viewerId: authority.profileId});
+  preferences = await reader.preferences('mobile'); requests.length = 0;
+  bindNativeServerPreferences(owner, {read: deviceClass => reader.preferences(deviceClass), apply: (scope, deviceClass, revision, values) => reader.applyPreferences(scope, deviceClass, revision, values),
+    accept: next => {preferences = currentPreferenceSnapshot(preferences, next); for (const listener of [...preferenceListeners]) listener(); return preferences;}});
   return {owner, requests, envelope,
     reply: (next: typeof nextReply) => {nextReply = next;},
     publish: (next: PreferenceSnapshot) => {preferences = next; for (const listener of [...preferenceListeners]) listener();},
-    close: () => {valid = false; for (const listener of [...authorityListeners]) listener();},
+    close: () => {valid = false; reader.dispose(); for (const listener of [...authorityListeners]) listener();},
     listeners: () => ({authority: authorityListeners.size, preferences: preferenceListeners.size})};
 }
 
 test('retained Read and Settings borrow one source, publishing canonical changes only after real CAS acknowledgement', async () => {
-  const f = fixture(), source = nativeReadingSettingsPreferences(f.owner);
+  const f = await fixture(), source = nativeReadingSettingsPreferences(f.owner);
   try {
     assert.equal(nativeReadingSettingsPreferences(f.owner), source);
     const before = source.getSnapshot();
@@ -69,6 +75,7 @@ test('retained Read and Settings borrow one source, publishing canonical changes
     assert.equal((await pending).textSize, 6);
     assert.equal(source.getPreferenceSnapshot(), source.getState().preferences);
     assert.equal(source.getPreferenceSnapshot().documents[0]!.revision, 4);
+    assert.equal(f.owner.preferences(), source.getPreferenceSnapshot(), 'the root and retained reader receive the exact same confirmed acknowledgement');
     assert.equal(nativeReadingSettingsPreferences(f.owner).getSnapshot().textSize, 6, 'returning through Settings needs no second reader or SSE wait');
     f.publish(snapshot(5, {'reading.textSize': 7}));
     assert.equal(source.getSnapshot().textSize, 7);
@@ -82,7 +89,7 @@ test('retained Read and Settings borrow one source, publishing canonical changes
 });
 
 test('Reading settings reject unknown values and disabled dependent row writes without network mutations', async () => {
-  const f = fixture(), source = nativeReadingSettingsPreferences(f.owner);
+  const f = await fixture(), source = nativeReadingSettingsPreferences(f.owner);
   try {
     await assert.rejects(source.setRow('reading.font', 'invented-font'));
     await assert.rejects(source.setRow('not-a-row', 'anything'));
@@ -95,7 +102,7 @@ test('Reading settings reject unknown values and disabled dependent row writes w
 });
 
 test('a changed viewer fence refuses the preference acknowledgement and preserves the current projection', async () => {
-  const f = fixture(), source = nativeReadingSettingsPreferences(f.owner);
+  const f = await fixture(), source = nativeReadingSettingsPreferences(f.owner);
   try {
     await source.refresh();
     const before = source.getSnapshot();
@@ -107,7 +114,7 @@ test('a changed viewer fence refuses the preference acknowledgement and preserve
 });
 
 test('authority retirement aborts the real outstanding request and withholds late preferences', async () => {
-  const f = fixture(), source = nativeReadingSettingsPreferences(f.owner);
+  const f = await fixture(), source = nativeReadingSettingsPreferences(f.owner);
   let finish!: (reply: unknown) => void;
   f.reply(async () => new Promise(resolve => {finish = resolve;}));
   const pending = source.patch({textSize: 6});
@@ -129,8 +136,8 @@ test('Reading settings eligibility uses actual published preferences and never a
   assert.equal(nativeReadingPreferencesAvailable({...actual, effective: {}, registry: {...actual.registry, fields: []}}), false);
 });
 
-test('the Reading settings entry preserves the exact publication and library history instead of opening General', () => {
-  const f = fixture(), authority = f.owner.authority(), navigation = new NativeShellNavigation(authority, f.owner.authority);
+test('the Reading settings entry preserves the exact publication and library history instead of opening General', async () => {
+  const f = await fixture(), authority = f.owner.authority(), navigation = new NativeShellNavigation(authority, f.owner.authority);
   const publication = {kind: 'read' as const, itemId: 'unit-publication', sourceId: 'unit-source'};
   try {
     navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'unit-library'}}, authority);

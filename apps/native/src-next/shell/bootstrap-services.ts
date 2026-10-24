@@ -2,7 +2,7 @@ import {HomeService, type HomeSnapshot} from '../../../../packages/client-core/s
 import {InboxService} from '../../../../packages/client-core/src/inbox';
 import {parseNotificationSummary} from '../../../../packages/client-core/src/notifications';
 import {PreferencesReader} from '../../../../packages/client-core/src/preferences-reader';
-import type {DeviceClass, PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
+import type {DeviceClass, PreferencePatch, PreferenceScope, PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
 import {fetchGuideSourceSummaries} from '../../../../packages/client-core/src/guide/directory';
 import {parseDirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {routePath} from '../../../../packages/contracts/src/routes';
@@ -43,13 +43,14 @@ export class NativeShellBootstrapServices {
   private snapshot?: Facts;
   private reading?: Promise<Facts>;
   private readingController?: AbortController;
+  private preferenceRequestBatch?: AbortSignal;
   private retirement?: Error;
   private readonly api: Pick<HttpLocalApi, 'request'>;
   private readonly options: Options;
   constructor(api: Pick<HttpLocalApi, 'request'>, options: Options) {
     this.api = api; this.options = options;
     nativeShellDirectViewer(options.viewer);
-    this.preferences = new PreferencesReader({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('preferences', path, method, body, signal)},
+    this.preferences = new PreferencesReader({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('preferences', path, method, body, signal, this.preferenceRequestBatch)},
       {serverId: options.viewer.serverId, viewerId: JSON.stringify([options.viewer.authority, options.viewer.accountId, options.viewer.profileId])});
     this.inbox = new InboxService({request: async <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
       const batch = this.readingController;
@@ -102,10 +103,10 @@ export class NativeShellBootstrapServices {
     if (this.fences.has(domain) && this.fences.get(domain) !== fence || domain === 'guide' && this.guideDenied) this.retire();
     this.fences.set(domain, fence);
   }
-  private async call<T>(domain: Domain | undefined, path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+  private async call<T>(domain: Domain | undefined, path: string, method = 'GET', body?: unknown, signal?: AbortSignal, preferenceBatch?: AbortSignal): Promise<T> {
     this.assertCurrent();
     const controller = new AbortController(), abort = () => controller.abort();
-    const batch = domain === 'preferences' || domain === 'inbox' || domain === 'guide' ? this.readingController?.signal : undefined;
+    const batch = domain === 'preferences' ? preferenceBatch : domain === 'inbox' || domain === 'guide' ? this.readingController?.signal : undefined;
     this.controllers.add(controller);
     signal?.addEventListener('abort', abort, {once: true});
     batch?.addEventListener('abort', abort, {once: true});
@@ -166,6 +167,31 @@ export class NativeShellBootstrapServices {
       throw error;
     }
   }
+  /** Preference operations belong to the authority, not a refresh batch. Closing
+   * that batch must not cancel a concurrent Settings CAS on the same reader. */
+  readPreferences = async (deviceClass: DeviceClass): Promise<PreferenceSnapshot> => {
+    this.assertCurrent();
+    if (deviceClass !== this.options.deviceClass) throw invalid();
+    const next = await this.preferences.preferences(deviceClass);
+    this.assertCurrent();
+    if (next.deviceClass !== deviceClass) throw invalid();
+    return next;
+  };
+  applyPreferences = async (scope: PreferenceScope, deviceClass: DeviceClass, revision: number, values: PreferencePatch): Promise<PreferenceSnapshot> => {
+    this.assertCurrent();
+    if (deviceClass !== this.options.deviceClass) throw invalid();
+    const next = await this.preferences.applyPreferences(scope, deviceClass, revision, values);
+    this.assertCurrent();
+    if (next.deviceClass !== deviceClass) throw invalid();
+    return next;
+  };
+  private readBatchPreferences(signal: AbortSignal): Promise<PreferenceSnapshot> {
+    // PreferencesReader invokes its API synchronously before its first await.
+    // Capture only this GET's batch in call(); later Settings requests are independent.
+    this.preferenceRequestBatch = signal;
+    try {return this.preferences.preferences(this.options.deviceClass);}
+    finally {this.preferenceRequestBatch = undefined;}
+  }
   read = (signal?: AbortSignal): Promise<Facts> => {
     if (this.reading) return this.reading;
     const controller = new AbortController(), abort = () => controller.abort();
@@ -174,7 +200,7 @@ export class NativeShellBootstrapServices {
     if (signal?.aborted) abort();
     const pending = (async () => {
       this.assertCurrent();
-      const [preferences, unread, guide] = await Promise.all([this.preferences.preferences(this.options.deviceClass), this.readInbox(), this.readGuide()]);
+      const [preferences, unread, guide] = await Promise.all([this.readBatchPreferences(controller.signal), this.readInbox(), this.readGuide()]);
       this.assertCurrent();
       if (controller.signal.aborted) throw cancelled();
       if (preferences.deviceClass !== this.options.deviceClass) throw invalid();
