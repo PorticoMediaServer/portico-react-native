@@ -91,5 +91,6 @@ export function createNativeSavedViewController(context: NativeShellBootstrapCon
   };
   const check = () => {if (!current()) dispose(); else emit();};
   cleanups.push(context.navigation.subscribe(check), context.subscribeAuthority(check));
-  return Object.freeze({source, activation, load: () => current() ? source.select(nativeSavedRouteTarget(target)) : Promise.resolve(), dispose});
+  return Object.freeze({source, activation, load: () => current() ? source.select(nativeSavedRouteTarget(target)) : Promise.resolve(),
+    refresh: () => current() ? source.refresh() : Promise.resolve(), dispose});
 }

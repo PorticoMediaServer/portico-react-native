@@ -30,6 +30,7 @@ export type NativeSavedListProps = Readonly<{
   actions: Readonly<{menuState?: NativeEntryMenuState; open: (entry: ContentEntry) => void; play: (entry: ContentEntry) => void;
     menu: (entry: ContentEntry) => void; isMenuOpen?: (entry: ContentEntry) => boolean}>;
   back: () => void;
+  changed?: () => void;
 }>;
 
 const emptyCopy: Readonly<Record<ListView, Readonly<{title: MessageId; body: MessageId}>>> = Object.freeze({

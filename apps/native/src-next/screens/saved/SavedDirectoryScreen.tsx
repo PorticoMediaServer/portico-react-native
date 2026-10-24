@@ -36,11 +36,12 @@ export type NativeSavedDirectoryProps = Readonly<{
   libraries: readonly Library[];
   back: () => void;
   open: (route: SavedRoute) => void;
+  changed?: () => void;
 }>;
 
 /** collections.html 10a–10c. Each directory is the server's own bounded page;
  * the + sends the real create command and the rows open the pushed pages. */
-export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open}: NativeSavedDirectoryProps) {
+export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed}: NativeSavedDirectoryProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -62,7 +63,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
     const task = route.view === 'playlists'
       ? destination.mutateSaved({action: 'create', name: input.name, ...(input.summary ? {summary: input.summary} : {})})
       : destination.mutatePersonal({action: 'create', kind: 'collection', name: input.name, summary: input.summary, visibility: input.visibility});
-    void Promise.resolve(task).then(result => {if (result === false) throw new Error(t('error.unavailable')); setCreating(false);})
+    void Promise.resolve(task).then(result => {if (result === false) throw new Error(t('error.unavailable')); setCreating(false); changed?.();})
       .catch((failure: unknown) => setProblem(presentError(failure, 'saved', {operation: 'save'}).body))
       .finally(() => setBusy(false));
   };

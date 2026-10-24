@@ -44,6 +44,7 @@ export type NativeSavedResourceProps = Readonly<{
   actions: NativeSavedEntryActions;
   libraries: readonly Library[];
   back: () => void;
+  changed?: () => void;
 }>;
 
 type Row = Readonly<{id: string; media: ContentEntry}>;
@@ -51,7 +52,7 @@ type RowMenu = Readonly<{entry: ContentEntry; entryId: string}>;
 
 /** collections.html 11a–13c and 18–20. The page reads the actual Saved route
  * through its canonical service; commands go back through the same service. */
-export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back}: NativeSavedResourceProps) {
+export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed}: NativeSavedResourceProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -78,7 +79,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const run = async (work: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true); setProblem('');
-    try {await work();} catch (error) {setProblem(presentError(error, 'saved', {operation: 'save'}).body);} finally {setBusy(false);}
+    try {await work(); changed?.();} catch (error) {setProblem(presentError(error, 'saved', {operation: 'save'}).body);} finally {setBusy(false);}
   };
   const play = (shuffle = false) => {
     if (!playable.length) return;
