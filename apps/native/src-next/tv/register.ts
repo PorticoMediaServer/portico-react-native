@@ -2,6 +2,8 @@
  * Screen-owned registration modules are imported at this platform entry. */
 import '../screens/home/CustomizeRoute';
 import '../screens/home/SeeAllRoute';
+import '../screens/library/register';
+import '../screens/library/OverviewRoute';
 import '../screens/settings-live/LiveRoute';
 import '../screens/settings-live/TogetherRoute';
 import {createNativeWatchBindings, registerNativeWatch} from '../screens/watch';
