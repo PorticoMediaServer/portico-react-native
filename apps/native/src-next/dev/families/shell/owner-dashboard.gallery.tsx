@@ -16,7 +16,7 @@ const now = Date.now();
 function session(kind: 'movie' | 'episode', title: string, year: number | undefined, viewer: {profile: string; user: string; device: string}, action: StreamAction, extra: Partial<AdminSession> = {}): AdminSession {
   return Object.freeze({
     id: `${viewer.user}-session`, user: viewer.user, profile: viewer.profile, device: viewer.device, title, kind: 'vod', state: 'playing', positionMs: 1_915_000, durationMs: 4_560_000,
-    decision: {video: {action, reasons: []}, audio: {action: 'direct', reasons: []}}, location: 'local', startedAt: new Date(now - 1_800_000).toISOString(),
+    decision: {video: {action, reasons: []}, audio: {action: 'direct' as StreamAction, reasons: []}} as AdminSession['decision'], location: 'local', startedAt: new Date(now - 1_800_000).toISOString(),
     item: {id: `${viewer.user}-item`, kind, title, art: [], ...(kind === 'episode' ? {showId: 'show', showTitle: title === 'The Last of Us' ? 'The Last of Us' : title, seasonNumber: 1, episodeNumber: 3} : year === undefined ? {} : {year})} as AdminSession['item'],
     ...extra,
   });
