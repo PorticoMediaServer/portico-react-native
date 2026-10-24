@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {defaultI18n} from '../../../packages/i18n/src';
 
 const load = (platform: {OS: string; isTV: boolean}, native: unknown) => screenModule(new URL('../src-next/screens/settings/top-shelf-locale.ts', import.meta.url), {
+  react: {...React, default: React},
   'react-native': {Platform: platform, NativeModules: {PorticoTopShelf: native}},
 });
 
