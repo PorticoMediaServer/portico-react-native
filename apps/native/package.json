@@ -15,7 +15,8 @@
     "typecheck:next-test": "tsc -p test/tsconfig.next.json --noEmit",
     "postinstall": "node scripts/patch-apple-blur.mjs && node scripts/patch-android-blur.mjs && node scripts/patch-android-reader.mjs",
     "test:apple-blur-patch": "node --test test/apple-blur-patch.test.mjs",
-    "test:android-blur-patch": "node --test test/android-blur-patch.test.mjs"
+    "test:android-blur-patch": "node --test test/android-blur-patch.test.mjs",
+    "test:android-package": "node --test test/package-android-emulator.test.mjs"
   },
   "dependencies": {
     "@bacons/text-decoder": "0.0.0",

@@ -16,6 +16,9 @@ class MainApplication : Application(), ReactApplication {
     getDefaultReactHost(
       context = applicationContext,
       packageList = PackageList(this).packages.apply { add(PorticoPackage()) },
+      // An APK that carries its JavaScript must not look for Metro: the debug build type sets
+      // `BuildConfig.DEBUG` in both cases, so the packaging flag is the only reliable answer.
+      useDevSupport = !BuildConfig.PORTICO_EMBEDDED_JAVASCRIPT,
     )
   }
 

@@ -2,9 +2,15 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Debug variants normally read their JavaScript from Metro; release variants carry it. A build for a
+// machine that has no Metro passes -PporticoEmbeddedJs=true: the debug variants then leave
+// debuggableVariants, so React Native's own bundle task (createBundle<Variant>JsAndAssets) runs and
+// the APK holds assets/index.android.bundle. The APK is the same file for phones and televisions.
+def embeddedJavaScript = project.findProperty("porticoEmbeddedJs")?.toString() == "true"
+def metroVariants = embeddedJavaScript ? [] : ["googleDebug", "firetvDebug"]
+
 react {
-    // Debug variants load JavaScript from Metro; Release variants embed the bundle.
-    debuggableVariants = ["googleDebug", "firetvDebug"]
+    debuggableVariants = metroVariants
     autolinkLibrariesWithApp()
 }
 
@@ -74,12 +80,17 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Mirrors debuggableVariants above. `BuildConfig.DEBUG` is true for every debug build
+            // type, including one that carries its bundle, so the app needs this answer separately:
+            // without it, an embedded APK would ask Metro for its JavaScript and show a red screen.
+            buildConfigField "boolean", "PORTICO_EMBEDDED_JAVASCRIPT", embeddedJavaScript.toString()
         }
         release {
             // Not signed for a store: release builds use the debug keystore until distribution is decided.
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            buildConfigField "boolean", "PORTICO_EMBEDDED_JAVASCRIPT", "true"
         }
     }
 
