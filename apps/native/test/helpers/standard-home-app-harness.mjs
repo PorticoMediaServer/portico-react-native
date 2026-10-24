@@ -178,6 +178,8 @@ const loader = registerHooks({
     if (specifier === 'react') return {url: reactURL, shortCircuit: true};
     if (specifier === 'react-native')
       return {url: nativeURL, shortCircuit: true};
+    if (specifier === 'react-native-webview')
+      return {url: data(`export {View as default} from ${JSON.stringify(nativeURL)};`), shortCircuit: true};
     if (specifier === 'react-native-reanimated')
       return {url: animatedURL, shortCircuit: true};
     if (specifier === 'react-native-svg')

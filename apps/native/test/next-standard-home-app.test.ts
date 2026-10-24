@@ -129,7 +129,9 @@ test('standard index/App Home actions use restored authority, current documents 
           frames: 0,
         });
         await app.mount();
+        assert.notEqual(app.card().props.accessibilityState?.expanded, true);
         await app.more();
+        assert.equal(app.card().props.accessibilityState?.expanded, true, 'the real native card reflects the live controller menu');
         assert.ok(
           app
             .hosts()
@@ -140,6 +142,7 @@ test('standard index/App Home actions use restored authority, current documents 
             ),
         );
         await app.menuPlay();
+        assert.notEqual(app.card().props.accessibilityState?.expanded, true, 'accepted Play closes only the menu binding');
         assert.equal(
           sessions().length,
           2,
