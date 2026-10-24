@@ -10,6 +10,7 @@ import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
 import {authorityKey, canOpenLibrary, librariesDestination, mediumRailMetrics, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
+import {nativeScreenChromeHidden, subscribeNativeScreenChrome} from './chrome';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {PhoneTabBar} from './PhoneTabBar';
 import {PhoneHomeHeader} from './PhoneHomeHeader';
@@ -27,6 +28,7 @@ export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {
   const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
+  const chromeHidden = useSyncExternalStore(subscribeNativeScreenChrome, nativeScreenChromeHidden);
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
@@ -123,7 +125,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
-  const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
+  const barHeight = layout.tabs && !chromeHidden ? phoneBarHeight(insets.bottom) : 0;
   // foldable3e/3f: the phone bar leaves only on medium; the dock floats at the foot.
   const homeBottom = layout.rail ? 92 : barHeight, pageBottom = layout.rail ? 16 : barHeight;
   const railDestination = snapshot.railDestination ?? destination;
@@ -135,7 +137,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
         </View>}
     </Animated.View>
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
-    {!snapshot.selectionActive && snapshot.contentVisible !== false && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
+    {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
         {layout.rail && <MediumRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
