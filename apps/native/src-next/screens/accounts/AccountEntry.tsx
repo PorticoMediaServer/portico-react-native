@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {BackHandler, NativeModules, Platform, Text, View} from 'react-native';
+import {BackHandler, Linking, NativeModules, Platform, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
@@ -252,7 +252,12 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     });}}>{t(value.id === 'google' ? 'auth.signInWithGoogle' : 'auth.signInWithApple')}</Button>)}
     {options?.registration && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('register');}}>{t('auth.createAccount')}</Button>}
     {options?.recovery !== false && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('forgot');}}>{t('auth.forgotPassword')}</Button>}
-    <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('address');}}>{t('accounts.signIn.local')}</Button></View>);
+    <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('address');}}>{t('accounts.signIn.local')}</Button>
+    <Text style={[theme.type.caption, {color: theme.colors.textSecondary, textAlign: 'center', marginTop: 6}]}>{t('auth.agreeToTerms')}{' '}
+      <Text accessibilityRole="link" suppressHighlighting onPress={() => {void Linking.openURL('https://getportico.tv/terms').catch(() => {});}}
+        style={{color: theme.colors.accent, textDecorationLine: 'underline'}}>{t('auth.terms')}</Text>{t('list.and', {first: '', second: ''})}
+      <Text accessibilityRole="link" suppressHighlighting onPress={() => {void Linking.openURL('https://getportico.tv/privacy').catch(() => {});}}
+        style={{color: theme.colors.accent, textDecorationLine: 'underline'}}>{t('auth.privacyPolicy')}</Text>.</Text></View>);
   if (stage === 'forgot') return layout(t('auth.forgotPasswordTitle'), t('auth.resetLinkLede'),
     fields(field(t('auth.username'), username, setUsername), field(t('auth.email'), email, setEmail)),
     action('request-reset', t('auth.resetLinkAction'), requestReset, !username.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())),

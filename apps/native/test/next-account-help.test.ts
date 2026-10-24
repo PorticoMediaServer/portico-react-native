@@ -20,7 +20,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   const account = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     react: {...React, default: React},
-    'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false},
+    'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Linking: {openURL: async () => {}}, Platform: {isTV: false},
       NativeModules: {PorticoAccountAuth: {canOpenBrowser: false, canSignInApple: false, bundleId: 'com.example', newRequestId: async () => 'request'}},
       View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src': {HttpHostedApi: class {}},
