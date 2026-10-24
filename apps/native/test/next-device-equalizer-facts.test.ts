@@ -39,18 +39,41 @@ test('absent native support reports only the unsupported fact, never a default o
   assert.deepEqual(nativeSettingsEqualizerFacts({supported: false, ready: true, pending: true, value: flat(true)}), {state: 'unsupported'});
 });
 
-test('an unready snapshot is unconfirmed and never exposes a held value or composes a default', () => {
+test('the facts truth table is exhaustive over support, readiness, pending and value', () => {
   const held = flat(true);
-  const snapshots: DeviceEqualizerSnapshot[] = [
-    {supported: true, ready: false, pending: false, value: held},
-    {supported: true, ready: false, pending: true, value: held},
-    {supported: true, ready: true, pending: false},
+  // Every input combination, with only the state the contract permits for it.
+  const cases: Array<[boolean, boolean, boolean, boolean, 'unsupported' | 'unconfirmed' | 'confirmed']> = [
+    [false, false, false, false, 'unsupported'],
+    [false, false, false, true, 'unsupported'],
+    [false, false, true, false, 'unsupported'],
+    [false, false, true, true, 'unsupported'],
+    [false, true, false, false, 'unsupported'],
+    [false, true, false, true, 'unsupported'],
+    [false, true, true, false, 'unsupported'],
+    [false, true, true, true, 'unsupported'],
+    [true, false, false, false, 'unconfirmed'],
+    [true, false, false, true, 'unconfirmed'],
+    [true, false, true, false, 'unconfirmed'],
+    [true, false, true, true, 'unconfirmed'],
+    [true, true, false, false, 'unconfirmed'],
+    [true, true, false, true, 'confirmed'],
+    [true, true, true, false, 'unconfirmed'],
+    [true, true, true, true, 'confirmed'],
   ];
-  for (const snapshot of snapshots) {
+  assert.equal(cases.length, 16);
+  for (const [supported, ready, pending, hasValue, state] of cases) {
+    const input = JSON.stringify({supported, ready, pending, hasValue});
+    const snapshot: DeviceEqualizerSnapshot = {supported, ready, pending, ...(hasValue ? {value: held} : {})};
     const facts = nativeSettingsEqualizerFacts(snapshot);
-    assert.deepEqual(facts, {state: 'unconfirmed', pending: snapshot.pending});
-    assert.deepEqual(Object.keys(facts).sort(), ['pending', 'state']);
-    assert.equal('value' in facts, false);
+    assert.equal(facts.state, state, input);
+    if (facts.state === 'unsupported') {
+      assert.deepEqual(Object.keys(facts), ['state'], input);
+      continue;
+    }
+    assert.equal(facts.pending, pending, input);
+    assert.deepEqual(Object.keys(facts).sort(), facts.state === 'confirmed' ? ['pending', 'state', 'value'] : ['pending', 'state'], input);
+    if (facts.state === 'confirmed') assert.equal(facts.value, held, input);
+    else assert.equal('value' in facts, false, input);
   }
 });
 
