@@ -169,9 +169,11 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
     const artStyle = flatten(body.find(node => node.type === 'View' && flatten(node.props.style).overflow === 'hidden')!.props.style);
     assert.deepEqual([artStyle.width, artStyle.height, artStyle.borderRadius], [width, height, 6], `${id} keeps its drawn art slot`);
     const captions = texts(body).filter(node => flatten(node.props.style).fontSize === 12.5);
-    const drawn = texts(body).map(node => `${flatten(node.props.style).fontSize}:${label(node)}`);
+    const outline = (node: any, depth = 0): string[] => Array.isArray(node)
+      ? node.flatMap(child => outline(child, depth))
+      : node?.props ? [`${'  '.repeat(depth)}${typeof node.type === 'string' ? node.type : typeof node.type}:${label(node) ?? ''}`, ...outline(node.props.children, depth + 1)] : [];
     // eslint-disable-next-line no-console
-    console.log(`DEBUG ${id} row=${frame.props.testID} nodes=${nodes(body).length} texts=${drawn.join('|')}`);
+    console.log(`DEBUG ${id}\n${outline(childFn(frame)(state(frame))).join('\n')}`);
     assert.deepEqual(captions.map(node => label(node)), homeCardText(entry, false, env).caption.map(part => part.text));
   }
   // The Shows row is omitted: its only result already leads the page as the Top result.
