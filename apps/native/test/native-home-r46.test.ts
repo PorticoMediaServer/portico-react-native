@@ -73,6 +73,37 @@ test('the medium window draws the two foldable hero compositions at their author
   assert.deepEqual({...home.mediumHeadingStyle}, {fontSize: 21});
 });
 
+test('the confirmed Appearance card size and backdrop switch reach the drawn Home', async () => {
+  const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
+  const entry = {id: 'appearance-movie', libraryId: 'movies', kind: 'movie', title: 'Spirited Away', backdropUrl: '/backdrop.jpg', posterUrl: '/poster.jpg', playback: {itemId: 'appearance-movie'}};
+  const rows = [{id: 'new_movies', kind: 'new', artworkShape: 'poster', title: 'New on your server', entries: [entry], nextCursor: ''}];
+  const document = {rows, spotlight: [{entry, reason: {kind: 'featured', text: {fallback: 'Because you watched Inside Out'}}}], serverId: 'actual', viewerFence: 'viewer'};
+  const runtime = (appearance: Record<string, unknown>) => ({
+    home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'}), more() {}, revalidate: async () => {}, retry: async () => {}},
+    getSnapshot: () => ({authority, libraries: [], selectionActive: false}), selection: () => ({}), text: {t: defaultI18n.t, locale: 'en-US'},
+    registerScrollToTop: () => () => {}, artwork: (path: string) => ({uri: `art:${path}`}), ambient: (path: string) => ({uri: `ambient:${path}`}),
+    setHomeWindow() {}, playback: undefined, actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {}}, reportError() {}, onArtworkError() {}, renderHomeEmpty: () => null, error: () => ({}),
+    ...appearance,
+  });
+  const drawnPoster = phoneTheme.spec.card.width.poster.phone;
+  const {HomeScreen} = await homeModule(phoneTheme, rows, h.react);
+  const render = (appearance: Record<string, unknown>) => h.render(() => HomeScreen({runtime: runtime(appearance), authority, bottomInset: 84}));
+  const rowWidth = (appearance: Record<string, unknown>) => descendants(render(appearance)).find(node => node.type === 'Row').props.itemWidth;
+  assert.equal(rowWidth({}), drawnPoster, 'no confirmed value keeps the drawn card');
+  assert.equal(rowWidth({appearanceCardSizePercent: 100}), drawnPoster);
+  assert.equal(rowWidth({appearanceCardSizePercent: 85}), Math.round(drawnPoster * 0.85));
+  assert.equal(rowWidth({appearanceCardSizePercent: 125}), Math.round(drawnPoster * 1.25));
+  const artwork = (appearance: Record<string, unknown>) => {
+    const hero = descendants(render(appearance)).find(node => node.type === 'Hero');
+    return hero.props.renderArtwork(hero.props.candidates[0], {visible: true});
+  };
+  assert.equal(artwork({}).props.foreground.uri, 'art:/backdrop.jpg', 'the drawn hero keeps its picture');
+  assert.equal(artwork({appearanceShowBackdrops: true}).props.foreground.uri, 'art:/backdrop.jpg');
+  const off = artwork({appearanceShowBackdrops: false});
+  assert.equal(off.props.foreground, undefined, 'backdrops off leaves only the atmosphere');
+  assert.equal(off.props.source.uri, 'ambient:/backdrop.jpg', 'the wash stays, so the surface keeps a colour');
+});
+
 test('a row with nothing under its heading is not drawn at all', async () => {
   const entry = {id: 'new-movie', libraryId: 'movies', kind: 'movie', title: 'Toy Story 5', playback: {itemId: 'new-movie'}};
   const rows = [
