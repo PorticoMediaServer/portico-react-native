@@ -43,7 +43,7 @@ export function createNativeTVSavedState(context: NativeShellBootstrapContext) {
     return Object.freeze({source, activation, actions,
       load: () => visible() && !source.getSnapshot().route ? source.select({view: 'watchlist'}) : Promise.resolve(),
       selectTab: (view: NativeSavedTVTab) => visible() ? source.select({view}) : Promise.resolve(),
-      openPlaylist: (entry: PlaylistCard) => visible() && source.getSnapshot().saved?.projection?.sections.some(section => section.entries.includes(entry)) === true
+      openPlaylist: (entry: PlaylistCard) => visible() && entry.kind === 'playlist' && source.getSnapshot().saved?.projection?.sections.some(section => section.entries.includes(entry)) === true
         && openNativeSavedView(context, {view: 'playlist', playlistId: entry.id}),
       openResource: (resource: PersonalResource) => visible() && source.getSnapshot().personal?.resources.includes(resource) === true
         && openNativeSavedView(context, {view: 'resource', resourceId: resource.id}),

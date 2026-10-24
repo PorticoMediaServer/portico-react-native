@@ -83,6 +83,7 @@ test('TV Saved keeps inline tabs in the exact root history entry and borrows one
     assert.equal(f.navigation.getSnapshot().revision, revision, 'focus/OK on a tab never adds a navigation entry');
     assert.equal(root.source.getSnapshot().route.view, 'favorites');
     const member = root.source.getSnapshot().saved.projection.sections[0].entries[0], anchor = {current: {native: 'actual card'}};
+    assert.equal(root.openPlaylist(member), false, 'a genuine movie member cannot become a playlist destination');
     root.actions.menu({...member}, anchor); assert.equal(f.menus.length, 0);
     root.actions.menu(member, anchor); assert.equal(f.menus[0].anchor, anchor); assert.equal(f.menus[0].current(), true);
     root.actions.open(member);
