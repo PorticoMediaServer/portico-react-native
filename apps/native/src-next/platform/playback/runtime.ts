@@ -53,7 +53,7 @@ const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubj
     ...(episode ? {show: {id: episode.showId, title: episode.showTitle}, episode: episode.numbering === 'date' ? {mode: 'date' as const, day: episode.airDate} : episode.numbering === 'absolute' ? {mode: 'absolute' as const, number: episode.number} : episode.numbering === 'special' ? {mode: 'special' as const} : {mode: 'seasonal' as const, season: episode.seasonNumber ?? undefined, episode: episode.number}} : entry.episodeNumber === undefined ? {} : {episode: {mode: 'seasonal' as const, season: entry.seasonNumber, episode: entry.episodeNumber}}),
   };
   const kind = kindOf(entry.kind);
-  return {kind: kind === 'video' || kind === 'live' ? 'video' : kind, item: card};
+  return {kind, item: card};
 };
 type Bookmark = Readonly<{playback: DockPlayback; entry?: ContentEntry; subject?: PlaybackSubject; queueId?: string; entryId?: string; channel?: ChannelReference; offline?: NativeOfflineSource}>;
 type SourceDetail = {
@@ -507,12 +507,13 @@ export class NativePlaybackRuntime {
     try {
       const source = await this.offline.prepare(entry, current);
       if (!current()) throw retired();
-      if (!['movie', 'episode', 'video', 'song', 'track', 'audiobook_file', 'audiobook'].includes(source.metadata.kind ?? '')) throw new Error(serviceText('downloads.offline.notPlayableHere'));
+      const contentKind = source.metadata.kind;
+      if (contentKind !== 'movie' && contentKind !== 'episode' && contentKind !== 'song' && contentKind !== 'audiobook_file') throw new Error(serviceText('downloads.offline.notPlayableHere'));
       this.rememberCurrent(); await this.queue.cancel();
       if (!current() || !source.current()) throw retired();
       this.offlineSource = source; this.entry = undefined; this.options = undefined;
-      const kind = kindOf(source.metadata.kind);
-      this.subject = {kind, item: {id: source.itemId, title: source.metadata.title, kind: source.metadata.kind}};
+      const kind = kindOf(contentKind);
+      this.subject = {kind, item: {id: source.itemId, title: source.metadata.title, kind: contentKind}};
       this.expanded = !audioKind(source.metadata.kind);
       this.preparing = true;
       await this.playback.playLocal(source.itemId, source.session, undefined, {signal: controller.signal, isCurrent: current});
