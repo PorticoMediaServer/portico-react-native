@@ -110,6 +110,17 @@ export class NativeWatchPresenters {
     catch (error) {if (this.value === pending && this.current(value.capture)) this.common.reportError(error, 'detail');}
     finally {if (this.value === pending) this.patch(pending, {busy: false});}
   };
+  enqueue = async (value: NativeWatchOverlay, placement: 'next' | 'end') => {
+    const entry = value.actions?.entry;
+    if (!entry?.enqueue || !this.current(value.capture)) return;
+    try {await entry.enqueue(placement);}
+    catch (error) {if (this.context.current()) this.common.reportError(error, 'detail');}
+  };
+  goToArtist = (value: NativeWatchOverlay) => {
+    const entry = value.actions?.entry;
+    if (!entry?.goToArtist || value.busy || !this.current(value.capture)) return;
+    this.close(); entry.goToArtist();
+  };
   showDetails = (value: NativeWatchOverlay) => {
     const entry = value.actions?.entry;
     if (!entry?.details || value.busy || !this.current(value.capture)) return;

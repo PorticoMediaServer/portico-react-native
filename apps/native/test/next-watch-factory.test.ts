@@ -43,9 +43,9 @@ const offered = {itemId: 'episode', resume: {positionMs: 17000, partIndex: 0}, v
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['readSession']) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
-  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string} | undefined};
+  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string; role?: 'local' | 'group_member'} | undefined};
   let respond = async (_url: URL) => offered as unknown;
-  const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [];
+  const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [], enqueues: unknown[][] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); requests.push({path: url.pathname, signal: init?.signal});
     return new Response(JSON.stringify(await respond(url)), {status: 200});
@@ -53,11 +53,12 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   const subscribe = (listeners: Set<() => void>) => (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};};
   const screens = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}},
-    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, ...(readSession ? {readSession} : {})}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
+    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, cataloguePlayback: () => ({enqueueSegments: async (...args: unknown[]) => {enqueues.push(args); return {} as never;}}), ...(readSession ? {readSession} : {})}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
     startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate(entry: unknown) {navigations.push(entry);}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
-  return {screens, requests, menus, versions, starts, errors, navigations,
+  return {screens, requests, menus, versions, starts, errors, navigations, enqueues,
+    session: (role?: 'local' | 'group_member') => {source = {...source, session: role ? {itemId: entry.id, versionId: 'v1', role} : undefined}; for (const listener of playbackListeners) listener();},
     holdStart: (held: Promise<void>) => {holdStart = held;},
     title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
     respond: (value: typeof respond) => {respond = value;},
@@ -246,4 +247,41 @@ test('an unreadable detail keeps the independent File info menu and offers no pe
     assert.equal(d.menus[0][1].entry, undefined);
     assert.equal(d.errors.length, 0, 'the unreadable detail is not a user-facing menu failure');
   } finally {d.screens.dispose();}
+});
+
+test('the shared menu appends through the one catalogue queue and never behind a group session', async () => {
+  detailProjection = {
+    item: {id: 'episode', kind: 'episode', title: 'Actual episode'}, languages: {audio: [], subtitles: []},
+    scope: {serverId: 'server', libraryId: 'library', itemId: 'episode', viewerFence: 'viewer'}, revision: {catalog: 1, viewer: 1}, markers: [],
+    personal: {watchlisted: false, favorite: false, watched: false, progressSeconds: 30, revision: 1, rating: null, lastPlayedAt: '', status: 'current', conflicts: []},
+    actions: [{id: 'resume', enabled: true, playback: {itemId: 'episode', startSeconds: 30}}], metadata: {genres: [], ratings: [], credits: [], status: 'available'},
+  };
+  const d = fixture();
+  try {
+    await d.screens.menu(entry, () => true);
+    await d.menus[0][1].entry.enqueue('next');
+    assert.deepEqual(d.enqueues[0][0], [{source: {items: {ids: ['episode']}}}]);
+    assert.equal(d.enqueues[0][1], 'next');
+    assert.ok((d.enqueues[0][2] as any).signal instanceof AbortSignal, 'the append carries the captured lifetime signal');
+    d.session('group_member');
+    await d.screens.menu(entry, () => true);
+    assert.equal(d.menus[1][1].entry.enqueue, undefined, 'a group/follower session never offers a personal append');
+  } finally {detailProjection = null; d.screens.dispose();}
+});
+
+test('a song menu reaches its real artist entry and the menu carries the queue row', async () => {
+  const song = {id: 'song-1', kind: 'song', title: 'Actual song', libraryId: 'library', artist: {id: 'artist-1', name: 'Actual artist'}};
+  detailProjection = {
+    item: song, languages: {audio: [], subtitles: []}, scope: {serverId: 'server', libraryId: 'library', itemId: song.id, viewerFence: 'viewer'},
+    revision: {catalog: 1, viewer: 1}, markers: [], personal: {watchlisted: false, favorite: false, watched: false, progressSeconds: 0, revision: 1, rating: null, lastPlayedAt: '', status: 'current', conflicts: []},
+    actions: [], metadata: {genres: [], ratings: [], credits: [], status: 'available'},
+  };
+  const d = fixture();
+  try {
+    await d.screens.menu(song as never, () => true);
+    const entryMenu = d.menus[0][1].entry;
+    assert.equal(typeof entryMenu.enqueue, 'function');
+    entryMenu.goToArtist();
+    assert.deepEqual(d.navigations, [{id: 'artist-1', kind: 'artist', title: 'Actual artist', libraryId: 'library'}]);
+  } finally {detailProjection = null; d.screens.dispose();}
 });

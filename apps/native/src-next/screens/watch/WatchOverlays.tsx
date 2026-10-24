@@ -100,6 +100,10 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   const kindKey = entry.kind === 'movie' ? 'search.kind.movie' : entry.kind === 'show' ? 'search.kind.show' : entry.kind === 'artist' ? 'search.kind.artist' : entry.kind === 'album' ? 'search.kind.album' : undefined;
   const items: MenuEntry[] = [];
   if (playable) items.push({id: 'play', label: t(resuming ? 'entry.resume' : 'entry.play'), icon: 'i-play', onSelect: () => presenters.playEntry(value)});
+  if (tv && value.actions?.entry?.enqueue) {
+    items.push({id: 'play-next', label: t('entry.playNext'), icon: 'i-pnext', onSelect: () => {void presenters.enqueue(value, 'next');}});
+    items.push({id: 'add-to-queue', label: t('entry.addToQueue'), icon: 'i-queue', onSelect: () => {void presenters.enqueue(value, 'end');}});
+  }
   if (personal && tv && allows('watchlist')) items.push({id: 'watchlist', label: t(personal.watchlisted ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'),
     icon: personal.watchlisted ? 'i-check' : 'i-plus', selected: personal.watchlisted, disabled: value.busy,
     onSelect: () => {void presenters.personal(value, {action: 'watchlist', value: !personal.watchlisted});}});
@@ -111,6 +115,7 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (items.length) items.push({id: 'title-separator', separator: true});
   if (value.actions?.differentVersion) items.push({id: 'different-version', label: t('next.overlays.differentVersion'), icon: 'i-film', onSelect: () => {void presenters.differentVersion(value);}});
   items.push({id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}});
+  if (tv && value.actions?.entry?.goToArtist) items.push({id: 'go-to-artist', label: t('next.watch.goToArtist'), icon: 'i-person', onSelect: () => presenters.goToArtist(value)});
   if (value.actions?.entry?.details) items.push({id: 'details', label: t('title.details'), icon: 'i-page', onSelect: () => presenters.showDetails(value)});
   return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}

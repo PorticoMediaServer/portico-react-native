@@ -8,6 +8,7 @@ import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/pla
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
+import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackStart, NativePlaybackVersionSelection} from '../../platform/playback/types';
 import type {PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
@@ -45,6 +46,8 @@ export type NativeWatchMenuEntry = Readonly<{
   current: () => DetailProjection | undefined;
   subscribe: (listener: () => void) => () => void;
   play?: () => Promise<void>;
+  enqueue?: (placement: 'next' | 'end') => Promise<void>;
+  goToArtist?: () => void;
   mutate: (intent: PersonalIntent) => Promise<void>;
   details?: () => void;
   dispose: () => void;
@@ -197,12 +200,27 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const projection = detail?.getSnapshot().data;
     const primary = projection?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over')?.playback ?? entry.playback;
     const route = ports.navigation.getSnapshot().route, onTitle = route.kind === 'title' && titleKey(route.entry) === titleKey(entry);
+    // The queue append is offered only for a personal session; a group/follower
+    // session never gains a personal append from this screen.
+    const catalogue = ports.playback.cataloguePlayback?.();
+    const groupSession = ports.playback.getSnapshot().session?.role === 'group_member';
+    const segment = (value: ContentEntry): SegmentInput | undefined => ['show', 'season', 'album', 'artist', 'book', 'playlist'].includes(value.kind)
+      ? {source: {container: {kind: value.kind, id: value.id}}}
+      : ['movie', 'episode', 'song', 'audiobook_file', 'chapter'].includes(value.kind) ? {source: {items: {ids: [value.id]}}} : undefined;
+    const queued = segment(entry);
     const menuEntry: NativeWatchMenuEntry | undefined = detail ? Object.freeze({
       current: () => detail!.getSnapshot().data ?? undefined,
       subscribe: listener => detail!.subscribe(listener),
       ...(primary ? {play: async () => {
         const operation = new AbortController();
         await ports.playback.start({entry, target: primary, lifetime: {signal: operation.signal, isCurrent: () => current(captured)}});
+      }} : {}),
+      ...(catalogue && queued && !groupSession ? {enqueue: async (placement: 'next' | 'end') => {
+        const operation = new AbortController();
+        await catalogue.enqueueSegments([queued], placement, {signal: operation.signal, isCurrent: () => current(captured) && ports.playback.getSnapshot().session?.role !== 'group_member'});
+      }} : {}),
+      ...(entry.kind === 'song' && entry.artist ? {goToArtist: () => {
+        if (current(captured)) ports.title.navigate({id: entry.artist!.id, kind: 'artist', title: entry.artist!.name, ...(entry.libraryId ? {libraryId: entry.libraryId} : {})});
       }} : {}),
       mutate: async (intent: PersonalIntent) => {await detail!.mutate(intent);},
       ...(onTitle ? {} : {details: () => {if (current(captured)) ports.title.navigate(entry);}}),
