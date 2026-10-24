@@ -12,6 +12,8 @@ import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {readNativePlaybackInfo} from '../src-next/screens/watch/playback-info.ts';
+import type {NativePlaybackAdapter} from '../src-next/platform/playback/types.ts';
+import {infoWords} from './helpers/playback-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
 import {NativeVersionChooserController} from '../src-next/screens/watch/version-destination.ts';
 import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
@@ -32,9 +34,9 @@ const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryI
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'episode', sourceId: 'v1', entryId: 'entry', generation: 1});
 const offered = {itemId: 'episode', resume: {positionMs: 17000, partIndex: 0}, versions: [{id: 'v1', video: [{id: 'p1', codec: 'hevc', width: 3840, height: 2160}]}, {id: 'v2', video: [{id: 'p2', codec: 'h264', width: 1920, height: 1080, interlaced: false}]}]};
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
-function fixture(hasDestination = true) {
+function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['readSession']) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
-  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string} | undefined};
+  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string} | undefined};
   let respond = async (_url: URL) => offered as unknown;
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
@@ -44,7 +46,7 @@ function fixture(hasDestination = true) {
   const subscribe = (listeners: Set<() => void>) => (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};};
   const screens = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}},
-    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
+    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, ...(readSession ? {readSession} : {})}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
     startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate() {}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
@@ -53,12 +55,29 @@ function fixture(hasDestination = true) {
     title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
     respond: (value: typeof respond) => {respond = value;},
     failure: (versionId: string) => {source = {...source, playback: {...source.playback, phase: 'error'}, session: {itemId: entry.id, versionId}};},
-    source: (next: PlaybackFence) => {source = {...source, fence: next}; for (const listener of playbackListeners) listener();},
+    source: (next: PlaybackFence) => {source = {...source, fence: next, dock: {local: {...source.dock.local, fence: next}}}; for (const listener of playbackListeners) listener();},
     route: () => {revision++; for (const listener of routeListeners) listener();},
     authority: () => {bound = {...bound, epoch: 'next'}; for (const listener of authorityListeners) listener();},
     subscriptions: () => playbackListeners.size + routeListeners.size + authorityListeners.size,
   };
 }
+
+test('the registered Watch factory aborts its Info read on actual caller, route, authority or factory retirement', async () => {
+  for (const retire of ['caller', 'route', 'authority', 'factory'] as const) {
+    const result = deferred<undefined>(); let signal: AbortSignal | undefined;
+    const d = fixture(true, async (captured, lifetime) => {assert.deepEqual(captured, fence); signal = lifetime.signal; return result.promise;});
+    try {
+      d.source(fence); const caller = new AbortController();
+      const pending = d.screens.readPlaybackInfo(fence, infoWords().words, {signal: caller.signal, isCurrent: () => true});
+      assert.ok(signal, 'the factory borrows the actual installed read port');
+      if (retire === 'caller') caller.abort(); else if (retire === 'route') d.route();
+      else if (retire === 'authority') d.authority(); else d.screens.dispose();
+      assert.equal(signal.aborted, true, retire);
+      result.resolve(undefined); assert.equal(await pending, undefined);
+    } finally {d.screens.dispose();}
+    assert.equal(d.subscriptions(), 0);
+  }
+});
 
 test('episode menu retains its real show owner and sends the exact offered version and resume position', async () => {
   const d = fixture();
