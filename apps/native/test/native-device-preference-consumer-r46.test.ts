@@ -63,6 +63,17 @@ test('a device write resolves only after the canonical save and actual reread', 
   assert.deepEqual(JSON.parse(state.raw!), device({forceStereo: true, disableHdr: true, cardScale: 1.25, serverCache: {kept: true}}));
 }));
 
+test('a durable save refusal keeps the committed row and publishes nothing', async () => records(async state => {
+  const f = await fixture(), consumer = nativeDevicePreferences(f.context), seen: string[] = [];
+  consumer.subscribe(() => seen.push('notified'));
+  state.beforeSave = async () => {throw new Error('save refused');};
+  await assert.rejects(consumer.write('forceStereo', true), /save refused/);
+  assert.equal(consumer.read('forceStereo'), false);
+  assert.deepEqual(seen, []);
+  assert.equal(state.saves, 0);
+  assert.equal(JSON.parse(state.raw!).forceStereo, false);
+}));
+
 test('a saved write never echoes the asked value over the committed reread', async () => records(async state => {
   const f = await fixture(), consumer = nativeDevicePreferences(f.context);
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>, load = runtime.loadQueueRecord;
