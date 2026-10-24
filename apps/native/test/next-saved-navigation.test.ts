@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React from 'react';
 import {routePath} from '../../../packages/contracts/src/routes';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
@@ -130,10 +131,12 @@ test('headless Saved binding borrows one device lease and actual Watch menu with
   }, isOpen: (entry: ContentEntry) => menuEntry === entry,
   subscribe: (listener: () => void) => {menuListeners.add(listener); return () => {menuListeners.delete(listener);};}};
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
+    react: {default: React},
     './lifetime': {nativeDestinationLifetime}, '../native-screen-services': {nativeScreenServices: () => common},
     '../watch': {nativeWatchEntryMenu: (context: NativeShellBootstrapContext) => {assert.equal(context, f.context); return menu;}},
   });
   const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    react: {default: React},
     '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
     '../downloads/device': {createNativeDownloadsDevice: (context: NativeShellBootstrapContext) => {
