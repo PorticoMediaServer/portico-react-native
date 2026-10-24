@@ -27,7 +27,8 @@ async function setup() {
     if (url.pathname.endsWith('/saved/summary')) return summary;
     if (url.pathname.includes('/saved-resources')) return directory;
     const view = url.searchParams.get('view') ?? (url.pathname.endsWith('/playlists') ? 'playlists' : 'watchlist');
-    const entries = view === 'playlists' ? [{kind: 'playlist', id: 'actual-playlist', title: 'Actual playlist', count: 2}] : [title];
+    const entries = view === 'playlists' ? [{kind: 'playlist', id: 'actual-playlist', title: 'Actual playlist', count: 2,
+      navigation: {view: 'playlist', entityId: 'actual-playlist'}}] : [title];
     return {scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view, entityId: '', viewerFence: 'Saved-own-fence'},
       revision: {catalog: 9, viewer: 13}, heading: {key: 'saved.title', fallback: ''}, navigation: [{id: view, labelKey: 'saved.title', view}],
       query: {sort: 'title', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'}, sorts: [], filters: [],
