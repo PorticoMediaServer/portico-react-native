@@ -140,8 +140,8 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
       diagnostics};
     if (record.effectiveOpacity === null) missing(id, 'effectiveOpacity', unavailableReason('effectiveOpacity', 'current native paint opacity has not been observed'));
     if (!record.effectiveBackgroundColor) missing(id, 'effectiveBackgroundColor', unavailableReason('effectiveBackgroundColor', 'ancestor-composited native background has not been observed'));
-    if (snapshot) for (const property of ['backgroundColor', 'borderRadius', 'boxShadow']) {
-      if (typeof snapshot.style[property] !== 'string') missing(id, property, unavailableReason(property, 'native paint property is unavailable'));
+    for (const property of ['backgroundColor', 'borderRadius', 'boxShadow']) {
+      if (typeof snapshot?.style[property] !== 'string') missing(id, property, unavailableReason(property, 'native paint property is unavailable'));
     }
     const visiblePaint = box && rootBox && box.width > 0 && box.height > 0 && box.x < rootBox.width && box.y < rootBox.height
       && box.x + box.width > 0 && box.y + box.height > 0 && opacity !== undefined && opacity > 0;
@@ -188,7 +188,7 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     const focused = snapshot?.focused;
     element.focused = focused ?? null;
     if (focused === undefined) missing(element.id, 'focused', snapshot?.unavailable.isFocused
-      ?? snapshot?.unavailable.nativeObservation ?? 'no native focus event for this mounted capture epoch');
+      ?? snapshot?.unavailable.nativeObservation ?? 'current scoped native focus fact is unavailable');
   }
   for (const element of [...elements].reverse()) {
     const children = childRecords.get(element.id) ?? [];

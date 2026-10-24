@@ -5,9 +5,13 @@ import {createNativeMeasurementRegistry, curateFlattenedStyle} from '../src-next
 import {collectNativeScreen} from '../src-next/dev/layout-dump/collect.ts';
 import {installNativeLayoutDump, registerNativeHost} from '../src-next/dev/layout-dump/index.ts';
 
-function host(name: string, box: {x: number; y: number; width: number; height: number}, children: object[] = []) {
-  return {nodeType: 1, nodeName: name, isConnected: true, childNodes: children,
-    offsetWidth: box.width, offsetHeight: box.height, getBoundingClientRect: () => ({...box})};
+import {nativeHost as host, setNativeObservation, observeNativeWindow, addNativeFixture, windowAPI,
+  type TestNativeHost} from './helpers/native-window-fixture.ts';
+
+async function collectTestScene(options: Parameters<typeof collectNativeScreen>[0]) {
+  const dispose = addNativeFixture(options.root as TestNativeHost, options.registry.register.bind(options.registry));
+  try {return await collectNativeScreen({...options, observe: observeNativeWindow, isCurrent: () => true});}
+  finally {dispose();}
 }
 const paint = {fontFamily: 'Public Test Font', resolvedFontFamily: 'Public Test Font', fontSize: 24, fontWeight: 700, color: 'rgb(237, 245, 250)',
   effectiveOpacity: 1, effectiveBackgroundColor: 'rgb(7, 16, 24)'};
@@ -26,44 +30,47 @@ test('RN full viewport accepts exact float32 extents without changing raw facts 
     const rect = {x: 0, y: 0, width: Math.fround(width), height: Math.fround(height)};
     const viewport = {width, height, deviceScaleFactor: 2.625};
     const options = {root: host('RN:View', rect), viewport, platform, registry: createNativeMeasurementRegistry()};
-    const measured = await collectNativeScreen(options);
+    const measured = await collectTestScene(options);
+    assert.equal(measured.measurement.geometrySource, 'native-window');
+    assert.equal(measured.diagnostics.nativeCoordinates.windowAPI, windowAPI);
     assert.equal(measured.fullViewport, true);
     assert.deepEqual(measured.root, rect);
     assert.deepEqual(measured.viewport, viewport);
-    const reverse = await collectNativeScreen({...options, root: host('RN:View', {x: 0, y: 0, width, height}),
+    const reverse = await collectTestScene({...options, root: host('RN:View', {x: 0, y: 0, width, height}),
       viewport: {...viewport, width: Math.fround(width), height: Math.fround(height)}});
     assert.equal(reverse.fullViewport, true);
     for (const invalid of [{...rect, width: rect.width + 0.0001}, {...rect, x: 0.000001}, {...rect, y: 0.000001}, {...rect, width: 390, height: 844}]) {
-      assert.equal((await collectNativeScreen({...options, root: host('RN:View', invalid)})).fullViewport, false);
+      assert.equal((await collectTestScene({...options, root: host('RN:View', invalid)})).fullViewport, false);
     }
   }
 });
 
 test('a nonzero observed root origin stays invalid and records provenance rather than selecting a zero-returning API', async () => {
-  const root = {...host('RN:View', {x: 0, y: 24, width: 390, height: 844}),
-    measureInWindow(callback: (x: number, y: number, width: number, height: number) => void) {callback(0, 0, 390, 844);}};
-  const measured = await collectNativeScreen({root, viewport: {width: 390, height: 844, deviceScaleFactor: 3},
+  const root = Object.assign(host('RN:View', {x: 0, y: 24, width: 390, height: 844}), {
+    measureInWindow(callback: (x: number, y: number, width: number, height: number) => void) {callback(0, 0, 390, 844);}});
+  const measured = await collectTestScene({root, viewport: {width: 390, height: 844, deviceScaleFactor: 3},
     platform: 'android', registry: createNativeMeasurementRegistry()});
   assert.equal(measured.fullViewport, false);
   assert.deepEqual(measured.root, {x: 0, y: 0, width: 390, height: 844});
   const gap = measured.unavailable.find(item => item.property === 'fullViewport')!;
-  assert.match(gap.reason, /API=getBoundingClientRect; coordinate-space=unknown; logical-unit=dp/);
-  assert.match(gap.reason, /raw x=0, y=24, width=390, height=844/);
+  assert.match(gap.reason, /coordinate-space=attached-native-window/);
+  assert.deepEqual(measured.diagnostics.nativeCoordinates.rootWindow, {x: 0, y: 24, width: 390, height: 844});
+  assert.deepEqual(measured.diagnostics.nativeCoordinates.publicRootReadback?.rect, {x: 0, y: 0, width: 390, height: 844});
 });
 
 test('font scaling is optional unscored metadata and never changes logical observations', async () => {
   const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844});
   const options = {root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const,
     registry: createNativeMeasurementRegistry()};
-  const baseline = await collectNativeScreen(options);
+  const baseline = await collectTestScene(options);
   for (const fontScale of [0.85, 1, 1.3, 2]) {
-    const measured = await collectNativeScreen({...options, diagnostics: {fontScale}});
-    assert.deepEqual(measured.diagnostics, {fontScale});
-    const {diagnostics: _, ...observations} = measured;
-    assert.deepEqual(observations, baseline);
+    const measured = await collectTestScene({...options, diagnostics: {fontScale}});
+    assert.equal(measured.diagnostics.fontScale, fontScale);
+    const {fontScale: _, ...diagnostics} = measured.diagnostics;
+    assert.deepEqual({...measured, diagnostics}, baseline);
   }
   for (const fontScale of [undefined, 0, -1, NaN, Infinity]) {
-    assert.deepEqual(await collectNativeScreen({...options, diagnostics: {fontScale}}), baseline);
+    assert.deepEqual(await collectTestScene({...options, diagnostics: {fontScale}}), baseline);
   }
 });
 
@@ -71,22 +78,26 @@ test('DEV metadata getter reads fresh font scaling only for an active capture', 
   const globals = globalThis as typeof globalThis & {__DEV__?: boolean};
   const original = globals.__DEV__;
   let installed: ReturnType<typeof installNativeLayoutDump> = undefined;
+  let retireFixture: (() => void) | undefined;
   let fontScale = 1, reads = 0;
   try {
     globals.__DEV__ = true;
     const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844});
+    retireFixture = addNativeFixture(root, registerNativeHost);
     installed = installNativeLayoutDump({root: () => root,
       viewport: () => ({width: 390, height: 844, deviceScaleFactor: 3}), platform: 'android',
+      observe: observeNativeWindow,
       diagnostics: () => {reads++; return {fontScale};}})!;
     assert.equal(reads, 0);
-    assert.deepEqual((await installed.capture()).diagnostics, {fontScale: 1});
+    assert.equal((await installed.capture()).diagnostics.fontScale, 1);
     fontScale = 1.4;
-    assert.deepEqual((await installed.capture()).diagnostics, {fontScale: 1.4});
+    assert.equal((await installed.capture()).diagnostics.fontScale, 1.4);
     installed.dispose();
     await assert.rejects(installed.capture(), /disposed/);
     assert.equal(reads, 2);
   } finally {
     installed?.dispose();
+    retireFixture?.();
     if (original === undefined) delete globals.__DEV__;
     else globals.__DEV__ = original;
   }
@@ -150,11 +161,14 @@ test('inputs never accept text layout or export native input internals', async (
   const lease = registry.register(input, {kind: 'input'});
   lease.recordTextLayout(new Proxy([], {get() {throw new Error('input text was read');}}));
   lease.recordMaskLength(4);
+  setNativeObservation(input, {textRects: [{x: 10, y: 20, width: 100, height: 40}], textRectsSource: 'android.Layout.linesToWindowDp'});
   const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844}, [input]);
-  const measured = await collectNativeScreen({root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android', registry});
+  const measured = await collectTestScene({root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android', registry});
   assert.equal(measured.viewport.deviceScaleFactor, 3);
   assert.equal(measured.elements[1].ownText, '');
   assert.deepEqual(measured.elements[1].input, {value: null, redacted: true, maskedLength: 4});
+  assert.equal(measured.elements[1].textRects, undefined);
+  assert.equal((measured.elements[1].diagnostics as {nativeWindowTextRects?: unknown}).nativeWindowTextRects, undefined);
   assert.deepEqual(measured.strings, []);
 });
 
@@ -165,18 +179,23 @@ test('only observed native window Text rectangles become text ranges; host boxes
   const textLease = registry.register(text, {kind: 'text', semanticId: 'public-title', role: 'header'});
   textLease.recordTextLayout([{x: 2, y: 3, width: 70, height: 24, text: 'Public title', capHeight: 17}]);
   textLease.recordResolvedStyle(paint);
-  textLease.observeTextRectangles(async () => [{x: 22, y: 43, width: 70, height: 24}]);
-  textLease.recordNativeFocus(true);
+  let registryReads = 0;
+  textLease.observeTextRectangles(async () => {registryReads++; return [{x: 999, y: 999, width: 70, height: 24}];});
+  textLease.recordNativeFocus(false);
+  setNativeObservation(text, {style: {resolvedFontFamily: 'Public Test Font', fontSize: '24px', fontWeight: '700', color: paint.color},
+    effectiveOpacity: 1, effectiveBackgroundColor: paint.effectiveBackgroundColor, focused: true,
+    textRects: [{x: 22, y: 43, width: 70, height: 24}], textRectsSource: 'android.TextView.Layout.linesToWindowDp'});
   registry.register(root, {kind: 'view'}).recordResolvedStyle({effectiveOpacity: 1, effectiveBackgroundColor: 'rgb(7, 16, 24)'});
   const options = {root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const, registry, anchors: {'public-title': 'title'}};
-  const measured = await collectNativeScreen(options);
+  const measured = await collectTestScene(options);
   assert.equal(measured.fullViewport, true);
   assert.equal(measured.elements[1].focused, true);
   assert.deepEqual(measured.elements[1].textRects, [{x: 22, y: 43, width: 70, height: 24}]);
+  assert.equal(registryReads, 0, 'another observer is not part of the admitted native batch');
   assert.equal(measured.elements[1].frame, 'title');
   assert.equal(measured.strings[0].text, 'Public title');
-  textLease.observeTextRectangles(undefined);
-  const transformed = await collectNativeScreen(options);
+  setNativeObservation(text, {textRects: undefined});
+  const transformed = await collectTestScene(options);
   assert.equal(transformed.elements[1].textRects, undefined);
   assert.ok(transformed.unavailable.some(fact => fact.element === 'root.0' && fact.property === 'textRects'));
 });
@@ -215,7 +234,7 @@ test('unobserved paint hides text and never defaults focus or opacity; wrong vie
   const registry = createNativeMeasurementRegistry(), text = host('RN:Text', {x: 0, y: 0, width: 100, height: 30});
   registry.register(text, {kind: 'text'}).recordTextLayout([{x: 0, y: 0, width: 70, height: 24, text: 'Do not export without visibility'}]);
   const root = host('RN:View', {x: 0, y: 24, width: 390, height: 844}, [text]);
-  const measured = await collectNativeScreen({root, viewport: {width: 390, height: 844, deviceScaleFactor: 2}, platform: 'ios', registry});
+  const measured = await collectTestScene({root, viewport: {width: 390, height: 844, deviceScaleFactor: 2}, platform: 'ios', registry});
   assert.equal(measured.fullViewport, false);
   assert.equal(measured.elements[1].focused, null);
   assert.equal(measured.elements[1].effectiveOpacity, null);

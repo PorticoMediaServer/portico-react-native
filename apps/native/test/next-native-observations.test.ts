@@ -242,7 +242,10 @@ test('collector uses observed native paint and same-window runs without promotin
   assert.equal(measured.fullViewport, true);
   assert.deepEqual(title.style, {backgroundColor: 'rgba(0, 0, 0, 1)', color: 'rgba(237, 245, 250, 1)',
     fontSize: '24px', lineHeight: '30px', borderRadius: '0px', fontWeight: '700'});
-  assert.deepEqual(title.diagnostics, {flattenedStyle: {fontSize: 99, color: 'red'}});
+  assert.deepEqual(title.diagnostics, {flattenedStyle: {fontSize: 99, color: 'red'},
+    nativeWindowRect: {x: 10, y: 20, width: 100, height: 30},
+    publicMeasurement: {api: 'bounding-client-rect', rect: {x: 10, y: 20, width: 100, height: 30}},
+    nativeWindowTextRects: [{x: 10, y: 20, width: 100, height: 30}]});
   assert.equal(title.ownText, 'Public Welcome');
   assert.deepEqual(title.textRects, [{x: 10, y: 20, width: 100, height: 30}]);
   assert.equal(title.focused, false);
@@ -251,19 +254,22 @@ test('collector uses observed native paint and same-window runs without promotin
   assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'boxShadow'));
 });
 
-test('coordinate disagreement records all observed APIs without selecting zero or mixing native runs into another space', async () => {
-  const {options} = scene(24);
+test('the physical source policy preserves disagreeing Fabric diagnostics and native animation geometry', async () => {
+  const {options, payload} = scene(24);
+  payload.hosts[2].facts.windowRect.value = {x: 35, y: 22, width: 102, height: 32};
+  payload.hosts[2].facts.textLineRects = native([{x: 38, y: 23, width: 96, height: 30}]);
   const measured = await collectNativeScreen(options);
   const title = measured.elements.find(element => element.tag === 'RN:Text')!;
-  assert.equal(measured.fullViewport, false);
+  assert.equal(measured.fullViewport, true);
   assert.deepEqual(measured.root, {x: 0, y: 0, width: 390, height: 844});
   assert.equal(title.ownText, 'Public Welcome');
-  assert.equal(title.textRects, undefined);
-  const gap = measured.unavailable.find(item => item.property === 'fullViewport')!;
-  assert.match(gap.reason, /API=getBoundingClientRect.*raw x=0, y=24/);
-  assert.match(gap.reason, /native windowRect.*getLocationInWindow.*"y":0/);
-  assert.match(gap.reason, /measureInWindow readback=.*"y":0/);
-  assert.match(gap.reason, /coordinate relationship=unknown/);
+  assert.deepEqual(title.box, {x: 35, y: 22, width: 102, height: 32});
+  assert.deepEqual(title.textRects, [{x: 38, y: 23, width: 96, height: 30}]);
+  assert.equal(measured.measurement.geometrySource, 'native-window');
+  assert.equal(measured.diagnostics.nativeCoordinates.publicRoot?.rect.y, 24);
+  assert.equal(measured.diagnostics.nativeCoordinates.publicRootReadback?.rect.y, 0);
+  assert.deepEqual((title.diagnostics as {publicMeasurement: unknown}).publicMeasurement,
+    {api: 'bounding-client-rect', rect: {x: 10, y: 44, width: 100, height: 30}});
 });
 
 test('native scope is the registered welcome root, and unmount during the UI turn discards the whole capture', async () => {
@@ -278,9 +284,8 @@ test('native scope is the registered welcome root, and unmount during the UI tur
   await assert.rejects(pending, failure('scope-changed'));
 });
 
-test('verified nonzero window coordinates remain nonzero provenance and never turn fullViewport true', async () => {
-  const {options, root, payload} = scene(24);
-  root.measureInWindow = callback => callback(0, 24, 390, 844);
+test('a nonzero physical window origin stays false even when both public APIs return zero', async () => {
+  const {options, payload} = scene();
   for (const row of payload.hosts) {
     row.facts.windowRect.value.y += 24;
     row.facts.textLineRects = native([{x: 10, y: 44, width: 100, height: 30}]);
@@ -288,8 +293,10 @@ test('verified nonzero window coordinates remain nonzero provenance and never tu
   const measured = await collectNativeScreen(options);
   assert.equal(measured.fullViewport, false);
   const gap = measured.unavailable.find(item => item.property === 'fullViewport')!;
-  assert.match(gap.reason, /coordinate-space=window \(verified same-host API agreement\)/);
-  assert.match(gap.reason, /raw x=0, y=24/);
+  assert.match(gap.reason, /coordinate-space=attached-native-window/);
+  assert.equal(measured.diagnostics.nativeCoordinates.rootWindow.y, 24);
+  assert.equal(measured.diagnostics.nativeCoordinates.publicRoot?.rect.y, 0);
+  assert.equal(measured.diagnostics.nativeCoordinates.publicRootReadback?.rect.y, 0);
   assert.deepEqual(measured.elements.find(element => element.tag === 'RN:Text')!.textRects,
     [{x: 10, y: 20, width: 100, height: 30}]);
 });
@@ -301,9 +308,27 @@ test('missing or duplicate registered fixture roots cannot invoke native observa
   await assert.rejects(collectNativeScreen({...options, observe, isCurrent: undefined}), /current public fixture guard/);
   const other = {...fixture, childNodes: []}; options.root.childNodes.push(other as typeof fixture);
   registry.register(other, {kind: 'view', semanticId: 'tv-front-door'});
-  const measured = await collectNativeScreen({...options, observe});
+  await assert.rejects(collectNativeScreen({...options, observe}), /unique registered public fixture/);
   assert.equal(calls, 0);
-  assert.ok(measured.unavailable.some(fact => fact.property === 'nativeObservation'));
+});
+
+test('missing physical host bounds become null with a declared gap despite a usable public box', async () => {
+  const {options, payload} = scene();
+  Object.assign(payload.hosts[2].facts, {windowRect: {unavailable: 'unsupported-transform'}});
+  const measured = await collectNativeScreen(options);
+  const title = measured.elements.find(element => element.tag === 'RN:Text')!;
+  assert.equal(title.box, null);
+  assert.equal((title.diagnostics as {nativeWindowRect?: unknown}).nativeWindowRect, undefined);
+  assert.equal((title.diagnostics as {nativeWindowTextRects?: unknown}).nativeWindowTextRects, undefined);
+  assert.ok((title.diagnostics as {publicMeasurement?: unknown}).publicMeasurement);
+  assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'box'));
+});
+
+test('missing native root geometry or observer refuses rather than emitting a public-layout fallback', async () => {
+  const {options, payload} = scene();
+  await assert.rejects(collectNativeScreen({...options, observe: undefined}), /scoped native-window observer is required/);
+  Object.assign(payload.hosts[0].facts, {windowRect: {unavailable: 'unsupported-transform'}});
+  await assert.rejects(collectNativeScreen(options), /native-window root bounds are unavailable/);
 });
 
 test('production observer construction never loads native modules', () => {

@@ -32,9 +32,10 @@ The lease provides:
   input registrations reject these without reading them.
 - `observeTextRectangles(reader)`: an optional current native window-space run
   observer. It supplies actual native run boxes in the same logical dp/pt units.
-  The collector subtracts the measured screen origin; it never infers glyph
-  transforms from a Text host box, shell scale or frame geometry. Without this
-  observation, `textRects` is explicitly unavailable. Do not implement this
+  This recording API does not replace the capture's admitted native batch.
+  The native-window capture subtracts only its observed native window root; it
+  never infers glyph transforms from a Text host box, shell scale or frame geometry.
+  Without a paired native observation, `textRects` is unavailable. Do not implement this
   observer by returning `measureInWindow()` or `getBoundingClientRect()` boxes.
 - `recordResolvedStyle(facts)`: **only** actual observed/resolved native font
   and paint facts. Never pass `StyleSheet.flatten(...)` here.
@@ -53,7 +54,7 @@ are null with explicit unavailability, never false/one guesses. Native Text
 layout supplies text/line facts; a current native window-run observer supplies
 run boxes. Missing either fact is unavailable rather than a host-box fallback.
 Logical boxes/fonts are not multiplied or divided by device density. An offset
-or mismatched whole-screen root fails `fullViewport`; no frame-specific offset,
+or mismatched physically observed whole-screen root fails `fullViewport`; no frame-specific offset,
 zoom or display setting repairs it.
 RN extent consistency follows the shared `sameLogicalExtent` relation: exact
 equality or an exact float32 projection in either direction. Origins remain
@@ -94,10 +95,20 @@ from the active shaped resource's verified name16 (otherwise name1). Legacy
 observed platform labels belong to unscored `style.platformFontFamily`. Native
 system labels and diagnostic/requested family chains never fill the identity.
 
-An optional native window rectangle is coordinate evidence, not a replacement
-for a collector box. A failing `fullViewport` reason retains the selected API,
-unverified space, raw logical rectangle and same-host native/callback readback.
-Native window text runs are withheld unless the selected root API, actual
-`measureInWindow` and native window rectangle agree on the same live attachment.
-No API is selected because its origin is zero, and no offset is subtracted to
-fit an authored frame.
+New captures use `measurement.geometrySource: 'native-window'` for every box and
+run. The single admitted batch supplies `diagnostics.nativeCoordinates` and each
+node's raw `nativeWindowRect` / observed `nativeWindowTextRects`. Only that batch's
+physical window root is subtracted; missing host bounds emit `box: null` with an
+explicit gap. A missing native observer, fixture scope or root bounds refuses the
+capture. Apple cannot supply this source until its native admission exists.
+
+Fabric `getBoundingClientRect` and `measureInWindow` read ShadowTree layout and
+remain unscored `publicMeasurement` diagnostics. They neither prove attachment
+nor need to agree with native animation geometry. No public-layout fallback,
+inset adjustment, frame offset or zero-returning API preference is used. Old
+captures and their false `fullViewport` flags remain unchanged.
+
+The existing DEV App root uses `collapsable: false` to retain a physical container.
+A materialized Fabric `FormsView` alone can still have flattened children mounted
+as native siblings. The scoped native observer must verify actual root/fixture
+containment and current attachment before publishing; the prop is not that proof.

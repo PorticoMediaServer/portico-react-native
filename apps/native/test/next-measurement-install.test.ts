@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as collector from '../src-next/dev/layout-dump/index.ts';
 import {createNativeTreeObserver} from '../src-next/dev/layout-dump/native-observer.ts';
+import {nativeHost, setNativeObservation, observeNativeWindow, addNativeFixture, windowAPI} from './helpers/native-window-fixture.ts';
 
 const globals = globalThis as typeof globalThis & {
   __DEV__?: boolean;
@@ -13,12 +14,15 @@ test('App measurement command borrows only the current public root and live view
   const original = globals.__DEV__;
   globals.__DEV__ = true;
   let dispose: (() => void) | undefined;
+  let retireFixture: (() => void) | undefined;
   try {
     let current = true, width = 390, height = 844, density = 3, fontScale = 1.25, reads = 0;
-    const root = {nodeType: 1, nodeName: 'RN:View', isConnected: true, childNodes: [],
-      getBoundingClientRect: () => ({x: 0, y: 0, width, height})};
+    const root = nativeHost('RN:View', {x: 0, y: 0, width, height});
+    root.getBoundingClientRect = () => ({x: 0, y: 0, width, height});
+    setNativeObservation(root, () => ({style: {}, unavailable: {}, windowRect: {x: 0, y: 0, width, height}, windowRectSource: windowAPI}));
+    retireFixture = addNativeFixture(root, collector.registerNativeHost);
     const {installNativePublicMeasurement} = await screenModule(new URL('../src-next/dev/measurement-install.ts', import.meta.url), {
-      react: {default: {}}, './layout-dump': {...collector, createAndroidNativeTreeObserver: () => undefined},
+      react: {default: {}}, './layout-dump': {...collector, createAndroidNativeTreeObserver: () => observeNativeWindow},
       'react-native': {Platform: {OS: 'android', isTV: false}, Dimensions: {get: (kind: string) => {
         assert.equal(kind, 'window'); return {width, height};
       }}, PixelRatio: {get: () => density, getFontScale: () => fontScale}},
@@ -29,12 +33,12 @@ test('App measurement command borrows only the current public root and live view
     assert.equal(Object.isFrozen(command), true);
     const first = await command.capture();
     assert.deepEqual(first.viewport, {width: 390, height: 844, deviceScaleFactor: 3});
-    assert.deepEqual(first.diagnostics, {fontScale: 1.25});
+    assert.equal(first.diagnostics.fontScale, 1.25);
     assert.equal(first.fullViewport, true);
     width = 844; height = 390; density = 2; fontScale = 0.85;
     const second = await command.capture();
     assert.deepEqual(second.viewport, {width, height, deviceScaleFactor: density});
-    assert.deepEqual(second.diagnostics, {fontScale: 0.85});
+    assert.equal(second.diagnostics.fontScale, 0.85);
     assert.throws(() => installNativePublicMeasurement(() => root, () => true), /already installed/);
     current = false;
     const previousReads = reads;
@@ -46,6 +50,7 @@ test('App measurement command borrows only the current public root and live view
     await assert.rejects(command.capture(), /disposed/);
   } finally {
     dispose?.();
+    retireFixture?.();
     if (original === undefined) delete globals.__DEV__; else globals.__DEV__ = original;
   }
 });
@@ -71,7 +76,8 @@ test('App forwards the installed observer to the same public collector and rejec
         assert.equal(rootTag, 11); assert.equal(fixtureTag, 12);
         calls.push([...tags]);
         const response = {version: 1, unit: 'dp', rootReactTag: rootTag, fixtureReactTag: fixtureTag,
-          hosts: tags.map(reactTag => ({reactTag, facts: {isFocused: {value: false, source: 'android.View.isFocused'}}}))};
+          hosts: tags.map(reactTag => ({reactTag, facts: {isFocused: {value: false, source: 'android.View.isFocused'},
+            windowRect: {value: {x: 0, y: 0, width: 390, height: 844}, source: windowAPI}}}))};
         if (calls.length === 1) return response;
         entered();
         return await new Promise<unknown>(resolve => {finish = resolve;});
