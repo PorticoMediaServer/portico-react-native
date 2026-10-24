@@ -16,6 +16,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {NativeSavedDestination} from './model';
 import {SavedDownloadCard, type NativeSavedDownloadsCopy} from './SavedDownloadCard';
+import {openNativeSavedDownload} from '../downloads/playback';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
@@ -75,7 +76,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       {downloads.supported && <>
         <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(downloads.usedBytes)})} onPress={actions.openDownloads}/>
         {!!localGroups.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16, gap: 10}}>
-          {localGroups.map(group => <SavedDownloadCard key={group.key} group={group} device={device} copy={downloadsCopy} onOpen={actions.openDownloads}/>)}
+          {localGroups.map(group => <SavedDownloadCard key={group.key} group={group} device={device} copy={downloadsCopy} onOpen={() => openNativeSavedDownload(device, group, actions.openDownloads, report)}/>)}
         </ScrollView>}
       </>}
       <View style={{marginHorizontal: 16, marginTop: 24, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>

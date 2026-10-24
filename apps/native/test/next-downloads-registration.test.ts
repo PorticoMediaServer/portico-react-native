@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
+import {createNativeOfflineEntryPlayback} from '../src-next/screens/downloads/playback.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 test('the ordinary Downloads route registers its own real-data renderer and exact eleven copy bindings', async () => {
@@ -40,6 +41,7 @@ test('Downloads storage authority retires old actions, requests and disconnects 
     react: host.react,
     '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {dispose() {disposed++;}}},
     '../destinations/lifetime': {nativeDestinationLifetime},
+    './playback': {createNativeOfflineEntryPlayback},
     '../../platform/offline-downloads': {offlineDownloads: device, createNativeOfflineDownloadsAdapter: (_: undefined, actual: unknown) => actual},
   });
   const viewer = {serverId: 'server', accountId: 'account', profileId: 'first', authority: 'local'};

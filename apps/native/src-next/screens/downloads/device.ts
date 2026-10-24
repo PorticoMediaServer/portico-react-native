@@ -2,6 +2,7 @@ import {DownloadsService} from '../../../../../packages/client-core/src/download
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeOfflineDownloadsAdapter, offlineDownloads, type NativeOfflineDownloadsDevice, type OfflineEntry} from '../../platform/offline-downloads';
+import {createNativeOfflineEntryPlayback} from './playback';
 
 let connection: object | undefined;
 type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; dispose: () => void}>;
@@ -21,6 +22,7 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
   let released = false;
   const assertBorrowed = () => {if (released) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});};
   const source = current.lease.device;
+  const playback = createNativeOfflineEntryPlayback(context, source, () => !released);
   const borrowed: NativeOfflineDownloadsDevice = {
     ...source,
     getSnapshot: () => {assertBorrowed(); return source.getSnapshot();},
@@ -36,11 +38,12 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     note: entry => {assertBorrowed(); return source.note(entry);},
     displayFacts: async entry => {assertBorrowed(); const facts = await source.displayFacts(entry); assertBorrowed(); return facts;},
     localMedia: async entry => {assertBorrowed(); const media = await source.localMedia(entry); assertBorrowed(); return media;},
-    ...(source.openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await source.openOffline!(entry);}} : {}),
+    ...(playback.openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await playback.openOffline(entry);}} : {}),
   };
   return Object.freeze({device: Object.freeze(borrowed), dispose: () => {
     if (released) return;
     released = true;
+    playback.dispose();
     if (--current.references !== 0) return;
     if (pool.get(device) === current) pool.delete(device);
     current.lease.dispose();

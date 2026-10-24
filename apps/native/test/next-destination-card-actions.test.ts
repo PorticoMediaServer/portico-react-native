@@ -5,6 +5,7 @@ import {createTheme} from '../src-next/kit/theme.ts';
 import {holdCard, type CardActions} from '../src-next/kit/cards/model.ts';
 import {nativeSearchGenreTiles} from '../src-next/screens/search/genre-tiles.ts';
 import {channelTint} from '../../../packages/client-core/src/presentation/kit-model/channels.ts';
+import {openNativeSavedDownload} from '../src-next/screens/downloads/playback.ts';
 
 type Element = {type: any; props: Record<string, any>};
 function elements(node: any): Element[] {
@@ -89,6 +90,7 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     '../../kit/theme': {useTheme: () => theme}, '../../platform/offline-downloads': {groupOfflineEntries: () => []}, '../home/model': {homeCardText: () => ({caption: []})},
     './model': {savedProjectionCount: () => undefined, savedDirectoryCount: () => undefined},
     './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
+    '../downloads/playback': {openNativeSavedDownload},
   });
   const tree = host.render(() => SavedScreen({destination: {subscribe() {}, getSnapshot: () => state}, runtime, device: {subscribe() {}, getSnapshot: () => ({entries: []})},
     actions, activation: {subscribe() {}, getSnapshot: () => ({visible: false, intent: 'restore', revision: 2})}, selection: {item: () => selected, render: () => 'actual-toolbar'}}));
