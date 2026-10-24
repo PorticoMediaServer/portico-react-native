@@ -68,3 +68,6 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
     },
   });
 }
+
+/** The borrowed entry menu and page actions, as the calling screen sees them. */
+export type NativeEntryActions = ReturnType<typeof createNativeEntryActions>;

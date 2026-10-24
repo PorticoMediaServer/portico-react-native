@@ -9,6 +9,8 @@ import '../screens/library/OverviewRoute';
 import '../screens/search/register';
 import '../screens/settings-live/LiveRoute';
 import '../screens/settings-live/TogetherRoute';
+import '../screens/destinations/music/register';
+import '../screens/destinations/saved/register';
 import {createNativeWatchBindings, registerNativeWatch} from '../screens/watch';
 
 registerNativeWatch(createNativeWatchBindings);

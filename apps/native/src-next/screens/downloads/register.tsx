@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
 import {phoneBarHeight, shellLayout} from '../../shell/model';
-import {titleRoute} from '../../shell/routes';
+import {nativeEntryRoute} from '../../shell/routes';
 import {DownloadsScreen} from './DownloadsScreen';
 import {createNativeDownloadsDevice} from './device';
 import type {NativeDownloadsCopy} from './presentation';
@@ -38,7 +38,7 @@ export const createNativeDownloadsModule: NativeRouteFactory = context => {
         // The descriptor uses the cached title's actual identity. The Title owner
         // reads its authorized detail; this does not synthesize a detail response.
         const title: ContentEntry = {id: live.itemId, libraryId: live.libraryId, kind: kind as ContentEntry['kind'], title: live.info?.title || live.title};
-        context.navigation.open(titleRoute(title), context.authority());
+        context.navigation.open(nativeEntryRoute(title), context.authority());
       }}/> : null,
     dispose: bound.dispose,
   };

@@ -1,0 +1,87 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {screenModule} from './helpers/screen-harness.mjs';
+
+const song = (id: string, track: number, duration: number, title: string) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
+const albumEntry = {id: 'album-1', libraryId: 'music', kind: 'album', title: 'DAMN.', artist: {id: 'artist-1', name: 'Kendrick Lamar'}, year: 2017, posterUrl: '/v1/items/a/art/poster'};
+const artistEntry = {id: 'artist-1', libraryId: 'music', kind: 'artist', title: 'Kendrick Lamar', country: 'US', activeBeginYear: 2004, genres: ['Hip-Hop']};
+
+class Builder {
+  body: any;
+  constructor() { this.body = {}; }
+  where(field: string, operator: string, value: string) { this.body.query = {field, operator, value}; return this; }
+  sort(field: string, direction: string) { this.body.sort = [{field, direction}]; return this; }
+  limit(value: number) { this.body.limit = value; return this; }
+  build() { return this.body; }
+}
+
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]};
+async function controller(entry: any, options: Fixture = {}) {
+  const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
+  const calls: any[] = [];
+  const playback = {cataloguePlayback: () => ({playSegments: (segments: any, start: any) => {calls.push({segments, options: start}); return Promise.resolve({id: 'queue'});}})};
+  const api = {request: async (path: any) => {
+    if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: 200}};
+    if (String(path).startsWith('browse:')) return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start: 0, total, revision: 'r', hasMore: false, nextCursor: ''}, entries: songs};
+    if (String(path).includes('albums')) return {albums, nextCursor: ''};
+    if (String(path).includes('similar')) return {data: {entries: similar}};
+    if (String(path).includes('/personal-state')) return {favorite: true};
+    throw new Error(`unexpected ${path}`);
+  }};
+  const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
+    react: {default: {}},
+    '../../../shell/bootstrap': {default: {}},
+    '../../../shell/playback': {default: {}},
+    './lifetime': {default: {}, nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
+    '../../../../../../packages/client-core/src/library-content': {default: {}, validateContentEntry: (value: any) => value},
+    '../../../../../../packages/client-core/src/browse': {default: {}, BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library: string, pivot: string) => `cap:${library}:${pivot}`, browsePath: (library: string) => `browse:${library}`,
+      parseBrowseCapabilities: (value: any) => value, parseBrowseResult: (value: any) => value},
+    '../../../../../../packages/client-core/src/container-state': {default: {}, getContainerState: async (_api: any, _kind: any, _id: any) => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
+    '../../../../../../packages/contracts/src/routes': {default: {}, encodedRoutePath: (id: string, values: {id: string}) => `/v1/${id}/${values.id}`},
+    '../../../../../../packages/client-core/src/server-messages': {default: {}, unreadableServerResponse: 'unreadable'},
+  });
+  const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => true}, playback});
+  return {value, calls};
+}
+
+test('album page reads its own songs, total, duration and similar albums', async () => {
+  const {value} = await controller(albumEntry, {songs: [song('song-1', 1, 180, 'BLOOD.'), song('song-2', 2, 185, 'DNA.')],
+    similar: [{kind: 'album', id: 'album-2', libraryId: 'music', title: 'Rumours'}, {kind: 'song', id: 'song-9', libraryId: 'music', title: 'Dreams'}]});
+  await value.load();
+  const state = value.getSnapshot();
+  assert.equal(state.phase, 'ready');
+  assert.equal(state.songs.length, 2);
+  assert.equal(state.songTotal, 2);
+  assert.equal(state.songDurationSeconds, 365);
+  assert.deepEqual(state.similar.map((entry: any) => entry.id), ['album-2']);
+  assert.equal(state.favorite, true);
+  value.dispose();
+});
+
+test('artist page reads albums, top songs and similar artists from the server', async () => {
+  const {value} = await controller(artistEntry, {songs: [song('song-1', 1, 180, 'DNA.')], total: 4,
+    albums: [{id: 'album-1', libraryId: 'music', title: 'Abbey Road', albumArtistId: 'artist-1', albumArtist: 'Kendrick Lamar', year: 2017, posterUrl: '/x'}],
+    similar: [{kind: 'artist', id: 'artist-2', libraryId: 'music', title: 'J. Cole'}]});
+  await value.load();
+  const state = value.getSnapshot();
+  assert.equal(state.phase, 'ready');
+  assert.equal(state.songTotal, 4);
+  assert.equal(state.albums.length, 1);
+  assert.equal(state.albums[0]?.artist?.name, 'Kendrick Lamar');
+  assert.deepEqual(state.similar.map((entry: any) => entry.id), ['artist-2']);
+  value.dispose();
+});
+
+test('play starts the album or artist container through the shared queue player', async () => {
+  const {value, calls} = await controller(albumEntry, {songs: [song('song-1', 1, 180, 'BLOOD.')]});
+  await value.load();
+  await value.play('song-1');
+  await value.play(undefined, true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].segments[0].source, {container: {kind: 'album', id: 'album-1'}});
+  assert.deepEqual(calls[0].segments[0].anchor, {itemId: 'song-1'});
+  assert.deepEqual(calls[1].segments[0].order, {mode: 'shuffle'});
+  assert.equal(typeof calls[0].options.isCurrent, 'function');
+  assert.ok(calls[0].options.signal instanceof AbortSignal);
+  value.dispose();
+});

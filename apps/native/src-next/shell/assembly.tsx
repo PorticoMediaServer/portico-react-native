@@ -17,7 +17,7 @@ import {HomeSelectionBars} from './HomeSelectionBars';
 import {HomeSelectionOverlays} from './HomeSelectionOverlays';
 import {nativeAccountMenu, nativeMenuRouteAvailable} from './account';
 import {nativeHomeSelectionScope} from './selection-scope';
-import {nativeRailDestination, titleRoute, type NativeShellRoute} from './routes';
+import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
@@ -67,7 +67,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const playback = context.playback.selectionPlayback(isCurrent);
   const controller = new HomeSelectionController({api: context.api, events: context.events, home: context.home, context: homeSelectionContext(scope, initial), environment: environment(), isCurrent,
     requestId: feedback.requestId, playback, reportError,
-    routes: {openEntry: entry => open(titleRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
+    routes: {openEntry: entry => open(nativeEntryRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
   let capturedMenu: {menu: NonNullable<ReturnType<HomeSelectionController['getSnapshot']>['menu']>; anchorRef?: RefObject<View | null>; owner: object} | undefined;
   const windowId = (rowId: string) => `home-row:${rowId}`;
@@ -245,7 +245,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
     subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
     actions: {
-      navigate: entry => {if (currentHome()) open(titleRoute(entry));},
+      navigate: entry => {if (currentHome()) open(nativeEntryRoute(entry));},
       play: (entry, target) => {
         homeActionDiagnostics.action('home-assembly', 'primary-play');
         if (!currentHome() || !homeEntryCapabilities(entry, platform).playable) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'guard-refused'); return;}

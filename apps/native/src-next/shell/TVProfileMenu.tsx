@@ -30,5 +30,5 @@ export function TVProfileMenu({snapshot, open, onOpenChange, returnFocusRef}: {
   </View>;
   return <Menu testID={tvFocusIds(snapshot.authority).profileMenu} open={open} onOpenChange={onOpenChange}
     title={snapshot.profile.name} presentation="anchored" placement="right-end" width={640} offset={168} alignOffset={-8}
-    anchorRef={returnFocusRef} context={context} items={items} returnFocusRef={returnFocusRef}/>;
+    anchorRef={returnFocusRef} context={context} items={items} initialFocusId="together" returnFocusRef={returnFocusRef}/>;
 }

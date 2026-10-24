@@ -18,6 +18,7 @@ import type {Timers} from '../../../../../packages/client-core/src/playback-v1/s
 import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
+import type {V1QueuePlayer} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
 import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
@@ -103,6 +104,8 @@ export interface NativePlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativePlaybackRuntimeSnapshot;
   start: (input: NativePlaybackStart) => Promise<void>;
+  /** The existing queue owner, for a server-named container (album, artist, show). */
+  cataloguePlayback?: () => Pick<V1QueuePlayer, 'playSegments'>;
   startVersion: (input: NativePlaybackStart, selection: NativePlaybackVersionSelection) => Promise<void>;
   startOffline?: (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime) => Promise<void>;
   change: (fence: PlaybackFence, choices: PlaybackChoices) => Promise<void>;

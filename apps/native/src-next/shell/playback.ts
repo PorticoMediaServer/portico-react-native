@@ -2,6 +2,7 @@ import type {ComponentType} from 'react';
 import type {HomeSelectionPlaybackPort} from '../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
+import type {V1QueuePlayer} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence} from '../../../../packages/player-core/src';
@@ -55,6 +56,9 @@ export interface NativeShellPlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativeShellPlaybackSnapshot;
   start: (input: NativeShellPlaybackStart) => Promise<void>;
+  /** The same authority-local queue owner, for screens that play a server-named group
+   * (an album or an artist) rather than one item. Absent only where the platform has no queue player. */
+  cataloguePlayback?: () => Pick<V1QueuePlayer, 'playSegments'>;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   restoreBookmark: (expectedBookmarkFence: PlaybackFence, playExplicitly: boolean) => Promise<PlaybackFence | undefined>;
