@@ -175,3 +175,21 @@ test('privacy-off clears arrived history during an explicit clear, and pause can
     assert.deepEqual(f.destination.getSnapshot().recent, []); assert.equal(calls.length, 2); assert.deepEqual(f.errors, []);
   } finally {f.destination.dispose();}
 });
+
+test('an arrived read error survives pause/resume until the actual retry gesture', async () => {
+  let reads = 0, fail = true;
+  const f = setup(async <T>(path: string) => {
+    reads++;
+    if (fail) throw Object.assign(new Error('actual read failure'), {status: 503, code: 'unavailable'});
+    return result(path, ['actual-result']) as T;
+  });
+  try {
+    f.destination.setText('matrix'); f.destination.selectGroup('movies'); await tick();
+    const error = f.destination.getSnapshot().search.error; assert.equal(f.destination.getSnapshot().search.phase, 'error'); assert.ok(error);
+    f.destination.pause(); f.destination.resume(); await tick();
+    assert.equal(reads, 1); assert.deepEqual(f.destination.getSnapshot().search.error, error);
+    assert.equal(f.destination.getSnapshot().search.phase, 'error');
+    fail = false; await f.destination.retry();
+    assert.equal(reads, 2); assert.equal(f.destination.getSnapshot().search.phase, 'ready');
+  } finally {f.destination.dispose();}
+});

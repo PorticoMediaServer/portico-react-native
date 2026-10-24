@@ -110,7 +110,7 @@ export class NativeSearchDestination {
   resume = (): void => {
     if (!this.current() || !this.paused) return;
     this.paused = false;
-    if (this.state.search.phase !== 'ready') void this.select(false);
+    if (this.state.search.phase === 'idle') void this.select(false);
   };
   refreshHistory = async (): Promise<void> => {
     if (!this.current()) return;
