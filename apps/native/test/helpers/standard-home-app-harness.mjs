@@ -186,8 +186,6 @@ const loader = registerHooks({
       return {url: svgURL, shortCircuit: true};
     if (specifier === 'react-native-gesture-handler')
       return {url: gestureURL, shortCircuit: true};
-    if (specifier === 'react-native-webview')
-      return {url: data(`export {View as default} from ${JSON.stringify(nativeURL)};`), shortCircuit: true};
     if (specifier === '@react-native-community/blur')
       return {
         url: data(
