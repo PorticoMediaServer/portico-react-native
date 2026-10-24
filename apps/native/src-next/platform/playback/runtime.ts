@@ -44,6 +44,7 @@ const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverI
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
 const audioKind = (kind: string | undefined) => kind === 'song' || kind === 'track' || kind === 'audiobook_file' || kind === 'audiobook';
 const kindOf = (kind: string | undefined): 'video' | 'music' | 'audiobook' => kind === 'song' || kind === 'track' ? 'music' : kind === 'audiobook_file' || kind === 'audiobook' ? 'audiobook' : 'video';
+const offlineContentKind = (kind: string | undefined) => kind === 'movie' || kind === 'episode' || kind === 'song' || kind === 'audiobook_file' ? kind : undefined;
 const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubject => {
   const item = detail?.item, episode = item?.episode;
   const card: CardSubject = {
@@ -507,13 +508,10 @@ export class NativePlaybackRuntime {
     try {
       const source = await this.offline.prepare(entry, current);
       if (!current()) throw retired();
-      const contentKind = source.metadata.kind;
-      if (contentKind !== 'movie' && contentKind !== 'episode' && contentKind !== 'song' && contentKind !== 'audiobook_file') throw new Error(serviceText('downloads.offline.notPlayableHere'));
+      if (!offlineContentKind(source.metadata.kind)) throw new Error(serviceText('downloads.offline.notPlayableHere'));
       this.rememberCurrent(); await this.queue.cancel();
       if (!current() || !source.current()) throw retired();
-      this.offlineSource = source; this.entry = undefined; this.options = undefined;
-      const kind = kindOf(contentKind);
-      this.subject = {kind, item: {id: source.itemId, title: source.metadata.title, kind: contentKind}};
+      this.bindOffline(source);
       this.expanded = !audioKind(source.metadata.kind);
       this.preparing = true;
       await this.playback.playLocal(source.itemId, source.session, undefined, {signal: controller.signal, isCurrent: current});
@@ -528,6 +526,13 @@ export class NativePlaybackRuntime {
       if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
     }
   };
+
+  private bindOffline(source: NativeOfflineSource): void {
+    const contentKind = offlineContentKind(source.metadata.kind);
+    if (!contentKind) throw new Error(serviceText('downloads.offline.notPlayableHere'));
+    this.offlineSource = source; this.entry = undefined; this.options = undefined;
+    this.subject = {kind: kindOf(contentKind), item: {id: source.itemId, title: source.metadata.title, kind: contentKind}};
+  }
 
   private readonly cataloguePort: Pick<V1QueuePlayer, 'playSegments'> = Object.freeze({
     playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => this.playCatalogueSegments(segments, options),
@@ -1240,6 +1245,15 @@ export class NativePlaybackRuntime {
               if (epoch === this.startEpoch && this.currentAuthority()) this.playback.leave();
               throw error;
             }
+          } else if (effect.playback.fence.kind === 'local') {
+            const valid = () => this.currentAuthority() && epoch === this.startEpoch && !controller.signal.aborted;
+            if (!this.offline || !saved.offline || !saved.offline.current()) throw new Error(serviceText('downloads.offline.notPlayableHere'));
+            const source = await this.offline.reopen(saved.offline, valid);
+            if (!valid()) return;
+            this.bindOffline(source);
+            await this.playback.playLocal(source.itemId, source.session, effect.playback.positionSeconds,
+              {initialIntent: 'paused', signal: controller.signal, isCurrent: valid});
+            if (!valid()) return;
           } else {
             if (!saved.queueId || !saved.entryId) throw new Error('Playback bookmark is unavailable.');
             // Canonical restore starts the actual queue entry paused, with no transient play.
