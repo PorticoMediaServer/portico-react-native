@@ -10,6 +10,7 @@ import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
+import {DetailsPanel, type StateFact} from '../../../kit/states';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
@@ -129,6 +130,12 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
   const releases = artistReleaseGroups(snapshot.albums);
   const albums = releases.find(group => group.id === 'albums')?.entries ?? [];
   const otherReleases = releases.filter(group => group.id !== 'albums');
+  const allSongs = snapshot.allSongs;
+  const detailFacts: readonly StateFact[] = [
+    ...(entry.country ? [{id: 'country', label: t('title.country'), value: entry.country}] : []),
+    ...(years ? [{id: 'activeYears', label: t('title.activeYears'), value: years}] : []),
+    {id: 'type', label: t('title.albumType'), value: t('title.kind', {kind: 'artist'})},
+  ];
   return <View testID="native-tv-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
@@ -167,6 +174,19 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
               </View>;
             })}
           </View>
+        </View>
+        <View>
+          <SectionHeading title={t('title.details')}/>
+          <DetailsPanel audience="viewer" facts={detailFacts} style={{marginTop: 18, width: 900}} testID={`music-artist-details-${encodeURIComponent(entry.id)}`}/>
+          <View style={{marginTop: 28, flexDirection: 'row', alignItems: 'center', gap: 20}}>
+            {allSongs.phase === 'ready'
+              ? <SectionHeading title={t('music.allSongs')} detail={allSongs.total === undefined ? undefined : t('title.songCount', {count: allSongs.total})}/>
+              : <Button variant="text" icon="i-music" disabled={allSongs.phase === 'loading'} onPress={() => {void controller.loadAllSongs();}}
+                accessibilityLabel={t('music.allSongs')}>{t('music.allSongs')}</Button>}
+          </View>
+          {allSongs.phase === 'loading' && <Text style={[browseType(theme, 22, 600), {color: theme.colors.textSecondary, marginTop: 14}]}>{t('music.loading')}</Text>}
+          {allSongs.phase === 'error' && <MusicErrorView error={allSongs.error} onRetry={() => {void controller.loadAllSongs();}} style={{marginTop: 16, width: 900}}/>}
+          {allSongs.phase === 'ready' && <TrackList songs={allSongs.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" style={{marginTop: 12, width: 1118}}/>}
         </View>
       </View>
     </ScrollView>

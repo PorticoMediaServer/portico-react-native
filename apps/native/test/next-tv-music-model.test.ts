@@ -212,6 +212,28 @@ test('album membership stops sending when the destination retires', async () => 
   value.dispose();
 });
 
+test('artist All songs follows the artist filter to completion in server order', async () => {
+  const many = [song('song-a', 1, 180, 'A'), song('song-b', 2, 181, 'B'), song('song-c', 3, 182, 'C')];
+  const {value, browseBodies} = await controller(artistEntry, {songs: many, total: 3, pageSize: 2, maximumLimit: 2});
+  await value.loadAllSongs();
+  assert.equal(value.getSnapshot().allSongs.phase, 'ready');
+  assert.deepEqual(value.getSnapshot().allSongs.songs.map((entry: any) => entry.id), ['song-a', 'song-b', 'song-c']);
+  assert.equal(value.getSnapshot().allSongs.total, 3);
+  assert.deepEqual(browseBodies[0].query, {field: 'artist', operator: 'equals', value: 'Kendrick Lamar'});
+  assert.deepEqual(browseBodies[0].sort, [{field: 'title', direction: 'asc'}]);
+  assert.deepEqual(browseBodies.map(body => body.cursor ?? null), [null, '2']);
+  value.dispose();
+});
+
+test('artist All songs refuses a short page instead of calling it all', async () => {
+  const many = [song('song-a', 1, 180, 'A'), song('song-b', 2, 181, 'B')];
+  const {value} = await controller(artistEntry, {songs: many, total: 3, pageSize: 2, maximumLimit: 2});
+  await value.loadAllSongs();
+  assert.equal(value.getSnapshot().allSongs.phase, 'error');
+  assert.equal((value.getSnapshot().allSongs.error as any).code, 'music_all_songs_unavailable');
+  value.dispose();
+});
+
 test('play starts the album or artist container through the shared queue player', async () => {
   const {value, calls} = await controller(albumEntry, {songs: [song('song-1', 1, 180, 'BLOOD.')]});
   await value.load();

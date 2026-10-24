@@ -22,6 +22,7 @@ export type NativeTVMusicSnapshot = Readonly<{
   albums: readonly MusicAlbumRow[];
   similar: readonly ContentEntry[];
   favorite: boolean;
+  allSongs: Readonly<{phase: 'idle' | 'loading' | 'ready' | 'error'; songs: readonly ContentEntry[]; total?: number; error?: unknown}>;
   error?: unknown;
 }>;
 
@@ -80,11 +81,12 @@ const request = async <T>(api: NativeShellBootstrapContext['api'], path: string,
 /** One authority-local album or artist page. The server owns every list, count and order. */
 export class NativeTVMusicController {
   private options: Options;
-  private state: NativeTVMusicSnapshot = Object.freeze({phase: 'idle', songs: [], albums: [], similar: [], favorite: false});
+  private state: NativeTVMusicSnapshot = Object.freeze({phase: 'idle', songs: [], albums: [], similar: [], favorite: false, allSongs: Object.freeze({phase: 'idle', songs: []})});
   private listeners = new Set<() => void>();
   private controller?: AbortController;
   private playController?: AbortController;
   private membershipController?: AbortController;
+  private allSongsController?: AbortController;
   private disposed = false;
   private generation = 0;
   private pending?: Promise<void>;
@@ -259,6 +261,29 @@ export class NativeTVMusicController {
       if (this.membershipController === controller) this.membershipController = undefined;
     }
   };
+  /** The drawn artist page's All songs link: the same artist filter as Top
+   * songs, every page in server order, or an honest error rather than a sample. */
+  loadAllSongs = async (): Promise<void> => {
+    if (!this.current() || this.options.entry.kind !== 'artist' || this.state.allSongs.phase === 'loading') return;
+    this.allSongsController?.abort();
+    const controller = new AbortController(), signal = controller.signal;
+    this.allSongsController = controller;
+    this.publish({allSongs: Object.freeze({phase: 'loading', songs: []})});
+    try {
+      const capabilities = await this.capabilities('songs', signal);
+      if (!this.current() || signal.aborted) return;
+      const page = await this.browseAll(capabilities, builder => builder.where('artist', 'equals', this.options.entry.title).sort('title', 'asc')
+        .limit(Math.min(200, capabilities.queryLimits.maximumLimit)), signal);
+      if (!this.current() || signal.aborted) return;
+      if (!page.complete || page.entries.length !== page.total || page.entries.some(entry => entry.kind !== 'song'))
+        throw membershipFailure('music_all_songs_unavailable');
+      this.publish({allSongs: Object.freeze({phase: 'ready', songs: page.entries, total: page.total})});
+    } catch (error) {
+      if (this.current() && !signal.aborted) this.publish({allSongs: Object.freeze({phase: 'error', songs: [], error: stageFailure('songs', error, signal, diagnose('songs', 'POST', browsePath(this.options.entry.libraryId ?? ''), error))})});
+    } finally {
+      if (this.allSongsController === controller) this.allSongsController = undefined;
+    }
+  };
   play = (anchorItemId?: string, shuffle = false): Promise<void> => {
     if (!this.current()) return Promise.resolve();
     const port = this.options.playback?.cataloguePlayback?.();
@@ -286,6 +311,7 @@ export class NativeTVMusicController {
     this.controller?.abort();
     this.playController?.abort();
     this.membershipController?.abort();
+    this.allSongsController?.abort();
     this.pending = undefined;
     this.listeners.clear();
   };
