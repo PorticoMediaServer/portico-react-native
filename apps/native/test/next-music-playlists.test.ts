@@ -12,6 +12,7 @@ class FakeSavedService {
   static syncThrowAt = Infinity;
   static retrySucceeds = true;
   static retryGate: Promise<void> | null = null;
+  static mutateGate: Promise<void> | null = null;
   route: any;
   intent: any;
   disposed = false;
@@ -34,8 +35,12 @@ class FakeSavedService {
       this.snapshot = {...this.snapshot, lastFailure: {intent, operationId: `op-${intent.itemId}`, kind: 'retry-required'}};
       return Promise.reject(Object.assign(new Error('network'), {code: 'network'}));
     }
-    this.committed.push(intent.itemId);
-    this.snapshot = {...this.snapshot, playlist: {...this.snapshot.playlist, revision: this.snapshot.playlist.revision + 1, entryCount: this.snapshot.playlist.entryCount + 1}};
+    const settle = () => {
+      this.committed.push(intent.itemId);
+      this.snapshot = {...this.snapshot, playlist: {...this.snapshot.playlist, revision: this.snapshot.playlist.revision + 1, entryCount: this.snapshot.playlist.entryCount + 1}};
+    };
+    if (FakeSavedService.mutateGate) return FakeSavedService.mutateGate.then(settle);
+    settle();
     return Promise.resolve();
   };
   retryMutation = async () => {
@@ -57,6 +62,7 @@ function reset() {
   FakeSavedService.syncThrowAt = Infinity;
   FakeSavedService.retrySucceeds = true;
   FakeSavedService.retryGate = null;
+  FakeSavedService.mutateGate = null;
 }
 
 async function port(album?: () => Promise<readonly string[]>) {
@@ -121,6 +127,68 @@ test('a single leaf that threw before queueing retries with a fresh mutate', asy
   const writer = FakeSavedService.instances.at(-1)!;
   assert.deepEqual(writer.committed, ['song-1']);
   assert.deepEqual(FakeSavedService.mutations, ['song-1', 'song-1']);
+  value.dispose();
+});
+
+test('two leaf retries share one fresh mutate after a synchronous throw', async () => {
+  reset();
+  FakeSavedService.syncThrowAt = 0;
+  const value = await port();
+  await value.load();
+  await assert.rejects(value.add('playlist-1', 'song-1', 'Road trip'));
+  let release!: () => void;
+  FakeSavedService.mutateGate = new Promise(resolve => {release = resolve;});
+  const retryA = value.retryLeaf();
+  const retryB = value.retryLeaf();
+  assert.equal(retryA, retryB);
+  release();
+  assert.equal(await retryA, true);
+  const writer = FakeSavedService.instances.at(-1)!;
+  assert.deepEqual(FakeSavedService.mutations, ['song-1', 'song-1']);
+  assert.deepEqual(writer.committed, ['song-1']);
+  value.dispose();
+});
+
+test('two leaf retries share one canonical retry after an accepted rejection', async () => {
+  reset();
+  FakeSavedService.failAt = 0;
+  const value = await port();
+  await value.load();
+  await assert.rejects(value.add('playlist-1', 'song-1', 'Road trip'));
+  let release!: () => void;
+  FakeSavedService.retryGate = new Promise(resolve => {release = resolve;});
+  const retryA = value.retryLeaf();
+  const retryB = value.retryLeaf();
+  assert.equal(retryA, retryB);
+  release();
+  assert.equal(await retryA, true);
+  const writer = FakeSavedService.instances.at(-1)!;
+  assert.deepEqual(FakeSavedService.mutations, ['song-1']);
+  assert.deepEqual(writer.committed, ['song-1']);
+  value.dispose();
+});
+
+test('two same-frame leaf adds share one mutate', async () => {
+  reset();
+  const value = await port();
+  await value.load();
+  let release!: () => void;
+  FakeSavedService.mutateGate = new Promise(resolve => {release = resolve;});
+  const addA = value.add('playlist-1', 'song-1', 'Road trip');
+  const addB = value.add('playlist-1', 'song-1', 'Road trip');
+  assert.equal(addA, addB);
+  release();
+  await addA;
+  const writer = FakeSavedService.instances.at(-1)!;
+  assert.deepEqual(FakeSavedService.mutations, ['song-1']);
+  assert.deepEqual(writer.committed, ['song-1']);
+  value.dispose();
+});
+
+test('a retry with nothing pending settles false', async () => {
+  reset();
+  const value = await port();
+  assert.equal(await value.retryLeaf(), false);
   value.dispose();
 });
 

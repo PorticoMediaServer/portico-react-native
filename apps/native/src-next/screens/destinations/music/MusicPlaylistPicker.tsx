@@ -77,8 +77,8 @@ export class MusicPlaylistPickerController {
   retryLeaf = async (): Promise<void> => {
     const state = this.state, port = state.port, leaf = port?.getSnapshot().leaf;
     if (!state.open || !port || !state.lifetime || !leaf || !this.current(state.lifetime)) return;
-    await port.retryLeaf();
-    if (!this.disposed && state.lifetime && this.current(state.lifetime)) {
+    const settled = await port.retryLeaf();
+    if (settled && !this.disposed && state.lifetime && this.current(state.lifetime)) {
       state.onAdded?.({id: leaf.playlistId, name: leaf.playlistName ?? ''});
       this.close();
     }

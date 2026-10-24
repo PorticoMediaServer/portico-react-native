@@ -37,6 +37,8 @@ type LeafRun = {
   service: SavedService;
   /** An accepted write is unresolved until retryMutation settles it. */
   accepted: boolean;
+  /** One retry at a time, including a fresh mutate after a synchronous throw. */
+  retrying?: Promise<boolean>;
 };
 
 type AlbumRun = {
@@ -60,6 +62,7 @@ export class MusicPlaylistPort {
   private options: Options;
   private list?: SavedService;
   private leafRun?: LeafRun;
+  private pendingAdd?: Promise<void>;
   private albumRun?: AlbumRun;
   private state: MusicPlaylistSnapshot = Object.freeze({phase: 'idle', playlists: [], busy: false});
   private listeners = new Set<() => void>();
@@ -97,12 +100,19 @@ export class MusicPlaylistPort {
       if (this.current() && generation === this.generation) this.publish({phase: 'error', error});
     }
   };
-  add = async (playlistId: string, itemId: string, playlistName = ''): Promise<void> => {
+  add = (playlistId: string, itemId: string, playlistName = ''): Promise<void> => {
+    if (this.pendingAdd) return this.pendingAdd;
+    let task: Promise<void>;
+    task = this.addLeaf(playlistId, itemId, playlistName).finally(() => {if (this.pendingAdd === task) this.pendingAdd = undefined;});
+    this.pendingAdd = task;
+    return task;
+  };
+  private async addLeaf(playlistId: string, itemId: string, playlistName: string): Promise<void> {
     if (!this.current() || !playlistId || !itemId) return;
     if (this.leafRun) {
       if (this.leafRun.playlistId !== playlistId || this.leafRun.itemId !== itemId)
         throw Object.assign(new Error('playlist_add_unresolved'), {code: 'playlist_add_unresolved'});
-      await this.retryLeaf();
+      if (!await this.retryLeaf()) throw Object.assign(new Error('playlist_leaf_not_pending'), {code: 'playlist_leaf_not_pending'});
       return;
     }
     this.publish({busy: true, error: undefined, leaf: undefined});
@@ -136,22 +146,31 @@ export class MusicPlaylistPort {
     service.dispose();
     if (this.current()) this.publish({busy: false, error: undefined, leaf: undefined});
   };
-  /** Settle the one unresolved leaf write, then finish it. */
-  retryLeaf = async (): Promise<void> => {
+  /** Settle the one unresolved leaf write, then finish it. True only when a
+   * confirmed add settled; false when there was nothing left to settle. */
+  retryLeaf = (): Promise<boolean> => {
     const run = this.leafRun;
-    if (!this.current() || !run) return;
+    if (!this.current() || !run) return Promise.resolve(false);
+    if (run.retrying) return run.retrying;
+    let task: Promise<boolean>;
+    task = this.retryLeafRun(run).finally(() => {if (run.retrying === task) run.retrying = undefined;});
+    run.retrying = task;
+    return task;
+  };
+  private async retryLeafRun(run: LeafRun): Promise<boolean> {
     this.publish({busy: true, error: undefined});
     try {
       if (run.accepted) await run.service.retryMutation();
       else await run.service.mutate({action: 'add', itemId: run.itemId});
-      if (!this.current()) return;
+      if (!this.current()) return false;
       run.service.dispose(); this.leafRun = undefined;
       this.publish({busy: false, error: undefined, leaf: undefined});
+      return true;
     } catch (error) {
       if (this.current()) this.publish({busy: false, error});
       throw error;
     }
-  };
+  }
   /** Add every captured song leaf, in order, waiting for each real receipt. */
   addAlbum = async (playlist: Readonly<{id: string; name: string}>): Promise<MusicAlbumResult> => {
     if (this.albumRun) {
@@ -253,6 +272,7 @@ export class MusicPlaylistPort {
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true; this.generation++;
+    this.pendingAdd = undefined;
     this.leafRun?.service.dispose(); this.leafRun = undefined;
     this.albumRun?.service.dispose(); this.albumRun = undefined;
     this.list?.dispose(); this.list = undefined;

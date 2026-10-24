@@ -115,6 +115,8 @@ test('a plain songs failure publishes a safe code and retries the same page', as
   await value.load();
   assert.equal(value.getSnapshot().phase, 'error');
   assert.equal((value.getSnapshot().error as any).code, 'music_album_songs_unavailable');
+  assert.equal((value.getSnapshot().error as any).musicRead.read, 'songs');
+  assert.equal((value.getSnapshot().error as any).musicRead.method, 'POST');
   fail = false;
   await value.load();
   assert.equal(value.getSnapshot().phase, 'ready');
@@ -128,6 +130,8 @@ test('a failed More like this read keeps its own stage code', async () => {
   await value.load();
   assert.equal(value.getSnapshot().phase, 'error');
   assert.equal((value.getSnapshot().error as any).code, 'music_album_similar_unavailable');
+  assert.equal((value.getSnapshot().error as any).musicRead.read, 'similar');
+  assert.equal((value.getSnapshot().error as any).musicRead.method, 'GET');
   value.dispose();
 });
 
@@ -137,6 +141,8 @@ test('a failed capability read keeps its own stage code', async () => {
   await value.load();
   assert.equal(value.getSnapshot().phase, 'error');
   assert.equal((value.getSnapshot().error as any).code, 'music_album_capabilities_unavailable');
+  assert.equal((value.getSnapshot().error as any).musicRead.read, 'capabilities');
+  assert.equal((value.getSnapshot().error as any).musicRead.method, 'GET');
   value.dispose();
 });
 
