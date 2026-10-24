@@ -52,6 +52,10 @@ test('a retried local session cannot receive a retired session observation for t
   assert.deepEqual(x.progress, []);
   await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation, positionSeconds: 51});
   assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.positionSeconds, 51); assert.equal(x.progress[0]!.playId, x.media.playId);
+  await x.api.progressPlayback(retry.id, {...observed, sequence: 1, positionSeconds: 12});
+  assert.equal(x.progress.length, 1, 'a duplicate/older observation cannot roll back the same current session');
+  await x.api.progressPlayback(retry.id, {...observed, sequence: 2, positionSeconds: 20});
+  assert.equal(x.progress.length, 2); assert.equal(x.progress[1]!.positionSeconds, 20, 'a genuinely later seek back remains valid');
   assert.deepEqual(x.network, []);
   x.owner.dispose();
 });

@@ -23,7 +23,7 @@ export class NativeOfflinePlayback {
   private readonly local: LocalPlayback;
   private readonly session: () => LocalSession | undefined;
   private readonly device: Device;
-  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number}>();
+  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number; sequence: number}>();
   private disposed = false;
   constructor(session: () => LocalSession | undefined, device: Device) {
     this.session = session;
@@ -41,7 +41,11 @@ export class NativeOfflinePlayback {
     return {...wrapped, progressPlayback: (id, payload) => {
       // A retry keeps one journal play but creates a new real local session.
       // Its retired session must not overwrite the new session's observation.
-      if (isLocalSession(id) && ![...this.sessions.values()].some(held => held.sessionId === id && held.generation === payload.generation)) return Promise.resolve();
+      if (isLocalSession(id)) {
+        const held = [...this.sessions.values()].find(value => value.sessionId === id && value.generation === payload.generation);
+        if (!held || !held.source.current() || !Number.isSafeInteger(payload.sequence) || payload.sequence <= held.sequence) return Promise.resolve();
+        held.sequence = payload.sequence;
+      }
       return wrapped.progressPlayback(id, payload);
     }};
   }
@@ -77,7 +81,7 @@ export class NativeOfflinePlayback {
       session: () => {
         if (!isCurrent() || !currentEntry()) throw unavailable();
         const session = make();
-        this.sessions.set(media.playId, {source, media, sessionId: session.id, generation: session.generation});
+        this.sessions.set(media.playId, {source, media, sessionId: session.id, generation: session.generation, sequence: 0});
         while (this.sessions.size > 16) this.sessions.delete(this.sessions.keys().next().value!);
         return session;
       },
