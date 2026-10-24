@@ -50,11 +50,21 @@ export class NativeOfflinePlayback {
       return wrapped.progressPlayback(id, payload);
     }};
   }
+  /** Resolve only the native file already admitted for this exact current local
+   * session. A file-looking URL is not itself permission to load a file. */
+  mediaUrl(session: PlaybackSession): string | undefined {
+    const held = this.admitted(session);
+    return held?.media.fileUrl;
+  }
+  private admitted(session: PlaybackSession) {
+    const held = [...this.sessions.values()].find(value => value.sessionId === session.id && value.generation === session.generation);
+    return held && session.mode === 'local' && session.streamUrl === held.media.fileUrl && held.source.current() ? held : undefined;
+  }
   /** Only an actual admitted session can publish the local identity used by the
    * existing dock and controls. Paths and receipt payloads stay app-private. */
   fence(session: PlaybackSession, run: number): LocalPlaybackFence | undefined {
-    const held = [...this.sessions.values()].find(value => value.sessionId === session.id && value.generation === session.generation);
-    if (!held || session.mode !== 'local' || session.streamUrl !== held.media.fileUrl || !held.source.current()) return;
+    const held = this.admitted(session);
+    if (!held) return;
     const {source, media} = held;
     try {
       return localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: source.owner, run},

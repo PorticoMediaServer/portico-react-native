@@ -79,6 +79,22 @@ test('only the current actual local session projects a complete private-path-fre
   assert.deepEqual(x.network, []);
 });
 
+test('native file resolution requires the exact still-admitted local session, not a file-looking source', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true);
+  const original = source.session();
+  assert.equal(x.owner.mediaUrl(original), x.media.fileUrl);
+  assert.equal(x.owner.mediaUrl({...original, id: 'local:copy:999'}), undefined);
+  assert.equal(x.owner.mediaUrl({...original, generation: original.generation + 1}), undefined);
+  assert.equal(x.owner.mediaUrl({...original, mode: 'direct'}), undefined);
+  assert.equal(x.owner.mediaUrl({...original, streamUrl: 'file:///private/other.mp4'}), undefined);
+  const retry = source.session();
+  assert.equal(x.owner.mediaUrl(original), undefined);
+  assert.equal(x.owner.mediaUrl(retry), x.media.fileUrl);
+  x.setEntries([]);
+  assert.equal(x.owner.mediaUrl(retry), undefined);
+  assert.deepEqual(x.network, []);
+});
+
 test('same entry IDs cannot authorize replaced artifacts, another viewer or ambiguous rows', async () => {
   for (const change of ['hash','bytes','viewer','duplicate'] as const) {
     const x = setup(), source = await x.owner.prepare(x.entry,() => true), receipt = x.entry.receipt!;
