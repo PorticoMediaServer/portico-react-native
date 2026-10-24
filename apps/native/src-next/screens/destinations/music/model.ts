@@ -106,6 +106,22 @@ export class NativeTVMusicController {
     const body = build(new BrowseQueryBuilder(capabilities)).build();
     return parseBrowseResult(await request(this.options.api, browsePath(libraryId), 'POST', body, signal));
   }
+  /** A group's full membership when the server's page cap is below what the page
+   * wants: bounded cursor pages, de-duplicated by id, honest about completion. */
+  private async browseAll(capabilities: BrowseCapabilities, build: (builder: BrowseQueryBuilder) => BrowseQueryBuilder, signal: AbortSignal, maxPages = 20) {
+    const libraryId = this.options.entry.libraryId;
+    if (!libraryId) throw new Error('music_library_required');
+    const builder = build(new BrowseQueryBuilder(capabilities)), seen = new Map<string, ContentEntry>();
+    let total = 0;
+    for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
+      const page = parseBrowseResult(await request(this.options.api, browsePath(libraryId), 'POST', builder.build(), signal));
+      total = page.pageInfo.total;
+      for (const entry of page.entries) if (!seen.has(entry.id)) seen.set(entry.id, entry);
+      if (!page.pageInfo.hasMore || !page.pageInfo.nextCursor) return {entries: Object.freeze([...seen.values()]), total, complete: true};
+      builder.cursor(page.pageInfo.nextCursor);
+    }
+    return {entries: Object.freeze([...seen.values()]), total, complete: false};
+  }
   private async favoriteState(signal: AbortSignal): Promise<boolean> {
     try {
       const state = await getContainerState(this.options.api, this.options.entry.kind as 'album' | 'artist', this.options.entry.id, signal);
@@ -120,12 +136,13 @@ export class NativeTVMusicController {
   private async loadAlbum(signal: AbortSignal): Promise<void> {
     const [capabilities, favorite, similar] = await Promise.all([this.capabilities('songs', signal), this.favoriteState(signal), this.similar(signal)]);
     if (!this.current() || signal.aborted) return;
-    const page = await this.browse(capabilities, builder => builder.where('memberOf', 'equals', this.options.entry.id).sort('groupOrder', 'asc').limit(200), signal);
+    const page = await this.browseAll(capabilities, builder => builder.where('memberOf', 'equals', this.options.entry.id).sort('groupOrder', 'asc')
+      .limit(Math.min(200, capabilities.queryLimits.maximumLimit)), signal);
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
-    const complete = page.entries.length === page.pageInfo.total;
+    const complete = page.complete && page.entries.length === page.total;
     const duration = complete ? page.entries.reduce((sum, entry) => sum + (entry.duration ?? 0), 0) : undefined;
-    this.publish({phase: 'ready', songs: page.entries, songTotal: page.pageInfo.total, ...(duration ? {songDurationSeconds: duration} : {}),
+    this.publish({phase: 'ready', songs: page.entries, songTotal: page.total, ...(duration ? {songDurationSeconds: duration} : {}),
       similar: similar.filter(entry => entry.kind === 'album' && entry.id !== this.options.entry.id), favorite});
   }
   private async loadArtist(signal: AbortSignal): Promise<void> {
@@ -133,7 +150,7 @@ export class NativeTVMusicController {
       this.capabilities('songs', signal), this.favoriteState(signal), this.similar(signal), this.artistAlbums(signal),
     ]);
     if (!this.current() || signal.aborted) return;
-    const page = await this.browse(capabilities, builder => builder.where('artist', 'equals', this.options.entry.title).sort('playCount', 'desc').limit(5), signal);
+    const page = await this.browse(capabilities, builder => builder.where('artist', 'equals', this.options.entry.title).sort('playCount', 'desc').limit(Math.min(5, capabilities.queryLimits.maximumLimit)), signal);
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
     this.publish({phase: 'ready', songs: page.entries, songTotal: page.pageInfo.total, albums,

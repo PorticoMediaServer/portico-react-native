@@ -11,18 +11,26 @@ class Builder {
   constructor() { this.body = {}; }
   where(field: string, operator: string, value: string) { this.body.query = {field, operator, value}; return this; }
   sort(field: string, direction: string) { this.body.sort = [{field, direction}]; return this; }
+  cursor(value: string) { this.body.cursor = value; return this; }
   limit(value: number) { this.body.limit = value; return this; }
   build() { return this.body; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
-  const calls: any[] = [];
+  const calls: any[] = [], browseBodies: any[] = [];
   const playback = {cataloguePlayback: () => ({playSegments: (segments: any, start: any) => {calls.push({segments, options: start}); return Promise.resolve({id: 'queue'});}})};
-  const api = {request: async (path: any) => {
-    if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: 200}};
-    if (String(path).startsWith('browse:')) return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start: 0, total, revision: 'r', hasMore: false, nextCursor: ''}, entries: songs};
+  const api = {request: async (path: any, _method?: any, body?: any) => {
+    if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: options.maximumLimit ?? 200}};
+    if (String(path).startsWith('browse:')) {
+      browseBodies.push(body);
+      const pageSize = options.pageSize ?? songs.length;
+      const start = body?.cursor ? Number(body.cursor) : 0;
+      const rows = songs.slice(start, start + pageSize);
+      const nextCursor = start + pageSize < total ? String(start + pageSize) : '';
+      return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: 'r', hasMore: nextCursor !== '', nextCursor}, entries: rows};
+    }
     if (String(path).includes('albums')) return {albums, nextCursor: ''};
     if (String(path).includes('similar')) return {data: {entries: similar}};
     if (String(path).includes('/personal-state')) return {favorite: true};
@@ -41,7 +49,7 @@ async function controller(entry: any, options: Fixture = {}) {
     '../../../../../../packages/client-core/src/server-messages': {default: {}, unreadableServerResponse: 'unreadable'},
   });
   const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => true}, playback});
-  return {value, calls};
+  return {value, calls, browseBodies};
 }
 
 test('album page reads its own songs, total, duration and similar albums', async () => {
@@ -69,6 +77,20 @@ test('artist page reads albums, top songs and similar artists from the server', 
   assert.equal(state.albums.length, 1);
   assert.equal(state.albums[0]?.artist?.name, 'Kendrick Lamar');
   assert.deepEqual(state.similar.map((entry: any) => entry.id), ['artist-2']);
+  value.dispose();
+});
+
+test('album songs respect the server page cap and continue with the cursor', async () => {
+  const many = Array.from({length: 150}, (_, index) => song(`song-${index}`, index + 1, 180, `Track ${index + 1}`));
+  const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 150, maximumLimit: 100, pageSize: 100});
+  await value.load();
+  const state = value.getSnapshot();
+  assert.equal(state.phase, 'ready');
+  assert.equal(state.songs.length, 150);
+  assert.equal(state.songTotal, 150);
+  assert.equal(state.songDurationSeconds, 27000);
+  assert.deepEqual(browseBodies.map(body => body.limit), [100, 100]);
+  assert.deepEqual(browseBodies.map(body => body.cursor ?? null), [null, '100']);
   value.dispose();
 });
 
