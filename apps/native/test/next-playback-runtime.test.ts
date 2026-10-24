@@ -69,7 +69,7 @@ class Engine implements NativePlaybackTransport {
 
 const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
 const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
-function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker, features: EngineFeatures = nativeEngineFeatures, pictureControls = false, offlineDevice?: NativeOfflinePlaybackDevice) {
+function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker, features: EngineFeatures = nativeEngineFeatures, pictureControls = false, offlineDevice?: NativeOfflinePlaybackDevice, engineKind: 'native' | 'mpv' = 'native') {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
@@ -141,7 +141,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     subscribeAuthority: listener => { authorityListeners.add(listener); return () => { authorityListeners.delete(listener); }; },
     events: {on(type, listener) { const set = eventListeners.get(type) ?? new Set(); set.add(listener); eventListeners.set(type, set); return () => { set.delete(listener); }; }, onResync(listener) { resyncListeners.add(listener); return () => { resyncListeners.delete(listener); }; }},
     settings: () => settings, subscribeSettings: listener => { settingsListeners.add(listener); return () => { settingsListeners.delete(listener); }; },
-    requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: 'native', choose: () => 'native', transport: () => engine},
+    requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: engineKind, choose: () => engineKind, transport: () => engine},
     engineFeatures: () => features, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker, offlineDevice, ...(pictureControls ? {pictureInPictureControls: true as const} : {}),
     timers: {
       setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, run: () => { timers.delete(id); fn(); }}); return id; },
@@ -177,11 +177,12 @@ function subtitleResponse(d: ReturnType<typeof fixture>, request: FakeRequest): 
     if (request.method === 'POST' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path) && record(request.body)) return {status: 200, headers: {}, body: {operationId: request.body.operationId, resourceId: 'uploaded-resource', revision: 1, catalogRevision: 2}};
 }
 
-function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number | undefined = 1250) {
+function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number | undefined = 1250, lines?: {engine: 'native' | 'mpv'; burned?: boolean; read(request: FakeRequest): FakeResponse | Promise<FakeResponse>}) {
   const burned = new Set<string>();
   const resource = (sessionId = d.runtime.playback.getSnapshot().session?.id) => ({id: 'rich-resource', sourceId: 'physical-source-1', revision: 3, scope: 'personal', language: 'en', title: 'Actual rich resource',
-    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: sessionId && burned.has(sessionId) ? 'burn_in' : 'client', default: false, forced: false});
+    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: lines?.burned || sessionId && burned.has(sessionId) ? 'burn_in' : 'client', default: false, forced: false});
   d.respond(async request => {
+    if (lines && request.method === 'GET' && request.path.endsWith('/lines')) return lines.read(request);
     const match = /^\/v1\/items\/([^/]+)\/playback\/([^/]+)\/subtitles$/.exec(request.path);
     if (match) {const sessionId = decodeURIComponent(match[2]), selected = resource(sessionId); return {status: 200, headers: {}, body: {version: 1, sessionId, generation: d.runtime.playback.getSnapshot().session!.generation,
       sourceId: selected.sourceId, revision: burned.has(sessionId) ? 2 : 1, catalogRevision: 1, renderer: selected.renderer, mode: 'track', offAvailable: true, offsetUs: '500000', selected, resources: [selected], discovered: []}};}
@@ -192,10 +193,10 @@ function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number |
     if (request.method === 'POST' && request.path === routePath('create_queue') || /^\/v1\/playback\/sessions(?:\/[^/]+)?$/.test(request.path)) {
       if (request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn') burned.add(decodeURIComponent(request.path.split('/').at(-1)!));
       const response = await d.server.handle(request);
-      const shape = (session: any) => ({...session, presentation: {...session.presentation,
-        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: burned.has(session.id) ? 'burn' : 'device'},
+      const shape = (session: any) => ({...session, presentation: {...session.presentation, ...(lines ? {engine: lines.engine} : {}),
+        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: lines?.burned || burned.has(session.id) ? 'burn' : 'device'},
         subtitles: [{trackId: 'rich-resource', format: 'vobsub', url: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.idx`,
-          companionUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.sub`, timeDomain: 'source-relative', ...(offsetMs === undefined ? {} : {offsetMs})}]}});
+          companionUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.sub`, ...(lines ? {linesUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/lines`} : {}), timeDomain: 'source-relative', ...(offsetMs === undefined ? {} : {offsetMs})}]}});
       const body = response.body as any;
       return response.status < 300 && body ? {...response, body: body.session ? {...body, session: shape(body.session)} : body.presentation ? shape(body) : body} : response;
     }
@@ -533,6 +534,67 @@ test('complete caption preferences update the same bound subtitle source and ret
     d.settings({subtitles: {...subtitles, color: 'yellow'}}); await settle();
     assert.equal(d.engine.commands.length, count, 'retired preferences cannot issue another native command');
   } finally {d.runtime.dispose();}
+});
+
+test('only actual current mixed image lines expose a fenced mpv Forced-only choice', async () => {
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, false, undefined, 'mpv');
+  richSubtitleResponses(d, 1250, {engine: 'mpv', read: () => ({status: 200, headers: {}, body: {forced: 1, total: 3}})});
+  try {
+    await d.start('movie-1');
+    const snapshot = d.runtime.getSnapshot(), fence = snapshot.fence!, binding = d.engine.lastCommand.binding;
+    assert.equal(snapshot.engine, 'mpv'); assert.deepEqual(snapshot.forcedOnly, {on: false});
+    const sent = d.requests.length;
+    assert.equal(d.runtime.setForcedOnly(fence, true), true); await settle();
+    assert.deepEqual(d.runtime.getSnapshot().forcedOnly, {on: true});
+    assert.equal(d.engine.lastCommand.subtitles.forcedOnly, true); assert.deepEqual(d.engine.lastCommand.binding, binding);
+    assert.equal(d.runtime.setForcedOnly({...fence, generation: fence.generation + 1}, false), false);
+    assert.equal(d.requests.slice(sent).some(request => request.method !== 'GET'), false, 'filtering never replans or replaces the session');
+    assert.equal(d.runtime.setForcedOnly(fence, false), true); await settle();
+    assert.equal(d.engine.lastCommand.subtitles.forcedOnly, undefined);
+  } finally {d.runtime.dispose();}
+});
+
+test('unknown, invalid, all-forced and unforced image metadata never enable the choice; native gets no guessed filter', async () => {
+  for (const body of [{forced: 0, total: 3}, {forced: 3, total: 3}, {forced: 4, total: 3}, {forced: '1', total: 3}]) {
+    const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, false, undefined, 'mpv');
+    richSubtitleResponses(d, 1250, {engine: 'mpv', read: () => ({status: 200, headers: {}, body})});
+    try {await d.start('movie-1'); assert.equal(d.runtime.getSnapshot().forcedOnly, undefined); assert.equal(d.runtime.setForcedOnly(d.runtime.getSnapshot().fence!, true), false);}
+    finally {d.runtime.dispose();}
+  }
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']});
+  richSubtitleResponses(d, 1250, {engine: 'native', read: () => {throw new Error('Native filtering is not installed.');}});
+  try {await d.start('movie-1'); assert.equal(d.runtime.getSnapshot().forcedOnly, undefined); assert.equal(d.requests.some(request => request.path.endsWith('/lines')), false);}
+  finally {d.runtime.dispose();}
+  const burned = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, false, undefined, 'mpv');
+  richSubtitleResponses(burned, 1250, {engine: 'mpv', burned: true, read: () => {throw new Error('Burned captions have no device filter.');}});
+  try {
+    await burned.start('movie-1'); assert.equal(burned.runtime.getSnapshot().subtitles?.plan?.renderer, 'burn_in');
+    assert.equal(burned.engine.lastCommand.subtitles.mode, 'off'); assert.equal(burned.runtime.getSnapshot().forcedOnly, undefined);
+    assert.equal(burned.requests.some(request => request.path.endsWith('/lines')), false);
+  } finally {burned.runtime.dispose();}
+});
+
+test('late image counts cannot grant a filter after source replacement, collapse or authority retirement', async () => {
+  for (const retire of ['source', 'collapse', 'authority'] as const) {
+    const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, false, undefined, 'mpv');
+    let finish!: (response: FakeResponse) => void, first: FakeRequest | undefined;
+    richSubtitleResponses(d, 1250, {engine: 'mpv', read: request => {
+      if (!first) {first = request; return new Promise(resolve => {finish = resolve;});}
+      return {status: 200, headers: {}, body: {forced: 0, total: 3}};
+    }});
+    try {
+      await d.start('movie-1'); const fence = d.runtime.getSnapshot().fence!;
+      assert.ok(first); assert.equal(d.runtime.getSnapshot().forcedOnly, undefined);
+      if (retire === 'source') await d.start('movie-2');
+      else if (retire === 'collapse') await d.runtime.collapse(fence);
+      else {d.changeAuthority(); await settle();}
+      assert.equal(first.signal?.aborted, true, retire);
+      finish({status: 200, headers: {}, body: {forced: 1, total: 3}}); await settle();
+      assert.equal(d.runtime.getSnapshot().forcedOnly, undefined, retire);
+      assert.equal(d.runtime.setForcedOnly(fence, true), false, retire);
+      assert.equal(d.engine.commands.some(command => command.subtitles?.forcedOnly === true), false, retire);
+    } finally {d.runtime.dispose();}
+  }
 });
 
 test('PiP replan preserves the actual source/track/file clock then waits for new-generation native acknowledgement', async () => {
