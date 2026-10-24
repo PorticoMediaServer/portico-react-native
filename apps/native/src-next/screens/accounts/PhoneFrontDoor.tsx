@@ -16,8 +16,10 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
   busy: boolean; error?: React.ReactNode; onPortico: () => void; onLocal: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
-  const welcomeObservation = useNativeObservation<View>({kind: 'view', semanticId: 'accounts-welcome'});
-  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'accounts-welcome-wordmark'});
+  const welcomeStyle = {flex: 1, backgroundColor: theme.colors.ink};
+  const wordmarkStyle = {width: 17 * 512 / 117, height: 17, alignSelf: 'flex-start' as const};
+  const welcomeObservation = useNativeObservation<View>({kind: 'view', semanticId: 'accounts-welcome', flattenedStyle: __DEV__ ? StyleSheet.flatten(welcomeStyle) : undefined});
+  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'accounts-welcome-wordmark', flattenedStyle: __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined});
   const title = t('web.signin.welcomeHome'), committedTitle = useRef(title);
   useLayoutEffect(() => {committedTitle.current = title;}, [title]);
   const titleStyle = useMemo(() => [nativeType({size: 42, lineHeight: 43.68, weight: 800, tracking: -.04}, theme.textScale),
@@ -43,11 +45,11 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
     };
   }, [title, titleStyle]);
   useLayoutEffect(() => () => {titleMeasurement?.unregister();}, [titleMeasurement]);
-  return <View ref={welcomeObservation.ref} testID="accounts-welcome" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View ref={welcomeObservation.ref} testID="accounts-welcome" style={welcomeStyle}>
     <ColourBackdrop shape="top"/>
     <ScrollView style={{flex: 1}} contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22, paddingTop: Math.max(70, insets.top)}}>
       <Image ref={wordmarkObservation.ref} source={require('../../../assets/wordmark.png')} accessibilityLabel={t('accounts.brand')} resizeMode="contain"
-        style={{width: 17 * 512 / 117, height: 17, alignSelf: 'flex-start'}}/>
+        style={wordmarkStyle}/>
       <View style={{marginTop: 'auto', paddingTop: 32, paddingBottom: Math.max(66, insets.bottom + 32), gap: 10}}>
         <Text accessibilityRole="header" ref={titleMeasurement?.ref} onLayout={titleMeasurement?.onLayout} onTextLayout={titleMeasurement?.onTextLayout}
           style={titleStyle}>{title}</Text>

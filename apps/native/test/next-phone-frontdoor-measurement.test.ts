@@ -92,6 +92,8 @@ test('production frontdoor never loads measurement code or attaches callbacks an
   const f = await fixture(false);
   try {
     const heading = f.heading(), theme = createTheme({isTV: false, width: 390});
+    assert.deepEqual(f.tree().props.style, {flex: 1, backgroundColor: theme.colors.ink});
+    assert.deepEqual(nodes(f.tree()).find(node => node.type === 'Image').props.style, {width: 17 * 512 / 117, height: 17, alignSelf: 'flex-start'});
     assert.equal(nodes(f.tree()).find(node => node.type === 'Image').props.ref, undefined);
     assert.equal(f.imports(), 0); assert.equal(f.tree().props.ref, undefined); assert.equal(heading.props.ref, undefined); assert.equal(heading.props.onLayout, undefined); assert.equal(heading.props.onTextLayout, undefined);
     assert.deepEqual(flatten(heading.props.style), {...nativeType({size: 42, lineHeight: 43.68, weight: 800, tracking: -.04}, theme.textScale), includeFontPadding: false, color: theme.colors.text, marginBottom: 22});
@@ -113,7 +115,8 @@ test('the existing brand Image owns a DEV lease without changing its asset or pr
     ref(first);
     assert.equal(f.registry.read(first)!.kind, 'image');
     assert.equal(f.registry.read(first)!.semanticId, 'accounts-welcome-wordmark');
-    assert.deepEqual(f.registry.read(first)!.flattenedStyle, {});
+    assert.deepEqual(f.registry.read(first)!.flattenedStyle, props.style, 'declared style is the same resolved style rendered by the Image');
+    assert.deepEqual(f.registry.read(first)!.measuredStyle, {}, 'declared inputs are not native-observed paint');
     await f.title('Public translated welcome');
     assert.equal(image().props.ref, ref);
     assert.ok(f.registry.read(first));
@@ -137,7 +140,8 @@ test('the existing welcome View owns a DEV scope lease that retires on replaceme
     assert.equal(typeof ref, 'function'); ref(first);
     assert.equal(f.registry.read(first)!.kind, 'view');
     assert.equal(f.registry.read(first)!.semanticId, 'accounts-welcome');
-    assert.deepEqual(f.registry.read(first)!.flattenedStyle, {}, 'the scope registration invents no observed layout/style facts');
+    assert.deepEqual(f.registry.read(first)!.flattenedStyle, root.props.style, 'declared style is the same theme-resolved style rendered by the View');
+    assert.deepEqual(f.registry.read(first)!.measuredStyle, {}, 'declared inputs are not native-observed paint');
     await f.title('Public translated welcome');
     assert.equal(f.tree().props.ref, ref, 'existing live native host ref stays stable across title renders');
     assert.ok(f.registry.read(first));
