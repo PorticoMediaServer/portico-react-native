@@ -88,7 +88,7 @@ function AlbumCard({album, runtime, actions, openEntry, width = 200, caption}: {
 /** tv-more6: the album page at ten feet. Header facts and track order are the server's; the queue is the album's own. */
 export function TVAlbumScreen({controller, entry, runtime, actions, openEntry}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void}) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
-  const playingId = playback?.entry?.kind === 'song' ? playback.entry.id : undefined;
+  const playingId = playback?.playback.itemId;
   const art = runtime.artwork(entry.posterUrl);
   const minutes = snapshot.songDurationSeconds === undefined ? undefined : Math.max(1, Math.round(snapshot.songDurationSeconds / 60));
   const facts = [entry.artist?.name, entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false}),
@@ -121,7 +121,7 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry}: 
 /** tv-more8/9: the artist page, its circle cut from up to four covers, and the server's release lists. */
 export function TVArtistScreen({controller, entry, runtime, actions, openEntry}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void}) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
-  const playingId = playback?.entry?.kind === 'song' ? playback.entry.id : undefined;
+  const playingId = playback?.playback.itemId;
   const covers = snapshot.albums.flatMap(album => {const source = runtime.artwork(album.posterUrl); return source ? [source] : [];});
   const years = entry.activeBeginYear === undefined ? undefined : entry.activeEndYear !== undefined ? `${entry.activeBeginYear}–${entry.activeEndYear}` : t('title.activeSince', {year: entry.activeBeginYear});
   const facts = [entry.genres?.[0], entry.country, years,
