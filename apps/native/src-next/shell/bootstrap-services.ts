@@ -2,7 +2,7 @@ import {HomeService, type HomeSnapshot} from '../../../../packages/client-core/s
 import {InboxService} from '../../../../packages/client-core/src/inbox';
 import {parseNotificationSummary} from '../../../../packages/client-core/src/notifications';
 import {PreferencesReader} from '../../../../packages/client-core/src/preferences-reader';
-import type {DeviceClass, PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
+import type {DeviceClass, PreferencePatch, PreferenceScope, PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
 import {fetchGuideSourceSummaries} from '../../../../packages/client-core/src/guide/directory';
 import {parseDirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {routePath} from '../../../../packages/contracts/src/routes';
@@ -105,7 +105,7 @@ export class NativeShellBootstrapServices {
   private async call<T>(domain: Domain | undefined, path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     this.assertCurrent();
     const controller = new AbortController(), abort = () => controller.abort();
-    const batch = domain === 'preferences' || domain === 'inbox' || domain === 'guide' ? this.readingController?.signal : undefined;
+    const batch = domain === 'inbox' || domain === 'guide' ? this.readingController?.signal : undefined;
     this.controllers.add(controller);
     signal?.addEventListener('abort', abort, {once: true});
     batch?.addEventListener('abort', abort, {once: true});
@@ -166,6 +166,24 @@ export class NativeShellBootstrapServices {
       throw error;
     }
   }
+  /** Preference operations belong to the authority, not a refresh batch. Closing
+   * that batch must not cancel a concurrent Settings CAS on the same reader. */
+  readPreferences = async (deviceClass: DeviceClass): Promise<PreferenceSnapshot> => {
+    this.assertCurrent();
+    if (deviceClass !== this.options.deviceClass) throw invalid();
+    const next = await this.preferences.preferences(deviceClass);
+    this.assertCurrent();
+    if (next.deviceClass !== deviceClass) throw invalid();
+    return next;
+  };
+  applyPreferences = async (scope: PreferenceScope, deviceClass: DeviceClass, revision: number, values: PreferencePatch): Promise<PreferenceSnapshot> => {
+    this.assertCurrent();
+    if (deviceClass !== this.options.deviceClass) throw invalid();
+    const next = await this.preferences.applyPreferences(scope, deviceClass, revision, values);
+    this.assertCurrent();
+    if (next.deviceClass !== deviceClass) throw invalid();
+    return next;
+  };
   read = (signal?: AbortSignal): Promise<Facts> => {
     if (this.reading) return this.reading;
     const controller = new AbortController(), abort = () => controller.abort();

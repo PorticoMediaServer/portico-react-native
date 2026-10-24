@@ -1,3 +1,5 @@
+import {bindNativeServerPreferences} from '../src-next/platform/server-preferences';
+import {PreferencesReader} from '../../../packages/client-core/src/preferences-reader';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi} from '../../../packages/client-core/src';
@@ -26,7 +28,10 @@ function authorityContext() {
     subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
     subscribePreferences: (listener: () => void) => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
   };
-  return {context, snapshot, get requests() {return requests;}, close() {current = false; for (const listener of [...authorityListeners]) listener();}};
+  const reader = new PreferencesReader(context.api, {serverId: authority.serverId, viewerId: authority.profileId});
+  bindNativeServerPreferences(context, {read: deviceClass => reader.preferences(deviceClass),
+    apply: (scope, deviceClass, revision, values) => reader.applyPreferences(scope, deviceClass, revision, values), accept: next => next});
+  return {context, snapshot, get requests() {return requests;}, close() {current = false; reader.dispose(); for (const listener of [...authorityListeners]) listener();}};
 }
 
 test('Read self-registration borrows the confirmed source and retains the same view across actual Reading Settings history', async () => {

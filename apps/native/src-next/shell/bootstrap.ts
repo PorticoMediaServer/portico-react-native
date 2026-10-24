@@ -4,7 +4,7 @@ import {routePath, type RouteResponse} from '../../../../packages/contracts/src/
 import {HomeService} from '../../../../packages/client-core/src/home-service';
 import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {IdentityClient} from '../../../../packages/client-core/src/identity-client';
-import type {PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
+import {currentPreferenceSnapshot, type PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
 import {parseLibraryList} from '../../../../packages/client-core/src/library-list';
 import {LocalSessionRefresher} from '../../../../packages/client-core/src/session-refresh';
 import {EventsClient} from '../../../../packages/client-core/src/playback-v1/events';
@@ -16,6 +16,7 @@ import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
 import {bindNativeDeviceSettings} from '../platform/device-settings';
+import {bindNativeServerPreferences} from '../platform/server-preferences';
 import {rememberNativeServerDisplay} from '../platform/server-display';
 import {readNativeServerDisplays} from '../platform/server-display';
 import {nativeAppSessions} from '../platform/app-session-storage';
@@ -176,6 +177,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
     cleanups.push(() => windowSubscription.remove());
     const context: NativeShellBootstrapContext = {...contextBase, playback, watch, get account() {return currentAccount();}};
+    bindNativeServerPreferences(context, {read: readers.readPreferences, apply: readers.applyPreferences, accept: next => {
+      assertCurrent();
+      const confirmed = currentPreferenceSnapshot(preferences, next);
+      if (confirmed !== preferences) {preferences = confirmed; for (const listener of preferenceListeners) listener();}
+      return preferences;
+    }});
     bindNativeDeviceSettings(context, {storage: records, readRecord: () => installationSettings, acceptRecord: raw => {
       assertCurrent(); installationSettings = raw; for (const listener of [...preferenceListeners]) listener();
     }});
@@ -247,7 +254,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         // Observe the native record after all network/identity awaits. An older
         // parallel read must not overwrite a device setting committed meanwhile.
         const nextInstallation = await records.change('preferences:v1', raw => ({record: raw, value: raw})); assertCurrent();
-        preferences = nextFacts.preferences; installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
+        preferences = currentPreferenceSnapshot(preferences, nextFacts.preferences); installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
         account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;
         for (const listener of [...preferenceListeners]) listener();
         publish();
