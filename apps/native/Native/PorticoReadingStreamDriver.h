@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "PorticoServerTrust.h"
+NS_ASSUME_NONNULL_BEGIN
 
 /** Private body driver for the existing queue request/session, with no URL or authority
  * argument on reads. Swift's byte sequence preserves HTTP body decoding and from-start bytes. */
@@ -11,3 +12,4 @@
 - (void)readWithCompletion:(void (^)(NSData * _Nullable data,BOOL eof,NSError * _Nullable error))completion NS_SWIFT_NAME(read(completion:));
 - (void)cancel;
 @end
+NS_ASSUME_NONNULL_END
