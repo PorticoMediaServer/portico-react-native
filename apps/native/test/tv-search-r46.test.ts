@@ -169,7 +169,7 @@ test('the drawn empty page is states.html#f18 and its genre tiles keep the drawn
   const clip = elements(tile).find(node => style(node.props.style).overflow === 'hidden')!;
   assert.deepEqual(style(clip.props.style), {position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 16, overflow: 'hidden'});
   const stops = elements(tile).filter(node => node.type === 'Stop');
-  assert.deepEqual(stops.map(node => [node.props.offset, node.props.stopOpacity, node.props.stopColor]), [[0, .88, colors.ink], [.55, .5, colors.ink], [1, .15, colors.ink]]);
+  assert.deepEqual(stops.map(node => [node.props.offset, node.props.stopOpacity, node.props.stopColor]), [[ '0', .88, colors.ink], ['.55', .5, colors.ink], ['1', .15, colors.ink]]);
   const copy = elements(tile).find(node => style(node.props.style).left === 30 && style(node.props.style).bottom === 26)!;
   const [name, count] = elements(copy).filter(node => node.type === 'Text');
   assert.deepEqual({text: flatText(name.props.children), style: style(name.props.style)}, {text: 'Crime', style: {...browseType(theme, 36, 800, -.025), color: colors.text}});
