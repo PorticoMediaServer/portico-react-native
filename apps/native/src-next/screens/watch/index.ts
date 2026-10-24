@@ -1,4 +1,6 @@
 export {createNativeWatchScreens} from './factory';
+export {readNativePlaybackInfo} from './playback-info';
+export type {NativePlaybackInfo} from './playback-info';
 export type {NativeWatchFactoryPorts, NativeWatchCapture, NativeVersionStartSelection, NativeWatchMenuActions, NativeVersionDestination} from './factory';
 export {NativeTitleController} from './title-controller';
 export {NativeTitleScreen} from './TitleScreen';
