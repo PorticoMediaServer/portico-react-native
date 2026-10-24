@@ -218,7 +218,7 @@ test('the genuine local maker reaches the same native engine and dock without se
   const local = admittedDownload(), d = fixture(false, undefined, nativeEngineFeatures, false, local.device);
   try {
     await settle(); const before = d.requests.length;
-    const owner = {}, offSurface = d.runtime.retainSurface(owner); d.runtime.setSurfaceTag(owner, 71);
+    const owner = {}, offSurface = d.runtime.attachSurface(owner); d.runtime.setSurfaceTag(owner, 71);
     const controller = new AbortController();
     await d.runtime.startOffline(local.entry, {signal: controller.signal, isCurrent: () => true}); await settle();
     const snapshot = d.runtime.getSnapshot(), fence = snapshot.fence;
