@@ -224,6 +224,69 @@ test('an already-cancelled caller signal refuses before any Continue request', a
   assert.equal(f.calls.length, 0);
 });
 
+test('disposing during an open aborts eligibility and never navigates late', async t => {
+  let release!: (value: Response) => void, signal: AbortSignal | undefined;
+  const pending = new Promise<Response>(resolve => {release = resolve;});
+  const f = fixture(call => {
+    if (call.url.pathname === '/v1/reading/continue') return json(pageOf([row('item')]));
+    signal = call.init.signal ?? undefined;
+    return pending;
+  });
+  t.after(() => f.bindings.dispose());
+  const actual = (await f.bindings.continue()).items[0]!;
+  f.admit(actual);
+  const opening = f.bindings.open(actual);
+  await until(() => signal !== undefined);
+  f.bindings.dispose();
+  assert.equal(signal?.aborted, true);
+  assert.equal(await opening, false);
+  release(json(versions()));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(f.navigation.getSnapshot().route, {kind: 'shell', destination: {kind: 'home'}});
+  assert.equal(f.calls.some(call => call.method !== 'GET'), false);
+});
+
+test('a replaced owner cannot navigate an in-flight open and resolves false', async t => {
+  let release!: (value: Response) => void, signal: AbortSignal | undefined;
+  const pending = new Promise<Response>(resolve => {release = resolve;});
+  const f = fixture(call => {
+    if (call.url.pathname === '/v1/reading/continue') return json(pageOf([row('item')]));
+    signal = call.init.signal ?? undefined;
+    return pending;
+  });
+  t.after(() => f.bindings.dispose());
+  const actual = (await f.bindings.continue()).items[0]!;
+  f.admit(actual);
+  const opening = f.bindings.open(actual);
+  await until(() => signal !== undefined);
+  f.replaceViewer();
+  release(json(versions()));
+  assert.equal(await opening, false, 'a replaced viewer cancels the old owner instead of throwing');
+  assert.equal(signal?.aborted, true);
+  assert.deepEqual(f.navigation.getSnapshot().route, {kind: 'shell', destination: {kind: 'home'}});
+});
+
+test('one owner disposal never aborts another owner canonical page', async t => {
+  const pending: {resolve: (value: Response) => void; signal?: AbortSignal}[] = [];
+  const f = fixture(call => {
+    const entry = {resolve: (_value: Response) => {}, signal: call.init.signal ?? undefined};
+    pending.push(entry);
+    return new Promise<Response>(resolve => {entry.resolve = resolve;});
+  });
+  t.after(() => f.bindings.dispose());
+  const other = new NativeReadingContinueBindings(f.context, {isTV: false, resident: () => true});
+  t.after(() => other.dispose());
+  const first = f.bindings.continue(), second = other.continue();
+  await until(() => pending.length === 2 && pending.every(entry => entry.signal !== undefined));
+  f.bindings.dispose();
+  await assert.rejects(first, isCancelled);
+  assert.equal(pending[1]!.signal?.aborted, false, 'sibling cleanup is not this owner retirement');
+  pending[1]!.resolve(json(pageOf([row('other')])));
+  const page = await second;
+  assert.equal(page.items[0]!.item.id, 'other');
+  assert.equal(f.calls.length, 2);
+});
+
 test('the captured original authority is what a later Continue still belongs to', async t => {
   const f = fixture(call => call.url.pathname === '/v1/reading/continue' ? json(pageOf([row('one')])) : json(versions()));
   t.after(() => f.bindings.dispose());
