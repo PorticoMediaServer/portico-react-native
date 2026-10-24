@@ -1,6 +1,6 @@
 import React from 'react';
 import {Text, View} from 'react-native';
-import {defaultI18n} from '../../../../../packages/i18n/src';
+import {defaultI18n, type I18n} from '../../../../../packages/i18n/src';
 import type {CardTextModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {useTheme, type Theme} from '../../kit/theme';
 
@@ -44,11 +44,11 @@ export function HomeHeroFacts({facts, continuation}: {facts: readonly FactPart[]
   </View>;
 }
 
-export function HomeRemoteHint({resume}: {resume: boolean}) {
-  const theme = useTheme();
+export function HomeRemoteHint({resume, text = defaultI18n}: {resume: boolean; text?: Pick<I18n, 't'>}) {
+  const theme = useTheme(), t = text.t;
   const key = (label: string) => <View style={{height: 36, minWidth: 44, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: `${theme.colors.text}4D`, alignItems: 'center', justifyContent: 'center'}}><Text style={[theme.type.badge, {includeFontPadding: false, color: theme.colors.textSecondary}]}>{label}</Text></View>;
   return <View style={{flexDirection: 'row', alignItems: 'center', columnGap: 68}}>
-    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(defaultI18n.t('next.layout.ok'))}<Text style={[theme.type.captionStrong, {includeFontPadding: false, color: theme.colors.textTertiary}]}>{defaultI18n.t(resume ? 'next.home.resume' : 'next.home.play')}</Text></View>
-    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(defaultI18n.t('next.layout.holdOk'))}<Text style={[theme.type.captionStrong, {includeFontPadding: false, color: theme.colors.textTertiary}]}>{defaultI18n.t('next.layout.moreOptions')}</Text></View>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('next.layout.ok'))}<Text style={[theme.type.captionStrong, {includeFontPadding: false, color: theme.colors.textTertiary}]}>{t(resume ? 'next.home.resume' : 'next.home.play')}</Text></View>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('next.layout.holdOk'))}<Text style={[theme.type.captionStrong, {includeFontPadding: false, color: theme.colors.textTertiary}]}>{t('next.layout.moreOptions')}</Text></View>
   </View>;
 }
