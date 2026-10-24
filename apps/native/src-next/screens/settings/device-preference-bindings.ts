@@ -1,5 +1,7 @@
-import {settingsBinding, readSettingsBinding, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
+import {settingsBinding, readSettingsBinding, settingsBindingPatch, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
 import type {NativeDeviceSettings} from '../../platform/device-settings';
+
+const unavailable = () => Object.assign(new Error('native_device_setting_unsupported'), {code: 'unsupported'});
 
 /** A Settings device row resolves only through the installed device source. */
 export function readNativeDevicePreference(rowId: string, source: NativeDeviceSettings): SettingsBindingValue | undefined {
@@ -10,4 +12,22 @@ export function readNativeDevicePreference(rowId: string, source: NativeDeviceSe
   const value = source.read(key);
   if (value === undefined) return undefined;
   return readSettingsBinding(binding, {device: {[key]: value}}, rowId);
+}
+
+/** The canonical row patch must land as one supported device key; the result is
+ * the source's committed record, never the asked value or a local echo. */
+export async function writeNativeDevicePreference(rowId: string, value: unknown, source: NativeDeviceSettings): Promise<SettingsBindingValue> {
+  const binding = settingsBinding(rowId);
+  if (!binding || binding.form !== 'device' || binding.fields) throw unavailable();
+  const key = binding.key;
+  if (!source.supports(key)) throw unavailable();
+  const patch = settingsBindingPatch(binding, value);
+  const keys = Object.keys(patch.values);
+  if (patch.form !== 'device' || keys.length !== 1 || keys[0] !== key) throw unavailable();
+  const written = patch.values[key];
+  if (typeof written !== 'string' && typeof written !== 'boolean') throw unavailable();
+  await source.write(key, written);
+  const confirmed = readNativeDevicePreference(rowId, source);
+  if (!confirmed) throw new Error('native_device_preference_unreadable');
+  return confirmed;
 }
