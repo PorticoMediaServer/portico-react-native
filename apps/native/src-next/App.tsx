@@ -1,4 +1,4 @@
-import React, {useMemo, type ComponentType} from 'react';
+import React, {useMemo, useRef, type ComponentType} from 'react';
 import {Platform, StatusBar, View} from 'react-native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -22,13 +22,19 @@ require('./screens/settings-live/TogetherRoute');
 const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
+const measurement: typeof import('./dev/public-measurement') | undefined = __DEV__ ? require('./dev/public-measurement') : undefined;
+const measurementInstall: typeof import('./dev/measurement-install') | undefined = __DEV__ ? require('./dev/measurement-install') : undefined;
 export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentType; runtime?: NativeShellRuntime; reduceMotion?: boolean; textScale?: number};
 
 function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
   const {colors} = useTheme();
+  const root = useRef<View>(null);
+  const install = useMemo(() => (isCurrent: () => boolean) => measurementInstall!.installNativePublicMeasurement(() => root.current, isCurrent), []);
   const RuntimeShell = useMemo(() => runtime ? function BoundNativeShell() {return <NativeShell runtime={runtime}/>;} : undefined, [runtime]);
   const Shell = RuntimeShell ?? (Platform.isTV ? tvShell ?? TVRoot : phoneShell) ?? RestoredShell;
-  return <View testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null}</View>;
+  const renderNormal = () => KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null;
+  const Gate = measurement?.NativePublicMeasurementGate;
+  return <View ref={Gate ? root : undefined} testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{Gate ? <Gate renderNormal={renderNormal} install={install}/> : renderNormal()}</View>;
 }
 
 /** The product restores its actual native session; test/dev hosts may inject an owned runtime. */
