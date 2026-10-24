@@ -43,6 +43,19 @@ test('a late file read cannot cross a renewed installation family or a retired c
   }
 });
 
+test('a retried local session cannot receive a retired session observation for the same journal play', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true), original = source.session(), retry = source.session();
+  assert.notEqual(original.id, retry.id);
+  await x.api.progressPlayback(original.id, {...observed, positionSeconds: 12});
+  assert.deepEqual(x.progress, []);
+  await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation + 1, positionSeconds: 90});
+  assert.deepEqual(x.progress, []);
+  await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation, positionSeconds: 51});
+  assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.positionSeconds, 51); assert.equal(x.progress[0]!.playId, x.media.playId);
+  assert.deepEqual(x.network, []);
+  x.owner.dispose();
+});
+
 test('same entry IDs cannot authorize replaced artifacts, another viewer or ambiguous rows', async () => {
   for (const change of ['hash','bytes','viewer','duplicate'] as const) {
     const x = setup(), source = await x.owner.prepare(x.entry,() => true), receipt = x.entry.receipt!;

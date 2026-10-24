@@ -1,6 +1,6 @@
 import type {LocalSession, PlaybackApi, PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
+import {isLocalSession, LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
 import type {OfflineDownloads, OfflineEntry} from '../../../platform/offline-downloads';
 
 /** Captured from the genuine installation session, never a server queue/controller scope. */
@@ -23,7 +23,7 @@ export class NativeOfflinePlayback {
   private readonly local: LocalPlayback;
   private readonly session: () => LocalSession | undefined;
   private readonly device: Device;
-  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia}>();
+  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number}>();
   private disposed = false;
   constructor(session: () => LocalSession | undefined, device: Device) {
     this.session = session;
@@ -36,7 +36,15 @@ export class NativeOfflinePlayback {
       || ![viewer.serverId, viewer.accountId, viewer.profileId, session.sessionFamilyId].every(text)) return;
     return Object.freeze({authority: viewer.authority, serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId, sessionFamilyId: session.sessionFamilyId});
   }
-  wrap(api: PlaybackApi): PlaybackApi { return this.local.wrap(api); }
+  wrap(api: PlaybackApi): PlaybackApi {
+    const wrapped = this.local.wrap(api);
+    return {...wrapped, progressPlayback: (id, payload) => {
+      // A retry keeps one journal play but creates a new real local session.
+      // Its retired session must not overwrite the new session's observation.
+      if (isLocalSession(id) && ![...this.sessions.values()].some(held => held.sessionId === id && held.generation === payload.generation)) return Promise.resolve();
+      return wrapped.progressPlayback(id, payload);
+    }};
+  }
   async prepare(entry: OfflineEntry, isCurrent: () => boolean): Promise<NativeOfflineSource> {
     const owner = this.owner(), claims = entry.receipt?.claims;
     if (!owner || !claims || !text(entry.id) || !text(entry.itemId) || claims.itemId !== entry.itemId
@@ -69,7 +77,7 @@ export class NativeOfflinePlayback {
       session: () => {
         if (!isCurrent() || !currentEntry()) throw unavailable();
         const session = make();
-        this.sessions.set(media.playId, {source, media});
+        this.sessions.set(media.playId, {source, media, sessionId: session.id, generation: session.generation});
         while (this.sessions.size > 16) this.sessions.delete(this.sessions.keys().next().value!);
         return session;
       },
