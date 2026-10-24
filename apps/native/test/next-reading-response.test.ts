@@ -15,11 +15,12 @@ test('canonical byte operations alone select exact bounds and other Reading cont
     [routePath('get_reading_sessions_sessionId_assets', {sessionId: 'session'}), 'GET', 33554432],
     [routePath('get_reading_sessions_sessionId_pages_pageIndex', {sessionId: 'session', pageIndex: 0}), 'GET', 16777216],
   ] as const) {
-    assert.equal(nativeReadingPolicy(origin + path, method)?.binaryLimit, limit);
+    assert.equal(nativeReadingPolicy(origin + path, method, method === 'GET' && path.endsWith('/source') ? {Range: 'bytes=0-9'} : undefined)?.binaryLimit, limit);
     assert.equal(nativeReadingPolicy(origin + path, 'PATCH'), undefined);
   }
   assert.deepEqual(nativeReadingPolicy(origin + routePath('post_reading_sessions'), 'POST'), {binaryLimit: undefined});
   assert.equal(nativeReadingPolicy(origin + '/v1/items/other', 'GET'), undefined);
+  assert.deepEqual(nativeReadingPolicy(origin + routePath('get_reading_sessions_sessionId_source', {sessionId: 'session'}), 'GET'), {sequential: true});
 });
 test('actual captured facade consumes non-UTF8 PDF bytes through native byte exchange and local body reader', async t => {
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
