@@ -21,10 +21,10 @@ async function records(run: (state: State) => Promise<void>, raw = JSON.stringif
 async function fixture() {
   const storage = new NativeQueueStore(), listeners = new Set<() => void>();
   let current = true;
-  const observed = await storage.change(key, raw => ({record: raw, value: raw}));
+  let observed = await storage.change(key, raw => ({record: raw, value: raw}));
   const owner = {current: () => current, subscribePreferences: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
-  const ports = {storage, readRecord: () => observed, acceptRecord: () => {}};
-  return {owner, source: bindNativeDeviceSettings(owner, ports), retire: () => {current = false;}};
+  const ports = {storage, readRecord: () => observed, acceptRecord: (raw: unknown) => {observed = raw; for (const listener of listeners) listener();}};
+  return {owner, source: bindNativeDeviceSettings(owner, ports), retire: () => {current = false;}, listeners};
 }
 
 const value = (current: unknown) => ({current, effective: current, default: undefined, source: 'device', configOnly: false});
