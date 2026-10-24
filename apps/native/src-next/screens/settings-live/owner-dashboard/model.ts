@@ -96,11 +96,11 @@ export type OwnerJobView = Readonly<{
   id: string;
   title: string;
   subtitle?: string;
-  detail?: string;
   status: string;
   progress?: number;
   tone: 'accent' | 'healthy' | 'danger' | 'warning' | 'neutral';
   icon: 'i-film' | 'i-image' | 'i-skip' | 'i-note' | 'i-refresh' | 'i-check' | 'i-server';
+  scan: boolean;
 }>;
 
 const jobIcon = (kind: string, state: Job['state']): OwnerJobView['icon'] =>
@@ -112,15 +112,16 @@ export function ownerJobView(job: Job, t: Translate, has: Has): OwnerJobView {
   const done = job.processed;
   const fraction = total && done !== undefined ? Math.min(1, Math.max(0, done / total)) : undefined;
   const status = fraction !== undefined ? `${Math.round(fraction * 100)}%` : jobStateName(t, has, job.state);
+  const name = jobName(t, has, job.kind);
   return Object.freeze({
     id: job.id,
-    title: jobName(t, has, job.kind),
-    ...(job.resource ? {subtitle: job.resource} : {}),
-    ...(total !== undefined && done !== undefined ? {detail: t('next.shell.filesOf', {processed: done, total})} : {}),
+    title: job.resource || name,
+    subtitle: total !== undefined && done !== undefined ? t('next.shell.filesOf', {processed: done, total}) : name,
     status,
     ...(fraction === undefined ? {} : {progress: fraction}),
     tone: jobTone(job.state),
     icon: jobIcon(job.kind, job.state),
+    scan: job.kind.includes('scan'),
   });
 }
 
@@ -206,7 +207,7 @@ export function ownerStatistics(summary: PlaySummary | undefined, t: Translate):
     {id: 'plays', label: t('server.viewing.plays'), value: String(summary.plays)},
     {id: 'people', label: t('server.viewing.people'), value: String(summary.people)},
     {id: 'hours', label: t('server.viewing.hours'), value: (summary.watchedMs / 3_600_000).toFixed(1)},
-    {id: 'converted', label: t('server.viewing.converted'), value: String(summary.converted), ...(summary.plays ? {note: t('next.dashboard.convertingShare', {percent: share})} : {})},
+    {id: 'converted', label: t('server.viewing.converted'), value: String(summary.converted), ...(summary.plays ? {note: t('next.dashboard.convertedShare', {percent: share})} : {})},
   ]);
 }
 

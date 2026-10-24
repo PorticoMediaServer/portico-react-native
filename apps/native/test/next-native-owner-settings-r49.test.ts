@@ -108,12 +108,14 @@ test('the opened Health tile uses a true 0–100 axis for percentages and its ow
 
 test('a task shows real progress only from a published total, else its state', () => {
   const running = ownerJobView({id: 'j', kind: 'library_scan', resource: 'Movies', trigger: 'manual', state: 'running', phase: 'scan', revision: 1, attempt: 1, createdAt: 1, updatedAt: 1, nextAt: 1, settingsRevision: 1, lane: 'scan', actions: ['pause'], processed: 51, total: 80}, t, defaultI18n.has);
-  assert.equal(running.title, 'Library scan');
-  assert.equal(running.detail, '51 of 80 files');
+  assert.equal(running.title, 'Movies');
+  assert.equal(running.subtitle, '51 of 80 files');
   assert.equal(running.status, '64%');
   assert.equal(running.progress, 0.6375);
   assert.equal(running.tone, 'accent');
   const queued = ownerJobView({id: 'k', kind: 'trickplay', resource: 'TV Shows', trigger: 'auto', state: 'queued', phase: 'waiting', revision: 1, attempt: 1, createdAt: 1, updatedAt: 1, nextAt: 1, settingsRevision: 1, lane: 'background', actions: []}, t, defaultI18n.has);
+  assert.equal(queued.title, 'TV Shows');
+  assert.equal(queued.subtitle, 'Preview thumbnails');
   assert.equal(queued.status, 'Queued');
   assert.equal(queued.progress, undefined);
   assert.equal(queued.icon, 'i-image');

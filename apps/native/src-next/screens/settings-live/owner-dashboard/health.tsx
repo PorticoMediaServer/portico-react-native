@@ -27,8 +27,7 @@ export function OwnerHealthSection({reading, error, window, onWindow, note, onRe
     {reading && !tiles.length ? <OwnerCalm icon="i-gauge" title={t('server.health.loadNotMeasured')}/> : null}
     {tiles.length ? <StatTiles testID="owner-health" tiles={tiles} width={screen - 32} mode="health" onTilePress={id => setOpened(id)}/> : null}
     {note && tiles.length ? <Text style={[shellType(13, 400, 18.85), {color: theme.colors.textTertiary, marginTop: 10, marginHorizontal: 4}]}>{note}</Text> : null}
-    <BottomSheet open={Boolean(detail && selectedTile)} onOpenChange={open => {if (!open) setOpened(undefined);}} title={detail?.label} testID="owner-health-detail" fitContent
-      description={detail ? t('next.dashboard.updatedWhen', {when: when(reading!.observedAt)}) : undefined}>
+    <BottomSheet open={Boolean(detail && selectedTile)} onOpenChange={open => {if (!open) setOpened(undefined);}} title={detail?.label} testID="owner-health-detail" fitContent>
       {detail ? <HealthChart detail={detail} t={t}/> : null}
     </BottomSheet>
   </OwnerSection>;
