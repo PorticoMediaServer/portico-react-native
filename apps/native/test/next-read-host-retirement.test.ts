@@ -20,7 +20,8 @@ const preferences = parsePreferenceSnapshot({deviceClass: 'mobile', registryRevi
   effectiveSource: Object.fromEntries(fields.map(field => [field.key, 'default'])), clampedFields: []});
 async function until(check: () => boolean) {for (let n = 0; n < 30 && !check(); n++) await new Promise<void>(resolve => setImmediate(resolve)); assert.ok(check());}
 
-test('the actual native host forwards credentialless retirement after its authority ends, while core still fences ordinary data', async t => {
+for (const activity of [{initial: true, current: true}, {initial: false, current: false}, {initial: true, current: false}, {initial: false, current: true}])
+test(`the actual native host retains activity ${activity.initial}->${activity.current} before handshake and forwards credentialless retirement`, async t => {
   const base = hooks(), effects: (() => void | (() => void))[] = [], refs: {current: unknown}[] = [];
   const react = {...base.react, useEffect(effect: () => void | (() => void)) {effects.push(effect);},
     useRef(value: unknown) {const ref = base.react.useRef(value); refs.push(ref); return ref;}};
@@ -44,8 +45,9 @@ test('the actual native host forwards credentialless retirement after its author
     '../../kit/states': {StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
   });
-  base.render(() => ReadNativeHost({context, target: {itemId: 'item', sourceId: 'source'}, active: true,
-    preferences: {getSnapshot: () => preferences, subscribe: () => () => {}}, onBack() {}, onOpenSettings() {}}));
+  const props = {context, target: {itemId: 'item', sourceId: 'source'}, active: activity.initial,
+    preferences: {getSnapshot: () => preferences, subscribe: () => () => {}}, onBack() {}, onOpenSettings() {}};
+  base.render(() => ReadNativeHost(props));
   const view = refs.find(ref => ref.current === null); assert.ok(view);
   view.current = {injectJavaScript(script: string) {
     const prefix = 'window.PorticoReader&&window.PorticoReader.receive(', suffix = ');true;';
@@ -53,10 +55,14 @@ test('the actual native host forwards credentialless retirement after its author
     const message = JSON.parse(script.slice(prefix.length, -suffix.length)); packets.push(JSON.parse(message)); input?.(message);
   }};
   const cleanup = effects[0]!();
+  if (activity.initial !== activity.current) base.render(() => ReadNativeHost({...props, active: activity.current}));
   t.after(() => {if (typeof cleanup === 'function') cleanup(); host?.dispose();});
   await until(() => !!host);
   const connection = connectReadingHost({send: message => host!.receive(message), subscribe(listener) {input = listener; return () => {input = undefined;};}});
   t.after(() => connection.dispose()); const guest = await connection.ready;
+  let observedActive: boolean | undefined;
+  const offActive = guest.onActive(value => {observedActive = value;}); t.after(offActive);
+  assert.equal(observedActive, activity.current, 'the guest initial activity must match the latest retained host visibility before any later React effect');
   assert.equal(guest.session.signal.aborted, false); const before = calls.length;
   current = false; for (const listener of [...authority]) listener();
   assert.equal(guest.session.signal.aborted, true, 'the native wrapper must not discard the core retirement packet');
