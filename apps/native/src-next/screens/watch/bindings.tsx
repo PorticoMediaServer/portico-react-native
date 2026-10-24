@@ -6,6 +6,8 @@ import {NativeWatchPresenters} from './presenters';
 import {NativeWatchOverlays} from './WatchOverlays';
 import type {NativeWatchModuleBindings} from './module';
 import {NativeWatchExternalRequests} from './external-requests';
+import {askNativeDownload} from '../downloads/request';
+import {nativeDownloadRequest} from './download-request';
 
 /** One real authority-local composition, borrowed by handheld and TV entry.
  * It owns Title/File info overlays; shared feedback is mounted by assembly. */
@@ -19,6 +21,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
     title: {
       aboutLabel: defaultI18n.t('next.browse.native.aboutTitle'), navigate: common.navigate, owner: context.session()?.viewer.role === 'owner',
       person: personId => {const authority = context.authority(); if (context.current()) context.navigation.open({kind: 'person', personId}, authority);},
+      download: entry => {const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);},
       renderError: nativeScreenError(common, 'detail'), reportError: (error: unknown) => common.reportError(error, 'detail'),
       menu: {subscribe: presenters.subscribe, getSnapshot: presenters.getMenuEntry},
     },

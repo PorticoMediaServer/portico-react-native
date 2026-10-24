@@ -1,5 +1,6 @@
 import {DetailService, type DetailApi, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
 import {ShowWorkspaceService, saveShowSettings, type ShowSettings} from '../../../../../packages/client-core/src/show-workspace';
+import {getContainerState, setContainerState} from '../../../../../packages/client-core/src/container-state';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeShellPlaybackAdapter} from '../../shell/playback';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
@@ -100,6 +101,23 @@ export class NativeTitleController {
       ...(data.selected.seasonId ? {selectedSeasonId: data.selected.seasonId} : data.selected.group ? {group: data.selected.group} : {}), playState: value ? 'unplayed' : 'all'});
     if (!this.current() || this.workspace.getSnapshot().phase !== 'ready' || this.workspace.getSnapshot().route?.playState !== (value ? 'unplayed' : 'all')) return;
     this.memory.select({hideWatched: value}); this.changed();
+  };
+  /** The drawn season actions: play the season's real continuation, or mark it watched. */
+  playSeason = async (seasonId: string): Promise<void> => {
+    if (!this.current()) return;
+    await this.season(seasonId);
+    if (!this.current()) return;
+    const data = this.workspace.getSnapshot().data;
+    const target = data?.nextUp ?? data?.episodes.sections[0]?.entries[0];
+    if (target) await this.play(target);
+  };
+  markSeason = async (seasonId: string, watched: boolean): Promise<void> => {
+    if (!this.current()) return;
+    const state = await getContainerState(this.options.api, 'season', seasonId);
+    await setContainerState(this.options.api, 'season', seasonId, {expectedRevision: state.revision, watched});
+    if (!this.current()) return;
+    await this.workspace.refresh();
+    this.changed();
   };
   moreEpisodes = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextEpisodes();};
   moreSeasons = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextSeasons();};
