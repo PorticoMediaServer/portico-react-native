@@ -5,14 +5,14 @@ import {nativeReadEligibility, openNativeRead, type NativeReadEligibility, type 
 export type NativeReadTitleRoute = Extract<NativeShellRoute, {kind: 'title'}>;
 export type NativeReadTitleContext = NativeReadNavigationContext;
 export type NativeReadTitleSnapshot = Readonly<{
-  phase: 'checking' | 'ordinary' | 'reading' | 'error'; versions: NonNullable<NativeReadEligibility>['versions'];
+  phase: 'checking' | 'ordinary' | 'reading' | 'error'; versions: Readonly<NonNullable<NativeReadEligibility>['versions']>;
   sourceId?: string; manifest?: ReadingManifest; progress?: ReadingProgress; busy: boolean; error?: unknown;
 }>;
 
 /** Title facts only. The real facade owns source/session/progress; an engine and
  * reading location store are never created by this detail controller. */
 export class NativeReadTitleState {
-  private snapshot: NativeReadTitleSnapshot = Object.freeze({phase: 'checking', versions: [], busy: false});
+  private snapshot: NativeReadTitleSnapshot = Object.freeze({phase: 'checking', versions: Object.freeze([]), busy: false});
   private listeners = new Set<() => void>();
   private client?: ReadingClient;
   private viewerFamily?: string;
@@ -24,12 +24,17 @@ export class NativeReadTitleState {
   private closing?: Promise<void>;
   private readonly retired: () => void;
   private readonly unsubscribeNavigation: () => void;
-  constructor(private context: NativeReadTitleContext, private route: NativeReadTitleRoute, private parent: AbortSignal) {
+  private readonly context: NativeReadTitleContext;
+  private readonly route: NativeReadTitleRoute;
+  private readonly parent: AbortSignal;
+  constructor(context: NativeReadTitleContext, route: NativeReadTitleRoute, parent: AbortSignal) {
+    this.context = context; this.route = route; this.parent = parent;
     this.retired = () => {void this.dispose();};
     parent.addEventListener('abort', this.retired, {once: true});
     this.unsubscribeNavigation = context.navigation.subscribe(() => {
       if (context.navigation.getSnapshot().route !== route) void this.dispose();
     });
+    if (parent.aborted) void this.dispose();
   }
   subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = () => this.snapshot;
@@ -53,7 +58,7 @@ export class NativeReadTitleState {
     try {
       const eligibility = await nativeReadEligibility(this.client, this.route.entry.id, round.signal);
       if (!this.current() || sequence !== this.sequence) return;
-      if (eligibility === null) {this.publish({phase: 'ordinary', versions: [], busy: false}); return;}
+      if (eligibility === null) {this.publish({phase: 'ordinary', versions: Object.freeze([]), busy: false}); return;}
       this.publish({phase: 'reading', versions: eligibility.versions, busy: false});
       // A unique actual publication needs no choice. Multiple versions never
       // receive a client-invented first/preferred format or source.
