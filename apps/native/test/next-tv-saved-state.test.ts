@@ -61,6 +61,7 @@ async function setup() {
   const {createNativeTVSavedState} = await screenModule(new URL('../src-next/tv/saved/state.ts', import.meta.url), {
     react: {default: {}}, '../../screens/destinations/lifetime': {nativeDestinationLifetime}, '../../screens/destinations/entry-actions': {createNativeEntryActions},
     '../../screens/native-screen-services': {nativeScreenServices: () => common}, '../../screens/saved/state': {createNativeSavedState},
+    '../../screens/saved/navigation': savedNavigation,
     '../../screens/saved/view-model': {NativeSavedViewDestination},
   });
   const state = createNativeTVSavedState(context);
