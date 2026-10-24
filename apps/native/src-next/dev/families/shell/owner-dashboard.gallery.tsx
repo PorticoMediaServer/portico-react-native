@@ -8,6 +8,7 @@ import type {TelemetryReading} from '../../../../../../packages/client-core/src/
 import type {Gallery} from '../../gallery-registry';
 import {useTheme} from '../../../kit/theme';
 import {OwnerDashboardPage} from '../../../screens/settings-live/owner-dashboard/page';
+import {OwnerMoveSheet} from '../../../screens/settings-live/owner-dashboard/move-sheet';
 import {ownerAlertView, ownerHealthLine, ownerJobView, ownerStreamView, type OwnerSessionTotals} from '../../../screens/settings-live/owner-dashboard/model';
 
 const t = defaultI18n.t;
@@ -104,7 +105,7 @@ const summary: PlaySummary = {
   mostActive: [{name: 'sam_k', plays: 18}, {name: 'demo', plays: 14}, {name: 'priya.n', plays: 9}],
 };
 
-function specimen(scale: boolean, expanded: boolean) {
+function specimen(scale: boolean, expanded: boolean, move = false) {
   return function OwnerDashboardSpecimen() {
     const theme = useTheme(), env = {t, locale: defaultI18n.region.formatLocale}, health = ownerHealthLine(undefined, undefined, t);
     const list = scale ? scaleSessions : sessions;
@@ -121,6 +122,7 @@ function specimen(scale: boolean, expanded: boolean) {
           onBack={() => {}} onRefresh={() => {}} onRetry={() => {}} onHealthWindow={() => {}} onViewingPeriod={() => {}} onAcknowledge={() => {}} onFixPermissions={() => {}} onJobMenu={() => {}} onStop={() => {}} onStreamMenu={() => {}}
           onShowAll={() => {}} onShowFewer={() => {}} onRetryAll={() => {}}/>
       </ScrollView>
+      {move ? <OwnerMoveSheet session={scaleSessions[4]} t={t} busy={false} onCancel={() => {}} onMove={() => {}}/> : null}
     </View>;
   };
 }
@@ -129,5 +131,6 @@ const galleries: readonly Gallery[] = [
   {id: 'shell-owner-dashboard', title: 'next.dashboard.title', render: specimen(false, false), platforms: ['phone', 'tablet']},
   {id: 'shell-owner-dashboard-busy', title: 'next.dashboard.title', render: specimen(true, false), platforms: ['phone', 'tablet']},
   {id: 'shell-owner-dashboard-all', title: 'next.dashboard.title', render: specimen(true, true), platforms: ['phone', 'tablet']},
+  {id: 'shell-owner-dashboard-move', title: 'next.dashboard.title', render: specimen(true, false, true), platforms: ['phone', 'tablet']},
 ];
 export default galleries;
