@@ -156,7 +156,7 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
   const key = nativeSearchEntryKey(group, entry), title = content?.displayTitle || entry.title;
   return <View style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 20, gap: 13}}>
     <CardFrame testID={`search-result-${key}`} focusId={key} title={title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
-      onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)} style={{flex: 1}} pressableStyle={{flexDirection: 'row', gap: 13, alignItems: 'center'}}>
+      onNavigate={() => actions.open(entry, group)} onMore={actions.canMenu?.(entry, group) === false ? undefined : () => actions.menu(entry, group, menuAnchorRef)} style={{flex: 1}} pressableStyle={{flexDirection: 'row', gap: 13, alignItems: 'center'}}>
       {() => <>
       {selection?.active && <SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/>}
       <View style={{width, height, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.colors.raised}}><Artwork source={runtime.artwork(group === 'episodes' ? content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl : entry.posterUrl)} width={width} height={height}/></View>
@@ -165,7 +165,7 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
       </View>
       </>}
     </CardFrame>
-    {!selection?.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={3} focusRadius={19}
+    {!selection?.active && actions.canMenu?.(entry, group) !== false && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={3} focusRadius={19}
       style={{width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
   </View>;
 }
@@ -174,7 +174,7 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
 function SearchTopResult({entry, group, runtime, actions, selection, width}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection; width: number}) {
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), gradient = useId(), kind = topResultKindLabel(group), title = media(entry) ? entry.displayTitle || entry.title : entry.title;
   return <CardFrame testID="search-top-result" title={title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
-    onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)}
+    onNavigate={() => actions.open(entry, group)} onMore={actions.canMenu?.(entry, group) === false ? undefined : () => actions.menu(entry, group, menuAnchorRef)}
     style={{marginHorizontal: 16, marginTop: 14, marginBottom: 2}} pressableStyle={{height: 178, borderRadius: 14, backgroundColor: theme.colors.dim, overflow: 'hidden'}}>
     {() => <>
     <Artwork source={runtime.artwork(media(entry) ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl)} height={178}/>

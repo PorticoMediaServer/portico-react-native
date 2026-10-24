@@ -467,6 +467,7 @@ export async function standardHomeApp({
     'playback.subtitleFont': 'default',
     'playback.keepSubtitleStyling': true,
     'playback.useSystemCaptionStyle': false,
+    'search.rememberHistory': false,
   };
   const prefs = () => ({
     deviceClass: 'mobile',
@@ -476,10 +477,10 @@ export async function standardHomeApp({
       fields: Object.entries(effective).map(([key, value]) => ({
         key,
         type: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'string',
-        default: value,
+        default: key === 'search.rememberHistory' ? true : value,
         group: key.split('.')[0],
         labelKey: 'preferences.' + key,
-        scopes: ['profile-server', 'profile-device-class'],
+        scopes: key === 'search.rememberHistory' ? ['profile-server'] : ['profile-server', 'profile-device-class'],
       })),
     },
     documents: ['profile-server', 'profile-device-class'].map(scope => ({
