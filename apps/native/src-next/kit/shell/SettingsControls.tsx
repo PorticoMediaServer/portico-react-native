@@ -113,7 +113,7 @@ export function SubtitlePreview({source, size, background, visible = true}: {sou
   return <View style={{height: theme.isTV ? 190 : 360, borderRadius: theme.isTV ? 18 : 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
     <Artwork source={source} visible={visible} position={{x: .5, y: .3}}/>
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.colors.ink, theme.isTV ? .3 : .1)}]}/>
-    <View style={{position: 'absolute', bottom: theme.isTV ? 26 : 70, left: 0, right: 0, alignItems: 'center'}}><Text style={[shellType(fontSize, 600, fontSize * 1.3), {color: theme.colors.white, paddingHorizontal: theme.isTV ? 18 : 12, paddingVertical: theme.isTV ? 6 : 3, borderRadius: theme.isTV ? 6 : 4, backgroundColor: background === 'none' ? 'transparent' : alpha(theme.colors.shadow, background === 'opaque' ? 1 : .55), textShadowColor: background === 'opaque' ? 'transparent' : alpha(theme.colors.shadow, .8), textShadowOffset: {width: 0, height: 1}, textShadowRadius: 3}]}>{defaultI18n.t('settings.subtitlePreview.line')}</Text></View>
+    <View style={{position: 'absolute', bottom: theme.isTV ? 26 : 70, left: 0, right: 0, alignItems: 'center'}}><Text style={[shellType(fontSize, 600, fontSize * 1.3, 0, 1), {color: theme.colors.white, paddingHorizontal: theme.isTV ? 18 : 12, paddingVertical: theme.isTV ? 6 : 3, borderRadius: theme.isTV ? 6 : 4, backgroundColor: background === 'none' ? 'transparent' : alpha(theme.colors.shadow, background === 'opaque' ? 1 : .55), textShadowColor: background === 'opaque' ? 'transparent' : alpha(theme.colors.shadow, .8), textShadowOffset: {width: 0, height: 1}, textShadowRadius: 3}]}>{defaultI18n.t('settings.subtitlePreview.line')}</Text></View>
   </View>;
 }
 

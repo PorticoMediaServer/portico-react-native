@@ -84,7 +84,7 @@ function activate(props: SelectionBarProps, id: SelectionAction) {
 
 /** Header replaces its host toolbar. The phone action bar occupies the shell's tab-bar slot. */
 export function SelectionBar(props: SelectionBarProps) {
-  const {isTV, colors} = useTheme();
+  const {isTV, colors, textScale} = useTheme();
   const moreRef = useRef<View>(null), queueRef = useRef<View>(null), watchedRef = useRef<View>(null);
   useSelectionBack(props.onCancel, props.menu);
   const tintId = useId().replace(/:/g, '');
@@ -92,9 +92,9 @@ export function SelectionBar(props: SelectionBarProps) {
   if (!isTV) return <>
     <View style={{paddingTop: props.topInset ?? 0, backgroundColor: 'rgba(7,16,24,.9)', borderBottomWidth: 1, borderBottomColor: 'rgba(92,179,226,.25)'}}>
       <View style={styles.header}>
-        <Button testID={controlID(props.testID, 'dismiss')} variant="text" size="small" style={{paddingHorizontal: 0}} textStyle={{fontSize: 16.5, color: colors.textSecondary}} onPress={props.onCancel}>{selectionText('next.selection.native.cancel')}</Button>
+        <Button testID={controlID(props.testID, 'dismiss')} variant="text" size="small" style={{paddingHorizontal: 0}} textStyle={{fontSize: 16.5 * textScale, color: colors.textSecondary}} onPress={props.onCancel}>{selectionText('next.selection.native.cancel')}</Button>
         <View pointerEvents="none" style={styles.count}><SelectionText size={17} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText></View>
-        <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button>
+        <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16 * textScale}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button>
       </View>
       {props.subtitle ? <View style={{paddingHorizontal: 20, paddingBottom: 10}}><SelectionText size={13} weight={600} secondary>{props.subtitle}</SelectionText></View> : null}
     </View>
@@ -107,10 +107,10 @@ export function SelectionBar(props: SelectionBarProps) {
       {props.subtitle ? <SelectionText size={20} weight={600} secondary>{props.subtitle}</SelectionText> : null}
       <View style={{height: 44, width: 2, backgroundColor: 'rgba(92,179,226,.35)', marginHorizontal: 6}} />
       {mainTV.map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
-        style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : 24}} textStyle={{fontSize: 22}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
+        style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : 24}} textStyle={{fontSize: 22 * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
-      <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22}}>{props.selectAllLabel}</Button>
-      <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64}} textStyle={{fontSize: 22}}>{selectionText('next.selection.native.done')}</Button>
+      <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button>
+      <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{selectionText('next.selection.native.done')}</Button>
     </View>
     <SelectionMenus {...props} returnFocusRef={props.menu === 'more' ? moreRef : props.menu === 'queue' ? queueRef : props.menu === 'watched' ? watchedRef : undefined} />
   </>;

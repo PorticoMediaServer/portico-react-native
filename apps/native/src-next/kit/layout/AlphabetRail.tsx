@@ -48,12 +48,12 @@ export function AlphabetRail({positionIndex, total, firstVisible, lastVisible, c
         style={{width: theme.isTV ? 64 : 18, height: pitch, alignItems: 'center', justifyContent: 'center', zIndex: isFocused ? theme.layers.tvFocus : 1}}>
         <View style={{width: theme.isTV ? 44 : 16, height: theme.isTV ? 44 : 16, borderRadius: theme.isTV ? 14 : 8, alignItems: 'center', justifyContent: 'center',
           backgroundColor: selected ? theme.colors.accentStrong : undefined, borderWidth: isFocused ? theme.spec.focus.ringWidth.tv : 0, borderColor: theme.colors.focus}}>
-          <Text style={{fontFamily: fontFamilies[700], fontSize: theme.isTV ? 20 : 10, color: empty ? `${theme.colors.textTertiary}4D` : selected ? theme.colors.ink : theme.colors.textTertiary}}>{anchor.key}</Text>
+          <Text style={{fontFamily: fontFamilies[700], fontSize: (theme.isTV ? 20 : 10) * theme.textScale, color: empty ? `${theme.colors.textTertiary}4D` : selected ? theme.colors.ink : theme.colors.textTertiary}}>{anchor.key}</Text>
         </View>
       </Focusable>;
     })}
     {bubble && <View pointerEvents="none" style={{position: 'absolute', right: theme.isTV ? 84 : 32, top: Math.max(0, Math.min(height - 58, bubbleIndex * pitch - 21)), width: 58, height: 58, borderRadius: 16, backgroundColor: theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'}}>
-      <Text style={{fontFamily: fontFamilies[800], fontSize: 30, color: theme.colors.text}}>{bubble}</Text>
+      <Text style={{fontFamily: fontFamilies[800], fontSize: 30 * theme.textScale, color: theme.colors.text}}>{bubble}</Text>
     </View>}
   </View></GestureDetector>;
 }

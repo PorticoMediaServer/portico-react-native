@@ -30,7 +30,7 @@ import {nativePlaybackSettings} from './playback-settings';
 import {authorityKey, type ShellAuthority} from './model';
 import {nativeReadRouteAllowed} from '../screens/read/platform';
 import {nativeRuntimeRegionText} from '../screens/settings/runtime-region';
-import {nativeAppearanceMotion} from '../screens/settings/appearance-policy';
+import {nativeAppearanceMotion, nativeAppearanceTextSize} from '../screens/settings/appearance-policy';
 import {bindNativeTopShelfLocale} from '../screens/settings/top-shelf-locale';
 import {nativeScreenServices} from '../screens/native-screen-services';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
@@ -65,7 +65,7 @@ export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selectio
   dispose: () => void;
 };
 export type NativeShellBindingsFactory = (context: NativeShellBootstrapContext) => Promise<NativeShellBindings> | NativeShellBindings;
-export type RestoredNativeShellRuntime = NativeShellRuntime & {readonly appearanceMotion?: 'follow' | 'reduce'; dispose: () => void; refresh: () => Promise<void>};
+export type RestoredNativeShellRuntime = NativeShellRuntime & {readonly appearanceMotion?: 'follow' | 'reduce'; readonly appearanceTextSize?: 'standard' | 'large'; dispose: () => void; refresh: () => Promise<void>};
 
 function cancelled(): Error {return Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});}
 const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamilyId === b.sessionFamilyId && (['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).every(key => a.viewer[key] === b.viewer[key]);
@@ -291,7 +291,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text,
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;

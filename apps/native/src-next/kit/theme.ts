@@ -10,6 +10,22 @@ export const fontFamilies = {
   800: typography.extraBold,
 } as const;
 
+/** Ruling R46-TV-TEXT-SIZE: the confirmed TV appearance preference maps to the
+ * one numeric scale. Standard 1.0, Large 1.2. Handhelds keep 1.0 because the OS
+ * accessibility scale is honoured separately by the text renderer. */
+export const tvTextScale = Object.freeze({standard: 1, large: 1.2} as const);
+export type TextSizePreference = keyof typeof tvTextScale;
+export function textScaleFor(textSize: TextSizePreference | undefined, isTV: boolean): number {
+  return isTV && textSize === 'large' ? tvTextScale.large : 1;
+}
+
+/** `shellType`, `browseType` and page-local helpers are plain functions, not
+ * hooks. The mounted provider publishes the one confirmed scale so a caller
+ * that omits it still honours the preference exactly once; an explicit numeric
+ * argument always wins and no nested provider compounds the value. */
+let publishedTextScale = 1;
+export function activeTextScale(): number {return publishedTextScale;}
+
 /** Native fonts supply their own normal line metrics. Tracking is specified in em. */
 export function nativeType(style: TypeStyle, textScale = 1): TextStyle {
   return {
@@ -37,11 +53,13 @@ export function createTheme({isTV, width, reduceMotion = false, textScale = 1}: 
 export type Theme = ReturnType<typeof createTheme>;
 const ThemeContext = createContext<Theme | undefined>(undefined);
 
-export function ThemeProvider({children, width: surfaceWidth, reduceMotion = false, textScale = 1}: {children: React.ReactNode; width?: number; reduceMotion?: boolean; textScale?: number}) {
+export function ThemeProvider({children, width: surfaceWidth, reduceMotion = false, textScale, textSize}: {children: React.ReactNode; width?: number; reduceMotion?: boolean; /** Numeric scale used by specimens and the confirmed preference itself. */ textScale?: number; /** Confirmed `appearance.textSize`; ignored outside TV per ruling R46. */ textSize?: TextSizePreference}) {
   const dimensions = useWindowDimensions();
   const width = surfaceWidth ?? dimensions.width;
   const isTV = Platform.isTV === true;
-  const theme = useMemo(() => createTheme({isTV, width, reduceMotion, textScale}), [isTV, width, reduceMotion, textScale]);
+  const scale = textScale ?? textScaleFor(textSize, isTV);
+  publishedTextScale = scale;
+  const theme = useMemo(() => createTheme({isTV, width, reduceMotion, textScale: scale}), [isTV, width, reduceMotion, scale]);
   return React.createElement(ThemeContext.Provider, {value: theme}, children);
 }
 
