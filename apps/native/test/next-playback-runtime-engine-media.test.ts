@@ -99,6 +99,35 @@ test('a styled file\'s attached fonts are fetched before the track is given to t
   assert.equal(fontsUrlOf(plan(resource({format: 'pgs', deliveries: [{format: 'pgs', url: base + '/original.sup'}]}))), undefined);
 });
 
+test('the selected presentation preserves its explicit companion and complete file clock without adding the plan correction', () => {
+  const chosen = resource({format: 'vobsub', origin: 'sidecar', deliveries: [{format: 'vobsub', url: base + '/original.idx', companionUrl: base + '/original.sub'}]});
+  const selected = plan(chosen, {renderer: 'client', offsetUs: '250000'});
+  for (const offsetMs of [-1750, 0, 3250]) {
+    const listed = v1({subtitle: {trackId: 'res-1', kind: 'vobsub', delivery: 'device'}, subtitles: [
+      {trackId: 'other-track', format: 'vobsub', url: base + '/original.idx', offsetMs: 9000},
+      {trackId: 'res-1', format: 'vobsub', url: base + '/original.idx', companionUrl: '/v1/media/subtitles/g1/res-1/4/original.sub', timeDomain: 'source-relative', offsetMs},
+    ]});
+    assert.deepEqual(engineSubtitleRender(selected, session('hls'), all, absolute, undefined, listed), {
+      kind: 'vobsub', url: absolute(base + '/original.idx'), companionUrl: absolute('/v1/media/subtitles/g1/res-1/4/original.sub'), timeDomain: 'source-relative', offsetMs,
+    });
+  }
+  assert.equal(selected.offsetUs, '250000', 'the plan remains a separate fallback, never summed into the file correction');
+});
+
+test('delivery companion URLs remain grant-bound and absent file timing stays absent', () => {
+  const delivery = {format: 'vobsub', url: base + '/original.idx', companionUrl: base + '/original.sub'};
+  const chosen = resource({format: 'vobsub', origin: 'sidecar', deliveries: [delivery]});
+  assert.deepEqual(engineSubtitleRender(plan(chosen, {renderer: 'client', offsetUs: '175000'}), session('hls'), all, absolute), {
+    kind: 'vobsub', url: absolute(delivery.url), companionUrl: absolute(delivery.companionUrl),
+  });
+  for (const companionUrl of ['https://elsewhere.test/original.sub', '/v1/media/subtitles/g1/res-1/3/../original.sub', 'file:///private/subtitle.sub']) {
+    assert.deepEqual(deliveriesOf(resource({deliveries: [{...delivery, companionUrl}]})), [{format: 'vobsub', url: delivery.url}]);
+  }
+  for (const offsetMs of [NaN, Infinity, '1000', 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.deepEqual(deliveriesOf(resource({deliveries: [{...delivery, offsetMs, timeDomain: 'source-relative\n'}]})), [{format: 'vobsub', url: delivery.url, companionUrl: delivery.companionUrl}]);
+  }
+});
+
 test('formats map to the kinds of the capability document, and chapters are bounded and ordered', () => {
   assert.deepEqual(['ass', 'ssa', 'pgs', 'sup', 'vobsub', 'idx', 'dvb', 'srt', 'vtt', undefined].map(kindOfFormat), ['ass', 'ass', 'pgs', 'pgs', 'vobsub', 'vobsub', 'dvb', 'text', 'text', 'text']);
   assert.deepEqual(chaptersOf([{startSeconds: 90, title: 'Two'}, {startMs: 0, title: 'One'}, {startSeconds: -1}, {title: 'no time'}, null, {startSeconds: 200}]), [{startSeconds: 0, title: 'One'}, {startSeconds: 90, title: 'Two'}, {startSeconds: 200, title: ''}]);
