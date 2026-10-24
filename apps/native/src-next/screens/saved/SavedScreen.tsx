@@ -64,40 +64,55 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     {id: 'views', label: 'saved.tab.savedViews', icon: 'i-filter', count: summary?.savedViews, view: {view: 'views'}},
     {id: 'history', label: 'saved.tab.history', icon: 'i-clock', view: {view: 'history'}},
   ];
+  // phone-app9 draws each shelf as the phone row: a 19 heading with its arrow,
+  // the count beside it, and a 12-gap track inset by the 20 gutter.
+  const track = {paddingHorizontal: theme.gutter, paddingTop: theme.spec.shelf.phonePaddingTop, paddingBottom: theme.spec.shelf.phonePaddingBottom, gap: theme.spec.shelf.gap[theme.platform]};
+  const pinKind = (kind: PinnedResource['kind']) => kind === 'view' ? t('title.savedView') : t('title.kind', {kind});
   return <View testID="native-saved-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={scroll} contentContainerStyle={{paddingTop: Math.max(58, insets.top), paddingBottom: 28}}>
-      <Text accessibilityRole="header" style={[browseType(theme, 36, 800, -.035, 39), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 18}]}>{t('saved.title')}</Text>
+      <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
+        <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text}]}>{t('saved.title')}</Text>
+      </View>
       {snapshot.phase === 'error' && <StateView {...runtime.error(snapshot.error, () => {void destination.load().catch(report);})}/>}
-      <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
-      {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16, gap: 10}}>
-        {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)}/>)}
-      </ScrollView>}
-      {downloads.supported && <>
+      <SavedSection first>
+        <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
+        {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
+          {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)}/>)}
+        </ScrollView>}
+      </SavedSection>
+      {downloads.supported && <SavedSection>
         <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(downloads.usedBytes)})} onPress={actions.openDownloads}/>
-        {!!localGroups.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16, gap: 10}}>
+        {!!localGroups.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
           {localGroups.map(group => <SavedDownloadCard key={group.key} group={group} device={device} copy={downloadsCopy} onOpen={() => openNativeSavedDownload(device, group, actions.openDownloads, report)}/>)}
         </ScrollView>}
-      </>}
+      </SavedSection>}
       <View style={{marginHorizontal: 16, marginTop: 24, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
         {rows.map((row, index) => <SavedLink key={row.id} testID={`saved-view-${row.id}`} label={t(row.label)} icon={row.icon} value={row.count === undefined ? undefined : defaultI18n.number(row.count)} separator={index > 0} onPress={() => actions.openView(row.view)}/>)}
       </View>
-      <View style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 24, marginHorizontal: 20, marginBottom: 6}}>
-        <Text accessibilityRole="header" style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{t('pins.heading')}</Text>
+      <View style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 24, marginHorizontal: theme.gutter, marginBottom: 6}}>
+        <Text accessibilityRole="header" style={[theme.type.rowHeading, {color: theme.colors.text}]}>{t('pins.heading')}</Text>
         <Focusable testID="saved-edit-pins" accessibilityLabel={t('pins.edit')} onPress={actions.editPins} hitSlop={12}><Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{t('pins.edit')}</Text></Focusable>
       </View>
-      <View style={{marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
-        {snapshot.pins.map((pin, index) => <SavedLink key={JSON.stringify([pin.kind, pin.id])} testID={`saved-pin-${pin.kind}-${encodeURIComponent(pin.id)}`} label={pin.name}
+      {!!snapshot.pins.length && <View style={{marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
+        {snapshot.pins.map((pin, index) => <SavedLink key={JSON.stringify([pin.kind, pin.id])} testID={`saved-pin-${pin.kind}-${encodeURIComponent(pin.id)}`} label={pin.name} caption={pinKind(pin.kind)}
           icon={pin.kind === 'playlist' ? 'i-queue' : pin.kind === 'collection' ? 'i-stack' : 'i-filter'} separator={index > 0} onPress={() => actions.openPin(pin)}/>)}
-      </View>
+      </View>}
     </ScrollView>
     {selection?.render()}
   </View>;
 }
 
+/** The phone row opens its full view and keeps the drawn 28 shelf rhythm; the
+ * first row sits 2 below the large title's 12 bottom padding. */
+function SavedSection({first = false, children}: {first?: boolean; children: React.ReactNode}) {
+  const theme = useTheme();
+  return <View style={{marginTop: first ? 2 : theme.spec.shelf.marginTop[theme.platform]}}>{children}</View>;
+}
+
 function SavedMyListCard({entry, runtime, actions, selection}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection?: CardSelection}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
-  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.displayTitle || entry.title, caption: text.caption, width: 112,
+  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.displayTitle || entry.title, caption: text.caption,
     artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry, menuAnchorRef), selection,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry)};
   return entry.kind === 'song' || entry.kind === 'album' || entry.kind === 'book' || entry.kind === 'audiobook_file' ? <SquareCard {...props}/> : <PosterCard {...props}/>;
@@ -105,18 +120,26 @@ function SavedMyListCard({entry, runtime, actions, selection}: {entry: ContentEn
 
 function SavedRowHeading({title, detail, onPress, testID}: {title: string; detail?: string; onPress: () => void; testID: string}) {
   const theme = useTheme();
-  return <Focusable testID={testID} accessibilityLabel={title} onPress={onPress} style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginHorizontal: 20, marginTop: 2, marginBottom: 12}}>
-    <View style={{flexDirection: 'row', alignItems: 'center'}}><Text accessibilityRole="header" style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{title}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary}/></View>
-    {detail && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{detail}</Text>}
-  </Focusable>;
+  return <View style={{flexDirection: 'row', alignItems: 'baseline', gap: theme.spec.shelf.headingGap[theme.platform], marginHorizontal: theme.gutter,
+    marginBottom: theme.spec.shelf.headingMargin[theme.platform]}}>
+    <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={title} onPress={onPress} focusRadius={8}
+      style={{flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1}}>
+      <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text}]}>{title}</Text>
+      <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
+    </Focusable>
+    {detail && <Text numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary}]}>{detail}</Text>}
+  </View>;
 }
 
-function SavedLink({label, icon, value, separator, onPress, testID}: {label: string; icon: IconName; value?: string; separator: boolean; onPress: () => void; testID: string}) {
+function SavedLink({label, caption, icon, value, separator, onPress, testID}: {label: string; caption?: string; icon: IconName; value?: string; separator: boolean; onPress: () => void; testID: string}) {
   const theme = useTheme();
   return <Focusable testID={testID} accessibilityLabel={label} onPress={onPress} style={{position: 'relative', flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 8, paddingHorizontal: 14, gap: 12}}>
     {separator && <View style={{position: 'absolute', left: 56, right: 0, top: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}
     <View style={{width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedBright}}><Icon name={icon} size={18} color={theme.colors.textSecondary}/></View>
-    <Text numberOfLines={1} style={[browseType(theme, 15.5, 600), {color: theme.colors.text, flex: 1}]}>{label}</Text>
+    <View style={{flex: 1, minWidth: 0}}>
+      <Text numberOfLines={1} style={[browseType(theme, 15.5, 600), {color: theme.colors.text}]}>{label}</Text>
+      {caption && <Text numberOfLines={1} style={[browseType(theme, 12.5, 500, 0, 17.5), {color: theme.colors.textTertiary, marginTop: 2}]}>{caption}</Text>}
+    </View>
     {value !== undefined && <Text style={[browseType(theme, 14.5, 600), {color: theme.colors.textTertiary}]}>{value}</Text>}
     <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
   </Focusable>;
