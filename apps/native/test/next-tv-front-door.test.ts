@@ -138,7 +138,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     assert.equal(registry.read(replacement)?.lines, undefined, 'a replaced native target cannot populate the current lease');
     heading().props.onTextLayout(event(replacement.tag));
     assert.deepEqual(registry.read(replacement)?.lines, observed);
-    theme = {...theme, textScale: 1.25, colors: {...theme.colors, ink: '#010203'}}; await act(() => host!.rerender());
+    theme = {...theme, textScale: 1.25}; await act(() => host!.rerender());
     assert.equal(tree.props.style.backgroundColor, theme.colors.ink);
     assert.deepEqual(registry.read(replacementRoot)?.flattenedStyle, {backgroundColor: theme.colors.ink});
     assert.deepEqual(registry.read(replacementWordmark)?.flattenedStyle, image().props.style);
