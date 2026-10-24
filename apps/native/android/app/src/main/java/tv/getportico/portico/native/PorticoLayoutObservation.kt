@@ -165,20 +165,22 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
   private fun text(view: TextView, decor: View, density: Double, budget: LayoutObservationPolicy.TextBudget): Map<String, Any> {
     val result = TEXT_FIELDS.associateWith { missing("paint-unprovable") }.toMutableMap()
     val layout = view.layout ?: return TEXT_FIELDS.associateWith { missing("unsupported-text-layout") }
-    if (view.isLayoutRequested || layout.lineCount > LayoutObservationPolicy.MAX_LINES || !budget.lines(layout.lineCount) ||
-        (0 until layout.lineCount).any { layout.getEllipsisCount(it) != 0 }) return TEXT_FIELDS.associateWith { missing("unsupported-text-layout") }
+    val boundedLines = layout.lineCount <= LayoutObservationPolicy.MAX_LINES && budget.lines(layout.lineCount)
+    val ellipsized = boundedLines && (0 until layout.lineCount).any { layout.getEllipsisCount(it) != 0 }
+    val geometryReady = !view.isLayoutRequested && boundedLines && !ellipsized
     // Layout's public span metadata is consulted without reading/subsequencing/serializing characters.
     // Reapply the same draw-state spans to detached TextPaints; base TextView defaults alone are not run paint.
     val content = layout.text
     val spanned = content as? Spanned
     val paints = mutableListOf<TextPaint>()
+    val basePaint = TextPaint(layout.paint); basePaint.color = view.currentTextColor; basePaint.drawableState = view.drawableState
+    view.linkTextColors?.let { basePaint.linkColor = it.getColorForState(view.drawableState, it.defaultColor) }
     var start = 0
     while (start < content.length) {
       if (paints.size >= LayoutObservationPolicy.MAX_RUNS || !budget.run()) return TEXT_FIELDS.associateWith { missing("unsupported-text-layout") }
       val end = spanned?.nextSpanTransition(start, content.length, CharacterStyle::class.java) ?: content.length
       if (end <= start) return result
-      val paint = TextPaint(layout.paint); paint.color = view.currentTextColor; paint.drawableState = view.drawableState
-      view.linkTextColors?.let { paint.linkColor = it.getColorForState(view.drawableState, it.defaultColor) }
+      val paint = TextPaint(basePaint)
       val spans = if (spanned == null) emptyList() else spanned.getSpans(start, end, CharacterStyle::class.java).filter {
         spanned.getSpanStart(it) < end && spanned.getSpanEnd(it) > start
       }
@@ -186,19 +188,30 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
       for (span in spans) span.updateDrawState(paint)
       paints.add(paint); start = end
     }
-    val colors = paints.map { it.color }.distinct()
-    if (colors.size == 1 && paints.all { it.shader == null && it.colorFilter == null })
-      result["textColor"] = value(LayoutObservationPolicy.rgba(colors.single()), "android.Layout.TextPaint+CharacterStyle")
-    val sizes = paints.map { it.textSize.toDouble() }.distinct()
-    if (sizes.size == 1 && sizes.single().isFinite() && sizes.single() > 0) result["fontSize"] = value(sizes.single() / density, "android.Layout.TextPaint.textSize+MetricAffectingSpan")
-    if (Build.VERSION.SDK_INT >= 28 && paints.isNotEmpty() && paints.all { it.typeface != null && !it.isFakeBoldText }) {
-      val weights = paints.map { it.typeface.weight }.distinct()
-      if (weights.size == 1) result["fontWeight"] = value(weights.single(), "android.Layout.TextPaint.Typeface.getWeight")
+    // Geometry can be unsupported while actual run paint is uniformly provable.
+    // Where ellipsis is possible, require the native base paint to agree too;
+    // never guess which run/base style the synthesized glyph would use.
+    if (paints.isNotEmpty() && (!boundedLines || ellipsized)) paints.add(basePaint)
+    LayoutObservationPolicy.uniform(paints.map { if (it.shader == null && it.colorFilter == null) it.color else null })?.let {
+      result["textColor"] = value(LayoutObservationPolicy.rgba(it), "android.Layout.TextPaint+CharacterStyle")
+    }
+    LayoutObservationPolicy.uniform(paints.map { it.textSize.toDouble().takeIf { size -> size.isFinite() && size > 0 } })?.let {
+      result["fontSize"] = value(it / density, "android.Layout.TextPaint.textSize+MetricAffectingSpan")
+    }
+    if (Build.VERSION.SDK_INT >= 28) {
+      LayoutObservationPolicy.uniform(paints.map { paint -> paint.typeface?.weight?.takeUnless { paint.isFakeBoldText } })?.let {
+        result["fontWeight"] = value(it, "android.Layout.TextPaint.Typeface.getWeight")
+      }
     }
     // A Typeface system label does not establish the associated shaped resource's
     // typographic name (name ID 16, else ID 1). No resource/name-table association
     // is currently observable here, so neither labels nor requested families qualify.
     result["fontFamily"] = missing("font-family-unavailable")
+    if (!geometryReady) {
+      result["lineHeight"] = missing("unsupported-text-layout")
+      result["textLineRects"] = missing("unsupported-text-layout")
+      return result
+    }
     val heights = (0 until layout.lineCount).map { layout.getLineBottom(it) - layout.getLineTop(it) }.distinct()
     if (heights.size == 1 && heights.single() > 0) result["lineHeight"] = value(heights.single() / density, "android.Layout.getLineTop+getLineBottom")
     result["textLineRects"] = missing("unsupported-transform")
@@ -330,6 +343,11 @@ internal object LayoutObservationPolicy {
     return found
   }
   fun opacity(alpha: List<Double>): Double? = if (alpha.isEmpty() || alpha.any { !it.isFinite() || it < 0 || it > 1 }) null else alpha.fold(1.0) { a, b -> a * b }
+  fun <T : Any> uniform(values: List<T?>): T? {
+    if (values.isEmpty() || values.any { it == null }) return null
+    val first = values.first()!!
+    return first.takeIf { values.all { it == first } }
+  }
   fun windowRect(bounds: DoubleArray, mappedOrigin: DoubleArray, nativeWindowOrigin: DoubleArray, density: Double): Map<String, Double>? {
     if (bounds.size != 4 || mappedOrigin.size != 2 || nativeWindowOrigin.size != 2 || !density.isFinite() || density <= 0 ||
         bounds.any { !it.isFinite() } || mappedOrigin.any { !it.isFinite() } || nativeWindowOrigin.any { !it.isFinite() } ||
