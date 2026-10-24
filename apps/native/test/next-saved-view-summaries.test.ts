@@ -5,7 +5,7 @@ import {parseBrowseCapabilities} from '../../../packages/client-core/src/browse.
 import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
 import type {PersonalResource} from '../../../packages/client-core/src/personal-saved.ts';
 import type {SavedApi} from '../../../packages/client-core/src/saved.ts';
-import {savedViewSummary} from '../../../packages/client-core/src/presentation/saved-view-summary.ts';
+import {savedViewSummary, type SavedViewSummaryText} from '../../../packages/client-core/src/presentation/saved-view-summary.ts';
 import {NativeHomeSavedViewSummaries} from '../src-next/screens/home/saved-view-summaries.ts';
 import {NativeSavedDestination} from '../src-next/screens/saved/model.ts';
 import {createNativeSavedViewSummaryBinding} from '../src-next/screens/saved/view-summaries.ts';
@@ -385,4 +385,48 @@ test('a borrowed reader publish failure never escapes and the Saved-owned reader
     await reader.load([...destination.getSnapshot().personal!.resources]); await tick();
     assert.equal(binding.line(resource, defaultI18n), lineOf(resource), 'the owner can reuse its reader');
   } finally {process.off('unhandledRejection', onRejection); binding.dispose(); destination.dispose(); reader.dispose();}
+});
+
+test('the line follows the actual i18n and the newest capability with no cached summary', async () => {
+  const calls: Call[] = [];
+  let capabilityReads = 0;
+  const api = fakeApi(path => {
+    const url = new URL(path, 'https://test.invalid');
+    if (url.pathname.endsWith('/browse-capabilities')) {
+      capabilityReads++;
+      const response = capability('movies', 'movies');
+      return capabilityReads === 1 ? response : {...response, sorts: []};
+    }
+    if (url.pathname.endsWith('/saved/summary')) return summary();
+    if (url.pathname.includes('saved-resources')) return directory([viewWire('cache')]);
+    return hubList(url.searchParams.get('view') ?? 'watchlist');
+  }, calls);
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const reader = readerFor(api);
+  const binding = createNativeSavedViewSummaryBinding(testContext().context, destination, () => true, reader);
+  const plainCapabilities = () => parseBrowseCapabilities(capability('movies', 'movies'));
+  const marked: SavedViewSummaryText = {t: (id, values) => `«${defaultI18n.t(id, values)}»`, has: defaultI18n.has, locale: defaultI18n.locale};
+  const british: SavedViewSummaryText = {t: defaultI18n.t, has: defaultI18n.has, locale: 'en-GB'};
+  const missing: SavedViewSummaryText = {t: defaultI18n.t, has: (id: string): id is never => id === '', locale: defaultI18n.locale};
+  try {
+    await destination.select({view: 'views'});
+    const resource = destination.getSnapshot().personal!.resources[0]!;
+    await binding.start(); await tick();
+    const plain = lineOf(resource);
+    assert.equal(binding.line(resource, defaultI18n), plain);
+    const markedLine = savedViewSummary(resource.definition!, plainCapabilities(), marked)!.line;
+    assert.notEqual(markedLine, plain, 'the actual supplied i18n is used at read time');
+    assert.equal(binding.line(resource, marked), markedLine);
+    assert.equal(binding.line(resource, british), savedViewSummary(resource.definition!, plainCapabilities(), british)!.line);
+    assert.equal(binding.line(resource, missing), undefined, 'suppressed vocabulary withholds the line');
+    assert.equal(binding.line(resource, defaultI18n), plain, 'an earlier text is never cached');
+
+    await destination.select({view: 'views', shape: 'squares'});
+    const replaced = destination.getSnapshot().personal!.resources[0]!;
+    assert.notEqual(replaced, resource);
+    await tick();
+    assert.equal(capabilityReads, 2, 'the replaced window reads its newest vocabulary');
+    assert.equal(binding.line(resource, defaultI18n), undefined);
+    assert.equal(binding.line(replaced, defaultI18n), undefined, 'the newest capability withholds the withdrawn sort');
+  } finally {binding.dispose(); destination.dispose(); reader.dispose();}
 });
