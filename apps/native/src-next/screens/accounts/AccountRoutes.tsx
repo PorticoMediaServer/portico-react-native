@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {BackHandler, ScrollView, Text, View} from 'react-native';
+import {BackHandler, Dimensions, Platform, ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
@@ -15,9 +15,14 @@ import type {NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
 import {StateLayout} from '../../kit/states';
 import {ProfilePicker} from '../../kit/artwork';
-import {Button, TextField} from '../../kit/controls';
+import {Button, Focusable, TextField} from '../../kit/controls';
+import {BottomSheet} from '../../kit/overlays';
+import {Icon} from '../../kit/Icon';
+import {offlineDownloads, offlineOwnerKey} from '../../../platform/offline-downloads';
 import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
+import {PhonePINEntry} from './PhonePINEntry';
+import {removeCapturedServerDownloads} from './sign-out-downloads';
 import {TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 
 const t = defaultI18n.t;
@@ -39,7 +44,7 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     return () => {alive.current = false; selection.current?.dispose();};
   }, [context]);
   const choose = async (id: string, code?: string) => {if (busy || !context.current()) return; setBusy(true); setError(undefined);
-    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {if (theme.isTV) setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
+    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
   const back = () => {if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
@@ -52,12 +57,11 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     onSubmit={value => {void choose(profile.id, value);}} onBack={back}
     onForgotPIN={() => {if (!busy) {setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
   return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('accounts.profiles.onServer', {server: context.serverName})}
-    beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <TextField label={t('pin.fourDigit')} value={pin} onChangeText={setPin} secureTextEntry keyboardType="number-pad" editable={!busy}/> :
+    beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/> :
       <ProfilePicker profiles={context.account.profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
         selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = context.account.profiles.find(item => item.id === id)!;
           if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>}
       {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
-    primaryAction={profile ? {id: 'choose-profile', label: t('action.continue'), disabled: busy || !/^\d{4}$/.test(pin), loading: busy, onPress: () => {void choose(profile.id, pin);}} : undefined}
     secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
 }
 
@@ -66,6 +70,7 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   const theme = useTheme(), [panel, setPanel] = useState<Panel>('servers'), [servers, setServers] = useState<Awaited<ReturnType<typeof nativeAccounts.snapshot>>>(), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [captured, setCaptured] = useState<{session: AppServerSession; name: string}>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
   const [preview, setPreview] = useState<Readonly<SetupPreview>>(), [consentKind, setConsentKind] = useState<'local' | 'portico'>(), [done, setDone] = useState('');
+  const [removeDownloads, setRemoveDownloads] = useState(false);
   const approver = useRef<TVConsentApprover | undefined>(undefined), alive = useRef(true);
   useEffect(() => {alive.current = true; let read = 0;
     const update = () => {const owned = ++read; void nativeAccounts.snapshot().then(value => {if (alive.current && owned === read) setServers(value);}, failure => {if (alive.current) setError(failure);});};
@@ -87,8 +92,6 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-servers" title={title} body={body}
     beforeActions={<>{before}{errorView}</>} primaryAction={primary} secondaryAction={panel !== 'servers' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: cancel} : undefined}>{more}</StateLayout>;
   if (panel === 'add') return <AccountEntry initialStage="address" onBack={close} onComplete={() => {close(); onComplete?.();}}/>;
-  if (panel === 'sign-out-server') return layout(t('accounts.signOut.server', {server: captured!.name}), t('accounts.signOut.serverConfirmation', {server: captured!.name}), undefined,
-    action('sign-out-server', t('action.signOut'), async () => {await nativeAccounts.signOutServer(captured!.session.connection.pin.serverId, captured!.session.connection.session.sessionFamilyId); close(); onComplete?.();}));
   if (panel === 'sign-out-account') return layout(t('accounts.signOut.portico'), undefined, undefined,
     action('sign-out-account', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope!); close(); onComplete?.();}));
   if (panel === 'consent-kind') return layout(t('settings.linkTV'), t('linkTV.enterCode'), <View style={{gap: 12, alignSelf: 'stretch', marginBottom: 20}}>
@@ -105,7 +108,43 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
     action('consent-approve', t('web.device.signItIn'), async () => {await approver.current!.decide(preview!, 'approve'); setDone(t('linkTV.approved', {device: preview!.deviceName})); setPanel('consent-done');}),
     <Button variant="text" disabled={busy} onPress={() => {void run(async () => {await approver.current!.decide(preview!, 'deny'); setDone(t('linkTV.declined')); setPanel('consent-done');});}}>{t('web.device.notMine')}</Button>);
   if (panel === 'consent-done') return layout(done, undefined, undefined, action('done', t('action.done'), async () => close()));
-  return layout(t('accounts.servers.title'), undefined, <ScrollView style={{maxHeight: theme.isTV ? 500 : 340, alignSelf: 'stretch', marginBottom: 16}} contentContainerStyle={{gap: 14}}>
+  const deviceNoun = Platform.isTV ? Platform.OS === 'ios' ? 'device.noun.appleTV' : String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon' ? 'device.noun.fireTV' : 'device.noun.androidTV'
+    : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
+  const selectedServer = !!captured && servers?.selectedServerId === captured.session.connection.pin.serverId;
+  const signOutSheet = captured ? <BottomSheet open={panel === 'sign-out-server'} onOpenChange={open => {if (!open) {setRemoveDownloads(false); close();}}} testID="accounts-sign-out-sheet"
+    title={t('settings.signOutConfirm.title', {server: captured.name, device: t(deviceNoun)})}
+    footer={<View style={{gap: 10}}>
+      <Focusable accessibilityRole="button" accessibilityLabel={t('action.signOut')} disabled={busy}
+        onPress={() => {void run(async () => {
+          if (removeDownloads && selectedServer) await removeCapturedServerDownloads(captured, {
+            selected: () => nativeAppSessions.selected(),
+            entries: () => offlineDownloads.getSnapshot().entries,
+            remove: async entry => {
+              const owner = offlineOwnerKey(captured.session.connection.session.viewer);
+              const live = offlineDownloads.getSnapshot().entries.find(value => value.id === entry.id
+                && (value.receipt ? offlineOwnerKey(value.receipt.claims.viewer) : value.owner) === owner);
+              if (live) await offlineDownloads.remove(live);
+            },
+          });
+          await nativeAccounts.signOutServer(captured.session.connection.pin.serverId, captured.session.connection.session.sessionFamilyId);
+          setRemoveDownloads(false); close(); onComplete?.();
+        });}} focusRadius={12} focusTreatment="none"
+        style={{height: 54, borderRadius: 12, backgroundColor: `${theme.colors.danger}24`, alignItems: 'center', justifyContent: 'center'}}>
+        <Text style={[theme.type.button, {color: theme.colors.danger}]}>{t('action.signOut')}</Text>
+      </Focusable>
+      <Button variant="text" disabled={busy} onPress={() => {setRemoveDownloads(false); close();}} textStyle={{color: theme.colors.textSecondary}}>{t('action.cancel')}</Button>
+    </View>}>
+    <Text style={[theme.type.body, {color: theme.colors.textSecondary, marginBottom: 14}]}>{t('settings.signOutConfirm.bodyDownloads')}</Text>
+    {selectedServer && <Focusable accessibilityRole="checkbox" accessibilityState={{checked: removeDownloads}} accessibilityLabel={t('settings.signOutConfirm.removeDownloads')}
+      onPress={() => setRemoveDownloads(value => !value)} focusRadius={6} focusTreatment="none" style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8}}>
+      <View style={{width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center',
+        borderColor: removeDownloads ? theme.colors.accentStrong : theme.colors.lineStrong, backgroundColor: removeDownloads ? theme.colors.accentStrong : 'transparent'}}>
+        {removeDownloads && <Icon name="i-check" size={16} color={theme.colors.ink}/>}
+      </View>
+      <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{t('settings.signOutConfirm.removeDownloads')}</Text>
+    </Focusable>}
+  </BottomSheet> : null;
+  return <>{layout(t('accounts.servers.title'), undefined, <ScrollView style={{maxHeight: theme.isTV ? 500 : 340, alignSelf: 'stretch', marginBottom: 16}} contentContainerStyle={{gap: 14}}>
     {servers?.servers.map(value => <View key={value.id} style={{gap: 6}}>
       <Button variant={value.id === servers.selectedServerId ? 'primary' : 'glass'} disabled={busy} onPress={() => {void run(async () => {await nativeAccounts.switchServer(value.id); onComplete?.();});}}>{value.name}</Button>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(value.labelKey)}</Text>
@@ -124,7 +163,7 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
       if (!session) throw Object.assign(new Error('native_account_signed_out'), {code: 'account_changed'});
       setAccountScope({accountId: session.account.id, familyId: session.familyId}); setPanel('sign-out-account');
     });}}>{t('accounts.signOut.portico')}</Button>}
-  </View>);
+  </View>)}{signOutSheet}</>;
 }
 
 const createAccountRoute: NativeRouteFactory = context => ({render: route => {
