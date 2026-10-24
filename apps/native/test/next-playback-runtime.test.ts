@@ -15,6 +15,7 @@ import type {SelectionContext} from '../../../packages/client-core/src/selection
 import type {VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
 import type {Marker} from '../../../packages/client-core/src/playback-v1/types.ts';
 import type {NativeSubtitleFilePicker} from '../src-next/platform/playback/subtitle-file-upload.ts';
+import {externalSubtitlePreparation} from '../src-next/platform/playback/engine-media.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} from '../src-next/shell/watch-outlet.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
@@ -241,7 +242,12 @@ test('PiP replan preserves the actual source/track/file clock then waits for new
   const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(d);
   try {
     await d.start('movie-1'); d.engine.position = 37; d.engine.emit('progress'); await settle();
-    const source = d.runtime.getSnapshot(), pending = d.runtime.requestPictureInPicture(source.fence!, versionLifetime());
+    const source = d.runtime.getSnapshot();
+    assert.equal(source.playback.phase, 'ready'); assert.equal(!!source.playback.pendingSeek, false); assert.equal(!!source.playback.failedSeek, false);
+    assert.equal(!!d.runtime.path.controller.getSnapshot().changing, false); assert.ok(source.pictureInPicture);
+    assert.equal(source.subtitles?.suppressed, false);
+    assert.equal(externalSubtitlePreparation(source.subtitles?.plan, source.session!).kind, 'burn');
+    const pending = d.runtime.requestPictureInPicture(source.fence!, versionLifetime());
     await settle();
     const change = d.requests.find(request => request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn');
     assert.ok(change && record(change.body)); assert.deepEqual(change.body.subtitles, {trackId: 'rich-resource', delivery: 'burn'});
