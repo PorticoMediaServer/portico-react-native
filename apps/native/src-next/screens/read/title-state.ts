@@ -1,10 +1,9 @@
 import type {ReadingClient, ReadingManifest, ReadingProgress, ReadingSession} from '../../../../../packages/client-core/src';
-import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
-import {nativeReadEligibility, openNativeRead, type NativeReadEligibility} from './eligibility';
+import {nativeReadEligibility, openNativeRead, type NativeReadEligibility, type NativeReadNavigationContext} from './eligibility';
 
 export type NativeReadTitleRoute = Extract<NativeShellRoute, {kind: 'title'}>;
-export type NativeReadTitleContext = Pick<NativeShellBootstrapContext, 'api' | 'session' | 'current' | 'navigation' | 'authority'>;
+export type NativeReadTitleContext = NativeReadNavigationContext;
 export type NativeReadTitleSnapshot = Readonly<{
   phase: 'checking' | 'ordinary' | 'reading' | 'error'; versions: NonNullable<NativeReadEligibility>['versions'];
   sourceId?: string; manifest?: ReadingManifest; progress?: ReadingProgress; busy: boolean; error?: unknown;
@@ -24,9 +23,13 @@ export class NativeReadTitleState {
   private sequence = 0;
   private closing?: Promise<void>;
   private readonly retired: () => void;
+  private readonly unsubscribeNavigation: () => void;
   constructor(private context: NativeReadTitleContext, private route: NativeReadTitleRoute, private parent: AbortSignal) {
     this.retired = () => {void this.dispose();};
     parent.addEventListener('abort', this.retired, {once: true});
+    this.unsubscribeNavigation = context.navigation.subscribe(() => {
+      if (context.navigation.getSnapshot().route !== route) void this.dispose();
+    });
   }
   subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = () => this.snapshot;
@@ -42,8 +45,9 @@ export class NativeReadTitleState {
   }
   async load(): Promise<void> {
     const viewer = this.context.session();
-    if (!this.active || this.parent.aborted || !viewer || !this.context.current()) return;
-    this.viewerFamily = viewer.sessionFamilyId;
+    if (!this.active || this.parent.aborted || !viewer || !this.context.current() || this.context.navigation.getSnapshot().route !== this.route) return;
+    this.viewerFamily ??= viewer.sessionFamilyId;
+    if (!this.apiCurrent()) return;
     this.client ??= this.context.api.reading({viewer: viewer.viewer, isCurrent: this.apiCurrent});
     const sequence = ++this.sequence; this.round?.abort(); const round = this.round = new AbortController();
     try {
@@ -71,12 +75,12 @@ export class NativeReadTitleState {
   };
   read = async (): Promise<boolean> => {
     const sourceId = this.snapshot.sourceId;
-    if (!this.current() || this.snapshot.busy || !sourceId || !this.snapshot.manifest) return false;
-    return openNativeRead(this.context, {itemId: this.route.entry.id, sourceId});
+    if (!this.current() || this.snapshot.phase !== 'reading' || this.snapshot.busy || !sourceId || !this.snapshot.manifest) return false;
+    return openNativeRead(this.context, {itemId: this.route.entry.id, sourceId}, this.parent);
   };
   dispose = (): Promise<void> => {
     if (this.closing) return this.closing;
-    this.active = false; ++this.sequence; this.round?.abort(); this.parent.removeEventListener('abort', this.retired); this.listeners.clear();
+    this.active = false; ++this.sequence; this.round?.abort(); this.parent.removeEventListener('abort', this.retired); this.unsubscribeNavigation(); this.listeners.clear();
     this.closing = Promise.allSettled([...this.sessions].map(session => this.close(session))).then(() => {this.client?.dispose(); this.sessions.clear();});
     return this.closing;
   };
