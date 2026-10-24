@@ -522,6 +522,10 @@ export class NativePlaybackRuntime {
       await this.playback.playLocal(source.itemId, source.session, undefined, {signal: controller.signal, isCurrent: current});
       const session = this.playback.getSnapshot().session;
       accepted = !!session && this.offlineSource === source && !!this.offline.mediaUrl(session);
+      if (!accepted) {
+        if (!current()) throw retired();
+        throw new Error(this.playback.getSnapshot().error || serviceText('downloads.offline.notPlayableHere'));
+      }
     } catch (error) {
       if (!current()) throw retired();
       throw error;
@@ -1259,6 +1263,8 @@ export class NativePlaybackRuntime {
             await this.playback.playLocal(source.itemId, source.session, effect.playback.positionSeconds,
               {initialIntent: 'paused', signal: controller.signal, isCurrent: valid});
             if (!valid()) return;
+            const local = this.fence();
+            if (!local || local.kind !== 'local') throw new Error(this.playback.getSnapshot().error || serviceText('downloads.offline.notPlayableHere'));
           } else {
             if (!saved.queueId || !saved.entryId) throw new Error('Playback bookmark is unavailable.');
             // Canonical restore starts the actual queue entry paused, with no transient play.
