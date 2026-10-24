@@ -15,7 +15,10 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.TextView
+import com.facebook.drawee.drawable.ScalingUtils
+import com.facebook.drawee.view.GenericDraweeView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -147,6 +150,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     result["borderRadius"] = radius(view, density)
     // Elevation/light geometry and RN shadows have no public exact CSS-equivalent paint getter.
     result["boxShadow"] = missing("unsupported-shadow")
+    image(view).forEach { (key, observation) -> result[key] = observation }
     if (view !is TextView) {
       TEXT_FIELDS.forEach { result[it] = missing("not-text") }; return result
     }
@@ -160,6 +164,30 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     val rect = Rect()
     if (!outline.getRect(rect) || rect != Rect(0, 0, view.width, view.height) || !outline.radius.isFinite() || outline.radius < 0) return missing("unsupported-outline")
     return value(outline.radius / density, "android.ViewOutlineProvider+Outline.getRadius")
+  }
+
+  private fun image(view: View): Map<String, Any> {
+    if (view !is ImageView) return IMAGE_FIELDS.associateWith { missing("not-image") }
+    val result = IMAGE_FIELDS.associateWith { missing("image-state-unavailable") }.toMutableMap()
+    try {
+      if (view is GenericDraweeView) {
+        if (!view.hasHierarchy()) return result
+        val hierarchy = view.hierarchy
+        // Presence only: intermediate/retained/fading actual images can satisfy hasImage.
+        // It is NOT request completion, source identity, visibility, or canonical loaded.
+        result["imageHasImage"] = value(hierarchy.hasImage(), "android.fresco.GenericDraweeHierarchy.hasImage")
+        val mechanism = LayoutObservationPolicy.imageMechanism(hierarchy.actualImageScaleType, FRESCO_SCALES)
+        result["imageScaleType"] = mechanism?.let { value(it, "android.fresco.GenericDraweeHierarchy.getActualImageScaleType") }
+          ?: missing("unsupported-image-scale")
+      } else {
+        // A standard ImageView's non-null drawable may be a placeholder/transition;
+        // its public scale mechanism is observable without claiming image presence.
+        val mechanism = LayoutObservationPolicy.imageMechanism(view.scaleType, IMAGE_VIEW_SCALES)
+        result["imageScaleType"] = mechanism?.let { value(it, "android.widget.ImageView.getScaleType") }
+          ?: missing("unsupported-image-scale")
+      }
+    } catch (_: Exception) { /* Preserve only already observed fields; no error details. */ }
+    return result
   }
 
   private fun text(view: TextView, decor: View, density: Double, budget: LayoutObservationPolicy.TextBudget): Map<String, Any> {
@@ -203,6 +231,22 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
         result["fontWeight"] = value(it, "android.Layout.TextPaint.Typeface.getWeight")
       }
     }
+    LayoutObservationPolicy.uniform(paints.map { LayoutObservationPolicy.fontStyle(it.typeface?.isItalic, it.textSkewX.toDouble()) })?.let {
+      result["fontStyle"] = value(it, "android.graphics.Typeface.isItalic")
+    }
+    LayoutObservationPolicy.uniform(paints.map { LayoutObservationPolicy.letterSpacing(it.letterSpacing.toDouble(), it.textSize.toDouble(), density) })?.let {
+      result["letterSpacing"] = value(it, "android.graphics.Paint.getLetterSpacing")
+    }
+    LayoutObservationPolicy.uniform(paints.map { LayoutObservationPolicy.decoration(it.isUnderlineText, it.isStrikeThruText) })?.let {
+      result["textDecorationLine"] = value(it, "android.graphics.Paint.getFlags")
+    }
+    result["textShadow"] = missing("unsupported-shadow")
+    if (Build.VERSION.SDK_INT >= 29 && paints.isNotEmpty() && (paints + basePaint + layout.paint + view.paint).all {
+        LayoutObservationPolicy.noTextShadow(it.shadowLayerRadius.toDouble(), it.maskFilter == null, it.colorFilter == null)
+      }) result["textShadow"] = value("none", "android.graphics.Paint.getShadowLayerRadius")
+    // No public run-paint mechanism proves text transformation. Do not inspect
+    // characters, requested styles, or transformation methods to guess one.
+    result["textTransform"] = missing("paint-unprovable")
     // A Typeface system label does not establish the associated shaped resource's
     // typographic name (name ID 16, else ID 1). No resource/name-table association
     // is currently observable here, so neither labels nor requested families qualify.
@@ -288,8 +332,30 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
   private fun unavailableFacts(reason: String): Map<String, Any> = FIELDS.associateWith { missing(reason) }
 
   companion object {
-    private val TEXT_FIELDS = listOf("textColor", "fontFamily", "fontSize", "fontWeight", "lineHeight", "textLineRects")
-    private val FIELDS = listOf("isFocused", "effectiveOpacity", "backgroundColor", "effectiveBackgroundColor", "borderRadius", "boxShadow", "windowRect") + TEXT_FIELDS
+    private val TEXT_FIELDS = listOf("textColor", "fontFamily", "fontSize", "fontWeight", "lineHeight", "textLineRects", "fontStyle", "letterSpacing", "textDecorationLine", "textShadow", "textTransform")
+    private val IMAGE_FIELDS = listOf("imageHasImage", "imageScaleType")
+    private val FIELDS = listOf("isFocused", "effectiveOpacity", "backgroundColor", "effectiveBackgroundColor", "borderRadius", "boxShadow", "windowRect") + TEXT_FIELDS + IMAGE_FIELDS
+    private val FRESCO_SCALES = listOf(
+      ScalingUtils.ScaleType.FIT_XY to LayoutObservationPolicy.ImageMechanism.FIT_XY,
+      ScalingUtils.ScaleType.FIT_X to LayoutObservationPolicy.ImageMechanism.FIT_X,
+      ScalingUtils.ScaleType.FIT_Y to LayoutObservationPolicy.ImageMechanism.FIT_Y,
+      ScalingUtils.ScaleType.FIT_START to LayoutObservationPolicy.ImageMechanism.FIT_START,
+      ScalingUtils.ScaleType.FIT_CENTER to LayoutObservationPolicy.ImageMechanism.FIT_CENTER,
+      ScalingUtils.ScaleType.FIT_END to LayoutObservationPolicy.ImageMechanism.FIT_END,
+      ScalingUtils.ScaleType.CENTER to LayoutObservationPolicy.ImageMechanism.CENTER,
+      ScalingUtils.ScaleType.CENTER_INSIDE to LayoutObservationPolicy.ImageMechanism.CENTER_INSIDE,
+      ScalingUtils.ScaleType.CENTER_CROP to LayoutObservationPolicy.ImageMechanism.CENTER_CROP,
+      ScalingUtils.ScaleType.FOCUS_CROP to LayoutObservationPolicy.ImageMechanism.FOCUS_CROP,
+      ScalingUtils.ScaleType.FIT_BOTTOM_START to LayoutObservationPolicy.ImageMechanism.FIT_BOTTOM_START)
+    private val IMAGE_VIEW_SCALES = listOf(
+      ImageView.ScaleType.FIT_XY to LayoutObservationPolicy.ImageMechanism.FIT_XY,
+      ImageView.ScaleType.FIT_START to LayoutObservationPolicy.ImageMechanism.FIT_START,
+      ImageView.ScaleType.FIT_CENTER to LayoutObservationPolicy.ImageMechanism.FIT_CENTER,
+      ImageView.ScaleType.FIT_END to LayoutObservationPolicy.ImageMechanism.FIT_END,
+      ImageView.ScaleType.CENTER to LayoutObservationPolicy.ImageMechanism.CENTER,
+      ImageView.ScaleType.CENTER_INSIDE to LayoutObservationPolicy.ImageMechanism.CENTER_INSIDE,
+      ImageView.ScaleType.CENTER_CROP to LayoutObservationPolicy.ImageMechanism.CENTER_CROP,
+      ImageView.ScaleType.MATRIX to LayoutObservationPolicy.ImageMechanism.MATRIX)
   }
 }
 
@@ -348,6 +414,23 @@ internal object LayoutObservationPolicy {
     val first = values.first()!!
     return first.takeIf { values.all { it == first } }
   }
+  fun fontStyle(italic: Boolean?, skew: Double): String? = if (italic == null || !skew.isFinite() || skew != 0.0) null else if (italic) "italic" else "normal"
+  fun letterSpacing(ems: Double, textSizePx: Double, density: Double): Double? =
+    if (!ems.isFinite() || !textSizePx.isFinite() || textSizePx <= 0 || !density.isFinite() || density <= 0) null
+    else (ems * textSizePx / density).takeIf(Double::isFinite)
+  fun decoration(underline: Boolean, strike: Boolean): String = when {
+    underline && strike -> "underline line-through"
+    underline -> "underline"
+    strike -> "line-through"
+    else -> "none"
+  }
+  fun noTextShadow(radius: Double, noMaskFilter: Boolean, noColorFilter: Boolean) = radius.isFinite() && radius == 0.0 && noMaskFilter && noColorFilter
+  enum class ImageMechanism(val code: String) {
+    FIT_XY("fit-xy"), FIT_X("fit-x"), FIT_Y("fit-y"), FIT_START("fit-start"), FIT_CENTER("fit-center"), FIT_END("fit-end"),
+    CENTER("center"), CENTER_INSIDE("center-inside"), CENTER_CROP("center-crop"), FOCUS_CROP("focus-crop"), FIT_BOTTOM_START("fit-bottom-start"), MATRIX("matrix")
+  }
+  fun <T : Any> imageMechanism(actual: T?, known: List<Pair<T, ImageMechanism>>): String? =
+    if (actual == null) null else known.firstOrNull { it.first === actual }?.second?.code
   fun windowRect(bounds: DoubleArray, mappedOrigin: DoubleArray, nativeWindowOrigin: DoubleArray, density: Double): Map<String, Double>? {
     if (bounds.size != 4 || mappedOrigin.size != 2 || nativeWindowOrigin.size != 2 || !density.isFinite() || density <= 0 ||
         bounds.any { !it.isFinite() } || mappedOrigin.any { !it.isFinite() } || nativeWindowOrigin.any { !it.isFinite() } ||
