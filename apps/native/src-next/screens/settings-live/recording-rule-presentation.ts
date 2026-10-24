@@ -1,5 +1,5 @@
 import type {I18n} from '../../../../../packages/i18n/src';
-import type {RecordingOptions, RecordingRule, RuleSummary} from '../../../../../packages/client-core/src/dvr';
+import {seriesRuleConfig, type Occurrence, type RecordingDraft, type RecordingOptions, type RecordingRule, type RuleConfig, type RuleSummary} from '../../../../../packages/client-core/src/dvr';
 
 /** The real keep policy a rule stores. The administration document names three modes, and
  * the server maps them onto the two independent DVR limits: keep-count is the episode limit,
@@ -71,4 +71,20 @@ export function ruleNext(summary: RuleSummary | undefined, i18n: I18n, now: numb
 /** The three facts the drawn rule row and sheet print, straight from the rule summary. */
 export function ruleFacts(summary: RuleSummary | undefined): Readonly<{upcoming: number; recorded: number; tonight: number}> {
   return {upcoming: summary?.upcoming ?? 0, recorded: summary?.recorded ?? 0, tonight: summary?.matchingTonight ?? 0};
+}
+
+/** The drawn Record series form (frame 29). Its defaults are the owner's Recording defaults. */
+export type SeriesForm = Readonly<{episodes: 'new' | 'all'; anyChannel: boolean; keep: string; beforeSeconds: number; afterSeconds: number}>;
+export function seriesFormDefaults(document: {settings: {prePaddingMs: number; postPaddingMs: number; keepPolicy: {mode: string; keepCount: number; keepDays: number}}} | undefined): SeriesForm {
+  const settings = document?.settings, policy = settings?.keepPolicy;
+  const keep = policy?.mode === 'keep-count' ? `count:${policy.keepCount}` : policy?.mode === 'keep-days' ? `days:${policy.keepDays}` : 'count:0';
+  return {episodes: 'new', anyChannel: false, keep, beforeSeconds: Math.max(0, Math.round((settings?.prePaddingMs ?? 0) / 1000)), afterSeconds: Math.max(0, Math.round((settings?.postPaddingMs ?? 0) / 1000))};
+}
+
+/** The form and the guide's Record series sheet build the same rule through `seriesRuleConfig`;
+ * the chosen keep row then writes exactly one limit, as the rule editor does. */
+export function seriesConfig(draft: RecordingDraft, form: SeriesForm): {config: RuleConfig; anchor: Occurrence} {
+  const count = form.keep.startsWith('count:') ? Number(form.keep.slice(6)) : 0;
+  const built = seriesRuleConfig(draft, {episodes: form.episodes, keep: Number.isSafeInteger(count) && count > 0 ? count : 0, beforeSeconds: form.beforeSeconds, afterSeconds: form.afterSeconds, anyChannel: form.anyChannel});
+  return {config: {...built.config, options: withKeep(built.config.options, form.keep)}, anchor: built.anchor};
 }

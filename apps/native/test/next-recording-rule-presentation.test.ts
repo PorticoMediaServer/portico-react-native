@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {defaultRecordingOptions, type RecordingChannel, type RecordingOptions, type RecordingRule, type RuleSummary} from '../../../packages/client-core/src/dvr';
-import {keepChoiceList, keepChoiceValue, keepLabel, ruleFacts, ruleKeep, ruleNext, ruleScope, withKeep} from '../src-next/screens/settings-live/recording-rule-presentation';
+import {keepChoiceList, keepChoiceValue, keepLabel, ruleFacts, ruleKeep, ruleNext, ruleScope, seriesConfig, seriesFormDefaults, withKeep} from '../src-next/screens/settings-live/recording-rule-presentation';
 
 const channel: RecordingChannel = {id: 'channel', name: 'Atlas Documentaries', number: '501'};
 const options = (patch: Partial<RecordingOptions> = {}): RecordingOptions => ({...defaultRecordingOptions, ...patch});
@@ -64,4 +64,31 @@ test('the next airing line prints today with its channel, another day with its d
 test('the rule facts come straight from the server summary', () => {
   assert.deepEqual(ruleFacts(undefined), {upcoming: 0, recorded: 0, tonight: 0});
   assert.deepEqual(ruleFacts(summary()), {upcoming: 3, recorded: 6, tonight: 2});
+});
+
+test('the Record series form starts from the real Recording defaults', () => {
+  const document = {settings: {prePaddingMs: 60000, postPaddingMs: 180000, keepPolicy: {mode: 'keep-all', keepCount: 0, keepDays: 0}}};
+  assert.deepEqual(seriesFormDefaults(document), {episodes: 'new', anyChannel: false, keep: 'count:0', beforeSeconds: 60, afterSeconds: 180});
+  assert.equal(seriesFormDefaults({settings: {...document.settings, keepPolicy: {mode: 'keep-count', keepCount: 5, keepDays: 0}}}).keep, 'count:5');
+  assert.equal(seriesFormDefaults({settings: {...document.settings, keepPolicy: {mode: 'keep-days', keepCount: 0, keepDays: 30}}}).keep, 'days:30');
+  assert.deepEqual(seriesFormDefaults(undefined), {episodes: 'new', anyChannel: false, keep: 'count:0', beforeSeconds: 0, afterSeconds: 0});
+});
+
+test('the guide form builds the same rule the shared series mapping builds', () => {
+  const source = 'a'.repeat(48), channel = 'b'.repeat(64), programmeId = 'c'.repeat(64);
+  const guideChannel = {id: channel, sourceId: source, provenance: 'live-source' as const, generation: 'd'.repeat(48), name: 'Cinema', number: '1', group: '', programmes: [], tuneAvailable: true, recordAvailable: true, tuneUnavailableReason: '', recordUnavailableReason: '', favorite: false, hidden: false, preferenceRevision: 1};
+  const programme = {id: programmeId, channelId: channel, title: 'Synthetic Showcase', start: '2026-10-24T22:00:00Z', end: '2026-10-24T22:30:00Z', description: '', lineage: 'interval-only' as const, seriesId: '', episodeId: '', newEvidence: 'unknown' as const, facts: []};
+  const draft = {channel: guideChannel as never, programme: programme as never, series: true};
+  const built = seriesConfig(draft, {episodes: 'all', anyChannel: true, keep: 'days:30', beforeSeconds: 60, afterSeconds: 180});
+  assert.equal(built.config.matchKind, 'title');
+  assert.equal(built.config.title, 'Synthetic Showcase');
+  assert.equal(built.config.episodes, 'all');
+  // A title match follows this channel by contract, even when the any-channel chip is chosen.
+  assert.deepEqual(built.config.allowedChannels, [channel]);
+  assert.deepEqual(built.config.options, {beforeSeconds: 60, afterSeconds: 180, priority: 0, retentionDays: 30, episodeLimit: 0});
+  assert.equal(built.anchor.channelId, channel);
+  const counted = seriesConfig(draft, {episodes: 'new', anyChannel: false, keep: 'count:3', beforeSeconds: 0, afterSeconds: 0});
+  assert.deepEqual(counted.config.allowedChannels, [channel]);
+  assert.equal(counted.config.options.episodeLimit, 3);
+  assert.equal(counted.config.options.retentionDays, 0);
 });

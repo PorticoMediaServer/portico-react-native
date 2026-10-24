@@ -111,4 +111,7 @@ export const channelMessages = {
   'guide.keyboardHint': 'Arrow keys move, Enter opens, W watches, R records, N jumps to now.',
   // phone-guide.html frame 6 day-menu note, copied verbatim (ds-native-live-r2).
   'guide.dayMenuNote': 'Picking another day jumps to {time} that evening. This guide has listings through {day}.',
+  // live-owner.html frame 29 and phone-guide frame 3 (ds-native-live-r2).
+  'guide.matchesByTitle': 'Matches by title',
+  'guide.laterOn': 'Later on {channel}',
 } as const satisfies Record<string, string>;
