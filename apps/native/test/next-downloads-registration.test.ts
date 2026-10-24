@@ -11,7 +11,7 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
   const {nativeDownloadsCopy} = await screenModule(new URL('../src-next/screens/downloads/register.tsx', import.meta.url), {
     react: host.react, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 390, height: 844})}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 34})},
     '../../shell/route-registry': {nativeShellRoutes: {registerRoute: (key: string, create: any) => {kind = key; factory = create;}}},
-    '../../shell/model': {phoneBarHeight: () => 84, shellLayout: () => ({tabs: true})}, '../../shell/routes': {titleRoute: (entry: unknown) => ({kind: 'title', entry})},
+    '../../shell/model': {phoneBarHeight: () => 84, shellLayout: () => ({tabs: true})}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#071018'}})}, '../../shell/routes': {titleRoute: (entry: unknown) => ({kind: 'title', entry})},
     './DownloadsScreen': {DownloadsScreen: 'Downloads'}, './device': {createNativeDownloadsDevice: () => ({device, dispose: () => {retired++;}})},
   });
   assert.equal(kind, 'downloads');
@@ -24,7 +24,8 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
   assert.equal(route.props.device, device);
   route.props.back(); assert.equal(backs, 1);
   const tree = host.render(() => route.type(route.props));
-  assert.equal(tree.props.style.marginBottom, 84, 'the retained Saved navigation remains visible below the actual route');
+  assert.equal(tree.props.style.paddingBottom, 84, 'the retained Saved navigation remains visible below the actual route');
+  assert.equal(tree.props.style.backgroundColor, '#071018', 'the route covers the page it is drawn over');
   renderer.dispose(); assert.equal(retired, 1);
 });
 
