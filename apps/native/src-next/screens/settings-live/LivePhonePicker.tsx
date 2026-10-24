@@ -8,7 +8,7 @@ import {useTheme} from '../../kit/theme';
 
 /** phone-guide's inline controls retain their genuine native opener and use the
  * existing anchored menu. No settings, source or remembered-view store lives here. */
-export function NativeLivePhonePicker({value, options, onChange, children, accessibilityLabel, testID, style, disabled, placement = 'bottom-start', menuWidth = 230, secondary = false}: {
+export function NativeLivePhonePicker({value, options, onChange, children, accessibilityLabel, testID, style, disabled, placement = 'bottom-start', menuWidth = 230, secondary = false, note}: {
   value: string;
   options: readonly Omit<MenuAction, 'onSelect'>[];
   onChange: (value: string) => void;
@@ -20,6 +20,7 @@ export function NativeLivePhonePicker({value, options, onChange, children, acces
   placement?: 'bottom-start' | 'bottom-end';
   menuWidth?: number;
   secondary?: boolean;
+  note?: string;
 }) {
   const theme = useTheme(), anchor = useRef<View>(null), [open, setOpen] = useState(false);
   const selectedLabel = options.find(option => option.id === value)?.label;
@@ -32,6 +33,7 @@ export function NativeLivePhonePicker({value, options, onChange, children, acces
     </Focusable>
     <Menu testID={`${testID}-menu`} open={open} onOpenChange={setOpen} anchorRef={anchor} returnFocusRef={anchor}
       title={accessibilityLabel} accessibilityLabel={accessibilityLabel} presentation="anchored" placement={placement}
+      footer={note ? <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{note}</Text> : undefined}
       width={menuWidth} initialFocusId={value} items={options.map(option => ({...option, selected: option.selected ?? option.id === value, onSelect: () => onChange(option.id)}))}/>
   </>;
 }
