@@ -138,13 +138,25 @@
    "text": 4
   },
   {
+   "id": "npm:escape-string-regexp@4.0.0",
+   "name": "escape-string-regexp",
+   "version": "4.0.0",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "sindresorhus/escape-string-regexp",
+   "text": 5,
+   "copyright": [
+    "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
+   ]
+  },
+  {
    "id": "npm:event-target-shim@5.0.1",
    "name": "event-target-shim",
    "version": "5.0.1",
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/mysticatea/event-target-shim",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2015 Toru Nagashima"
    ]
@@ -156,7 +168,7 @@
    "licence": "BSD-3-Clause",
    "group": "packages",
    "url": "https://github.com/mridgway/hoist-non-react-statics",
-   "text": 6,
+   "text": 7,
    "copyright": [
     "Copyright (c) 2015, Yahoo! Inc. All rights reserved."
    ]
@@ -201,7 +213,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/zertosh/nullthrows",
-   "text": 7,
+   "text": 8,
    "copyright": [
     "Copyright (c) 2016 Andres Suarez"
    ]
@@ -213,7 +225,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/then/promise",
-   "text": 8,
+   "text": 9,
    "copyright": [
     "Copyright (c) 2014 Forbes Lindesay"
    ]
@@ -225,7 +237,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "http://github.com/soldair/node-qrcode",
-   "text": 7,
+   "text": 8,
    "copyright": [
     "Copyright (c) 2012 Ryan Day"
    ]
@@ -261,7 +273,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://docs.swmansion.com/react-native-gesture-handler/",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2016 Software Mansion <swmansion.com>"
    ]
@@ -285,7 +297,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/Expensify/react-native-qrcode-svg#readme",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2016 JerryShen"
    ]
@@ -297,7 +309,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://docs.swmansion.com/react-native-reanimated",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2016 Software Mansion <swmansion.com>"
    ]
@@ -321,7 +333,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/software-mansion/react-native-svg",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) [2015-2016] [Horcrux]"
    ]
@@ -348,6 +360,18 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2019 Nicolas Charpentier"
+   ]
+  },
+  {
+   "id": "npm:react-native-webview@16.0.0",
+   "name": "react-native-webview",
+   "version": "16.0.0",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/react-native-webview/react-native-webview#readme",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2015-present, Facebook, Inc."
    ]
   },
   {
@@ -405,7 +429,7 @@
    "licence": "MIT",
    "group": "packages",
    "url": "github/fetch",
-   "text": 9,
+   "text": 10,
    "copyright": [
     "Copyright (c) 2014-2023 GitHub, Inc."
    ]
@@ -417,7 +441,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/anyhow",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:bitstream-io-4.10.0",
@@ -426,7 +450,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/bitstream-io",
-   "text": 11
+   "text": 12
   },
   {
    "id": "crate:bitvec-1.0.1",
@@ -459,7 +483,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/crc",
-   "text": 12
+   "text": 13
   },
   {
    "id": "crate:crc-catalog-2.5.0",
@@ -477,7 +501,7 @@
    "licence": "BSD-2-Clause",
    "group": "engine",
    "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz",
-   "text": 13,
+   "text": 14,
    "copyright": [
     "Copyright © 2018-2025, VideoLAN and dav1d authors All rights reserved."
    ]
@@ -489,7 +513,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/equivalent",
-   "text": 14
+   "text": 15
   },
   {
    "id": "engine:ffmpeg@8.1.2",
@@ -498,7 +522,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
-   "text": 15
+   "text": 16
   },
   {
    "id": "engine:freetype@2.15.0",
@@ -507,7 +531,7 @@
    "licence": "FTL",
    "group": "engine",
    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
-   "text": 16
+   "text": 17
   },
   {
    "id": "engine:fribidi@1.0.17",
@@ -516,7 +540,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.17/fribidi-1.0.17.tar.xz",
-   "text": 17
+   "text": 18
   },
   {
    "id": "crate:funty-2.0.0",
@@ -537,7 +561,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.6.0/harfbuzz-14.6.0.tar.xz",
-   "text": 18
+   "text": 19
   },
   {
    "id": "crate:hashbrown-0.17.1",
@@ -546,7 +570,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/hashbrown",
-   "text": 19
+   "text": 20
   },
   {
    "id": "crate:indexmap-2.14.0",
@@ -555,7 +579,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/indexmap",
-   "text": 20
+   "text": 21
   },
   {
    "id": "crate:itoa-1.0.18",
@@ -564,7 +588,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/itoa",
-   "text": 10
+   "text": 11
   },
   {
    "id": "engine:libass@0.17.5",
@@ -573,7 +597,7 @@
    "licence": "ISC",
    "group": "engine",
    "url": "https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz",
-   "text": 21,
+   "text": 22,
    "copyright": [
     "Copyright (C) 2006-2016 libass contributors"
    ]
@@ -585,7 +609,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/libc",
-   "text": 22
+   "text": 23
   },
   {
    "id": "engine:libdovi@3.4.0",
@@ -606,7 +630,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.19.tar.gz",
-   "text": 23
+   "text": 24
   },
   {
    "id": "engine:libplacebo@7.360.1",
@@ -615,7 +639,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/haasn/libplacebo/archive/refs/tags/v7.360.1.tar.gz",
-   "text": 24
+   "text": 25
   },
   {
    "id": "engine:libunibreak@8.0",
@@ -624,7 +648,7 @@
    "licence": "Zlib",
    "group": "engine",
    "url": "https://github.com/adah1972/libunibreak/releases/download/libunibreak_8_0/libunibreak-8.0.tar.gz",
-   "text": 25,
+   "text": 26,
    "copyright": [
     "Copyright (C) Wu Yongwei <wuyongwei at gmail dot com>",
     "Copyright (C) Tom Hacohen <tom at stosb dot com>",
@@ -639,7 +663,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://github.com/mm2/Little-CMS/releases/download/lcms2.19.1/lcms2-2.19.1.tar.gz",
-   "text": 26,
+   "text": 27,
    "copyright": [
     "Copyright (c) 2023 Marti Maria Saguer"
    ]
@@ -651,7 +675,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://crates.io/crates/memchr",
-   "text": 27
+   "text": 28
   },
   {
    "id": "engine:mpv@0.41.0",
@@ -660,7 +684,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz",
-   "text": 28
+   "text": 29
   },
   {
    "id": "crate:no_std_io2-0.9.4",
@@ -669,7 +693,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/no_std_io2",
-   "text": 29
+   "text": 30
   },
   {
    "id": "engine:openssl@3.5.9",
@@ -678,7 +702,7 @@
    "licence": "Apache-2.0",
    "group": "engine",
    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
-   "text": 30
+   "text": 31
   },
   {
    "id": "crate:proc-macro2-1.0.106",
@@ -687,7 +711,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/proc-macro2",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:quote-1.0.45",
@@ -696,7 +720,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/quote",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:radium-0.7.0",
@@ -717,7 +741,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/roxmltree",
-   "text": 31
+   "text": 32
   },
   {
    "id": "crate:serde-1.0.228",
@@ -726,7 +750,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:serde_core-1.0.228",
@@ -735,7 +759,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde_core",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:serde_derive-1.0.228",
@@ -744,7 +768,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde_derive",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:serde_json-1.0.149",
@@ -753,7 +777,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde_json",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:syn-2.0.117",
@@ -762,7 +786,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/syn",
-   "text": 10
+   "text": 11
   },
   {
    "id": "crate:tap-1.0.1",
@@ -783,7 +807,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/tinyvec",
-   "text": 32
+   "text": 33
   },
   {
    "id": "engine:uchardet@0.0.8",
@@ -792,7 +816,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz",
-   "text": 33
+   "text": 34
   },
   {
    "id": "crate:unicode-ident-1.0.24",
@@ -801,7 +825,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/unicode-ident",
-   "text": 34
+   "text": 35
   },
   {
    "id": "crate:wyz-0.5.1",
@@ -822,7 +846,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://crates.io/crates/zmij",
-   "text": 35
+   "text": 36
   },
   {
    "id": "google-notice:AndroidX lifecycle common library",
@@ -832,7 +856,7 @@
    "only": [
     "google"
    ],
-   "text": 36,
+   "text": 37,
    "copyright": [
     "Copyright (c) 2005-2011, The Android Open Source Project"
    ]
@@ -845,7 +869,7 @@
    "only": [
     "google"
    ],
-   "text": 36,
+   "text": 37,
    "copyright": [
     "Copyright (c) 2005-2011, The Android Open Source Project"
    ]
@@ -858,7 +882,7 @@
    "only": [
     "google"
    ],
-   "text": 36,
+   "text": 37,
    "copyright": [
     "Copyright (c) 2005-2011, The Android Open Source Project"
    ]
@@ -870,7 +894,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/activity#1.8.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.activity:activity-ktx:1.8.0",
@@ -879,7 +903,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/activity#1.8.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.annotation:annotation:1.9.1",
@@ -888,7 +912,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.9.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.annotation:annotation-experimental:1.4.1",
@@ -897,7 +921,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.4.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.annotation:annotation-jvm:1.9.1",
@@ -906,7 +930,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.9.1",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.appcompat:appcompat:1.7.0",
@@ -915,7 +939,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/appcompat#1.7.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.appcompat:appcompat-resources:1.7.0",
@@ -924,7 +948,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/appcompat#1.7.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.arch.core:core-common:2.2.0",
@@ -933,7 +957,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/arch-core#2.2.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.arch.core:core-runtime:2.2.0",
@@ -942,7 +966,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/arch-core#2.2.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.autofill:autofill:1.1.0",
@@ -951,7 +975,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/autofill#1.1.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.browser:browser:1.8.0",
@@ -960,7 +984,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/browser#1.8.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.cardview:cardview:1.0.0",
@@ -969,7 +993,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.collection:collection:1.4.2",
@@ -978,7 +1002,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/collection#1.4.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.collection:collection-jvm:1.4.2",
@@ -987,7 +1011,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/collection#1.4.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.collection:collection-ktx:1.4.2",
@@ -996,7 +1020,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/collection#1.4.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.concurrent:concurrent-futures:1.2.0",
@@ -1005,7 +1029,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/concurrent#1.2.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.constraintlayout:constraintlayout:2.1.0",
@@ -1014,7 +1038,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://tools.android.com",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.constraintlayout:constraintlayout-core:1.0.0",
@@ -1023,7 +1047,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://tools.android.com",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.coordinatorlayout:coordinatorlayout:1.2.0",
@@ -1032,7 +1056,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/coordinatorlayout#1.2.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.core:core:1.18.0",
@@ -1041,7 +1065,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/core#1.18.0",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.core:core-ktx:1.18.0",
@@ -1050,7 +1074,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/core#1.18.0",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.core:core-viewtree:1.0.0",
@@ -1059,7 +1083,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/core#1.0.0",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.cursoradapter:cursoradapter:1.0.0",
@@ -1068,7 +1092,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.customview:customview:1.1.0",
@@ -1077,7 +1101,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.documentfile:documentfile:1.0.0",
@@ -1089,7 +1113,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.drawerlayout:drawerlayout:1.1.1",
@@ -1098,7 +1122,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.dynamicanimation:dynamicanimation:1.1.0",
@@ -1107,7 +1131,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/dynamicanimation#1.1.0",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.emoji2:emoji2:1.3.0",
@@ -1116,7 +1140,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/emoji2#1.3.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.emoji2:emoji2-views-helper:1.3.0",
@@ -1125,7 +1149,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/emoji2#1.3.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.exifinterface:exifinterface:1.3.6",
@@ -1134,7 +1158,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/exifinterface#1.3.6",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.fragment:fragment:1.6.1",
@@ -1143,7 +1167,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/fragment#1.6.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.fragment:fragment-ktx:1.6.1",
@@ -1152,7 +1176,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/fragment#1.6.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.graphics:graphics-shapes:1.0.1",
@@ -1161,7 +1185,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/graphics#1.0.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.graphics:graphics-shapes-android:1.0.1",
@@ -1170,7 +1194,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/graphics#1.0.1",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.interpolator:interpolator:1.0.0",
@@ -1179,7 +1203,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.legacy:legacy-support-core-utils:1.0.0",
@@ -1191,7 +1215,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-common:2.6.2",
@@ -1200,7 +1224,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-livedata:2.6.2",
@@ -1209,7 +1233,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-livedata-core:2.6.2",
@@ -1218,7 +1242,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-livedata-core-ktx:2.6.2",
@@ -1227,7 +1251,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-process:2.6.2",
@@ -1236,7 +1260,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-runtime:2.6.2",
@@ -1245,7 +1269,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-runtime-ktx:2.6.2",
@@ -1254,7 +1278,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-service:2.6.2",
@@ -1263,7 +1287,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-viewmodel:2.6.2",
@@ -1272,7 +1296,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2",
@@ -1281,7 +1305,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2",
@@ -1290,7 +1314,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.loader:loader:1.0.0",
@@ -1299,7 +1323,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.localbroadcastmanager:localbroadcastmanager:1.0.0",
@@ -1311,7 +1335,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media:media:1.7.0",
@@ -1320,7 +1344,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/media#1.7.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-common:1.10.1",
@@ -1328,7 +1352,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-container:1.10.1",
@@ -1336,7 +1360,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-database:1.10.1",
@@ -1344,7 +1368,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-datasource:1.10.1",
@@ -1352,7 +1376,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-datasource-okhttp:1.10.1",
@@ -1360,7 +1384,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-decoder:1.10.1",
@@ -1368,7 +1392,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-exoplayer:1.10.1",
@@ -1376,7 +1400,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-exoplayer-hls:1.10.1",
@@ -1384,7 +1408,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-extractor:1.10.1",
@@ -1392,7 +1416,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.media3:media3-session:1.10.1",
@@ -1400,7 +1424,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.mediarouter:mediarouter:1.8.0-beta01",
@@ -1412,7 +1436,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.palette:palette:1.0.0",
@@ -1424,7 +1448,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.print:print:1.0.0",
@@ -1436,7 +1460,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.profileinstaller:profileinstaller:1.3.1",
@@ -1445,7 +1469,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/profileinstaller#1.3.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.recyclerview:recyclerview:1.2.1",
@@ -1454,7 +1478,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/recyclerview#1.2.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.resourceinspection:resourceinspection-annotation:1.0.1",
@@ -1463,7 +1487,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/resourceinspection#1.0.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.savedstate:savedstate:1.2.1",
@@ -1472,7 +1496,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/savedstate#1.2.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.savedstate:savedstate-ktx:1.2.1",
@@ -1481,7 +1505,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/savedstate#1.2.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.startup:startup-runtime:1.1.1",
@@ -1490,7 +1514,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/startup#1.1.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.swiperefreshlayout:swiperefreshlayout:1.1.0",
@@ -1499,7 +1523,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.tracing:tracing:1.2.0",
@@ -1508,7 +1532,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/tracing#1.2.0",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.transition:transition:1.6.0",
@@ -1517,7 +1541,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/transition#1.6.0",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.vectordrawable:vectordrawable:1.1.0",
@@ -1526,7 +1550,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.vectordrawable:vectordrawable-animated:1.1.0",
@@ -1535,7 +1559,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.versionedparcelable:versionedparcelable:1.1.1",
@@ -1544,7 +1568,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.viewpager:viewpager:1.0.0",
@@ -1553,7 +1577,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.viewpager2:viewpager2:1.0.0",
@@ -1562,7 +1586,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.webkit:webkit:1.14.0",
@@ -1571,7 +1595,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/webkit#1.14.0",
-   "text": 37
+   "text": 39
   },
   {
    "id": "maven:androidx.window:window:1.5.1",
@@ -1580,7 +1604,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.window:window-core:1.5.1",
@@ -1589,7 +1613,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:androidx.window:window-core-android:1.5.1",
@@ -1598,7 +1622,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
-   "text": 38
+   "text": 39
   },
   {
    "id": "maven:androidx.window:window-java:1.5.1",
@@ -1607,7 +1631,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
-   "text": 38
+   "text": 39
   },
   {
    "id": "google-notice:Animal Sniffer",
@@ -1617,7 +1641,7 @@
    "only": [
     "google"
    ],
-   "text": 39,
+   "text": 40,
    "copyright": [
     "Copyright (c) 2008 Kohsuke Kawaguchi and codehaus.org."
    ]
@@ -1630,7 +1654,7 @@
    "only": [
     "google"
    ],
-   "text": 36,
+   "text": 37,
    "copyright": [
     "Copyright (c) 2005-2008, The Android Open Source Project"
    ]
@@ -1652,7 +1676,7 @@
    "only": [
     "google"
    ],
-   "text": 40
+   "text": 41
   },
   {
    "id": "google-notice:Checker Framework Annotations",
@@ -1662,7 +1686,7 @@
    "only": [
     "google"
    ],
-   "text": 41
+   "text": 42
   },
   {
    "id": "maven:com.facebook.fbjni:fbjni:0.7.0",
@@ -1671,7 +1695,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebookincubator/fbjni",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.facebook.fresco:drawee:3.6.0",
@@ -1860,7 +1884,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebook/soloader",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.facebook.soloader:nativeloader:0.12.1",
@@ -1869,7 +1893,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebook/soloader",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.facebook.soloader:soloader:0.12.1",
@@ -1878,7 +1902,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebook/soloader",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.facebook.yoga:proguard-annotations:1.19.0",
@@ -1896,7 +1920,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Dimezis/BlurView/tree/version-2.0.4",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.android.datatransport:transport-api:3.0.0",
@@ -1907,7 +1931,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.android.datatransport:transport-backend-cct:3.1.3",
@@ -1918,7 +1942,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.android.datatransport:transport-runtime:3.1.3",
@@ -1929,7 +1953,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.android.gms:play-services-base:18.5.0",
@@ -2010,7 +2034,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/material-components/material-components-android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.code.findbugs:jsr305:3.0.2",
@@ -2019,7 +2043,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://findbugs.sourceforge.net/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.errorprone:error_prone_annotations:2.15.0",
@@ -2027,7 +2051,7 @@
    "version": "2.15.0",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.firebase:firebase-encoders:17.0.0",
@@ -2038,7 +2062,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.firebase:firebase-encoders-json:18.0.0",
@@ -2049,7 +2073,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.firebase:firebase-encoders-proto:16.0.0",
@@ -2060,7 +2084,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.guava:failureaccess:1.0.2",
@@ -2069,7 +2093,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/google/guava",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.guava:guava:33.3.1-android",
@@ -2078,7 +2102,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/google/guava",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
@@ -2087,7 +2111,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/google/guava",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.parse.bolts:bolts-tasks:1.4.0",
@@ -2105,7 +2129,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://square.github.io/okhttp/",
-   "text": 42
+   "text": 43
   },
   {
    "id": "maven:com.squareup.okhttp3:okhttp-urlconnection:4.9.2",
@@ -2114,7 +2138,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://square.github.io/okhttp/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.squareup.okio:okio:3.6.0",
@@ -2123,7 +2147,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/square/okio/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:com.squareup.okio:okio-jvm:3.6.0",
@@ -2132,7 +2156,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/square/okio/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:Dagger",
@@ -2142,7 +2166,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "rn-native:DoubleConversion@1.1.6",
@@ -2161,7 +2185,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "rn-native:fast_float@8.0.0",
@@ -2180,7 +2204,7 @@
    "only": [
     "google"
    ],
-   "text": 43
+   "text": 44
   },
   {
    "id": "rn-native:fmt@12.1.0",
@@ -2208,7 +2232,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:gsfclient",
@@ -2218,7 +2242,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:Guava JDK5",
@@ -2228,7 +2252,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:Guava JDK7",
@@ -2238,7 +2262,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:HighwayHash",
@@ -2248,7 +2272,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:io.github.react-native-tvos:react-android:0.83.10-1",
@@ -2267,7 +2291,7 @@
    "only": [
     "google"
    ],
-   "text": 44
+   "text": 45
   },
   {
    "id": "google-notice:Jakarta Inject",
@@ -2277,7 +2301,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:java_annotations",
@@ -2287,7 +2311,7 @@
    "only": [
     "google"
    ],
-   "text": 45
+   "text": 46
   },
   {
    "id": "maven:javax.inject:javax.inject:1",
@@ -2296,7 +2320,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://code.google.com/p/atinject/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:JsInterop Annotations",
@@ -2306,7 +2330,7 @@
    "only": [
     "google"
    ],
-   "text": 46
+   "text": 47
   },
   {
    "id": "google-notice:JSpecify",
@@ -2316,7 +2340,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:JSR 250",
@@ -2326,7 +2350,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:JSR 305",
@@ -2336,7 +2360,7 @@
    "only": [
     "google"
    ],
-   "text": 47,
+   "text": 48,
    "copyright": [
     "Copyright (c) 2007-2009, JSR305 expert group All rights reserved."
    ]
@@ -2349,7 +2373,7 @@
    "only": [
     "google"
    ],
-   "text": 48
+   "text": 49
   },
   {
    "id": "google-notice:kotlin",
@@ -2359,7 +2383,7 @@
    "only": [
     "google"
    ],
-   "text": 49,
+   "text": 50,
    "copyright": [
     "Copyright 2008 Google Inc.  All rights reserved."
    ]
@@ -2372,7 +2396,7 @@
    "only": [
     "google"
    ],
-   "text": 50
+   "text": 51
   },
   {
    "id": "google-notice:Kotlin coroutines",
@@ -2382,7 +2406,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:kotlinx_atomicfu",
@@ -2392,7 +2416,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:kotlinx_serialization",
@@ -2402,7 +2426,7 @@
    "only": [
     "google"
    ],
-   "text": 51
+   "text": 52
   },
   {
    "id": "google-notice:mobiledatadownload",
@@ -2412,7 +2436,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.bouncycastle:bcprov-jdk18on:1.86",
@@ -2421,7 +2445,7 @@
    "licence": "MIT (Bouncy Castle Licence)",
    "group": "android",
    "url": "https://www.bouncycastle.org/download/bouncy-castle-java/",
-   "text": 52,
+   "text": 53,
    "copyright": [
     "Copyright (c) 2000-2026 The Legion of the Bouncy Castle Inc. (https://www.bouncycastle.org)."
    ]
@@ -2433,7 +2457,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/JetBrains/java-annotations",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-annotations-jvm:1.3.72",
@@ -2442,7 +2466,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib:2.1.20",
@@ -2451,7 +2475,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib-common:2.1.20",
@@ -2460,7 +2484,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10",
@@ -2469,7 +2493,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10",
@@ -2478,7 +2502,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0",
@@ -2487,7 +2511,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0",
@@ -2496,7 +2520,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0",
@@ -2505,7 +2529,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 37
+   "text": 38
   },
   {
    "id": "maven:org.jspecify:jspecify:1.0.0",
@@ -2514,7 +2538,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://jspecify.org/",
-   "text": 37
+   "text": 38
   },
   {
    "id": "google-notice:Protocol Buffers for Go v2",
@@ -2524,7 +2548,7 @@
    "only": [
     "google"
    ],
-   "text": 53,
+   "text": 54,
    "copyright": [
     "Copyright (c) 2018 The Go Authors. All rights reserved."
    ]
@@ -2537,7 +2561,7 @@
    "only": [
     "google"
    ],
-   "text": 49,
+   "text": 50,
    "copyright": [
     "Copyright 2008 Google Inc.  All rights reserved."
    ]
@@ -2558,21 +2582,9 @@
    "licence": "MIT",
    "group": "android",
    "url": "https://github.com/software-mansion/react-native-screens",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2018 Software Mansion <swmansion.com>"
-   ]
-  },
-  {
-   "id": "native-npm:react-native-webview@16.0.0",
-   "name": "react-native-webview",
-   "version": "16.0.0",
-   "licence": "MIT",
-   "group": "android",
-   "url": "https://github.com/react-native-webview/react-native-webview",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2015-present, Facebook, Inc."
    ]
   },
   {
@@ -2583,7 +2595,7 @@
    "only": [
     "google"
    ],
-   "text": 37
+   "text": 38
   },
   {
    "id": "icons:lucide",
@@ -2591,7 +2603,7 @@
    "licence": "ISC",
    "group": "fonts",
    "url": "https://lucide.dev",
-   "text": 54,
+   "text": 55,
    "copyright": [
     "Copyright (c) 2026 Lucide Icons and Contributors"
    ]
@@ -2602,7 +2614,7 @@
    "licence": "OFL-1.1",
    "group": "fonts",
    "url": "https://github.com/googlefonts/manrope",
-   "text": 55,
+   "text": 56,
    "copyright": [
     "Copyright 2018 The Manrope Project Authors (https://github.com/googlefonts/manrope)"
    ]
@@ -2614,6 +2626,7 @@
   "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
   "```\nDijkstra path-finding functions. Adapted from the Dijkstar Python project.\n\nCopyright (C) 2008\n  Wyatt Baldwin <self@wyattbaldwin.com>\n  All rights reserved\n\nLicensed under the MIT license.\n\n  http://www.opensource.org/licenses/mit-license.php\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n```",
+  "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
   "Software License Agreement (BSD License)\n========================================\n\n----------------------------------------------------\n\nRedistribution and use of this software in source and binary forms, with or\nwithout modification, are permitted provided that the following conditions are\nmet:\n\n  * Redistributions of source code must retain the above copyright notice, this\n    list of conditions and the following disclaimer.\n  * Redistributions in binary form must reproduce the above copyright notice,\n    this list of conditions and the following disclaimer in the documentation\n    and/or other materials provided with the distribution.\n  * Neither the name of Yahoo! Inc. nor the names of YUI's contributors may be\n    used to endorse or promote products derived from this software without\n    specific prior written permission of Yahoo! Inc.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR\nANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON\nANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
@@ -2672,7 +2685,7 @@
   "apps/native/licences/android-firetv.txt": "8376ebff5f245acc33042b3b0d701bb8945e0e9eeec8dee216766a087592274d",
   "apps/native/licences/android-google.txt": "8faf88d7c310a23cd6beb884f6fdb4c1a5d33e6a830ae2897802e955f8917bf6",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
-  "apps/native/licences/js-android.txt": "3919cf79690d5cb85a0775f92051b95a515fa212c2b2f9477fe15fb8d3b30a30",
+  "apps/native/licences/js-android.txt": "bbddcd98904d1649bd5f964e7058dcd147b2a5e810f916b348f0521189f63170",
   "apps/native/licences/native-npm.json": "32589e75c42e8f92eff1f4b3f23081078d12372572b89824e6ac5d5a95233259",
   "apps/native/package-lock.json": "8362012e85e0723ae7f98d2f8064aa18a2568048ab4ab3339c96ea8b4b320e49",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
