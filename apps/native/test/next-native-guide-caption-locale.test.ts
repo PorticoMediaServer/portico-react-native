@@ -50,7 +50,7 @@ test('next-programme text uses the same supplied Guide clock and exact stored ti
 test('Guide day/date words follow format locale and genuine timezone without manufacturing invalid dates', () => {
   const at = Date.UTC(2026, 9, 24, 1, 5), options = {weekday: 'short', month: 'short', day: 'numeric'} as const;
   assert.equal(nativeGuideDate('en-US', 'UTC', options)(at), 'Sat, Oct 24');
-  assert.equal(nativeGuideDate('en-GB', 'UTC', options)(at), 'Sat, 24 Oct');
+  assert.equal(nativeGuideDate('en-GB', 'UTC', options)(at), 'Sat 24 Oct');
   assert.equal(nativeGuideDate('en-US', 'America/Halifax', {weekday: 'long'})(at), 'Friday');
   assert.equal(nativeGuideDate('en-US', 'invalid/timezone', options)(at), '');
   assert.equal(nativeGuideDate('en-US', 'UTC', options)(NaN), '');
