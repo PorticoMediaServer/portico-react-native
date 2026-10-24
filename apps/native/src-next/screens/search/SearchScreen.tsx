@@ -22,6 +22,8 @@ import {SearchGridCard} from './SearchGridCard';
 import {TVSearchScreen} from './TVSearchScreen';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from './types';
+import {nativeSearchGenreTiles} from './genre-tiles';
+import {channelTint} from '../../../../../packages/client-core/src/presentation/kit-model';
 
 const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
@@ -90,11 +92,12 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
       </Focusable>)}
     </View>
   </>;
-  const genres = <>
-    <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>
+  const genreTiles = nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone');
+  const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
+    {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
     {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
     <View style={{paddingHorizontal: 16, paddingTop: 4, flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>
-      {landing.genres.map(genre => <SearchGenre key={genre.id} genre={genre} empty={empty} runtime={runtime} width={(dimensions.width - 42) / 2} onPress={() => explore.openGenre(genre)}/>)}
+      {genreTiles.map(genre => <SearchGenre key={genre.id} genre={genre} empty={empty} runtime={runtime} width={(dimensions.width - 42) / 2} onPress={() => explore.openGenre(genre)}/>)}
     </View>
   </>;
   const error = state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>;
@@ -134,7 +137,7 @@ function SectionHeading({title, action, disabled, onAction}: {title: string; act
 
 function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSearchGenre; empty: boolean; runtime: NativeShellRuntime; width: number; onPress: () => void}) {
   const theme = useTheme(), gradient = useId();
-  if (!empty) return <GenreTile testID={`search-genre-${encodeURIComponent(genre.id)}`} title={genre.name} variant="video" width={width} covers={genre.coverPaths.flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];})} palette={{first: genre.tint ?? theme.colors.ambient, second: theme.colors.raised}} onNavigate={onPress}/>;
+  if (!empty) return <GenreTile testID={`search-genre-${encodeURIComponent(genre.id)}`} title={genre.name} variant="video" width={width} covers={genre.coverPaths.slice(0, 2).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];})} palette={{first: channelTint(genre.id), second: channelTint(genre.id)}} onNavigate={onPress}/>;
   return <Focusable testID={`search-genre-${encodeURIComponent(genre.id)}`} accessibilityLabel={genre.name} onPress={onPress} focusRadius={12} style={{width, height: 84, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
     <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={84}/>
     <Svg pointerEvents="none" width={width} height={84} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset=".55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={84} fill={`url(#${gradient})`}/></Svg>

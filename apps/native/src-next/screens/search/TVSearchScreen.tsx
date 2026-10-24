@@ -21,6 +21,7 @@ import {NativeSearchDestination, nativeSearchEntryKey} from './model';
 import {SearchGridCard} from './SearchGridCard';
 import {NativeTVKeyboard} from './TVKeyboard';
 import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from './types';
+import {nativeSearchGenreTiles} from './genre-tiles';
 
 const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
@@ -38,12 +39,13 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot), authority = runtime.getSnapshot().authority;
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
   const typed = !!state.text.trim(), groups = orderedSearchGroups(state.groups);
+  const genreTiles = nativeSearchGenreTiles(landing.genres, 'tv');
   const empty = typed && state.search.phase === 'ready' && groups.every(group => group.status === 'success' && group.totalCount === 0);
   const top = state.group === 'all' ? topSearchResult(state.text, groups) : undefined;
   const shown = groups.filter(group => (state.group === 'all' || state.group === group.id) && (group.items.length > 0 || group.status === 'error'));
   const firstEntry = shown.flatMap(group => group.items.map(entry => ({entry, group: group.id})))[0];
   const firstResult = top ? nativeSearchEntryKey(top.group, top.entry) : firstEntry ? nativeSearchEntryKey(firstEntry.group, firstEntry.entry)
-    : landing.genres[0] ? `genre:${landing.genres[0].id}` : state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
+    : genreTiles[0] ? `genre:${genreTiles[0].id}` : state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
   const chips = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available)
     && groups.some(group => group.id === chip.id && (group.status !== 'success' || group.totalCount > 0)));
   useEffect(() => runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
@@ -83,9 +85,9 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
         {empty && <View><Text accessibilityRole="header" style={[browseType(theme, 52, 800, -.04, 54.6), {color: theme.colors.text, marginBottom: 14}]}>{t('next.states.noMatches', {query: state.text.trim()})}</Text>
           <Text style={[browseType(theme, 26, 400), {color: theme.colors.textSecondary, marginBottom: 54}]}>{t('next.states.noMatchesBody')}</Text></View>}
         {(!typed || empty) && <>
-          <Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text, marginBottom: 22}]}>{t(empty ? landing.emptyHeading : landing.initialHeading)}</Text>
+          {!!genreTiles.length && <Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text, marginBottom: 22}]}>{t(empty ? landing.emptyHeading : landing.initialHeading)}</Text>}
           {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 26}}>{landing.genres.map(genre => <TVSearchGenre key={genre.id} genre={genre} width={(resultsWidth - 26) / 2}
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 26}}>{genreTiles.map(genre => <TVSearchGenre key={genre.id} genre={genre} width={(resultsWidth - 26) / 2}
             disabled={!active.visible} runtime={runtime} onPress={() => explore.openGenre(genre)}/>)}</View>
           {!typed && !!state.recent.length && <View style={{marginTop: 36}}><Text accessibilityRole="header" style={[browseType(theme, 32, 700), {color: theme.colors.text, marginBottom: 16}]}>{t('web.search.recent')}</Text>
             {state.recent.map(recent => <Focusable key={recent.q} focusId={`recent:${recent.q}`} disabled={!active.visible} onPress={() => destination.useRecent(recent.q)}

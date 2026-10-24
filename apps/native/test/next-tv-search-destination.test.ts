@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {nativeSearchGenreTiles} from '../src-next/screens/search/genre-tiles.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
 import {nativeDestinationFocusIds} from '../src-next/screens/destinations/focus.ts';
@@ -25,7 +26,7 @@ test('the actual TV Search caller binds genuine query, navigation activation and
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards/primitives': {},
     '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {}, '../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
     '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {}, './model': {nativeSearchEntryKey},
-    './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
+    './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'}, './genre-tiles': {nativeSearchGenreTiles},
   });
   const props = {destination: {subscribe() {}, getSnapshot: () => state, setText: (text: string) => calls.push(text)},
     runtime: {getSnapshot: () => ({authority})}, activation: {subscribe() {}, getSnapshot: () => activation}, explore: {subscribe() {}, getSnapshot: () => ({genres: []})},
