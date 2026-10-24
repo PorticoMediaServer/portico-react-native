@@ -127,7 +127,7 @@ test('the drawn top result keeps f5 meta at 24px with 26px gaps, season count as
   assert.deepEqual(facts[1], {text: defaultI18n.t('search.kind.show'), style: {...browseType(theme, 24, 400), color: colors.textSecondary}});
   assert.equal(facts.filter(fact => fact.text === '2023').length, 1);
   // The season count is the drawn .tv .tag, drawn by the canonical tag spec.
-  const tagElement = elements(meta).find(node => node.type === TVSearchTag)!;
+  const tagElement = elements(meta).find(node => typeof node.type === 'function' && node.type.name === 'TVSearchTag')!;
   assert.equal(flatText(tagElement.props.children), '1 season');
   const tag = host.render(() => TVSearchTag({children: '1 season'}));
   assert.deepEqual(style(tag.props.style), {paddingHorizontal: 12, paddingVertical: 3, borderRadius: 8, borderWidth: 1.5, borderColor: alpha(colors.text, .28)});
@@ -157,11 +157,9 @@ test('the drawn empty page is states.html#f18 and its genre tiles keep the drawn
   const browse = style(textNode(tree, defaultI18n.t('next.search.browseInstead'))!.props.style);
   assert.deepEqual(browse, {...browseType(theme, 32, 700, -.019), color: colors.text, marginBottom: 22});
   // states.html#f18's .sres ends at --safe-r, so its two drawn columns are (1140 - 96 - 26) / 2 and keep the producer's order.
-  console.log('TVSEARCH-TILES ' + JSON.stringify({texts: textOf(tree).slice(0, 20),
-    funcs: elements(tree).filter(node => typeof node.type === 'function').map(node => node.type.name),
-    genreExport: typeof TVSearchGenre,
-    sameName: elements(tree).filter(node => typeof node.type === 'function' && node.type.name === 'TVSearchGenre').length}));
-  const tiles = elements(tree).filter(node => node.type === 'TVSearchGenre');
+  // The harness evaluates each screen module once, so the drawn tile is identified by its compiled component.
+  const tiles = elements(tree).filter(node => typeof node.type === 'function' && node.type.name === 'TVSearchGenre');
+  assert.equal(typeof TVSearchGenre, 'function');
   assert.deepEqual(tiles.map(node => node.props.genre.id), ['Crime', 'Drama', 'Adventure', 'Animation']);
   assert.deepEqual(tiles.map(node => node.props.width), [509, 509, 509, 509]);
   const tile = host.render(() => TVSearchGenre({genre: genres[0], runtime, width: 509, disabled: false, onPress: () => {}}));
