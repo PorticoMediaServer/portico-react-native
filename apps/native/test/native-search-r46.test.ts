@@ -15,6 +15,8 @@ const texts = (node: any) => nodes(node).filter(n => n.type === 'Text');
 const label = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
 const flatten = (style: any) => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
 const state = (node: any) => ({focused: false, hovered: false, pressed: false, holding: false});
+// JSX always hands children through the createElement rest argument, so a lone render prop arrives in an array.
+const childFn = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
 
 const movie = {id: 'movie-1', kind: 'movie', title: 'Avengers: Endgame', displayTitle: 'Avengers: Endgame', year: 2019, duration: 10860, posterUrl: '/poster/endgame', playback: {itemId: 'movie-1'}, navigation: {view: 'item', entityId: 'movie-1'}};
 const show = {id: 'show-1', kind: 'show', title: 'Game of Thrones', year: 2011, seasonCount: 1, backdropUrl: '/backdrop/got', posterUrl: '/poster/got', playback: {itemId: 'show-1'}, navigation: {view: 'item', entityId: 'show-1'}};
@@ -147,7 +149,7 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
   const topStyle = flatten(top.props.pressableStyle);
   assert.deepEqual([topStyle.height, topStyle.borderRadius, topStyle.backgroundColor], [178, 14, theme.colors.dim]);
   assert.deepEqual([flatten(top.props.style).marginTop, flatten(top.props.style).marginHorizontal], [14, 16]);
-  const inner = nodes(top.props.children(state(top)));
+  const inner = nodes(childFn(top)(state(top)));
   assert.equal(inner.find(node => node.type === 'Artwork')!.props.source.uri, '/backdrop/got');
   assert.ok(texts(inner).some(node => label(node) === defaultI18n.t('search.topResult')));
   assert.ok(texts(inner).some(node => label(node) === 'Game of Thrones'));
@@ -163,7 +165,7 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
     const row = paint(find(props => props.entry === entry && props.group === id)!);
     const frame = nodes(row).find(node => node.props.testID === `search-result-${nativeSearchEntryKey(id as any, entry)}`)!;
     assert.ok(frame, `${id} row is drawn`);
-    const body = nodes(frame.props.children(state(frame)));
+    const body = nodes(childFn(frame)(state(frame)));
     const artStyle = flatten(body.find(node => node.type === 'View' && flatten(node.props.style).overflow === 'hidden')!.props.style);
     assert.deepEqual([artStyle.width, artStyle.height, artStyle.borderRadius], [width, height, 6], `${id} keeps its drawn art slot`);
     const captions = texts(body).filter(node => flatten(node.props.style).fontSize === 12.5);
