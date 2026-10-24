@@ -23,6 +23,7 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
   const assertBorrowed = () => {if (released) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});};
   const source = current.lease.device;
   const playback = createNativeOfflineEntryPlayback(context, source, () => !released);
+  const openOffline = playback.openOffline;
   const borrowed: NativeOfflineDownloadsDevice = {
     ...source,
     getSnapshot: () => {assertBorrowed(); return source.getSnapshot();},
@@ -38,7 +39,7 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     note: entry => {assertBorrowed(); return source.note(entry);},
     displayFacts: async entry => {assertBorrowed(); const facts = await source.displayFacts(entry); assertBorrowed(); return facts;},
     localMedia: async entry => {assertBorrowed(); const media = await source.localMedia(entry); assertBorrowed(); return media;},
-    ...(playback.openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await playback.openOffline(entry);}} : {}),
+    ...(openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await openOffline(entry);}} : {}),
   };
   return Object.freeze({device: Object.freeze(borrowed), dispose: () => {
     if (released) return;
