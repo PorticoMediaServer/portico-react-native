@@ -62,7 +62,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     const renderCard = () => {hookOwner = child; return child.render(() => element.type(element.props));};
     const card = nodes(renderCard()).find(node => node.type === 'WideCard');
     activateCard(card.props);
-    assert.equal(calls[0][0], tv ? 'play' : 'navigate', 'touch opens the title; TV retains resume');
+    assert.equal(calls[0][0], 'play', 'the current Continue primary action remains genuine Play on both platforms');
     const nativeHost = {actual: 'native-card'};
     card.props.menuAnchorRef.current = nativeHost;
     holdCard(card.props, tv);
@@ -71,6 +71,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     const reopened = nodes(renderCard()).find(node => node.type === 'WideCard');
     assert.equal(reopened.props.menuAnchorRef, card.props.menuAnchorRef);
     assert.equal(reopened.props.moreExpanded, true);
+    assert.equal(reopened.props.accessibilityState.expanded, true);
     assert.equal(reopened.props.menuAnchorRef.current, nativeHost);
     selection.active = true;
     element.props.context = {...element.props.context, selection: itemSelection(selection, actual.id)};
