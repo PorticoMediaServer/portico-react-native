@@ -10,7 +10,8 @@ import type {SetupCodeService, SetupCodeSnapshot} from '../../../../../packages/
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {StateLayout} from '../../kit/states';
-import {Button, TextField} from '../../kit/controls';
+import {Button, Focusable, TextField} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {ProfilePicker} from '../../kit/artwork';
 import {useTheme} from '../../kit/theme';
 import {nativeAccounts} from '../../platform/accounts';
@@ -21,6 +22,7 @@ import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
 import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
+import {directoryFailure, directoryOfflineBody, directoryRows} from './directory-chooser';
 
 export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
 type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
@@ -36,7 +38,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
   const identityOrigin = useRef<string | undefined>(undefined);
-  const [servers, setServers] = useState<HostedServer[]>([]), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
+  const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
@@ -85,8 +87,9 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   };
   const reset = () => {operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
-    setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setError(undefined); setStage(initialStage);};
+    setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); setStage(initialStage);};
   const back = () => {
+    if (stage === 'servers' && target) {operation.current?.dispose(); operation.current = undefined; setTarget(undefined); setError(undefined); return;}
     if (stage === 'profile-forgot-pin') {setCode(''); setError(undefined); setStage('profile-pin'); return;}
     // Account help returns to the Portico Account form that opened it, not the front door.
     if (stage === 'forgot' || stage === 'forgot-sent') {setPassword(''); setError(undefined); setStage('portico'); return;}
@@ -117,8 +120,18 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
       !Number.isSafeInteger(value.policyRevision) || value.policyRevision < 0) || new Set(out.items.map(value => value.id)).size !== out.items.length)
       throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
-    if (lifetime.current) {setPassword(''); setServers(out.items); setStage('servers');}
+    if (lifetime.current) {setPassword(''); setServers(out.items); setTarget(undefined); setError(undefined); setStage('servers');}
   };
+  const connectDirectory = (value: HostedServer) => {
+    if (busy || !lifetime.current) return;
+    setTarget(value); setError(undefined);
+    void run(async () => {
+      operation.current?.dispose(); const next = operation.current = new NativeServerSignIn();
+      const result = await next.connectPortico(value);
+      if (!lifetime.current) return; if (result.kind !== 'complete') setServer(next.serverDescriptor()); consume(result);
+    });
+  };
+  const chooseAnother = () => {operation.current?.dispose(); operation.current = undefined; setTarget(undefined); setError(undefined);};
   const startTV = async (kind: 'local' | 'portico') => {
     setTVKind(kind); setTVState({phase: 'idle'});
     const service = kind === 'local' ? operation.current!.localTVSignIn() : createNativePorticoTVSignIn();
@@ -199,7 +212,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
   const failure = error ? presentError(error, 'sign-in') : undefined;
-  const status = failure ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
+  const status = failure && !failure.silent ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
+  const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
     requirement={requiredSetup.requirement} url={new URL('/settings/profile', requiredSetup.serverOrigin).href} busy={busy}
@@ -279,11 +293,33 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
     await account.current!.verifyContact(contact.current!, code); setTransaction(value => value && {...value, contactVerified: true}); setCode(''); setStage('provider');
   }, !code));
+  if (stage === 'servers' && target && directoryView === 'opening') return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
+    primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
+  if (stage === 'servers' && target && directoryView === 'unreachable') {
+    const body = directoryOfflineBody(target);
+    return <StateLayout testID="accounts-server-unreachable" title={t('web.chooser.unreachableTitle', {server: target.name})} body={t(body.key, body.values)}
+      primaryAction={{id: 'try-again', label: t('web.chooser.tryAgain'), loading: busy, onPress: () => connectDirectory(target)}}
+      secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
+  }
+  if (stage === 'servers' && target && directoryView === 'waiting') return <StateLayout testID="accounts-server-waiting" title={t('web.chooser.waitingTitle', {server: target.name})}
+    body={t('web.chooser.waitingBody')} primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target)}}
+    secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   if (stage === 'servers') return layout(t('portico.landing.pickTitle'), servers.length ? t('accounts.session.portico') : t('web.hostedAccount.noServersBody'),
-    <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{servers.filter(value => !server || server.signIn !== 'portico' || server.id === value.id).map(value => <Button key={value.id} variant="glass" disabled={busy} onPress={() => {void run(async () => {
-      operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(); const result = await next.connectPortico(value);
-      if (!lifetime.current) return; if (result.kind !== 'complete') setServer(next.serverDescriptor()); consume(result);
-    });}}>{value.name}</Button>)}</View>, undefined,
+    <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{directoryRows(servers, server?.id).map(row => {
+      const value = servers.find(item => item.id === row.id)!;
+      return <Focusable key={row.id} focusTreatment="none" disabled={busy} accessibilityLabel={`${row.name}${row.subtitle ? `, ${t(row.subtitle.key, row.subtitle.values)}` : ''}`}
+        onPress={() => connectDirectory(value)}
+        style={({focused}) => ({flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5,
+          borderColor: focused ? theme.colors.accentStrong : theme.colors.line, backgroundColor: focused ? `${theme.colors.text}14` : `${theme.colors.text}0A`,
+          opacity: row.offline ? .55 : 1})}>
+        <Icon name="i-server" size={22} color={theme.colors.textSecondary}/>
+        <View style={{flex: 1, gap: 2}}>
+          <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{row.name}</Text>
+          {row.subtitle && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(row.subtitle.key, row.subtitle.values)}</Text>}
+        </View>
+        <Icon name="i-right" size={20} color={theme.colors.textTertiary}/>
+      </Focusable>;
+    })}</View>, undefined,
     <Button variant="text" disabled={busy} onPress={() => setStage('account-sign-out')}>{t('accounts.signOut.portico')}</Button>);
   if (stage === 'account-sign-out') return layout(t('accounts.signOut.portico'), undefined, undefined,
     action('account-sign-out', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope.current!); reset();}));
