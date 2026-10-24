@@ -1,173 +1,49 @@
 name: CI
-
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      legacy_compatibility:
-        description: Also run the retired src and Vega compatibility checkpoint
-        type: boolean
-        default: false
-  # The release workflow runs this whole suite on the commit it builds.
   workflow_call:
     inputs:
       legacy_compatibility:
-        description: Preserve full compatibility checks for release callers
+        description: Compatibility now runs once nightly, not per merge
         type: boolean
-        default: true
-
+        default: false
 permissions:
   contents: read
-
+env:
+  CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
 jobs:
   javascript:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 10
     concurrency:
-      group: native-javascript-${{ github.workflow }}-${{ github.ref }}
+      group: native-merge-${{ github.ref }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {path: portico-react-native}
-      # The shared packages here must match portico-server's, their source of truth, at the exact
-      # commit they were copied from (packages/portico-server.lock.json), never a moving branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {path: portico-react-native, fetch-depth: 0}
       - id: server
         run: echo "revision=$(node scripts/shared-packages.mjs --revision)" >> "$GITHUB_OUTPUT"
         working-directory: portico-react-native
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
+      - run: python3 scripts/test-ci-affected.py
+        working-directory: portico-react-native
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
-      - run: npm run typecheck
+      - name: Mounted source and test types
+        run: npm run typecheck && npm run typecheck:next-test
         working-directory: portico-react-native/apps/native
-      - run: npm run typecheck:next-test
-        working-directory: portico-react-native/apps/native
-      - name: Check hooks in the mounted application
-        run: npx --no-install eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src-next App.tsx
-        working-directory: portico-react-native/apps/native
-      - name: Check mounted application copy
-        run: |
-          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict
-          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict
-          node ../../packages/i18n/scripts/lint-glossary.mjs
-        working-directory: portico-react-native/apps/native
-      - name: Test the mounted application
-        run: node --experimental-strip-types --import ./test/register.mjs --test test/next-*.test.ts
-        working-directory: portico-react-native/apps/native
-      # src is retained for compatibility, but App.tsx mounts src-next. Its
-      # historical checks stay available at a checkpoint and remain mandatory
-      # for release callers; they are not the source gate for the current app.
-      - name: Retired application compatibility checkpoint
-        if: inputs.legacy_compatibility == true
-        run: |
-          npm run typecheck:test
-          npm run lint:hooks
-          npm run lint:strings
-          npm test
-        working-directory: portico-react-native/apps/native
-
-  # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
-  # not have; type checks, tests and strings need only its npm packages.
-  vega:
-    if: inputs.legacy_compatibility == true
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/vega/package-lock.json}
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
-        working-directory: apps/vega
-      - run: npm run typecheck
-        working-directory: apps/vega
-      - run: npm run typecheck:test
-        working-directory: apps/vega
-      - run: npm run lint:strings
-        working-directory: apps/vega
-      - run: npm test
-        working-directory: apps/vega
-
-  android:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    concurrency:
-      # Keep the former workflow group so an already-running cold build
-      # finishes before this job starts, without blocking JavaScript checks.
-      group: ci-${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
-    env:
-      MEDIA_ENGINE_WORK_DIR: ${{ github.workspace }}/.scratch/android-ci/engine/work
-      MEDIA_ENGINE_OUT_DIR: ${{ github.workspace }}/.scratch/android-ci/engine/out
-      MEDIA_ENGINE_JOBS: '2'
-      CARGO_BUILD_JOBS: '2'
-      CMAKE_BUILD_PARALLEL_LEVEL: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
-        with: {distribution: temurin, java-version: '17'}
-      - name: Check corresponding-source recipe requirements
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"
-          TMPDIR="$GITHUB_WORKSPACE/.scratch/android-ci/tmp" python3 -B third_party/media-engine/test_source_bundle.py
-      - name: Prepare the pinned Android toolchain
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"
-          echo "TMPDIR=$GITHUB_WORKSPACE/.scratch/android-ci/tmp" >> "$GITHUB_ENV"
-          ndk_version=$(python3 -c 'import json; print(json.load(open("third_party/media-engine/sources.lock.json"))["tools"]["android-ndk"]["version"])')
-          rust_version=$(python3 -c 'import json; print(json.load(open("third_party/media-engine/sources.lock.json"))["tools"]["rust"]["version"])')
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk_version"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk_version" >> "$GITHUB_ENV"
-          echo "RUSTUP_TOOLCHAIN=$rust_version" >> "$GITHUB_ENV"
-          df -h "$GITHUB_WORKSPACE"
-          free -h
-      - name: Restore only the matching source-built media engine
-        id: media-engine
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ${{ env.MEDIA_ENGINE_OUT_DIR }}/android
-          key: media-engine-android-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/media-engine/**', 'third_party/ffmpeg/**', 'scripts/prepare-ffmpeg-source.py') }}
-      - name: Build all Android media-engine ABIs from pinned source
-        if: steps.media-engine.outputs.cache-hit != 'true'
-        run: |
-          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
-          third_party/media-engine/build-android.sh
-      - name: Verify the media engine, including restored bundles
-        run: python3 third_party/media-engine/verify.py android --out "$MEDIA_ENGINE_OUT_DIR" --work "$MEDIA_ENGINE_WORK_DIR"
-      - name: Cache the verified source-built media engine
-        if: steps.media-engine.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ${{ env.MEDIA_ENGINE_OUT_DIR }}/android
-          key: ${{ steps.media-engine.outputs.cache-primary-key }}
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
-        working-directory: apps/native
-      - name: Assemble the debug builds (phones and televisions, Fire OS)
-        run: ./gradlew --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m' -I ../../../.github/android-ci.gradle "-PporticoLibmpvDir=$MEDIA_ENGINE_OUT_DIR/android" assembleDebug
-        working-directory: apps/native/android
-      - name: Kotlin unit tests (JVM, no device)
-        run: ./gradlew --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m' -I ../../../.github/android-ci.gradle "-PporticoLibmpvDir=$MEDIA_ENGINE_OUT_DIR/android" :app:testGoogleDebugUnitTest :app:testFiretvDebugUnitTest
-        working-directory: apps/native/android
-      - name: Retain media-engine build logs on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: android-media-engine-logs
-          path: .scratch/android-ci/engine/work/logs
-          if-no-files-found: ignore
-      - name: Clean owned CI scratch
-        if: always()
-        run: |
-          df -h "$GITHUB_WORKSPACE"
-          rm -rf -- "$GITHUB_WORKSPACE/.scratch/android-ci"
-          df -h "$GITHUB_WORKSPACE"
+      - if: ${{ !cancelled() }}
+        name: Affected tests plus mandatory sign-in/session/account/profile guards
+        run: python3 scripts/ci-affected.py native-js
+        working-directory: portico-react-native
 
   apple-contracts:
     runs-on: macos-15

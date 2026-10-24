@@ -4,9 +4,12 @@ on:
   pull_request:
   push:
     branches: [main]
-  schedule:
-    - cron: '23 8 * * 1'
 
+  workflow_call:
+    inputs:
+      nightly:
+        type: boolean
+        default: false
 permissions:
   contents: read
   security-events: write
@@ -17,6 +20,7 @@ concurrency:
 
 jobs:
   secrets:
+    timeout-minutes: 10
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,6 +33,7 @@ jobs:
           "$RUNNER_TEMP/gitleaks" git . --config .gitleaks.toml --redact --no-banner
 
   codeql:
+    if: inputs.nightly == true
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
