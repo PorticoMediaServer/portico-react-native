@@ -35,7 +35,7 @@ export function NativePublicMeasurementGate({renderNormal, install}: Readonly<{
   install: (isPublicCurrent: () => boolean) => () => void;
 }>) {
   const launch = useNativePublicMeasurementLaunch(), current = useRef(launch), live = useRef(false);
-  const welcome = useMemo(() => ({retired: false}), [launch]);
+  const welcome = useMemo(() => ({launch, retired: false}), [launch]);
   const retirement = useRef<{welcome: typeof welcome; dispose: () => void} | undefined>(undefined);
   const onStageChange = useMemo(() => (stage: string) => {
     if (stage === 'welcome') return;
