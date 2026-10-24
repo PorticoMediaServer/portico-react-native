@@ -73,3 +73,25 @@ test('retiring an in-flight pin read aborts its actual request and never publish
   pending.forEach(request => request.finish()); await loading;
   assert.equal(controller.getSnapshot(), retired); assert.equal(retired.libraries, undefined);
 });
+
+test('a drag drop places the real library before its captured target identity under the latest CAS revision', async () => {
+  let navigation = {revision: 1, pinnedLibraryIds: ['a', 'b', 'c']};
+  const writes: unknown[] = [];
+  const api: PinsApi = {request: async <T>(path: string, method?: string, body?: unknown): Promise<T> => {
+    if (path === pinsPath) return pins() as T;
+    if (method === 'PUT') {
+      writes.push(body); assert.deepEqual(body, {expectedRevision: 2, pinnedLibraryIds: ['a', 'c', 'b']});
+      navigation = {revision: 3, pinnedLibraryIds: ['a', 'c', 'b']};
+    }
+    return navigation as T;
+  }};
+  const controller = new NativeDestinationPins({...options, api});
+  try {
+    await controller.load();
+    navigation = {revision: 2, pinnedLibraryIds: ['c', 'a', 'b']};
+    await controller.placeLibrary('a', 'c');
+    assert.equal(writes.length, 1);
+    assert.deepEqual(controller.getSnapshot().libraries, navigation);
+    await controller.placeLibrary('a', 'c'); assert.equal(writes.length, 1, 'an unchanged position does not make a second write');
+  } finally {controller.dispose();}
+});

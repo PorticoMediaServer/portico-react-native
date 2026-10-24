@@ -85,12 +85,42 @@ export class NativeDestinationPins {
       await this.read();
     });
   };
+  placeLibrary = (id: string, beforeId?: string): Promise<void> => {
+    if (!this.libraryCurrent(id) || beforeId === id) return Promise.resolve();
+    return this.run(async () => {
+      await withPinRetry(() => readLibraryNavigation(this.api), async navigation => {
+        if (!this.libraryCurrent(id)) this.cancelled();
+        const order = navigation.pinnedLibraryIds;
+        if (!order.includes(id) || beforeId !== undefined && !order.includes(beforeId)) return navigation;
+        const next = order.filter(value => value !== id), index = beforeId === undefined ? next.length : next.indexOf(beforeId);
+        next.splice(index, 0, id);
+        return next.every((value, at) => value === order[at]) ? navigation : saveLibraryNavigation(this.api, navigation.revision, next);
+      });
+      await this.read();
+    });
+  };
   moveResource = (entry: PinnedResource, by: -1 | 1): Promise<void> => {
     if (!this.current() || !this.state.resources?.order.includes(entry)) return Promise.resolve();
     return this.run(async () => {
       await withPinRetry(() => readPinOrder(this.api, this.options.serverId), async pins => {
         const index = pins.order.findIndex(value => value.kind === entry.kind && value.id === entry.id);
         return index < 0 ? pins : savePinOrder(this.api, this.options.serverId, pins.revision, movedPin(pins.order, index, by));
+      });
+      await this.read();
+    });
+  };
+  placeResource = (entry: PinnedResource, before?: PinnedResource): Promise<void> => {
+    const owned = this.state.resources?.order;
+    if (!this.current() || !owned?.includes(entry) || before !== undefined && !owned.includes(before) || before === entry) return Promise.resolve();
+    return this.run(async () => {
+      await withPinRetry(() => readPinOrder(this.api, this.options.serverId), async pins => {
+        const same = (value: PinnedResource, target: PinnedResource) => value.kind === target.kind && value.id === target.id;
+        const live = pins.order.find(value => same(value, entry));
+        if (!live || before && !pins.order.some(value => same(value, before))) return pins;
+        const next = pins.order.filter(value => !same(value, entry));
+        const index = before === undefined ? next.length : next.findIndex(value => same(value, before));
+        next.splice(index, 0, live);
+        return next.every((value, at) => same(value, pins.order[at])) ? pins : savePinOrder(this.api, this.options.serverId, pins.revision, next);
       });
       await this.read();
     });

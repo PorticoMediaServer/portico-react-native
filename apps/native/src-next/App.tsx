@@ -9,6 +9,8 @@ import {RestoredShell} from './shell/RestoredShell';
 if (!Platform.isTV) {
   require('./screens/downloads/register');
   require('./screens/library/register');
+  require('./screens/library/OverviewRoute');
+  require('./screens/destinations/PinsRoute');
   require('./screens/read/register');
   const {registerNativeWatch, createNativeWatchBindings} = require('./screens/watch') as typeof import('./screens/watch');
   registerNativeWatch(createNativeWatchBindings);

@@ -18,6 +18,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
       menu: {subscribe: presenters.subscribe, getSnapshot: presenters.getMenuEntry},
     },
     manageFile: presenters.manageFile, openFileInfo: presenters.openFileInfo, openMenu: presenters.openMenu,
+    openVersions: presenters.openVersions, startVersion: context.playback.startVersion,
     renderOverlays: runtime => <NativeWatchOverlays presenters={presenters} runtime={runtime} common={common}/>,
     dispose: presenters.dispose,
   });
