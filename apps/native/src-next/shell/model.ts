@@ -51,14 +51,29 @@ export function selectedTab(destination: ShellDestination): ShellTab['id'] | und
   return destination.kind === 'library' ? 'libraries' : destination.kind === 'settings' ? undefined : destination.kind;
 }
 
-export type ShellLayout = Readonly<{kind: 'phone' | 'tablet' | 'desktop' | 'tv'; panel: 'bottom' | 'side'; tabs: boolean; scale: number; left: number; top: number; width: number; height: number}>;
+/** The medium rail's drawn measurements (foldable1, tablet-kit .trail). */
+export const mediumRailMetrics = Object.freeze({width: 84, itemWidth: 64, itemRadius: 14, iconSize: 22, gap: 6, top: 40, bottom: 16, shortHeight: 800, fadeHeight: 30});
+/** A real inset never hides the first item under a notch or the last under the home bar. */
+export function mediumRailPadding(topInset: number, bottomInset: number): Readonly<{top: number; bottom: number}> {
+  return Object.freeze({top: Math.max(mediumRailMetrics.top, Math.max(0, topInset) + 16), bottom: Math.max(mediumRailMetrics.bottom, Math.max(0, bottomInset) + 8)});
+}
+/** foldable1 notes: Audiobooks takes the headphones glyph; Comics takes panels; Books keeps the open book. */
+export function mediumLibraryIcon(kind: string): IconName {
+  if (kind === 'audiobook') return 'i-headphones';
+  if (kind === 'comic') return 'i-panels';
+  return libraryIcon(kind);
+}
+
+export type ShellLayout = Readonly<{kind: 'phone' | 'tablet' | 'desktop' | 'tv'; panel: 'bottom' | 'side'; tabs: boolean; rail: boolean; scale: number; left: number; top: number; width: number; height: number}>;
 /** TV is one letterboxed 1920x1080 coordinate system, never separately enlarged text/cards. */
 export function shellLayout(width: number, height: number, isTV: boolean): ShellLayout {
   if (isTV) {
     const scale = Math.min(width / 1920, height / 1080);
-    return {kind: 'tv', panel: 'side', tabs: false, scale, left: (width - 1920 * scale) / 2, top: (height - 1080 * scale) / 2, width: 1920, height: 1080};
+    return {kind: 'tv', panel: 'side', tabs: false, rail: false, scale, left: (width - 1920 * scale) / 2, top: (height - 1080 * scale) / 2, width: 1920, height: 1080};
   }
-  return {kind: width < 600 ? 'phone' : width < 1024 ? 'tablet' : 'desktop', panel: width < 600 ? 'bottom' : 'side', tabs: width < 1024, scale: 1, left: 0, top: 0, width, height};
+  // foldable1/tablet: 600-1023 uses the 84 pt rail, never the phone tab bar.
+  const kind: ShellLayout['kind'] = width < 600 ? 'phone' : width < 1024 ? 'tablet' : 'desktop';
+  return {kind, panel: width < 600 ? 'bottom' : 'side', tabs: kind === 'phone', rail: kind === 'tablet', scale: 1, left: 0, top: 0, width, height};
 }
 
 /** The 84-point drawn bar includes the ordinary bottom safe area. Larger insets extend it. */

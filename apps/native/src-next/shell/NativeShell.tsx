@@ -9,10 +9,11 @@ import {useMotion} from '../kit/useMotion';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
-import {authorityKey, canOpenLibrary, librariesDestination, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
+import {authorityKey, canOpenLibrary, librariesDestination, mediumRailMetrics, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {PhoneTabBar} from './PhoneTabBar';
 import {PhoneHomeHeader} from './PhoneHomeHeader';
+import {MediumRail} from './MediumRail';
 import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
@@ -123,10 +124,13 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
+  // foldable3e/3f: the phone bar leaves only on medium; the dock floats at the foot.
+  const homeBottom = layout.rail ? 92 : barHeight, pageBottom = layout.rail ? 16 : barHeight;
+  const railDestination = snapshot.railDestination ?? destination;
   const content = <>
-    <Animated.View style={[{flex: 1}, pageStyle]}>
-      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={barHeight} onScrolledChange={setHomeScrolled}/>
-        : <View style={{flex: 1, paddingBottom: barHeight}}>
+    <Animated.View style={[{flex: 1}, layout.rail ? {paddingLeft: mediumRailMetrics.width} : null, pageStyle]}>
+      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled}/>
+        : <View style={{flex: 1, paddingBottom: pageBottom}}>
           {runtime.renderDestination(destination, openLibrary)}
         </View>}
     </Animated.View>
@@ -134,8 +138,12 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {!snapshot.selectionActive && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
+        {layout.rail && <MediumRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
+          profileRef={avatarRef} short={dimensions.height - insets.top - insets.bottom < 800}
+          onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
+          onProfile={() => setAccountOpen(true)}/>}
         {layout.kind === 'desktop' ? <DesktopHeader snapshot={snapshot} avatarRef={avatarRef} scrolled={homeScrolled} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)} onProfile={() => setAccountOpen(true)} activity={runtime.desktopActivity}/>
-          : destination.kind === 'home' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
+          : destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
       </>)}
     {theme.isTV ? <TVProfileMenu snapshot={snapshot} open={accountOpen} onOpenChange={setAccountOpen} returnFocusRef={avatarRef}/>
