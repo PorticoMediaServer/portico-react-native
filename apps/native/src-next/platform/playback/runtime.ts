@@ -911,7 +911,10 @@ export class NativePlaybackRuntime {
     const style = captionStyle({
       ...settings.subtitles,
       size: this.choices.get('subtitleSize', fence.playback, settings.subtitles.size),
-      background: this.choices.get('subtitleBackground', fence.playback, settings.subtitles.background),
+      // The existing player offers three box overrides. Outline/shadow remain
+      // genuine profile choices; do not narrow them to that older choice set.
+      background: this.choices.has('subtitleBackground', fence.playback)
+        ? this.choices.get('subtitleBackground', fence.playback, 'none') : settings.subtitles.background,
     });
     const binding = {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation};
     let subtitles: Record<string, unknown> | null = null;
