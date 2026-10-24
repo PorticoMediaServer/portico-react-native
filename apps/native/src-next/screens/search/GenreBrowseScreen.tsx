@@ -5,7 +5,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {browseNameId} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {searchGenreBrowsePivot} from '../../../../../packages/client-core/src/search-genres';
+import {searchGenreBrowsePivot, searchGenreBrowseRequest} from '../../../../../packages/client-core/src/search-genres';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {FiltersButton, type BrowseLabels} from '../../kit/browse';
 import {Focusable} from '../../kit/controls';
@@ -41,6 +41,7 @@ export function GenreBrowseScreen({name, value, destination, activation, runtime
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>(), [elapsed, setElapsed] = useState(0);
+  const fixed = useMemo(() => {const query = searchGenreBrowseRequest(value).query; return query ? [query] : [];}, [value]);
   useEffect(() => {if (active.visible && state.phase === 'idle') void destination.load();}, [active.visible, destination, state.phase]);
   useEffect(() => {if (!active.visible) {filters?.dispose(); setFilters(undefined);}}, [active.visible, filters]);
   useEffect(() => () => filters?.dispose(), [filters]);
@@ -60,8 +61,7 @@ export function GenreBrowseScreen({name, value, destination, activation, runtime
       openFilters={() => {if (active.visible) setFilters(destination.createFilters());}} filtersOpen={!!filters}/>
       : state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, destination.retry)}/>
       : <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 160} width={dimensions.width} totalCount={9} columns={3}/>}
-    {filters && state.capabilities && state.sort && <GenreFilters draft={filters} capabilities={state.capabilities} sort={state.sort} fixed={state.predicates.filter(node =>
-      'field' in node && node.field === 'genre' && node.operator === 'equals' && node.value === value)} runtime={runtime} labels={labels} onClose={() => setFilters(undefined)}/>}
+    {filters && state.capabilities && state.sort && <GenreFilters draft={filters} capabilities={state.capabilities} sort={state.sort} fixed={fixed} runtime={runtime} labels={labels} onClose={() => setFilters(undefined)}/>}
   </View>;
 }
 

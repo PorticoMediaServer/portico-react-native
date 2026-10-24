@@ -13,12 +13,12 @@ import type {NativeSearchExplore} from './explore';
 
 /** The same canonical genre read, including genres without tile artwork. This
  * list follows the returned cursor and never reranks or expands a library. */
-export function AllGenresScreen({explore, runtime, current, onBack}: Readonly<{
-  explore: NativeSearchExplore; runtime: NativeShellRuntime; current: () => boolean; onBack: () => void;
+export function AllGenresScreen({explore, runtime, visible, current, onBack}: Readonly<{
+  explore: NativeSearchExplore; runtime: NativeShellRuntime; visible: boolean; current: () => boolean; onBack: () => void;
 }>) {
   const theme = useTheme(), insets = useSafeAreaInsets(), state = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const [viewport, setViewport] = useState({width: 0, height: 0}), [elapsed, setElapsed] = useState(0);
-  useEffect(() => {if (current()) void explore.load();}, [current, explore]);
+  useEffect(() => {if (visible && current()) void explore.load();}, [current, explore, visible]);
   useEffect(() => {
     if (state.phase !== 'loading') {setElapsed(0); return;}
     const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);

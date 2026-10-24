@@ -48,7 +48,11 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const loading = state.search.phase === 'loading' && !state.groups.length;
   const top = state.group === 'all' ? topSearchResult(state.text, state.groups) : undefined;
   const run = useCallback((work: Promise<void>) => {void work.catch(runtime.reportError);}, [runtime]);
-  useEffect(() => {run(destination.refreshHistory()); run(explore.load());}, [destination, explore, run]);
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!activeRoute.visible || initialized.current) return;
+    initialized.current = true; run(destination.refreshHistory()); run(explore.load());
+  }, [activeRoute.visible, destination, explore, run]);
   useEffect(() => selection?.register(state.search, state.groups), [selection, state.groups, state.search]);
   useEffect(() => theme.isTV ? undefined : runtime.registerScrollToTop({kind: 'search'}, () => {
     scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion});
@@ -92,7 +96,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
       <Icon name="i-clock" size={19} color={theme.colors.textTertiary}/><Text numberOfLines={1} style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary, flex: 1}]}>{recent.q}</Text>
     </Focusable>)}
   </>;
-  const genreTiles = nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone');
+  const genreTiles = landing.phase === 'ready' ? nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone') : [];
   const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
     {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
     {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
