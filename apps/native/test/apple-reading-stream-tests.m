@@ -80,7 +80,7 @@ static void actualPullStream(void) {
  });
  NSMutableDictionary *state=[NSMutableDictionary new];NSObject *realOwner=[NSObject new];
  NSString *url=[NSString stringWithFormat:@"http://127.0.0.1:%u/v1/reading/sessions/live/source",ntohs(address.sin_port)];
- PorticoQueueRequest *request=PorticoReadingStreamRequest(NSUUID.UUID.UUIDString,url,@{},realOwner,^(id value){@synchronized(state){state[@"headers"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+ PorticoQueueRequest *request=PorticoReadingStreamRequest(NSUUID.UUID.UUIDString,url,@{},realOwner,^(id value){@synchronized(state){state[@"headers"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;state[@"failure"]=m;}});
  [PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_stream_busy"];
  BOOL opened=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
  check(opened&&!state[@"error"]&&[state[@"headers"][@"status"]isEqual:@200],"actual task resolves headers before read");
@@ -89,7 +89,7 @@ static void actualPullStream(void) {
  NSUInteger received=0,pulls=0;BOOL done=NO,valid=YES;
  while(!done&&pulls++<512){
   @synchronized(state){[state removeObjectForKey:@"read"];}
-  PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
+  PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;state[@"failure"]=m;}});
   if(!waitFor(^BOOL{@synchronized(state){return state[@"read"]||state[@"error"];}})){valid=NO;break;}
   NSDictionary *reply;@synchronized(state){if(state[@"error"]){valid=NO;break;}reply=state[@"read"];}
   NSData *bytes=[[NSData alloc]initWithBase64EncodedString:reply[@"bodyBase64"] options:0];done=[reply[@"done"]isEqual:@YES];
@@ -100,7 +100,7 @@ static void actualPullStream(void) {
  }
  if(!done)cancel(request);
  close(listener);BOOL serverClosed=dispatch_group_wait(served,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0;
- if(!valid||!done||received!=2097152)fprintf(stderr,"Real stream: valid=%d done=%d received=%lu pulls=%lu error=%s terminal=%s\n",valid,done,(unsigned long)received,(unsigned long)pulls,[state[@"error"] UTF8String]?:"none",request.streamTerminalFailure.UTF8String?:"none");
+ if(!valid||!done||received!=2097152)fprintf(stderr,"Real stream: valid=%d done=%d received=%lu pulls=%lu error=%s failure=%s\n",valid,done,(unsigned long)received,(unsigned long)pulls,[state[@"error"] UTF8String]?:"none",[state[@"failure"] UTF8String]?:"none");
  check(valid&&done&&received==2097152&&pulls>42,"real two-MiB source arrives as exact demand-driven <=48KiB pulls and genuine EOF");
  check(serverClosed&&!PorticoQueueRequests[request.identifier]&&PorticoQueueActive==0&&PorticoQueueReads==0,"real peer, request and admission close");
 }
