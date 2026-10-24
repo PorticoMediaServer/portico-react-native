@@ -25,6 +25,8 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const [tuners, setTuners] = useState<TunerView>(), [policy, setPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>();
   const [rules, setRules] = useState<readonly AdminRule[]>(), [settings, setSettings] = useState<DVRDocument>(), [storage, setStorage] = useState<RecordingStorage>();
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [ruleRemove, setRuleRemove] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
+  const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>>({});
+  const [defaultsDraft, setDefaultsDraft] = useState<DVRDefaults>(), [storageDraft, setStorageDraft] = useState<StoragePolicy>();
   const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null);
   const reload = async () => {
     setError(undefined);
@@ -32,6 +34,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
       const [nextTuners, nextPolicy, nextRules, nextSettings, nextStorage] = await Promise.all([controller.tuners(), controller.policy(), controller.rules(), controller.dvrSettings(), recordings.storage()]);
       if (!controller.lifetime.current()) return;
       setTuners(nextTuners); setPolicy(nextPolicy); setRules(nextRules); setSettings(nextSettings); setStorage(nextStorage);
+      setDefaultsDraft(current => current ?? nextSettings.settings); setStorageDraft(current => current ?? nextStorage.policy);
     } catch (failure) {if (controller.lifetime.current()) setError(failure);}
   };
   useEffect(() => {void reload();}, [controller, recordings]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -42,6 +45,21 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     catch (failure) {if (controller.lifetime.current()) setError(failure);}
     finally {if (controller.lifetime.current()) setBusy('');}
   };
+  const saveAll = async () => {
+    if (busy || !policy) return;
+    setBusy('save'); setError(undefined);
+    try {
+      for (const [key, change] of Object.entries(permissionDraft)) {
+        const choice = policy.owners.find(value => recordingOwnerKey(value.owner) === key), grant = policy.grants.find(value => recordingOwnerKey(value.owner) === key);
+        if (choice) await controller.setPermission(choice.owner, change.enabled, change.inheritProfiles, grant?.revision ?? 0);
+      }
+      if (settings && defaultsDraft && JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings)) await controller.saveDvrSettings(settings.revision, defaultsDraft);
+      if (storage && storageDraft && JSON.stringify(storageDraft) !== JSON.stringify(storage.policy)) await recordings.saveStorage(storageDraft);
+      setPermissionDraft({}); setDefaultsDraft(undefined); setStorageDraft(undefined);
+      await reload();
+    } catch (failure) {if (controller.lifetime.current()) setError(failure);}
+    finally {if (controller.lifetime.current()) setBusy('');}
+  };
   if (error !== undefined && !tuners && !policy) return <View style={{paddingHorizontal: 20, paddingTop: 20}}><StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload())}/></View>;
   return <View style={{paddingHorizontal: 20, paddingTop: 18, gap: 26}}>
     {error !== undefined && <StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload())}/>}
@@ -50,7 +68,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
       {tuners && !tuners.sources.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.noTuners')}</Text>}
       {!tuners && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.librarySettings.loading')}</Text>}
     </Section>
-    {policy && <Permissions policy={policy} busy={busy} runtime={runtime} onWrite={(owner, enabled, inheritProfiles, revision) => write(`permission:${recordingOwnerKey(owner)}`, () => controller.setPermission(owner, enabled, inheritProfiles, revision))}/>}
+    {policy && <Permissions policy={policy} draft={permissionDraft} runtime={runtime} onChange={(owner, change) => setPermissionDraft(current => ({...current, [recordingOwnerKey(owner)]: change}))}/>}
     <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')} action={policy && <Button testID="live-owner-new-rule" icon="i-plus" size="small" onPress={() => setNewRule(true)}>{t('web.recordingRules.newRule')}</Button>}>
       {rules?.map(rule => <Focusable key={rule.id} ref={node => {if (node) ruleOpeners.current.set(rule.id, node); else ruleOpeners.current.delete(rule.id);}} testID={`live-owner-rule-${rule.id}`} focusKind="row"
         onPress={() => {ruleMenuOpener.current = ruleOpeners.current.get(rule.id) ?? null; setRuleMenu(rule);}} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
@@ -62,8 +80,11 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
       </Focusable>)}
       {rules && !rules.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.recordingRules.noRules')} {t('web.recordingRules.noRulesHelp')}</Text>}
     </Section>
-    {settings && <Defaults document={settings} busy={busy} runtime={runtime} onSave={value => write('defaults', async () => {const next = await controller.saveDvrSettings(settings.revision, value); if (controller.lifetime.current()) setSettings(next);})}/>}
-    {storage && <Storage storage={storage} busy={busy} runtime={runtime} onSave={policy => write('storage', async () => {const next = await recordings.saveStorage(policy); if (controller.lifetime.current() && next) setStorage(await recordings.storage());})}/>}
+    {settings && defaultsDraft && <Defaults document={settings} draft={defaultsDraft} runtime={runtime} onChange={value => setDefaultsDraft(value)}/>}
+    {storage && storageDraft && <Storage storage={storage} draft={storageDraft} runtime={runtime} onChange={value => setStorageDraft(value)}/>}
+    {settings && storage && <PendingBar count={Object.keys(permissionDraft).length + (JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings) ? 1 : 0) + (JSON.stringify(storageDraft) !== JSON.stringify(storage.policy) ? 1 : 0)}
+      busy={busy === 'save'} onDiscard={() => {setPermissionDraft({}); setDefaultsDraft(settings.settings); setStorageDraft(storage.policy);}}
+      onSave={() => void saveAll()} runtime={runtime}/>}
     <Menu open={ruleMenu !== undefined} onOpenChange={value => {if (!value) setRuleMenu(undefined);}} title={ruleMenu?.name} anchorRef={ruleMenuOpener} presentation="sheet" testID="live-owner-rule-menu" items={ruleMenu ? [
       ...(policy ? [{id: 'toggle', icon: ruleMenu.enabled ? 'i-pause' as const : 'i-play' as const, label: t(ruleMenu.enabled ? 'web.recordingRules.pauseRule' : 'web.recordingRules.resumeRule'), onSelect: () => void write(`rule:${ruleMenu.id}`, () => controller.saveRuleEnabled(ruleMenu, policy.grants, !ruleMenu.enabled))}] : []),
       {id: 'separator', separator: true as const},
@@ -103,45 +124,43 @@ function TunerCard({source, runtime}: {source: TunerAllocation; runtime: NativeS
   </View>;
 }
 
-/** Every profile the server lists, with its effective grant; an inherited profile reads as such. */
-function Permissions({policy, busy, runtime, onWrite}: {policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; busy: string; runtime: NativeShellRuntime; onWrite: (owner: RecordingOwner, enabled: boolean, inheritProfiles: boolean, revision: number) => void}) {
+/** Every profile the server lists, with its effective grant; an inherited profile reads as such.
+ * A switch edits the page's draft; nothing is written until the bar's Save. */
+function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; draft: Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>; runtime: NativeShellRuntime; onChange: (owner: RecordingOwner, change: Readonly<{enabled: boolean; inheritProfiles: boolean}>) => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const accounts = new Map<string, RecordingOwnerChoice[]>();
   for (const choice of policy.owners) {const key = choice.owner.accountId; accounts.set(key, [...(accounts.get(key) ?? []), choice]);}
   return <Section title={t('web.dvrSettings.whoCanRecord')} description={t('web.dvrSettings.whoCanRecordLede')}>
     {[...accounts.entries()].map(([accountId, profiles]) => {
-      const primary = profiles[0]!, primaryGrant = policy.grants.find(grant => recordingOwnerKey(grant.owner) === recordingOwnerKey(primary.owner));
+      const primary = profiles[0]!, primaryKey = recordingOwnerKey(primary.owner), primaryGrant = policy.grants.find(grant => recordingOwnerKey(grant.owner) === primaryKey);
+      const primaryValue = draft[primaryKey] ?? {enabled: recordingAllowed(primary.owner, policy.grants), inheritProfiles: primaryGrant?.inheritProfiles ?? false};
       return <View key={accountId} style={{gap: 4, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 10}}>
         <Text style={[shellType(12.5, 700), {color: theme.colors.textTertiary, paddingHorizontal: 6}]}>{primary.accountName}</Text>
         {profiles.map(choice => {
-          const key = recordingOwnerKey(choice.owner), exact = policy.grants.find(grant => recordingOwnerKey(grant.owner) === key), allowed = recordingAllowed(choice.owner, policy.grants);
+          const key = recordingOwnerKey(choice.owner), exact = policy.grants.find(grant => recordingOwnerKey(grant.owner) === key);
+          const value = draft[key] ?? {enabled: recordingAllowed(choice.owner, policy.grants), inheritProfiles: exact?.inheritProfiles ?? false};
           return <View key={key} style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, minHeight: 44}}>
             <View style={{flex: 1}}>
               <Text style={[shellType(15, 600), {color: theme.colors.text}]} numberOfLines={1}>{choice.profileName}</Text>
               <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{exact ? t(exact.enabled ? 'recordings.on' : 'recordings.paused') : t('web.dvrSettings.inheritedFromAccount')}</Text>
             </View>
-            <Switch testID={`live-owner-permission-${choice.owner.profileId}`} accessibilityLabel={choice.profileName} checked={allowed}
-              disabled={!exact && !primaryGrant || busy === `permission:${key}`}
-              onCheckedChange={enabled => onWrite(choice.owner, enabled, exact?.inheritProfiles ?? false, exact?.revision ?? 0)}/>
+            <Switch testID={`live-owner-permission-${choice.owner.profileId}`} accessibilityLabel={choice.profileName} checked={value.enabled}
+              onCheckedChange={enabled => onChange(choice.owner, {...value, enabled})}/>
           </View>;
         })}
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, paddingLeft: 18, minHeight: 40}}>
           <Text style={[shellType(13), {color: theme.colors.textSecondary, flex: 1}]}>{t('web.dvrSettings.inheritRow')}</Text>
-          <Switch testID={`live-owner-inherit-${accountId}`} accessibilityLabel={t('web.dvrSettings.inheritSwitch')} checked={primaryGrant?.inheritProfiles ?? false}
-            disabled={!primaryGrant?.enabled || busy === `permission:${recordingOwnerKey(primary.owner)}`}
-            onCheckedChange={inheritProfiles => onWrite(primary.owner, primaryGrant?.enabled ?? false, inheritProfiles, primaryGrant?.revision ?? 0)}/>
+          <Switch testID={`live-owner-inherit-${accountId}`} accessibilityLabel={t('web.dvrSettings.inheritSwitch')} checked={primaryValue.inheritProfiles} disabled={!primaryValue.enabled}
+            onCheckedChange={inheritProfiles => onChange(primary.owner, {...primaryValue, inheritProfiles})}/>
         </View>
       </View>;
     })}
   </Section>;
 }
 
-function Defaults({document, busy, runtime, onSave}: {document: DVRDocument; busy: string; runtime: NativeShellRuntime; onSave: (value: DVRDefaults) => void}) {
+function Defaults({document, draft, runtime, onChange}: {document: DVRDocument; draft: DVRDefaults; runtime: NativeShellRuntime; onChange: (value: DVRDefaults) => void}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [draft, setDraft] = useState<DVRDefaults>(document.settings);
-  useEffect(() => setDraft(document.settings), [document]);
-  const patch = (value: Partial<DVRDefaults>) => setDraft(current => ({...current, ...value}));
-  const dirty = JSON.stringify(draft) !== JSON.stringify(document.settings);
+  const patch = (value: Partial<DVRDefaults>) => onChange({...draft, ...value});
   const minutes = (ms: number | null) => String(Math.round((ms ?? 0) / 60000));
   return <Section title={t('web.dvrSettings.defaults')} description={t('web.dvrSettings.defaultsLede')}>
     <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
@@ -156,15 +175,11 @@ function Defaults({document, busy, runtime, onSave}: {document: DVRDocument; bus
       {draft.folderTemplate ? <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.folderShows')}: {draft.folderTemplate}</Text> : null}
       {draft.movieFolderTemplate ? <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.folderMovies')}: {draft.movieFolderTemplate}</Text> : null}
     </View>
-    <Button testID="live-owner-defaults-save" loading={busy === 'defaults'} disabled={!dirty} onPress={() => onSave(draft)}>{t('action.save')}</Button>
   </Section>;
 }
 
-function Storage({storage, busy, runtime, onSave}: {storage: RecordingStorage; busy: string; runtime: NativeShellRuntime; onSave: (policy: StoragePolicy) => void}) {
+function Storage({storage, draft, runtime, onChange}: {storage: RecordingStorage; draft: StoragePolicy; runtime: NativeShellRuntime; onChange: (value: StoragePolicy) => void}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [draft, setDraft] = useState<StoragePolicy>(storage.policy);
-  useEffect(() => setDraft(storage.policy), [storage]);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(storage.policy);
   const gb = (bytes: number) => Math.round(bytes / 1e9);
   const total = storage.measurement.usedBytes + storage.measurement.freeBytes;
   const facts: readonly [string, string][] = [
@@ -182,13 +197,25 @@ function Storage({storage, busy, runtime, onSave}: {storage: RecordingStorage; b
       {!storage.measurement.writeHealthy && <Text style={[shellType(12.5), {color: theme.colors.amber}]}>{t('web.liveTv.notWritable')}</Text>}
     </View>
     <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
-      <Select testID="live-owner-storage-retention" label={t('web.liveTv.keepRecordings')} description={t('web.liveTv.keepRecordingsHelp')} value={String(draft.retentionDays)} options={[0, 7, 14, 30, 60, 90, 365].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => setDraft(current => ({...current, retentionDays: Number(value)}))}/>
-      <Select testID="live-owner-storage-episodes" label={t('web.liveTv.episodesPerSeries')} description={t('web.liveTv.episodesPerSeriesHelp')} value={String(draft.episodeLimit)} options={[0, 1, 3, 5, 10, 20, 50].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => setDraft(current => ({...current, episodeLimit: Number(value)}))}/>
-      <Select testID="live-owner-storage-floor" label={t('web.liveTv.leaveFree')} description={t('web.liveTv.leaveFreeHelp')} value={String(gb(draft.floorBytes))} options={[0, 10, 20, 50, 100, 200].map(value => ({value: String(value), label: `${value} ${t('web.liveTv.gbUnit')}`}))} onValueChange={value => setDraft(current => ({...current, floorBytes: Number(value) * 1e9}))}/>
-      <Select testID="live-owner-storage-cap" label={t('web.liveTv.capUpTo')} description={t('web.liveTv.capUpToHelp')} value={String(gb(draft.capBytes))} options={[0, 100, 250, 500, 1000, 2000].map(value => ({value: String(value), label: `${value} ${t('web.liveTv.gbUnit')}`}))} onValueChange={value => setDraft(current => ({...current, capBytes: Number(value) * 1e9}))}/>
+      <Select testID="live-owner-storage-retention" label={t('web.liveTv.keepRecordings')} description={t('web.liveTv.keepRecordingsHelp')} value={String(draft.retentionDays)} options={[0, 7, 14, 30, 60, 90, 365].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => onChange({...draft, retentionDays: Number(value)})}/>
+      <Select testID="live-owner-storage-episodes" label={t('web.liveTv.episodesPerSeries')} description={t('web.liveTv.episodesPerSeriesHelp')} value={String(draft.episodeLimit)} options={[0, 1, 3, 5, 10, 20, 50].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => onChange({...draft, episodeLimit: Number(value)})}/>
+      <Select testID="live-owner-storage-floor" label={t('web.liveTv.leaveFree')} description={t('web.liveTv.leaveFreeHelp')} value={String(gb(draft.floorBytes))} options={[0, 10, 20, 50, 100, 200].map(value => ({value: String(value), label: `${value} ${t('web.liveTv.gbUnit')}`}))} onValueChange={value => onChange({...draft, floorBytes: Number(value) * 1e9})}/>
+      <Select testID="live-owner-storage-cap" label={t('web.liveTv.capUpTo')} description={t('web.liveTv.capUpToHelp')} value={String(gb(draft.capBytes))} options={[0, 100, 250, 500, 1000, 2000].map(value => ({value: String(value), label: `${value} ${t('web.liveTv.gbUnit')}`}))} onValueChange={value => onChange({...draft, capBytes: Number(value) * 1e9})}/>
     </View>
-    <Button testID="live-owner-storage-save" loading={busy === 'storage'} disabled={!dirty} onPress={() => onSave(draft)}>{t('action.save')}</Button>
   </Section>;
+}
+
+/** Frame 16c: one bar counts what is waiting and applies it to the whole server. */
+function PendingBar({count, busy, runtime, onDiscard, onSave}: {count: number; busy: boolean; runtime: NativeShellRuntime; onDiscard: () => void; onSave: () => void}) {
+  const theme = useTheme(), t = runtime.text.t;
+  if (!count) return null;
+  return <View testID="live-owner-pending" style={{borderTopWidth: 1, borderTopColor: theme.colors.line, paddingTop: 12, gap: 10}}>
+    <Text style={[shellType(13.5), {color: theme.colors.textSecondary}]}>{t('web.liveTv.changesWaiting', {count})}</Text>
+    <View style={{flexDirection: 'row', gap: 10}}>
+      <Button testID="live-owner-pending-discard" variant="glass" disabled={busy} onPress={onDiscard}>{t('action.discard')}</Button>
+      <Button testID="live-owner-pending-save" loading={busy} onPress={onSave}>{t('action.save')}</Button>
+    </View>
+  </View>;
 }
 
 /** Frame 17a: a new rule from a series the guide really lists, for a permitted profile. */

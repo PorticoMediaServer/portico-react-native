@@ -1788,6 +1788,7 @@ export const webMessages = {
   'web.liveTv.playlistFile': 'Playlist (.m3u)',
   'web.liveTv.guideFile': 'Guide (.xml)',
   'web.liveTv.tunersHelp': 'How many streams this source can deliver at once. 0 means no limit.',
+  'web.liveTv.changesWaiting': '{count, plural, one {# change} other {# changes}} waiting. They apply to the whole server.',
   'web.liveTv.recordingsLede': 'Where recordings live and how much space they may use.',
   'web.liveTv.space': 'Space',
   'web.liveTv.notWritable': 'The recordings folder is not writable right now. New recordings will fail until this is fixed.',
