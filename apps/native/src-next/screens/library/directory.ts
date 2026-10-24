@@ -23,10 +23,10 @@ export class NativeLibraryDirectory {
     if (!this.current()) return;
     this.state = Object.freeze(state); for (const listener of [...this.listeners]) listener();
   }
-  load = (): Promise<void> => {
-    if (!this.current() || this.state.phase === 'ready') return Promise.resolve();
+  load = (refresh = false): Promise<void> => {
+    if (!this.current() || !refresh && this.state.phase === 'ready') return Promise.resolve();
     if (this.pending) return this.pending;
-    const controller = new AbortController(); this.controller = controller; this.publish({phase: 'loading', libraries: []});
+    const controller = new AbortController(); this.controller = controller; this.publish({phase: 'loading', libraries: this.state.libraries});
     const task = readLibrarySummaries(this.options.api, controller.signal).then(libraries => {
       if (!controller.signal.aborted) this.publish({phase: 'ready', libraries});
     }).catch(error => {if (!controller.signal.aborted) this.publish({phase: 'error', libraries: [], error});})

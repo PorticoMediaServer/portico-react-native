@@ -36,6 +36,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
+  const lastOpenedLibrary = useRef<string | undefined>(undefined);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
   const [homeScrolled, setHomeScrolled] = useState(false);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
@@ -64,9 +65,16 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   }, [runtime]);
   useEffect(() => {
     let pending = true;
-    void runtime.memory.read(snapshot.authority).then(id => {if (pending && current()) {setRemembered(id); setMemoryReady(true);}}, error => {if (pending && current()) {setMemoryReady(true); runtime.reportError(error);}});
+    void runtime.memory.read(snapshot.authority).then(id => {if (pending && current()) {setRemembered(lastOpenedLibrary.current ?? id); setMemoryReady(true);}}, error => {if (pending && current()) {setMemoryReady(true); runtime.reportError(error);}});
     return () => {pending = false;};
   }, [current, runtime, snapshot.authority]);
+  useEffect(() => {
+    if (!current() || snapshot.contentVisible === false || destination.kind !== 'library'
+      || !canOpenLibrary(snapshot.libraries, destination.libraryId, theme.isTV) || lastOpenedLibrary.current === destination.libraryId) return;
+    const id = destination.libraryId;
+    lastOpenedLibrary.current = id; opening.current++; setRemembered(id); setMemoryReady(true);
+    void runtime.memory.remember(snapshot.authority, id).catch(runtime.reportError);
+  }, [current, destination, runtime, snapshot.authority, snapshot.contentVisible, snapshot.libraries, theme.isTV]);
   useEffect(() => {
     const retained = snapshot.destination;
     if (destination.kind === 'library' && !canOpenLibrary(snapshot.libraries, destination.libraryId, theme.isTV)
@@ -82,17 +90,15 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   };
   const openLibrary = (id: string) => {
     if (!current() || !canOpenLibrary(snapshot.libraries, id, theme.isTV)) return;
-    setRemembered(id);
-    void runtime.memory.remember(snapshot.authority, id).catch(runtime.reportError);
     navigate({kind: 'library', libraryId: id});
   };
   const selectTab = async (tab: ShellTab['id']) => {
     if (!current()) return;
     if (selectedTab(destination) === tab) {runtime.scrollToTop(destination); return;}
     if (tab !== 'libraries') {navigate({kind: tab}); return;}
-    const mine = ++opening.current;
+    const mine = ++opening.current, from = runtime.getSnapshot().destination;
     const id = memoryReady ? remembered : await runtime.memory.read(snapshot.authority).catch(error => {runtime.reportError(error); return undefined;});
-    if (!current() || mine !== opening.current) return;
+    if (!current() || mine !== opening.current || runtime.getSnapshot().contentVisible === false || !sameDestination(from, runtime.getSnapshot().destination)) return;
     navigate(librariesDestination(id, runtime.getSnapshot().libraries));
   };
   const expanded = useCallback((value: boolean) => {
