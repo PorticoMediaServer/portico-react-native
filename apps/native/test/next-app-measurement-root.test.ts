@@ -10,8 +10,10 @@ type Element = {type: unknown; props: {children: Element[]; [key: string]: unkno
 const nodes = (element: Element): Element[] => [element, ...element.props.children.flatMap(child =>
   child && typeof child === 'object' && 'props' in child ? nodes(child) : [])];
 
-for (const dev of [true, false]) test(`actual App root keeps measurement children only in DEV (${dev})`, async () => {
+for (const dev of [true, false]) test(`actual App root disables collapsing only with the DEV measurement gate (${dev})`, async () => {
   const state = hooks();
+  const jsx = (type: unknown, {children, ...props}: Record<string, unknown>) => state.react.createElement(type, props,
+    ...(Array.isArray(children) ? children : children === undefined ? [] : [children]));
   const leaf = () => {throw new Error('root-prop test must not mount a shell, account screen or DEV gallery');};
   const file = new URL('../src-next/App.tsx', import.meta.url);
   const {code} = require('@babel/core').transformSync(await readFile(file, 'utf8'), {
@@ -21,6 +23,7 @@ for (const dev of [true, false]) test(`actual App root keeps measurement childre
   });
   const modules: Record<string, unknown> = {
     react: state.react,
+    'react/jsx-runtime': {jsx, jsxs: jsx},
     'react-native': {Platform: {isTV: false}, StatusBar: 'StatusBar', View: 'View'},
     'react-native-gesture-handler': {GestureHandlerRootView: 'GestureHandlerRootView'},
     'react-native-safe-area-context': {SafeAreaProvider: 'SafeAreaProvider'},
