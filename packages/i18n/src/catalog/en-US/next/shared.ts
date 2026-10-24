@@ -183,6 +183,7 @@ export const shared = {
   'next.kit.hdr.hdr10': 'HDR10',
   'next.kit.hdr.hdr10Plus': 'HDR10+',
   'next.kit.hdr.hlg': 'HLG',
+  'next.watch.goToArtist': 'Go to the artist',
   'next.watch.andMore': 'and {count} more',
   'next.watch.episodeOptions': 'Episode options',
   'next.watch.seasonOptions': 'Season options',
