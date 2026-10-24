@@ -332,3 +332,57 @@ test('one borrowed reader drops the old window as soon as a replacement starts a
     assert.equal(binding.line(c, defaultI18n), undefined, 'a late reply cannot supply words after the owner retires');
   } finally {binding.dispose(); destination.dispose(); reader.dispose();}
 });
+
+test('independent Saved-owned readers and sources keep separate windows when one binding is disposed', async () => {
+  const calls: Call[] = [];
+  const api = fakeApi(answerSaved(shape => shape === 'squares' ? [viewWire('theirs', {libraryId: 'shows', pivot: 'shows'})] : [viewWire('mine')]), calls);
+  const mine = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const theirs = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const reader = readerFor(api), otherReader = readerFor(api, () => true, () => ['movies', 'shows']);
+  const originalDispose = reader.dispose;
+  let readerDisposals = 0;
+  reader.dispose = () => {readerDisposals++; originalDispose();};
+  const binding = createNativeSavedViewSummaryBinding(testContext().context, mine, () => true, reader);
+  const otherBinding = createNativeSavedViewSummaryBinding(testContext().context, theirs, () => true, otherReader);
+  try {
+    await mine.select({view: 'views'});
+    await theirs.select({view: 'views', shape: 'squares'});
+    const a = mine.getSnapshot().personal!.resources[0]!;
+    const b = theirs.getSnapshot().personal!.resources[0]!;
+    await Promise.all([binding.start(), otherBinding.start()]); await tick();
+    assert.equal(binding.line(a, defaultI18n), lineOf(a));
+    assert.equal(otherBinding.line(b, defaultI18n), lineOf(b));
+    assert.equal(binding.line(b, defaultI18n), undefined, 'one Saved reader never draws another window object');
+    assert.equal(otherBinding.line(a, defaultI18n), undefined);
+    binding.dispose();
+    assert.equal(readerDisposals, 0, 'local disposal never disposes the borrowed Saved-owned reader');
+    assert.equal(binding.line(a, defaultI18n), undefined);
+    assert.equal(otherBinding.line(b, defaultI18n), lineOf(b), 'the independent binding keeps its own words');
+    assert.equal(mine.getSnapshot().phase, 'ready', 'the borrowed Saved source is still its owner\'s');
+    await reader.load(mine.getSnapshot().personal!.resources);
+    assert.equal(reader.line(a, defaultI18n), lineOf(a), 'the borrowed reader is still usable after local disposal');
+    assert.ok(calls.every(call => call.method === undefined || call.method === 'GET'));
+  } finally {binding.dispose(); otherBinding.dispose(); reader.dispose(); mine.dispose(); theirs.dispose(); otherReader.dispose();}
+});
+
+test('a borrowed reader publish failure never escapes and the Saved-owned reader stays reusable', async () => {
+  const calls: Call[] = [];
+  const api = fakeApi(answerSaved(() => [viewWire('survivor')]), calls);
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const reader = readerFor(api);
+  let throwOnce = true;
+  reader.subscribe(() => {if (throwOnce) {throwOnce = false; throw new Error('borrowed publish failed');}});
+  const binding = createNativeSavedViewSummaryBinding(testContext().context, destination, () => true, reader);
+  const rejections: unknown[] = [];
+  const onRejection = (error: unknown) => {rejections.push(error);};
+  process.on('unhandledRejection', onRejection);
+  try {
+    await destination.select({view: 'views'});
+    const resource = destination.getSnapshot().personal!.resources[0]!;
+    await binding.start(); await tick();
+    assert.equal(rejections.length, 0, 'a borrowed reader failure is contained by the binding');
+    assert.equal(binding.line(resource, defaultI18n), undefined);
+    await reader.load([...destination.getSnapshot().personal!.resources]); await tick();
+    assert.equal(binding.line(resource, defaultI18n), lineOf(resource), 'the owner can reuse its reader');
+  } finally {process.off('unhandledRejection', onRejection); binding.dispose(); destination.dispose(); reader.dispose();}
+});

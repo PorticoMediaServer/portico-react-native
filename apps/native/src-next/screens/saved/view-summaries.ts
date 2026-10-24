@@ -71,7 +71,7 @@ export function createNativeSavedViewSummaryBinding(
   const check = (): boolean => {if (!live()) retire(); return live();};
   const onReader = (): void => {if (check()) emit();};
   const load = (resources: readonly PersonalResource[]): Promise<void> => {
-    try {return Promise.resolve(reader.load(resources));} catch {return Promise.resolve();}
+    try {return Promise.resolve(reader.load(resources)).catch(() => undefined);} catch {return Promise.resolve();}
   };
   const reconcile = (): void => {
     if (!started || !check()) return;
