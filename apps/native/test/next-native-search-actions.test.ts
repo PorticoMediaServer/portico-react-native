@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {SearchGroup} from '../../../packages/client-core/src/search';
 import type {NativeShellBootstrapContext, RestoredNativeShellRuntime} from '../src-next/shell/bootstrap';
-import {createNativeSearchController} from '../src-next/screens/search/controller';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
@@ -28,12 +27,13 @@ async function fixture(mount = false) {
       groups: groups.map(group => ({...group, title: '', status: 'success', errorCode: '', totalCount: group.items.length, totalCountExact: true, nextCursor: ''})),
     }};
   }});
-  let runtime: RestoredNativeShellRuntime | undefined, source: ReturnType<typeof createNativeSearchController> | undefined;
+  let runtime: RestoredNativeShellRuntime | undefined, source: ReturnType<typeof import('../src-next/screens/search/controller').createNativeSearchController> | undefined;
   let actions: ReturnType<typeof import('../src-next/screens/search/actions').createNativeSearchActions> | undefined;
   try {
     const {restoreNativeShellRuntime} = await import('../src-next/shell/bootstrap');
     const {createNativeShellBindings} = await import('../src-next/shell/assembly');
     const {createNativeSearchActions} = await import('../src-next/screens/search/actions');
+    const {createNativeSearchController} = await import('../src-next/screens/search/controller');
     let context!: NativeShellBootstrapContext;
     runtime = await restoreNativeShellRuntime(value => {context = value; return createNativeShellBindings(value);}, {onAuthorityEnded() {}});
     assert.ok(runtime);
