@@ -75,7 +75,7 @@ function PickerSurface({controller, runtime}: {controller: MusicPlaylistPickerCo
   const snapshot: MusicPlaylistSnapshot = useSyncExternalStore(port?.subscribe ?? (() => () => {}), port?.getSnapshot ?? (() => emptyPlaylists));
   if (!state.open || !port) return null;
   const items: MenuEntry[] = snapshot.phase === 'loading' || !snapshot.playlists.length && snapshot.phase !== 'error'
-    ? snapshot.phase === 'loading' ? [{id: 'loading', label: t('saved.loading'), disabled: true}] : [{id: 'empty', label: t('web.saved.empty.playlists'), disabled: true}]
+    ? snapshot.phase === 'loading' ? [{id: 'loading', label: t('saved.loading'), disabled: true, onSelect: () => {}}] : [{id: 'empty', label: t('web.saved.empty.playlists'), disabled: true, onSelect: () => {}}]
     : snapshot.phase === 'error' ? [{id: 'retry', label: t('saved.retry'), onSelect: () => controller.retry()}]
       : snapshot.playlists.map(playlist => ({id: playlist.id, label: playlist.title, trailing: playlist.count === undefined ? undefined : defaultI18n.number(playlist.count),
         disabled: snapshot.busy, onSelect: () => {void controller.add(playlist).catch(error => runtime.reportError(error));}}));
