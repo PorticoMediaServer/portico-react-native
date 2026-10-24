@@ -7,6 +7,7 @@ import {sameAuthority, type ShellAuthority, type ShellDestination} from './model
 export type NativeShellRoute = Readonly<
   | {kind: 'shell'; destination: ShellDestination}
   | {kind: 'title'; entry: ContentEntry}
+  | {kind: 'person'; personId: string}
   | {kind: 'read'; itemId: string; sourceId: string}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
   | {kind: 'channel'; sourceId: string; channelId: string}
