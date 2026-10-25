@@ -115,26 +115,27 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
 }
 
 /** Also usable when no selected server can restore: retained servers remain reachable. */
-export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {context?: NativeShellBootstrapContext; onBack?: () => void; onComplete?: () => void; onSetupComplete?: (serverId: string) => void}) {
+export function ServersRoute({context, fallbackDownloads, onBack, onComplete, onSetupComplete}: {context?: NativeShellBootstrapContext; fallbackDownloads?: AccountDownloadsEntry; onBack?: () => void; onComplete?: () => void; onSetupComplete?: (serverId: string) => void}) {
   const theme = useTheme(), [panel, setPanel] = useState<Panel>('servers'), [servers, setServers] = useState<Awaited<ReturnType<typeof nativeAccounts.snapshot>>>(), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [captured, setCaptured] = useState<{session: AppServerSession; name: string}>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
   const [preview, setPreview] = useState<Readonly<SetupPreview>>(), [consentKind, setConsentKind] = useState<'local' | 'portico'>(), [done, setDone] = useState('');
   const [removeDownloads, setRemoveDownloads] = useState(false);
   const [addGeneration, setAddGeneration] = useState(0);
-  type AddOpening = {active: boolean; generation: number; context?: NativeShellBootstrapContext; downloads?: AccountDownloadsEntry};
+  type AddOpening = {active: boolean; generation: number; context?: NativeShellBootstrapContext; fallback?: AccountDownloadsEntry; downloads?: AccountDownloadsEntry; disposeDownloads?: () => void};
   const addOwner = useRef<AddOpening | undefined>(undefined), [committedAdd, setCommittedAdd] = useState<AddOpening>();
   const panelRef = useRef(panel); panelRef.current = panel;
-  if (addOwner.current && (panel !== 'add' || addOwner.current.context !== context || addOwner.current.generation !== addGeneration)) addOwner.current.active = false;
+  if (addOwner.current && (panel !== 'add' || addOwner.current.context !== context || addOwner.current.generation !== addGeneration || addOwner.current.fallback !== fallbackDownloads)) addOwner.current.active = false;
   useLayoutEffect(() => {
     if (panel !== 'add') return;
-    const opening: AddOpening = {active: true, generation: addGeneration, context}; addOwner.current = opening;
+    const opening: AddOpening = {active: true, generation: addGeneration, context, fallback: fallbackDownloads}; addOwner.current = opening;
     if (context && !Platform.isTV) {try {opening.downloads = createAccountDownloadsEntry(context,
-      () => opening.active && addOwner.current === opening && panelRef.current === 'add');} catch {opening.downloads = undefined;}}
+      () => opening.active && addOwner.current === opening && panelRef.current === 'add'); opening.disposeDownloads = opening.downloads.dispose;} catch {opening.downloads = undefined;}}
+    if (!context && !Platform.isTV) opening.downloads = fallbackDownloads;
     setCommittedAdd(opening);
-    return () => {opening.active = false; if (addOwner.current === opening) addOwner.current = undefined; opening.downloads?.dispose();};
-  }, [panel, context, addGeneration]);
+    return () => {opening.active = false; if (addOwner.current === opening) addOwner.current = undefined; opening.disposeDownloads?.();};
+  }, [panel, context, addGeneration, fallbackDownloads]);
   const addCurrent = () => !!committedAdd?.active && addOwner.current === committedAdd && panelRef.current === 'add';
-  const retireAdd = () => {const opening = addOwner.current; addOwner.current = undefined; if (opening) {opening.active = false; opening.downloads?.dispose();}};
+  const retireAdd = () => {const opening = addOwner.current; addOwner.current = undefined; if (opening) {opening.active = false; opening.disposeDownloads?.();}};
   const openAdd = () => {if (panelRef.current !== 'servers') return; retireAdd(); setAddGeneration(value => value + 1); setPanel('add');};
   const approver = useRef<TVConsentApprover | undefined>(undefined), alive = useRef(true);
   useEffect(() => {alive.current = true; let read = 0;
