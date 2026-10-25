@@ -109,6 +109,7 @@ com.google.errorprone:error_prone_annotations:2.15.0
 com.google.guava:failureaccess:1.0.2
 com.google.guava:guava:33.3.1-android
 com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava
+com.google.zxing:core:3.5.3
 com.parse.bolts:bolts-tasks:1.4.0
 com.squareup.okhttp3:okhttp-urlconnection:4.9.2
 com.squareup.okhttp3:okhttp:4.12.0
