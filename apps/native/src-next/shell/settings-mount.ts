@@ -1,3 +1,4 @@
+import '../screens/settings-live/server/NotificationDestinations';
 import {createNativeLibrarySettingsRenderer} from '../screens/settings-live/owner-libraries/LibrarySettingsRoute';
 import {createNativeEqualizerSettingsRenderer, createNativeTVServerSettingsRenderer, createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
 import {nativeShellRoutes, type NativeRouteFactory} from './route-registry';

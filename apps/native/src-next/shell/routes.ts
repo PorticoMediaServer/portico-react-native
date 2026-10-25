@@ -35,6 +35,8 @@ export type NativeShellRoute = Readonly<
   | {kind: 'saved-view'; view: SavedRoute}
   | {kind: 'saved-destination'; destination: Readonly<{kind: 'playlist' | 'collection'; id: string}>}
   | {kind: 'settings-equalizer'}
+  | {kind: 'recordings'}
+  | {kind: 'server-feedback'}
   | {kind: 'server-dashboard'}
   | {kind: 'server-settings'; page?: 'libraries' | 'remote' | 'people' | 'troubleshooting'}
   | {kind: 'server-segments'}

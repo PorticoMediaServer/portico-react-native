@@ -18,10 +18,10 @@ type Translate = typeof defaultI18n.t;
 
 
 /** Settings › Server › Troubleshooting on the phone (owner-server.html frame 33). */
-export function NativeServerTroubleshooting({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
+export function NativeServerTroubleshooting({ports, runtime, compactHeader = false, initialTab}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean; initialTab?: 'messages' | 'feedback' | 'reports' | 'support'}) {
   const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
-  const [tab, setTab] = useState('messages');
+  const [tab, setTab] = useState(initialTab ?? 'messages');
   const feedback=useNativeFeedback(ports,runtime);
   const reports=useNativeReports(ports,runtime);
   const support=useNativeSupport(ports,runtime);

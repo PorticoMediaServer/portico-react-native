@@ -154,6 +154,9 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
       // Root33: a preparation-ready notice only points at the real Downloads
       // surface. It never claims the file is on this device or locally playable.
       case 'downloads': return {kind: 'downloads'};
+      case 'recordings':
+      case 'recording': return {kind: 'recordings'};
+      case 'admin-feedback': return {kind: 'server-feedback'};
       case 'settings': return {kind: 'shell', destination: {kind: 'settings'}};
       case 'person': return entityId ? {kind: 'person', personId: entityId} : undefined;
       // A view this build has no real surface for stays out rather than guessing.
