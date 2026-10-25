@@ -1,6 +1,6 @@
 import {groupPort, subscribeGroupPort} from '../settings-live/group-port';
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Dimensions, View, useWindowDimensions} from 'react-native';
+import {Dimensions, StatusBar, View, useWindowDimensions} from 'react-native';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
@@ -33,7 +33,7 @@ export type NativeWatchHostContext = Readonly<{
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
-  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet' | 'tabletop' | 'bar'>;
+  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'fullWindowRequest' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet' | 'tabletop' | 'bar'>;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   /** foldable5: the episodes that follow, beside the tabletop's controls column. */
@@ -104,6 +104,44 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     [window.width, window.height, posture, expanded, panelOpen, isTV, fence, source.entry]);
   const television = useMemo(() => isTV ? nativeWatchTVPresentation(input.window, !expanded, panelOpen ? state.panel : undefined) : undefined, [isTV, input.window, expanded, panelOpen, state.panel]);
   const layout = useMemo(() => isTV ? television?.layout : resolvePlayerPresentation(input), [input, isTV, television]);
+  // The full-window player has no system status bar. This host owns its own stack entry and
+  // pops only that entry, so a later owner's entry is never overridden by this cleanup.
+  const fullWindow = layout?.mode === 'full-window';
+  const statusEntry = useRef<ReturnType<typeof StatusBar.pushStackEntry> | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (isTV || !fullWindow) return;
+    const entry = StatusBar.pushStackEntry({hidden: true, animated: true});
+    statusEntry.current = entry;
+    return () => {
+      if (statusEntry.current !== entry) return;
+      statusEntry.current = undefined;
+      StatusBar.popStackEntry(entry);
+    };
+  }, [fullWindow, isTV]);
+  // The request dies with the host that made it; the native slot stays owner-fenced.
+  useLayoutEffect(() => () => controls.releaseFullWindow(), [controls]);
+  // Only the watch page may ask. Eligibility is published in a layout turn, never during render,
+  // and an unmounted host answers false, so a retained chip cannot act for an abandoned render.
+  const mounted = useRef(false), eligible = useRef(false);
+  const [watchOnly, setWatchOnly] = useState(false);
+  const fullWindowRequest = useCallback(() => mounted.current && eligible.current, [watchOnly]);
+  useLayoutEffect(() => {
+    // Replay-safe: every setup restores the witness, every cleanup clears it synchronously.
+    mounted.current = true;
+    return () => {mounted.current = false; eligible.current = false;};
+  }, []);
+  useLayoutEffect(() => {
+    const next = !isTV && layout?.mode === 'watch';
+    eligible.current = next;
+    // One render when the committed eligibility changes, not on the next playback tick.
+    setWatchOnly(previous => previous === next ? previous : next);
+    return () => {eligible.current = false;};
+  }, [isTV, layout?.mode]);
+  // The accepted full-window shape keeps its own request; a committed half-fold does not.
+  useLayoutEffect(() => {
+    if (layout?.mode !== 'book' && layout?.mode !== 'tabletop') return;
+    controls.releaseFullWindow();
+  }, [layout?.mode, controls]);
   const previous = useRef<PlayerPresentationInput | undefined>(undefined), deadline = useRef(0);
   useLayoutEffect(() => {
     // Apply suppression/pinning first. Repeated progress and panel close alone
@@ -173,7 +211,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {layout.episodes && <View testID="watch-episodes-pane" style={positioned(layout.episodes)} pointerEvents="box-none">{bindings.episodes?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
       <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice && lossNotice.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
-        width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
+        width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} fullWindowRequest={fullWindowRequest} tablet={!isTV && Math.min(window.width, window.height) >= 600}
         tabletop={!isTV && layout.mode === 'tabletop' && layout.episodes && layout.controls ? (layout.controls.width < window.width ? 'column' : 'stacked') : undefined}
         bar={!isTV && layout.mode === 'full-window' && window.width >= 1024}
         tvPanelRight={television?.backdropRight} failureAction={failureAction}

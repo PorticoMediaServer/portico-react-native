@@ -1,4 +1,5 @@
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
+import type {NativeFullWindowOrientation} from '../../platform/layout/full-window';
 
 export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'sleep' | 'style' | 'chapters' | 'episodes' | 'playback-info';
 export type NativeWatchControlState = Readonly<{
@@ -9,6 +10,8 @@ export type NativeWatchControlState = Readonly<{
   panelFocus?: NativeWatchPanel;
   focus: 'surface' | 'toggle' | 'panel';
   hideReason?: 'timer' | 'input';
+  /** The real sideways request for this fence is active; the geometry is the wide rule. */
+  fullWindow?: boolean;
 }>;
 export type NativeWatchControlContext = Readonly<{
   expanded: boolean;
@@ -41,7 +44,15 @@ export class NativeWatchControls {
   private gestureScrubbing = false;
   private overlayHeld = false;
   private scrubCancel?: {cancel: () => void};
-  constructor(isTV: boolean, time: NativeWatchControlClock = clock) {this.isTV = isTV; this.time = time;}
+  private readonly fullWindowOrientation: NativeFullWindowOrientation | undefined;
+  private readonly reportError: ((error: unknown) => void) | undefined;
+  /** The one exact request: owner, the page fence that asked, and the route it was made on. */
+  private fullWindowRequest?: Readonly<{owner: string; fence: PlaybackFence; routeRevision: number}>;
+  private routeRevision = -1;
+  constructor(isTV: boolean, time: NativeWatchControlClock = clock, fullWindowOrientation?: NativeFullWindowOrientation,
+    reportError?: (error: unknown) => void) {
+    this.isTV = isTV; this.time = time; this.fullWindowOrientation = fullWindowOrientation; this.reportError = reportError;
+  }
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = (): NativeWatchControlState => this.state;
   private publish(change: Partial<NativeWatchControlState>): void {
@@ -58,6 +69,9 @@ export class NativeWatchControls {
     const changed = fence ? !sameFence(this.state.fence, fence) : !!this.state.fence;
     const unpinned = !this.pinned();
     this.context = context;
+    // The request belongs to the page that made it: a fence change, a dock collapse or an
+    // empty source retires the exact owner, never a successor's.
+    if (this.fullWindowRequest && (!fence || changed || !context.expanded)) this.releaseFullWindow();
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
       this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false; this.scrubCancel = undefined;
@@ -98,6 +112,69 @@ export class NativeWatchControls {
     if (!this.state.visible) {this.reveal(fence); return;}
     if (!this.pinned()) {this.cancel(); this.deadline = 0; this.publish({visible: false, focus: 'surface', hideReason: 'input'});}
   }
+  /** The device's own module support; nothing is drawn without it. */
+  canFullWindow(): boolean {return !!this.fullWindowOrientation && !this.isTV;}
+
+  /** Ask the host for the sideways presentation, for this fence only. The published state
+   * waits for the real admission; a refusal or a replaced request leaves it false. */
+  setFullWindow(fence: PlaybackFence, on: boolean): boolean {
+    if (!this.current(fence)) return false;
+    if (!on) {
+      const owner = this.fullWindowRequest?.owner;
+      if (!owner) return false;
+      this.releaseFullWindow();
+      return true;
+    }
+    const port = this.fullWindowOrientation;
+    if (!port || !this.context.expanded || this.fullWindowRequest) return false;
+    // A fresh id per opening from the native UUID source: a late finalizer of A can never match B.
+    const owner = port.owner();
+    this.fullWindowRequest = {owner, fence, routeRevision: this.routeRevision};
+    const failed = () => {
+      if (this.fullWindowRequest?.owner !== owner) return;
+      this.clearFullWindow(owner, false);
+      this.reportError?.(new Error('full_window_orientation_unavailable'));
+    };
+    void port.enter(owner).then(admitted => {
+      if (this.fullWindowRequest?.owner !== owner) return;
+      // Not issued: nothing to restore; say so rather than pretending the mode exists.
+      if (!admitted) {failed(); return;}
+      // Issued but the page moved on: restore this owner now.
+      if (!this.current(fence)) {this.clearFullWindow(owner, true); return;}
+      this.publish({fullWindow: true});
+      this.reveal(fence);
+    }, failed);
+    return true;
+  }
+
+  /** The host refused an issued request; only that exact owner's record is cleared. */
+  failFullWindow(owner: string): boolean {
+    if (this.fullWindowRequest?.owner !== owner) return false;
+    // The mask was already set even if the geometry was refused, so this owner must release it.
+    this.clearFullWindow(owner, true);
+    return true;
+  }
+
+  /** A route push or pop retires the request the previous route made. */
+  route(revision: number): void {
+    if (this.routeRevision === revision) return;
+    this.routeRevision = revision;
+    this.releaseFullWindow();
+  }
+
+  /** Teardown only: restore the exact live request, never a successor's. */
+  releaseFullWindow(): void {
+    const owner = this.fullWindowRequest?.owner;
+    if (owner) this.clearFullWindow(owner, true);
+  }
+
+  private clearFullWindow(owner: string, restore: boolean): void {
+    if (this.fullWindowRequest?.owner !== owner) return;
+    this.fullWindowRequest = undefined;
+    this.publish({fullWindow: false});
+    if (restore) this.fullWindowOrientation?.leave(owner);
+  }
+
   scrub(fence: PlaybackFence, scrubbing: boolean): void {
     if (!this.current(fence)) return;
     this.gestureScrubbing = scrubbing;
@@ -132,7 +209,7 @@ export class NativeWatchControls {
     this.publish({panel: undefined, panelFocus: undefined, panelOffset: 0, visible: this.pinned(), focus: this.pinned() ? 'toggle' : 'surface'});
     this.arm(); return true;
   }
-  back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'stale' {
+  back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'full-window' | 'stale' {
     if (!this.current(fence)) return 'stale';
     if (!this.state.panel && this.scrubCancel) {this.scrubCancel.cancel(); return 'controls';}
     if (this.state.panel && this.state.panel !== 'options' && this.state.panel !== 'episodes') {
@@ -140,8 +217,15 @@ export class NativeWatchControls {
       this.open('options', fence); this.publish({panelFocus: opener}); return 'panel';
     }
     if (this.closePanel(fence)) return 'panel';
+    // Back restores the host's own orientation first, on the same fence and route.
+    if (this.fullWindowRequest) {this.releaseFullWindow(); this.reveal(fence); return 'full-window';}
     if (this.state.visible) {this.cancel(); this.deadline = 0; this.hiddenByBack = true; this.publish({visible: false, focus: 'surface', hideReason: 'input'}); return 'controls';}
     return 'player';
   }
-  dispose(): void {this.cancel(); this.scrubCancel = undefined; this.disposed = true; this.offsets.clear(); this.listeners.clear();}
+  dispose(): void {
+    const owner = this.fullWindowRequest?.owner;
+    this.fullWindowRequest = undefined;
+    if (owner) this.fullWindowOrientation?.leave(owner);
+    this.cancel(); this.scrubCancel = undefined; this.disposed = true; this.offsets.clear(); this.listeners.clear();
+  }
 }

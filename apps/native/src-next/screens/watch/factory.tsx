@@ -13,6 +13,7 @@ import type {SegmentInput} from '../../../../../packages/client-core/src/playbac
 import type {MusicPlaylistPickerHandle} from '../destinations/music/MusicPlaylistPicker';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackStart, NativePlaybackVersionSelection} from '../../platform/playback/types';
+import {nativeFullWindowOrientation} from '../../platform/layout/full-window';
 import type {PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
@@ -112,7 +113,12 @@ const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | unde
 /** Explicit descriptors and disposal for the genuine assembly; importing never registers a route. */
 export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
   const controllers = new Map<string, NativeTitleController>(), controllerSubscriptions = new Map<string, () => void>(), requests = new Map<AbortController, () => boolean>();
-  const options = new PlaybackOptionsClient(localV1Http(ports.api)), controls = new NativeWatchControls(ports.isTV);
+  const options = new PlaybackOptionsClient(localV1Http(ports.api)), controls = new NativeWatchControls(ports.isTV, undefined, nativeFullWindowOrientation, ports.title.reportError);
+  // A refusal after the request was issued (iOS geometry) clears that exact owner and is
+  // reported like any other playback-surface failure; a superseded owner is ignored.
+  const offFullWindow = nativeFullWindowOrientation?.subscribeFailure((owner, message) => {
+    if (controls.failFullWindow(owner)) ports.title.reportError(new Error(message));
+  });
   const destinations = new Set<NativeVersionChooserController>();
   let disposed = false;
   let context: Omit<NativeWatchControlContext, 'expanded' | 'paused'> = {autoHide: true, hiddenByPanel: false, scrubbing: false, focusHeld: false};
@@ -124,6 +130,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     for (const destination of destinations) if (!destination.isCurrent()) {destination.dispose(); destinations.delete(destination);}
     for (const [request, valid] of requests) if (!valid()) request.abort();
     const source = ports.playback.getSnapshot();
+    controls.route(ports.navigation.getSnapshot().revision);
     controls.source(alive() && sameAuthority(source.authority, ports.authority) && !source.retired ? source.fence : undefined,
       {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});
   };
@@ -484,7 +491,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       /** foldable4/5: the episodes that follow, beside the tabletop's controls. */
       upNext: (host: NativeWatchHostContext) => episodeList(host, true),
       /** Assembly calls this before its existing player/destination Back handling. */
-      back: () => {const fence = ports.playback.getSnapshot().fence; if (!alive() || !fence) return false; const result = controls.back(fence); return result === 'panel' || result === 'controls';}}),
+      back: () => {const fence = ports.playback.getSnapshot().fence; if (!alive() || !fence) return false; const result = controls.back(fence); return result === 'panel' || result === 'controls' || result === 'full-window';}}),
     controls,
     menu,
     fileInfo,
@@ -498,7 +505,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     releaseTitle: (entry: ContentEntry) => {const key = titleKey(entry); controllerSubscriptions.get(key)?.(); controllerSubscriptions.delete(key); controllers.get(key)?.dispose(); controllers.delete(key); starts.invalidate();},
     /** Actual playback lifetime end only; never a dock/fold/full-window change. */
     releaseWatchBody: (entry: ContentEntry) => {const key = `watch:${titleKey(entry)}`; controllerSubscriptions.get(key)?.(); controllerSubscriptions.delete(key); controllers.get(key)?.dispose(); controllers.delete(key); starts.invalidate();},
-    dispose: () => {if (disposed) return; disposed = true; for (const destination of destinations) destination.dispose(); destinations.clear(); starts.dispose(); for (const off of controllerSubscriptions.values()) off(); controllerSubscriptions.clear(); offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); controls.dispose();},
+    dispose: () => {if (disposed) return; disposed = true; for (const destination of destinations) destination.dispose(); destinations.clear(); starts.dispose(); for (const off of controllerSubscriptions.values()) off(); controllerSubscriptions.clear(); offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); offFullWindow?.(); controls.dispose();},
   });
   function Watch(props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) {
     const source = useSyncExternalStore(ports.playback.subscribe, ports.playback.getSnapshot);

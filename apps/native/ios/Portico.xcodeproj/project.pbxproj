@@ -13,6 +13,7 @@
 		A6F400000000000000000001 /* PorticoPlayerView.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F400000000000000000002 /* PorticoPlayerView.m */; };
 		A6F300000000000000000001 /* PorticoVideoSnapshot.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F300000000000000000002 /* PorticoVideoSnapshot.m */; };
 		A6F100000000000000000001 /* PorticoHaptics.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000002 /* PorticoHaptics.m */; };
+		A6FF00000000000000000001 /* PorticoFullWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = A6FF00000000000000000002 /* PorticoFullWindow.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-Portico.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-Portico.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		21A01CD8C2E3AE4B31958D60 /* PorticoImagePicker.m in Sources */ = {isa = PBXBuildFile; fileRef = 34202A7540AC3E7E5FE588ED /* PorticoImagePicker.m */; };
@@ -68,6 +69,8 @@
 		A6F400000000000000000002 /* PorticoPlayerView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoPlayerView.m; sourceTree = "<group>"; };
 		A6F300000000000000000002 /* PorticoVideoSnapshot.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoVideoSnapshot.m; sourceTree = "<group>"; };
 		A6F100000000000000000002 /* PorticoHaptics.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoHaptics.m; sourceTree = "<group>"; };
+		A6FF00000000000000000002 /* PorticoFullWindow.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoFullWindow.m; sourceTree = "<group>"; };
+		A6FF00000000000000000003 /* PorticoFullWindow.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../Native/PorticoFullWindow.h; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* Portico.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Portico.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Portico/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Portico/Info.plist; sourceTree = "<group>"; };
@@ -200,6 +203,8 @@
 				B752D323CC79103ABDE5034C /* PorticoIntents.swift */,
 				B772FDD8857E9E1BF4BA7927 /* PorticoActivity.m */,
 				A6F100000000000000000002 /* PorticoHaptics.m */,
+				A6FF00000000000000000002 /* PorticoFullWindow.m */,
+				A6FF00000000000000000003 /* PorticoFullWindow.h */,
 				A6F300000000000000000002 /* PorticoVideoSnapshot.m */,
 				A6F400000000000000000002 /* PorticoPlayerView.m */,
 				A6FA00000000000000000002 /* PorticoHighlightsSave.m */,
@@ -451,6 +456,7 @@
 				B8D323CC79103ABDE5034C83 /* PorticoIntents.swift in Sources */,
 				B8FDD8857E9E1BF4BA79276F /* PorticoActivity.m in Sources */,
 				A6F100000000000000000001 /* PorticoHaptics.m in Sources */,
+				A6FF00000000000000000001 /* PorticoFullWindow.m in Sources */,
 				A6F300000000000000000001 /* PorticoVideoSnapshot.m in Sources */,
 				A6F400000000000000000001 /* PorticoPlayerView.m in Sources */,
 				A6FA00000000000000000001 /* PorticoHighlightsSave.m in Sources */,
