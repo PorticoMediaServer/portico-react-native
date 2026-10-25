@@ -445,7 +445,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     title={t('web.chooser.unconfirmedTitle', {server: target.name})} body={t('web.chooser.unconfirmedBody')}
     primaryAction={{id: 'retry-identity', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: chooseAnother}}/>;
-  if (stage === 'servers' && target && directoryClockSkew(error)) return <StateLayout testID="accounts-server-clock" icon="i-clockoff"
+  if (stage === 'servers' && target && directoryClockSkew(error)) return <StateLayout testID="accounts-server-clock" icon="i-clock"
     title={t('web.chooser.clockTitle', {server: target.name})} body={t('web.chooser.clockBody')}
     primaryAction={{id: 'retry-clock', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: chooseAnother}}/>;
