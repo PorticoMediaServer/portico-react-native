@@ -14,6 +14,7 @@ import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
 import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
 import {NativeListeningNotice} from '../screens/destinations/music/ListeningNotice';
+import {NativePlayOnSheets} from '../screens/watch/PlayOnSheets';
 import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
 import {nativeEqualizer} from '../platform/playback/equalizer';
 import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects';
@@ -106,8 +107,13 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
       policyLifetime: lifetime,
       ...(adapter.retry ? {retry: {enabled: snapshot.capabilities.retry === true,
         run: (fence: PlaybackFence) => {void adapter.retry!(fence, lifetime).catch(runtime.reportError);}}} : {}),
+      ...(runtime.playOn && snapshot.capabilities.cast ? {playOn: {enabled: true, open: (fence: PlaybackFence) => {
+        const current = adapter.getSnapshot();
+        if (!lifetime.isCurrent() || current.capabilities.cast !== true || !current.fence || !sameFence(current.fence, fence)) return;
+        runtime.playOn?.open();
+      }}} : {}),
     };
-  }, [listeningLifetime, adapter, snapshot.capabilities.retry, runtime]);
+  }, [listeningLifetime, adapter, snapshot.capabilities.retry, snapshot.capabilities.cast, runtime]);
   const playOn = runtime.playOn;
   const action = useMemo(() => bindNativeDock(adapter, playOn ? {remote: async command => {await playOn.command(command.type, command.positionSeconds, command.remote.id);}} : {}), [adapter, playOn]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
@@ -259,6 +265,16 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
+    {/* One Play on sheet for every surface: the dock, a title page's control and the touch
+        listening output all open the same shell controller, so it is mounted once here. */}
+    {runtime.playOn && <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} posterUrl={snapshot.entry?.posterUrl}
+      onLinkTV={() => {
+        // A retained sheet may only leave for another page while the same shell and playback
+        // context still own it; a retired viewer never navigates from a stale sheet.
+        const live = adapter.getSnapshot();
+        if (!runtime.openServers || !sameAuthority(live.authority, authority)) return;
+        runtime.openServers(); runtime.playOn?.close();
+      }}/>}
   </View>;
 }
 
