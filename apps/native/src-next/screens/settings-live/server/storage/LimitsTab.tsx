@@ -70,7 +70,7 @@ export function LimitsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; 
         <Section title={t('server.logsByKind')}/>
         <Group>
           {logsDraft.retention.map(entry => <NumberRow key={entry.category} label={t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)})} value={entry.days} suffix={t('settings.unit.days')}
-            onPress={() => open(t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)}), entry.days, next => forms.logs.set(draft => ({retention: draft.retention.map((row: {category: string; days: number}) => row.category === entry.category ? {...row, days: Math.max(1, Math.min(90, next))} : row)})))}/>)}
+            onPress={() => open(t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)}), entry.days, next => forms.logs.set(draft => ({...draft, retention: draft.retention.map((row: {category: string; days: number}) => row.category === entry.category ? {...row, days: Math.max(1, Math.min(90, next))} : row)})))}/>)}
         </Group>
       </> : null}
     </View> : null}
