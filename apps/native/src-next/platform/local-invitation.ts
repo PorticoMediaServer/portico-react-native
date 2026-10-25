@@ -22,8 +22,8 @@ export class NativeLocalInvitation<T> {
     this.ports = ports;
     this.client = new PeopleInvitationsClient({request: async <R,>(path: string, method?: string, body?: unknown) => {
       this.assertCurrent();
-      const result = await ports.api.request<R>(path, method, body, this.abort.signal);
-      this.assertCurrent(); return result;
+      try {const result = await ports.api.request<R>(path, method, body, this.abort.signal); this.assertCurrent(); return result;}
+      catch (error) {this.assertCurrent(); throw error;}
     }});
   }
   current = () => !this.abort.signal.aborted;
@@ -58,7 +58,7 @@ export class NativeLocalInvitation<T> {
       this.assertCurrent();
       // Creation gives no admission. The existing password command owns every returned grant.
       return await this.ports.signIn(user, password);
-    } finally {this.busy = false;}
+    } catch (error) {this.assertCurrent(); throw error;} finally {this.busy = false;}
   }
   failure(error: unknown): 'expired' | 'username' | undefined {
     if (error instanceof InvitationExpired || error instanceof ApiError && error.status === 410 && error.code === 'invitation_expired') return 'expired';
