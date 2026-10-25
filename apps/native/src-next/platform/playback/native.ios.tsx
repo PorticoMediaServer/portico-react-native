@@ -87,7 +87,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     engines: {initial: 'native', transport: kind => kind === 'native' ? nativeTransport : undefined, choose: () => 'native'}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
   // The retained view reports what actually started, stopped or was unavailable.
-  const pictureEvent = pipSupported ? emitter.addListener('PorticoPictureInPicture', (fact: unknown) => {runtime.admitPictureInPicture(fact);});
+  const pictureEvent = pipSupported ? emitter.addListener('PorticoPictureInPicture', (fact: unknown) => {runtime.admitPictureInPicture(fact);}) : undefined;
   const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
 
   /** The only new component is a native-module view bridge; all player chrome belongs later. */
