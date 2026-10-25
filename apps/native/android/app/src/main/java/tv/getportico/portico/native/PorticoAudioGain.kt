@@ -158,8 +158,9 @@ internal class PorticoMusicPipeline(
 
   /** What the delegate must be configured with: the format the gain actually produces. */
   fun configure(format: Format): Format {
-    // The delegate must be idle: a buffer it still holds belongs to the previous stream and must
-    // not be discarded by a reconfiguration. Media3 flushes before configuring, so this is misuse.
+    // A pending gain buffer belongs to the previous stream; configure must not discard it. media3
+    // does not necessarily flush first — DefaultAudioSink queues the new format as
+    // pendingConfiguration while output still exists — so the caller must have drained it.
     check(!queue.hasPending()) { "configure while a buffer is still pending" }
     val source = if (format.pcmEncoding != Format.NO_VALUE) format.pcmEncoding else C.ENCODING_PCM_16BIT
     // Only the four paths this stage converts are accepted; anything else is refused before a
@@ -170,10 +171,15 @@ internal class PorticoMusicPipeline(
     sampleRate = format.sampleRate
     gain.reset()
     targetEncoding = PorticoAudioOutput.targetEncoding(route(), sampleRate, channels, sourceEncoding)
-    // The sink opens at the stage's chosen rate. The routed device is not readable from the
-    // Media3 sink, so a Smart route decision stays unknown rather than assumed supportive.
+    // media3 applies encoderDelay/encoderPadding as input PCM frame counts at the delegate's rate,
+    // so changing that rate would make a stream trim the wrong duration. Until trimming is done in
+    // the source domain ahead of this stage, a stream that declares either keeps its own rate.
+    val declaresTrimming = format.encoderDelay > 0 || format.encoderPadding > 0
+    // The sink opens at the stage's chosen rate when it may change one. The routed device is not
+    // readable from the Media3 sink, so a Smart route decision stays unknown rather than assumed
+    // supportive; the stage also refuses to change rate under audio it is still holding.
     val openRate = stage.configure(sampleRate, channels, targetEncoding, sampleRateMode(),
-        preferredSampleRate(), sampleRate, null)
+        preferredSampleRate(), sampleRate, null, allowRateChange = !declaresTrimming)
     val delegate = converted(format, sourceEncoding)
     return if (openRate > 0 && openRate != sampleRate) delegate.buildUpon().setSampleRate(openRate).build() else delegate
   }

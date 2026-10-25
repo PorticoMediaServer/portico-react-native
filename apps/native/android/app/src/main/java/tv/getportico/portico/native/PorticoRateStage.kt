@@ -9,8 +9,10 @@ import kotlin.math.floor
  * The music sink's rate stage (Smart/Strict/Off, music-plus 14). Reviewable engine WIP.
  *
  * Ownership: frames are copied out of the incoming buffer on the first call, so a sink retry
- * always sees the same retained piece — same buffer, time and count. Configure, flush and reset
- * retire every retained piece, so an old stream's tail cannot enter its successor.
+ * always sees the same retained piece — same buffer, time and count. Flush and reset retire every
+ * retained piece, and configure retires them too unless the next stream continues at the same
+ * source format and output rate, in which case the held frames and clock carry across the gapless
+ * boundary. A rate is never changed underneath audio already held.
  *
  * Clock: the outgoing timestamp comes from an output-frame clock that advances only when the
  * delegate accepts a piece, never from the input buffer's start. A refused buffer therefore keeps
@@ -52,6 +54,20 @@ internal class PorticoRateStage {
 
   val resampling: Boolean get() = sourceRate > 0 && targetRate > 0 && sourceRate != targetRate
 
+  /**
+   * Configure for the next stream. media3 may queue the delegate's new format behind output it is
+   * still draining (`DefaultAudioSink.pendingConfiguration`), so this is not always a cold start:
+   *
+   * - Same source format and the same output rate as the stream already in the stage: continue it,
+   *   keeping the pending frames, the interpolation position and the clock, so a gapless boundary
+   *   loses no sample and no rate changes underneath the held audio.
+   * - A different format, or [allowRateChange] false: the stream starts at its own rate. Held audio
+   *   of another format cannot be carried across that boundary, so it is retired here rather than
+   *   emitted through a stage configured for something else.
+   *
+   * [allowRateChange] false is how the pipeline keeps streams whose trimming metadata is expressed
+   * in source frames at their own rate. A live rate change is never applied to audio already held.
+   */
   fun configure(
     sourceRate: Int,
     channels: Int,
@@ -60,16 +76,21 @@ internal class PorticoRateStage {
     preferredRate: Int,
     fileRate: Int,
     routeTakesFile: Boolean?,
+    allowRateChange: Boolean,
   ): Int {
     require(sourceRate > 0 && channels > 0 && PorticoAudioOutput.supports(encoding)) {
       "unsupported rate stage format"
     }
+    val sameFormat = this.sourceRate == sourceRate && this.channels == channels && this.encoding == encoding
+    // Continuing is only coherent when the output rate would stay the same as the held audio's.
+    val continues = hasUnfinishedAudio && sameFormat && (allowRateChange || targetRate == sourceRate)
+    if (continues) return targetRate
     clear()
     this.sourceRate = sourceRate
     this.channels = channels
     this.encoding = encoding
     frame = PorticoAudioOutput.bytesPerSample(encoding) * channels
-    targetRate = when (PorticoAudioSampleRate.parse(mode)) {
+    targetRate = if (!allowRateChange) sourceRate else when (PorticoAudioSampleRate.parse(mode)) {
       PorticoAudioSampleRate.OFF -> if (preferredRate > 0) preferredRate else sourceRate
       PorticoAudioSampleRate.STRICT -> fileRate.takeIf { it > 0 } ?: sourceRate
       // Smart: the file's rate when the route takes it or the route is unknown (never a guess
@@ -134,6 +155,9 @@ internal class PorticoRateStage {
 
   /** True while a piece the delegate has not accepted is still held, tail included. */
   val hasPendingOutput: Boolean get() = retained != null || tail != null
+
+  /** True while this stage still holds audio of the stream it was last configured for. */
+  val hasUnfinishedAudio: Boolean get() = pendingCount > 0 || retained != null || tail != null
 
   fun flush() = clear()
 
