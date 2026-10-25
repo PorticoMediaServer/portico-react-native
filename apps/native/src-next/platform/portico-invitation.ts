@@ -20,6 +20,7 @@ export class NativePorticoInvitation<T> {
   private readonly abort = new AbortController();
   private readonly client: PeopleInvitationsClient;
   private invitation?: {raw: string; capability: NativeInvitationCapability; preview: PublicInvitation};
+  private shortEntry = false;
   private busy = false;
   constructor(ports: Ports<T>) {
     this.ports = ports; this.username = ports.username;
@@ -33,7 +34,8 @@ export class NativePorticoInvitation<T> {
   private assertCurrent() {if (!this.current() || !this.ports.current()) throw cancelled();}
   async preview(raw: string): Promise<PublicInvitation> {
     this.assertCurrent(); if (this.busy) throw cancelled();
-    const input = raw.trim(), shortCode = parseShortInvitationCode(input), link = shortCode ? undefined : parseJoinLink(input);
+    const input = raw, shortCode = parseShortInvitationCode(input), link = shortCode ? undefined : parseJoinLink(input);
+    this.invitation = undefined; this.shortEntry = !!shortCode;
     if (!shortCode && (!link || link.server !== this.ports.origin || link.id !== undefined && link.id !== this.ports.serverId))
       throw Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'});
     const capability: NativeInvitationCapability = shortCode ? {shortCode} : {code: link!.code};
@@ -60,7 +62,11 @@ export class NativePorticoInvitation<T> {
       fingerprint: this.ports.fingerprint, signIn: 'portico' as const, expiresAt: this.ports.expiresAt ?? invitation.preview.expiresAt}),
       scope: Object.freeze({...this.ports.scope}), username: this.username});
   }
-  failure(error: unknown): 'expired' | 'other-account' | undefined {
+  failure(error: unknown): 'expired' | 'other-account' | 'unavailable' | undefined {
+    if (this.shortEntry && (error instanceof InvitationExpired || error instanceof ApiError && (
+      error.status === 410 && error.code === 'invitation_expired'
+      || error.status === 403 && error.code === 'invitation_for_another_account'
+      || error.status === 404 && error.code === 'not_found'))) return 'unavailable';
     if (error instanceof InvitationExpired || error instanceof ApiError && error.status === 410 && error.code === 'invitation_expired') return 'expired';
     if (error instanceof ApiError && error.status === 403 && error.code === 'invitation_for_another_account') return 'other-account';
     return undefined;

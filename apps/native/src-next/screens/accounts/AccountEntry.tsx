@@ -724,6 +724,8 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     const change = (set: (value: string) => void) => (value: string) => {if (current()) set(value);};
     const back = () => {if (current() && !busyRef.current) backRef.current();};
     const failure = ticket?.controller.failure(error);
+    const invitationStatus = failure === 'unavailable'
+      ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{t('web.directJoin.entryUnavailable')}</Text> : status;
     const differentAccount = () => {
       if (!current() || busyRef.current || ticket?.kind !== 'portico') return;
       try {
@@ -737,7 +739,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     if (failure === 'expired') return <StateLayout testID="accounts-invitation-expired" icon="i-warn" title={t('accounts.invitation.expiredTitle')} body={t('accounts.invitation.expiredBody')}
       primaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
     if (stage === 'invitation-code') return <StateLayout testID="accounts-invitation-code" title={t('web.directJoin.title')}
-      body={t('services.start.joinBody')} beforeActions={<>{status}<TextField label={t('services.start.invitation')} value={code}
+      body={t('services.start.joinBody')} beforeActions={<>{invitationStatus}<TextField label={t('services.start.invitation')} value={code}
         onChangeText={change(setCode)} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/></>}
       primaryAction={{id: 'preview-invitation', label: t('action.continue'), disabled: busy || !code.trim(), loading: busy, onPress: () => {
         if (!current()) return; void run(async () => {
@@ -754,7 +756,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       const controller = ticket.controller;
       return <StateLayout testID="accounts-portico-invitation" title={t('accounts.invitation.to') + ' ' + preview.serverName}
         body={t('accounts.invitation.porticoBody', {server: preview.serverName})}
-        beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{status}
+        beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{invitationStatus}
           <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('accounts.invitation.libraries')}</Text>
           {preview.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
           {preview.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}
@@ -771,7 +773,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     const localController = ticket.controller;
     return <StateLayout testID="accounts-local-invitation" title={t('accounts.invitation.to') + ' ' + preview.serverName}
       body={t('accounts.invitation.localPhoneBody', {server: preview.serverName})}
-      beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{status}
+      beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{invitationStatus}
         <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('accounts.invitation.libraries')}</Text>
         {preview.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
         {preview.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}
