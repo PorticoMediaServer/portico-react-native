@@ -1,8 +1,4 @@
-# Shared by build-android.sh and build-apple.sh. Sourced, never run.
-#
-# One recipe for both platforms: the component list, the FFmpeg configuration and the mpv,
-# libplacebo and libass options are defined here once; the platform scripts add only what is
-# genuinely platform specific (toolchains, hardware decoding, packaging).
+# Android media-engine recipe helpers. Sourced by build-android.sh, never run.
 
 set -euo pipefail
 
@@ -29,7 +25,7 @@ me_die() { printf '\033[1;31m[media-engine] error:\033[0m %s\n' "$*" >&2; exit 1
 #   2. Configuration strings a library reports about itself (FFmpeg's av*_configuration(), mpv's
 #      "Configuration:" line and config folder, OpenSSL's "compiler:" line and module folders).
 #      These are rewritten in the generated header before anything is compiled (me_neutralize).
-#   3. Run paths: there are none on Android; build-apple.sh deletes every LC_RPATH.
+#   3. Run paths: there are none in the Android libraries.
 #
 # verify.py fails a build in which any library still contains the work directory, the home
 # folder, or a /home/ or /Users/ path.
@@ -45,7 +41,7 @@ me_path_forms() {
 }
 
 # "from=to" pairs for the compilers: the work directory and the toolchain folder (the NDK, or
-# Xcode's developer folder). They never contain each other, so the order does not matter.
+# another configured toolchain folder). They never contain each other, so the order does not matter.
 me_path_map_pairs() {  # <toolchain dir>
     local form
     mkdir -p "$ME_WORK"

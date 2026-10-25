@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": 1,
-  "policy": "Every source and tool the media engine is built from, pinned by version and SHA-256. Change a pin only on purpose, bump revision, rebuild both platforms and run verify.py. FFmpeg must match the server's third_party/ffmpeg/sources.lock.json (check-ffmpeg-pin.py).",
+  "revision": 2,
+  "policy": "Every source and tool the media engine is built from, pinned by version and SHA-256. Change a pin only on purpose, bump revision; rebuild and verify the Android closure at the next checkpoint. FFmpeg must match the server's third_party/ffmpeg/sources.lock.json (check-ffmpeg-pin.py).",
   "components": {
     "ffmpeg": {
       "version": "8.1.2",
@@ -11,7 +11,7 @@
       "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
       "licence": "LGPL-2.1-or-later (as configured here: no gpl, version3 or nonfree parts)",
       "licenceFiles": ["COPYING.LGPLv2.1", "LICENSE.md", "CREDITS"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Demuxing, decoding, parsing, network reads and HTTPS for mpv."
     },
     "openssl": {
@@ -21,7 +21,7 @@
       "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
       "licence": "Apache-2.0",
       "licenceFiles": ["LICENSE.txt"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "TLS for FFmpeg's https protocol (3.5 is the current long-term-support series)."
     },
     "mpv": {
@@ -31,7 +31,7 @@
       "sha256": "ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209",
       "licence": "LGPL-2.1-or-later (built -Dgpl=false)",
       "licenceFiles": ["LICENSE.LGPL", "Copyright"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "The player core (libmpv)."
     },
     "libass": {
@@ -41,7 +41,7 @@
       "sha256": "2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc",
       "licence": "ISC",
       "licenceFiles": ["COPYING"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Styled (ASS/SSA) subtitle rendering."
     },
     "freetype": {
@@ -51,7 +51,7 @@
       "sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "licence": "FTL (FreeType Licence; chosen from its FTL or GPL-2.0 dual licence)",
       "licenceFiles": ["LICENSE.TXT", "docs/FTL.TXT"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Font rasterising for libass."
     },
     "harfbuzz": {
@@ -61,7 +61,7 @@
       "sha256": "d07a007327277708a2a73ae437887cdbaf282937f6d03ca5467723e9099af586",
       "licence": "MIT",
       "licenceFiles": ["COPYING"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Text shaping for libass (complex scripts, ligatures)."
     },
     "fribidi": {
@@ -71,7 +71,7 @@
       "sha256": "6949dcde27d41cebad1fd741fcafc36d55a1020d2d872d4a6eb3914caabbada2",
       "licence": "LGPL-2.1-or-later",
       "licenceFiles": ["COPYING", "AUTHORS"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Right-to-left text (Arabic, Hebrew) for libass."
     },
     "libunibreak": {
@@ -81,7 +81,7 @@
       "sha256": "9c4fad6e517338a098373acc9f35579ae2c325e6446666fb9ac2666ba15ceba4",
       "licence": "Zlib",
       "licenceFiles": ["LICENCE"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Unicode line breaking for libass (CJK and other text without spaces wraps correctly)."
     },
     "dav1d": {
@@ -91,7 +91,7 @@
       "sha256": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5",
       "licence": "BSD-2-Clause",
       "licenceFiles": ["COPYING"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "AV1 software decoding."
     },
     "libplacebo": {
@@ -101,7 +101,7 @@
       "sha256": "d05fdf90bea2f629eaa2d115e909fd356388ac639e54f77b87a018a6d76224bd",
       "licence": "LGPL-2.1-or-later",
       "licenceFiles": ["LICENSE"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "mpv's renderer (required by mpv 0.41 for vo=gpu and vo=gpu-next): scaling, colour, HDR tone mapping.",
       "subsources": {
         "3rdparty/glad": {
@@ -153,7 +153,7 @@
       "sha256": "bfc54f7bab59fbc921012014a8032e4cba4abd46db47d46b76416a8c0b2815c8",
       "licence": "MIT",
       "licenceFiles": ["LICENSE"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Colour management (ICC profiles) in libplacebo and mpv."
     },
     "libdovi": {
@@ -164,7 +164,7 @@
       "crate": "dolby_vision",
       "licence": "MIT (its Rust dependencies: MIT or Apache-2.0, vendored into the source bundle)",
       "licenceFiles": ["LICENSE"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Dolby Vision RPU parsing for libplacebo (correct colours for Dolby Vision titles in vo=gpu-next)."
     },
     "uchardet": {
@@ -174,7 +174,7 @@
       "sha256": "e97a60cfc00a1c147a674b097bb1422abd9fa78a2d9ce3f3fdcc2e78a34ac5f0",
       "licence": "LGPL-2.1-or-later (chosen from its MPL-1.1 / GPL-2.0-or-later / LGPL-2.1-or-later tri-licence)",
       "licenceFiles": ["COPYING"],
-      "platforms": ["android", "apple"],
+      "platforms": ["android"],
       "why": "Detects the character set of subtitle files that are not UTF-8."
     },
     "libiconv": {
@@ -186,28 +186,6 @@
       "licenceFiles": ["COPYING.LIB"],
       "platforms": ["android"],
       "why": "Character set conversion for subtitles. Android's own iconv exists only from API 28 and the app supports API 24; Apple's C library has iconv."
-    },
-    "moltenvk": {
-      "version": "1.4.2",
-      "url": "https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-all.tar",
-      "file": "MoltenVK-all-1.4.2.tar",
-      "sha256": "562a15a29bc358446a56a4091c5f7e08f604184187c1d34f712148b61ef17276",
-      "prebuilt": true,
-      "licence": "Apache-2.0",
-      "licenceFiles": ["LICENSE"],
-      "platforms": ["apple"],
-      "why": "Vulkan on Metal, for mpv's gpu-next renderer. Khronos's own release build (dynamic frameworks, iOS/tvOS 15.0 and later)."
-    },
-    "glslang": {
-      "version": "16.6.0",
-      "url": "https://github.com/KhronosGroup/glslang/archive/refs/tags/16.6.0.tar.gz",
-      "file": "glslang-16.6.0.tar.gz",
-      "sha256": "9c09b901149c729df745057dafa815278aaa101b84d2b6e14f16a42de52f97f2",
-      "licence": "BSD-3-Clause, BSD-2-Clause, MIT, Apache-2.0 (and GPL-3.0 with the Bison exception for its generated parser, which permits any terms)",
-      "licenceFiles": ["LICENSE.txt"],
-      "platforms": ["apple"],
-      "linkedInto": "libplacebo",
-      "why": "GLSL to SPIR-V compiler libplacebo needs for Vulkan. Built static (no optimizer) and linked into libplacebo's framework."
     }
   },
   "tools": {
@@ -224,8 +202,6 @@
       "install": "built from source into the work directory"
     },
     "rust": {"version": "1.99.0", "install": "rustup (the toolchain must report exactly this version; targets are added with rustup target add)"},
-    "cargo-c": {"version": "0.10.26", "install": "cargo install --locked --root <work>/tools/cargo-c"},
-    "xcode": {"minimum": "16.0", "note": "Apple only. Any Xcode from 16.0 builds iOS/tvOS 15.1 targets."},
-    "apple-deployment": {"ios": "15.1", "tvos": "15.1", "note": "IPHONEOS_DEPLOYMENT_TARGET / TVOS_DEPLOYMENT_TARGET in apps/native/{ios,tvos}/Portico.xcodeproj"}
+    "cargo-c": {"version": "0.10.26", "install": "cargo install --locked --root <work>/tools/cargo-c"}
   }
 }

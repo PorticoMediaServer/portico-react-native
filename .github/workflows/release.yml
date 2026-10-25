@@ -4,8 +4,8 @@ name: Release
 #
 #  - the whole CI suite on that commit first (ci.yml, with portico-server at the recorded commit);
 #  - Android: the media engine from pinned source, then release APKs and the App Bundle;
-#  - Apple: the media engine, then unsigned iPhone/iPad and Apple TV archives;
-#  - each platform's media-engine corresponding source bundle and notices (the LGPL asks for them
+#  - Apple: unsigned iPhone/iPad and Apple TV archives using the native Apple player;
+#  - Android's media-engine corresponding source bundle and notices (the LGPL asks for them
 #    beside the app), and a SHA-256 list of everything attached.
 #
 # What stays by hand, because it needs credentials or tools these runners do not have: store
@@ -70,10 +70,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - name: Media engine from pinned source
-        run: |
-          brew list pkgconf > /dev/null 2>&1 || brew install pkgconf
-          third_party/media-engine/build-apple.sh
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: apps/native
       - name: Unsigned archives (iPhone and iPad, Apple TV)
@@ -87,8 +83,6 @@ jobs:
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
             ditto -c -k --keepParent "$RUNNER_TEMP/Portico-$platform.xcarchive" "dist/Portico-$platform-unsigned.xcarchive.zip"
           done
-          cp third_party/media-engine/out/apple/source/*.tar dist/
-          cp third_party/media-engine/out/apple/notices/THIRD-PARTY-NOTICES.txt dist/media-engine-apple-THIRD-PARTY-NOTICES.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: {name: apple, path: dist/, if-no-files-found: error}
 

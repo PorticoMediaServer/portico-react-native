@@ -3,7 +3,7 @@
 # source bundle a release must ship (or offer) beside the app. The build scripts run it at the
 # end; it can also be run on its own after a build:
 #
-#   ./collect-notices.sh android|apple
+#   ./collect-notices.sh android
 #
 # Writes, under out/<platform>/:
 #   notices/THIRD-PARTY-NOTICES.txt   one file with every component's notice and licence text
@@ -16,7 +16,7 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 PLATFORM="${1:-}"
-[[ "$PLATFORM" == android || "$PLATFORM" == apple ]] || me_die "Usage: collect-notices.sh android|apple"
+[[ "$PLATFORM" == android ]] || me_die "Usage: collect-notices.sh android"
 REVISION=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$ME_LOCK")
 NOTICES="$ME_OUT/$PLATFORM/notices"
 SOURCE="$ME_OUT/$PLATFORM/source"
@@ -78,8 +78,7 @@ out.append("")
 out.append(f"Built from sources.lock.json revision {rev} for {platform}.")
 out.append("")
 out.append("The mpv player engine in this app is built from the open-source components below. Each is")
-out.append("a separate shared library (Android: lib*.so files in the app package; Apple: frameworks in the")
-out.append("app bundle).")
+out.append("a separate shared library (lib*.so files in the Android app package).")
 out.append("")
 out.append("The components licensed under the GNU Lesser General Public License, version 2.1 or (at")
 out.append("your option) any later version, are: " + ", ".join(lgpl) + ".")
@@ -128,11 +127,11 @@ Corresponding source for the Portico media engine ($PLATFORM), sources.lock.json
 archives/   the upstream source archives exactly as downloaded; their SHA-256 sums are in
             recipe/sources.lock.json. libdovi-vendored-crates.tar holds libdovi's Rust
             dependencies as pinned by its Cargo.lock.
-recipe/     the build recipe: build-android.sh, build-apple.sh, lib/common.sh, patches/, and
+recipe/     the build recipe: build-android.sh, lib/common.sh, patches/, and
             README.md, which explains how to build and how to replace a library.
 
 To rebuild offline: copy everything in archives/ (the crates tar included) into
-recipe/work/downloads/ and run recipe/build-android.sh or recipe/build-apple.sh.
+recipe/work/downloads/ and run recipe/build-android.sh.
 EOF
 tar -cf "$SOURCE/portico-media-engine-$PLATFORM-source-r$REVISION.tar" -C "$TMP/source" "portico-media-engine-$PLATFORM-source-r$REVISION"
 ( cd "$SOURCE" && me_sha256 "portico-media-engine-$PLATFORM-source-r$REVISION.tar" | sed "s/\$/  portico-media-engine-$PLATFORM-source-r$REVISION.tar/" > SHA256SUMS )
