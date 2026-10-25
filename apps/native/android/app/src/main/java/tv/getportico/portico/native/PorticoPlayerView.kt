@@ -207,7 +207,8 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
       val controller = PorticoPlaybackController.shared
       val attempt = PorticoPictureInPicture.Attempt(lease, pictureBinding, value, this)
       if (controller == null || !owns(controller)) { pictureServed = value; PorticoPictureInPicture.answer(controller, attempt, "unavailable"); return@post }
-      val binding = pictureBinding, live = controller.binding
+      val binding = pictureBinding
+      val live = controller.binding
       if (binding == null || live == null || !PorticoSnapshotBinding.matches(binding, live)) {
         pictureServed = value
         PorticoPictureInPicture.answer(controller, attempt, "unavailable")
