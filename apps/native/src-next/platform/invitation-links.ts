@@ -14,6 +14,7 @@ function receive(raw: unknown, warm = false) {
   // network, persistence, logging or short-code/capability conversion.
   if (typeof raw !== 'string' || !parseJoinLink(raw)) return;
   if (warm) ++eventRevision;
+  if (pending?.current() && pending.raw === raw) return;
   const oldRetire = retirePending, retired = new Set<() => void>();
   let active = true;
   const value: NativeInvitationLink = Object.freeze({id: ++serial, raw,
@@ -34,8 +35,9 @@ export const nativeInvitationLinks = Object.freeze({
     const owner = {}; owners.add(owner);
     if (!offNative) {
       const ownGeneration = ++generation;
-      const subscription = Linking.addEventListener('url', event => {if (generation !== ownGeneration || !owners.size) return; receive(event.url, true);});
-      offNative = () => subscription.remove();
+      try {const subscription = Linking.addEventListener('url', event => {if (generation !== ownGeneration || !owners.size) return; receive(event.url, true);});
+        offNative = () => subscription.remove();
+      } catch (error) {owners.delete(owner); throw error;}
     }
     const ownGeneration = generation;
     if (!initial) {initialRevision = eventRevision;
