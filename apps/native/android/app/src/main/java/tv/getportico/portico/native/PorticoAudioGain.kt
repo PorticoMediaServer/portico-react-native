@@ -168,8 +168,9 @@ internal class PorticoMusicPipeline(
    * configuration before applying it ([drain], [deferredFormat], [drained]).
    *
    * A stage continues only when the newly computed target and the source format are exactly the
-   * ones it already holds, which is the genuine contiguous case; any differing target or format is
-   * drained first.
+   * ones it already holds, and it has not entered end of stream — the genuine contiguous streaming
+   * case. Any differing target or format, or an offered/refused tail or a requested end, is drained
+   * first, so the delegate never gets a new configuration while it still owns an old buffer.
    */
   fun configure(format: Format): Format {
     // A pending gain buffer belongs to the previous stream; configure must not discard it.
@@ -196,7 +197,8 @@ internal class PorticoMusicPipeline(
 
     if (stage.hasUnfinishedAudio &&
         stage.continuesWith(sampleRate, channels, targetEncoding, target)) {
-      // Same source format, same output rate, nothing flushed: continue the held frames and clock.
+      // Same source format, same output rate, nothing flushed and no end of stream in flight:
+      // continue the held frames and clock.
       return wanted
     }
     if (stage.hasUnfinishedAudio) {

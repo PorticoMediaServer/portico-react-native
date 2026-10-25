@@ -97,9 +97,16 @@ internal class PorticoRateStage {
     return this.targetRate
   }
 
-  /** True when the next stream runs at this stage's exact source format and output rate. */
+  /**
+   * True when the next stream runs at this stage's exact source format and output rate **and** this
+   * stage is still a contiguous streaming stage. A stage that has entered end of stream — a tail
+   * offered to the delegate, or an end already requested or drained — is never continued, even when
+   * the formats match: its output is still owed and must be delivered as a drain first, or the
+   * delegate would be reconfigured while it still owns that buffer.
+   */
   fun continuesWith(sourceRate: Int, channels: Int, encoding: Int, targetRate: Int): Boolean =
-      sourceRate == this.sourceRate && channels == this.channels && encoding == this.encoding &&
+      !ended && tail == null && retained == null &&
+          sourceRate == this.sourceRate && channels == this.channels && encoding == this.encoding &&
           targetRate == this.targetRate
 
   /** One decoder buffer in; the piece the delegate must accept (same identity on a retry). */
