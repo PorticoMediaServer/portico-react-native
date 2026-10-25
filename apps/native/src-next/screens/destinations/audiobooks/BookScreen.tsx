@@ -121,8 +121,9 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   // collections 41a/43: who read it, how long it is and how many chapters; on TV the
   // author leads that row (frame 43's meta) and keeps its own link, while the phone
   // keeps the author on its own line.
+  const chapterCount = chapters.length ? chapterSection?.totalCount : entity.count;
   const facts = [entity.narrators?.length ? t('next.kit.readBy', {name: defaultI18n.list(entity.narrators ?? [])}) : undefined,
-    entity.duration === undefined ? undefined : duration(entity.duration), rowsSection?.totalCount === undefined ? undefined : t('title.chapterCount', {count: rowsSection.totalCount})]
+    entity.duration === undefined ? undefined : duration(entity.duration), chapterCount === undefined ? undefined : t('title.chapterCount', {count: chapterCount})]
     .filter((value): value is string => !!value);
   const resume = snapshot.listening?.resume;
   const canResume = !!resume && !snapshot.listening?.resumeUnavailable;
