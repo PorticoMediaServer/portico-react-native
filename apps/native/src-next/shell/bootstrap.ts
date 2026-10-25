@@ -29,6 +29,7 @@ import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
 import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
+import {rememberNativePlaybackPreferences} from './remembered-playback-settings';
 import {LyricsService} from '../../../../packages/client-core/src/lyrics';
 import {musicAudioEffects} from '../../../../packages/client-core/src/music-preferences';
 import {NativePlayOn} from '../platform/play-on/controller';
@@ -78,8 +79,12 @@ const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamil
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
-export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure | NativeSignInEnded) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
-  const installation = beginNativeInstallation(options.signal);
+export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; installationOwner?: ReturnType<typeof beginNativeInstallation>; onAuthorityEnded: (error?: NativeIdentityFailure | NativeSignInEnded) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
+  // A root may retain its original installation through a failed online restore
+  // for a separately receipt-admitted offline opening. Never create a competing
+  // generation or dispose an installation borrowed from that root.
+  const ownsInstallation = !options.installationOwner;
+  const installation = options.installationOwner ?? beginNativeInstallation(options.signal);
   let alive = true, ready = false, api: HttpLocalApi | undefined, home: HomeService | undefined;
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
   let playback: ReturnType<typeof createNativeShellPlaybackAdapter> | undefined;
@@ -96,7 +101,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
   const signal = new AbortController();
   const dispose = () => {
-    alive = false; installation.dispose(); signal.abort(); refresher?.stop(); services?.dispose(); home?.dispose();
+    alive = false; if (ownsInstallation) installation.dispose(); signal.abort(); refresher?.stop(); services?.dispose(); home?.dispose();
     watch?.dispose(); playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
@@ -326,6 +331,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     cleanups.push(() => app.remove(), runEventFeed(events, undefined, {visible: () => AppState.currentState === 'active', onVisibility: listener => {const subscription = AppState.addEventListener('change', listener); return () => subscription.remove();},
       busy: () => !!playback?.getSnapshot().dock.local, onBusy: playback.subscribe}));
     ready = true;
+    // Preserve only already-admitted canonical settings for later receipt-only
+    // playback. A failed optional cache never changes normal admission.
+    const rememberPlaybackSettings = () => {
+      if (current()) void rememberNativePlaybackPreferences(context, currentPreferences().effective, installationSettings).catch(() => {});
+    };
+    cleanups.push(context.subscribePreferences(rememberPlaybackSettings)); rememberPlaybackSettings();
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
