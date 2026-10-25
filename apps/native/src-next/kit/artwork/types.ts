@@ -131,6 +131,8 @@ export type ChannelMarkProps = Readonly<{
   mark: ChannelMarkModel;
   source?: ArtworkSource | null;
   size?: number;
+  /** Fixed logo representations bypass media resize query parameters. */
+  sized?: boolean;
   alt?: string;
   visible?: boolean;
   style?: StyleProp<ViewStyle>;
