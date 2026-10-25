@@ -439,9 +439,28 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
+  private val audioSources = java.util.WeakHashMap<ExoPlayer, PorticoAudioSourceTag>()
+
+  /** Capture the validated binding at source creation, before any index/network await. */
+  private fun originalAudioSource(): PorticoAudioSourceTag? {
+    if (listeningOwner == null) return null
+    val bound = currentBinding ?: return null
+    val plan = planOf(command?.get("audioRender")) ?: return null
+    val session = bound["sessionId"] as? String ?: return null
+    val generation = number(bound["generation"])?.toLong() ?: return null
+    val item = bound["itemId"] as? String ?: return null
+    val planId = plan["id"] as? String ?: return null
+    val originalLease = bound["lease"] as? String ?: return null
+    val intent = number(bound["intentId"])?.toLong() ?: return null
+    return PorticoAudioSourceTag(session, generation, item, planId, originalLease, intent)
+  }
   private fun musicGain(engine: ExoPlayer, normalization: Float, fade: Double = 1.0, known: Boolean = false) {
     val processor = audioGains[engine]
-    if (processor != null) { processor.components(normalization, fade, known); engine.volume = 1f }
+    if (processor != null) {
+      val original = audioSources[engine]?.takeIf { it.matches(currentBinding, planOf(command?.get("audioRender"))) }
+      processor.components(normalization, fade, known, original)
+      engine.volume = 1f
+    }
     else engine.volume = (normalization * fade).toFloat().coerceIn(0f, 1f)
   }
 
@@ -511,6 +530,10 @@ internal class PorticoPlaybackController(private val context: Context) {
       attachmentListeners.toList().forEach { it() }
     }
     val engine = engine()
+    val original = originalAudioSource()
+    audioSources.remove(engine)
+    if (original != null) audioSources[engine] = original
+    val mediaItem = MediaItem.Builder().setUri(url).setTag(original).build()
     itemInstanceId = UUID.randomUUID().toString()
     hasPlayed = false
     previousProgress = Double.NaN
@@ -529,7 +552,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val wanted = index != null && PorticoSeekIndex.cached(address) == null && (start != C.TIME_UNSET || routeResume || resuming || index.container == "adts")
     unindexedMedia = null
     if (!wanted) {
-      engine.setMediaItem(MediaItem.fromUri(url), start)
+      engine.setMediaItem(mediaItem, start)
       engine.prepare()
       // Started from the beginning, an MP3 plays at once; its index is read meanwhile, so a later
       // scrub lands exactly too (applyPendingSeek).
@@ -545,7 +568,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val item = itemInstanceId
     PorticoSeekIndex.load(mediaClient, address, index!!) {
       if (invalidated || player !== engine || itemInstanceId != item || source == null) return@load
-      engine.setMediaItem(MediaItem.fromUri(url), start)
+      engine.setMediaItem(mediaItem, start)
       engine.prepare()
       applyRouteResume()
       applyPendingSeek()
@@ -568,6 +591,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val engine = player ?: return
     engine.playWhenReady = false
     engine.pauseAtEndOfMediaItems = false
+    audioSources.remove(engine)
     musicGain(engine, 1f)
     engine.stop()
     engine.clearMediaItems()
@@ -847,7 +871,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     val reopen = unindexedMedia
     if (reopen != null && timelineOriginMs == null && engine.mediaItemCount == 1 && PorticoSeekIndex.cached(reopen) != null) {
       unindexedMedia = null
-      engine.setMediaItem(MediaItem.fromUri(reopen), position)
+      // Reopen the exact originally issued source tag; no tag is reconstructed after the index await.
+      engine.setMediaItem(MediaItem.Builder().setUri(reopen).setTag(audioSources[engine]).build(), position)
       engine.prepare()
       return
     }
@@ -1138,7 +1163,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val state = engine?.playbackState ?: Player.STATE_IDLE
     val ready = loaded && (state == Player.STATE_READY || state == Player.STATE_ENDED)
     val rates = rateFacts()
-    return hashMapOf(
+    val snapshot = hashMapOf<String, Any?>(
         "binding" to currentBinding,
         "commandRevision" to commandRevision.toDouble(),
         "positionSeconds" to (if (position.isFinite()) Math.max(0.0, position) else 0.0),
@@ -1150,6 +1175,22 @@ internal class PorticoPlaybackController(private val context: Context) {
         "rateWaiting" to rates["rateWaiting"],
         "rateError" to rates["rateError"],
         "rendering" to (enginePlan != null))
+    // The source was stamped before decoding, and the coefficient was captured inside apply.
+    // Current state is only a publication fence, never the producer of an accepted buffer's tag.
+    val plan = planOf(command?.get("audioRender"))
+    val witness = engine?.let { audioGains[it]?.currentWitness() }
+    if (witness != null && witness.stream.source === audioSources[engine] &&
+        witness.stream.source.matches(currentBinding, plan) && enginePlan == plan?.get("id") &&
+        state == Player.STATE_READY && engine?.isPlaying == true && incoming == null &&
+        !seeking && command?.get("pendingSeek") == null && !routeSuspended && !routeResume &&
+        !routeSeeking && !routeFailed && listeningRouteReady && listeningAllowed) {
+      val db = 20.0 * Math.log10(witness.coefficient.toDouble())
+      if (db.isFinite() && db >= -60.0 && db <= 30.0) {
+        snapshot["levelingApplied"] = true
+        snapshot["levelingGainDb"] = db
+      }
+    }
+    return snapshot
   }
 
   /** The owner's whole intent for the engine: what plays, whether it may, where it starts, and its audio plan. */

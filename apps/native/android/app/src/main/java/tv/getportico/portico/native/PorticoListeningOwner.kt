@@ -1114,9 +1114,13 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val snapshot = controller.listeningSnapshot()
     val heard = heard()
     val binding = snapshot["binding"] as? Map<*, *>
-    if (binding?.get("sessionId") != heard["id"] || num(binding?.get("generation")) != generation(heard)) {
+    if (binding?.get("sessionId") != heard["id"] || num(binding?.get("generation")) != generation(heard) ||
+        binding?.get("itemId") != heard["itemId"]) {
       snapshot["binding"] = null; snapshot["ready"] = false; snapshot["observed"] = false
     } else snapshot["binding"] = mapOf("lease" to binding?.get("lease"), "intentId" to binding?.get("intentId"), "sessionId" to heard["id"], "generation" to generation(heard), "itemId" to heard["itemId"])
+    if (snapshot["binding"] == null || !allowed() || intent != "playing") {
+      snapshot.remove("levelingApplied"); snapshot.remove("levelingGainDb")
+    }
     snapshot["owner"] = activeOwner
     snapshot["sequence"] = sequence.toDouble()
     snapshot["session"] = heard

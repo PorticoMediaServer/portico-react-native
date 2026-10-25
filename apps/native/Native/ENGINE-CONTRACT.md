@@ -423,7 +423,8 @@ and `levelingApplied` come from rendered-deck/connected-graph observations and c
 new, failed, ended or stopped playback. These facts do not claim physical bit-perfect output.
 
 Optional `levelingGainDb` is the current deck's actual Float32 coefficient converted to dB
-after it has been multiplied into decoded buffers and the node clock has heard that deck.
+after it has been multiplied into decoded buffers. Apple also requires the node clock to have
+heard that deck; Android requires the real sink to accept a complete current-stream PCM piece.
 It is finite within -60..30 and only accompanies `levelingApplied: true` under the same
 current listening binding. It excludes the crossfade node's volume and the device EQ preamp;
 a requested plan gain or an unobserved Android processor target is not this fact.
@@ -431,7 +432,19 @@ a requested plan gain or an unobserved Android processor target is not this fact
 Android's gain queue and rate stage retain optional original-stream coefficient witnesses
 through retries, interpolation, format drains and end tails. The coefficient comes from
 the gain call itself, and mixed/ramped/unknown samples or non-unity fade suppress it.
-These are additive internal foundations only: the current Media3 renderer does not yet
-supply a decoded-output stream/session/plan stamp, so Android still publishes neither
-`levelingApplied` nor `levelingGainDb`. PTS, current media item, configure/flush and today's
-binding at sink acceptance must never manufacture that missing provenance.
+The Media3 1.10.1 renderer resolves its exact input MediaPeriodId to an immutable tag issued
+when the original bound source was installed, before any seek-index await. It queues that
+origin before super.onStreamChanged and follows each actual output-stream assignment,
+including the first stream and equal numeric offsets. Reset mirrors Media3's last-pending
+selection and clears pending custody; a non-codec-reset seek remains unknown until another
+actual output-stream boundary. Sink discontinuities, PTS, configure/flush and today's binding
+at acceptance never issue or replace a stamp. Retries keep the original input and piece proof.
+
+Android publishes optional applied/amount facts only for accepted settled, unity-fade PCM
+whose original stream, source, gain controls, session, generation, item, plan, lease and intent
+are still current, while the sole deck is playing and no seek/route recovery is pending. The
+owner removes them for a mismatched heard binding, ended or terminal playback. These are PCM
+processing/acceptance observations, not measurements of the physical output. Prepared or
+crossfade successors installed before their original session binding is available stay
+untagged even after commit; bypass batches, encoded passthrough/offload, unknown mappings,
+ramps and mixed pieces produce no facts. Coverage of those omitted paths is not claimed.

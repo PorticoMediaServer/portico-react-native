@@ -42,7 +42,7 @@ fun main() {
   val floatRoute = PorticoAudioOutput.Route(
       listOf(PorticoAudioOutput.Device("dac", listOf(PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 96000, 2)))), true)
   val gain = PorticoAudioGain().also { it.target = 2f; it.reset() }
-  val pipeline = PorticoMusicPipeline(gain) { floatRoute }
+  val pipeline = PorticoMusicPipeline(gain, route = { floatRoute })
   val configured = pipeline.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
   check(configured.pcmEncoding == C.ENCODING_PCM_FLOAT)
 
@@ -62,7 +62,7 @@ fun main() {
   // A partial consume keeps the same object: the retry sees the delegate's own position, and a
   // gain change between the refusal and the retry cannot rebuild or rescale it.
   val partialGain = PorticoAudioGain().also { it.target = 2f; it.reset() }
-  val partial = PorticoMusicPipeline(partialGain) { floatRoute }
+  val partial = PorticoMusicPipeline(partialGain, route = { floatRoute })
   partial.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
   val partialInput = ByteBuffer.allocateDirect(18).order(ByteOrder.nativeOrder())
   for (sample in listOf(0x200000, -0x200000, 0x400000, -0x400000, 0, 0)) put24(partialInput, sample)
@@ -82,7 +82,7 @@ fun main() {
   check(partialInput.position() == partialInput.limit())
 
   // Reconfiguring while the delegate still holds a buffer is refused before any source changes.
-  val guardedConfigure = PorticoMusicPipeline(PorticoAudioGain()) { floatRoute }
+  val guardedConfigure = PorticoMusicPipeline(PorticoAudioGain(), route = { floatRoute })
   guardedConfigure.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
   val pendingInput2 = ByteBuffer.allocateDirect(6).order(ByteOrder.nativeOrder())
   put24(pendingInput2, 0x200000); put24(pendingInput2, -0x200000)
@@ -101,7 +101,7 @@ fun main() {
   })
 
   // PCM8 and any unknown encoding are refused before a byte can reach a 16-bit delegate.
-  val unsupported = PorticoMusicPipeline(PorticoAudioGain()) { floatRoute }
+  val unsupported = PorticoMusicPipeline(PorticoAudioGain(), route = { floatRoute })
   check(unsupported.delegateFormat(format(C.ENCODING_PCM_8BIT, 48000, 2)) == null)
   check(unsupported.delegateFormat(format(12345, 48000, 2)) == null)
   var pcm8Refused = false
@@ -120,7 +120,7 @@ fun main() {
   check(gainRefused)
 
   // A different retry identity while a buffer is still pending is a broken contract, not a reset.
-  val guarded = PorticoMusicPipeline(gain) { floatRoute }
+  val guarded = PorticoMusicPipeline(gain, route = { floatRoute })
   guarded.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
   val held = ByteBuffer.allocateDirect(6).order(ByteOrder.nativeOrder())
   put24(held, 0x200000)
@@ -177,21 +177,21 @@ fun main() {
 
 /** Test-only stream stamps. Production must obtain them from the renderer, never these fixtures. */
 private fun gainProvenanceFoundations() {
-  val first = PorticoDecodedStreamStamp("session-a", 1L, "item-a", "plan-a", "lease", 1L)
-  val next = PorticoDecodedStreamStamp("session-b", 2L, "item-b", "plan-b", "lease", 2L)
+  val first = PorticoDecodedStreamStamp(PorticoAudioSourceTag("session-a", 1L, "item-a", "plan-a", "lease", 1L), Any())
+  val next = PorticoDecodedStreamStamp(PorticoAudioSourceTag("session-b", 2L, "item-b", "plan-b", "lease", 2L), Any())
   val gain = PorticoAudioGain()
-  gain.components(2f, 1.0, true); gain.reset()
+  gain.components(2f, 1.0, true, first.source); gain.reset()
   check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == 2f)
   gain.components(2f, 0.5, true); gain.reset()
   check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == null)
   gain.target = 2f; gain.reset()
   check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == null)
-  gain.components(2f, 1.0, true); gain.reset()
+  gain.components(2f, 1.0, true, first.source); gain.reset()
   gain.components(3f, 1.0, true)
   check(gain.applyObserved(provenancePcm(1600), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == null)
   check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == 3f)
 
-  gain.components(2f, 1.0, true); gain.reset()
+  gain.components(2f, 1.0, true, first.source); gain.reset()
   val queue = PorticoGainQueue(gain)
   val input = provenancePcm(8)
   val held = queue.bufferFor(input, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000, 0L, 1, first)
@@ -201,6 +201,24 @@ private fun gainProvenanceFoundations() {
   check(queue.bufferFor(input, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000, 0L, 1, next) === held)
   check(queue.witness === proof) // neither today's control nor a later stamp retags a retry
   queue.accepted(); check(queue.witness == null)
+  gain.acceptedWitness = proof
+  gain.outputStream = first
+  check(gain.currentWitness() == null) // controls changed while the original buffer was retained
+  gain.components(2f, 1.0, true, next.source); gain.reset()
+  queue.bufferFor(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000, 0L, 1, first)
+  check(queue.witness == null) // same coefficient with the wrong source is never proof
+  queue.accepted()
+  gain.components(2f, 1.0, true, first.source); gain.reset()
+  val stable = gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000)
+  val currentProof = gain.witness(first, stable)!!
+  gain.acceptedWitness = currentProof
+  check(gain.currentWitness() === currentProof)
+  gain.components(2f, 1.0, true, first.source)
+  check(gain.currentWitness() === currentProof) // equal controls preserve an accepted observation
+  gain.outputStream = PorticoDecodedStreamStamp(first.source, first.periodUid)
+  check(gain.currentWitness() == null) // a reset/new decoded stream needs its own accepted piece
+  gain.outputStream = null
+  check(gain.currentWitness() == null)
 
   val stage = PorticoRateStage()
   stage.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
@@ -233,7 +251,7 @@ private fun gainProvenanceFoundations() {
   val route = PorticoAudioOutput.Route(listOf(PorticoAudioOutput.Device("provenance-test", listOf(
       PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 44100, 1),
       PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 48000, 1)))), true)
-  gain.components(2f, 1.0, true); gain.reset()
+  gain.components(2f, 1.0, true, first.source); gain.reset()
   val pipeline = PorticoMusicPipeline(gain, route = { route }, sampleRateMode = { "off" }, preferredSampleRate = { 48000 })
   pipeline.configure(format(C.ENCODING_PCM_FLOAT, 44100, 1))
   check(pipeline.handle(provenancePcm(3), 0L, 1, first) { _, _, _ -> true })
