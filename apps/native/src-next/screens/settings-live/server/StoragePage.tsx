@@ -10,7 +10,7 @@ import {Tabs} from '../../../kit/controls/Tabs';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {StateView} from '../../../kit/states';
-import {shellType} from '../../../kit/shell/visual';
+import {alpha, shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
@@ -90,6 +90,9 @@ function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime:
             <Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{category.name}</Text>
             <Text style={[shellType(14, 600), {color: theme.colors.textSecondary}]}>{defaultI18n.bytes(category.bytes)}</Text>
           </View>
+          {Number.isFinite(doc.totalBytes) && doc.totalBytes > 0 && Number.isFinite(category.bytes) && category.bytes >= 0 ? <View accessible={false} style={{height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 6, marginBottom: 2, backgroundColor: alpha(theme.colors.text, .09)}}>
+            <View style={{height: '100%', width: `${Math.max(0, Math.min(1, category.bytes / doc.totalBytes)) * 100}%`, borderRadius: 3, backgroundColor: theme.colors.accent}}/>
+          </View> : null}
           <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{category.description}</Text>
           {category.cleanable && category.bytes > 0 ? <View style={{flexDirection: 'row', marginTop: 8}}><Button size="compact" variant="glass" icon="i-trash" onPress={() => {setChosen(category); setDays('30'); setTyped(''); setFailure(undefined);}}>{t('server.cleanUp')}</Button></View> : null}
         </View>)}
