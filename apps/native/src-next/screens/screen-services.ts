@@ -1,4 +1,5 @@
 import {presentError, type ErrorContext} from '../../../../packages/client-core/src/presentation/errors';
+import {deviceOnline} from '../platform/server-connections';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {ToastMessage} from '../kit/overlays/types';
 import type {NativeShellRuntime} from '../shell/runtime';
@@ -50,14 +51,14 @@ export class NativeScreenServices {
   };
   reportError = (error: unknown, context: ErrorContext = 'generic'): void => {
     if (!this.lifetime.current()) return;
-    const presented = presentError(error, context, {operation: 'action'});
+    const presented = presentError(error, context, {operation: 'action', deviceOnline: deviceOnline()});
     if (presented.silent) return;
     this.toast = Object.freeze({id: `native-screen-error-${++this.sequence}`, message: presented.body});
     this.publish();
   };
   error = (error: unknown, retry: () => void, context: ErrorContext = 'generic') => {
     this.lifetime.assert();
-    const presented = presentError(error, context);
+    const presented = presentError(error, context, {deviceOnline: deviceOnline()});
     return {title: presented.title, body: presented.body, tone: 'error',
       ...(presented.action === 'try-again' || presented.action === 'refresh'
         ? {primaryAction: {id: 'retry', label: presented.actionLabel, onPress: () => {if (this.lifetime.current()) retry();}}} : {})} satisfies ReturnType<NativeShellRuntime['error']>;

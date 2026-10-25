@@ -5,6 +5,7 @@ import {Focusable} from '../kit/controls';
 import {Icon} from '../kit/Icon';
 import {useTheme} from '../kit/theme';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
+import {deviceOnline, onNetworkChange} from '../platform/server-connections';
 import {createNativeShellBindings} from './assembly';
 import {restoreNativeShellRuntime, type RestoredNativeShellRuntime} from './bootstrap';
 import {NativeShell} from './NativeShell';
@@ -28,9 +29,14 @@ import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
 
+/** Informational only: a path change re-renders the error projection. It never
+ * retries the restore, starts a timer or adopts a newer source. */
+const subscribePathChange = (listener: () => void) => onNetworkChange(() => listener());
+
 /** Restore only the captured canonical server selection; current account entry owns sign-in. */
 export function RestoredShell() {
   const theme = useTheme();
+  const online = useSyncExternalStore(subscribePathChange, deviceOnline, deviceOnline);
   const incoming = useSyncExternalStore(nativeInvitationLinks.subscribe, nativeInvitationLinks.getSnapshot, nativeInvitationLinks.getSnapshot);
   useLayoutEffect(() => nativeInvitationLinks.acquire(), []);
   const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'}), [elapsed, setElapsed] = useState(0);
@@ -184,7 +190,7 @@ export function RestoredShell() {
   }
   if (state.error instanceof NativeSignInEnded) return withDownloads(<AccountEntry downloads={remembered?.entry} key={state.error.hint.serverId + ':' + state.error.hint.familyId} endedSignIn={state.error.hint} onSetupComplete={setupComplete} onComplete={complete} onBack={chooseAccounts}/>);
   if (state.error) {
-    const error = presentError(state.error, 'home');
+    const error = presentError(state.error, 'home', {deviceOnline: online});
     // states.html 4 and 7a: compact phones draw the connection and app-update composition.
     // Identity and sign-in failures were handled above and never reach this branch.
     if (theme.platform === 'phone' && (error.category === 'offline' || error.category === 'unreachable' || error.category === 'timeout'

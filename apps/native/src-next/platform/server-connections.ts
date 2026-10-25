@@ -300,7 +300,8 @@ export function nativeSelectedConnectionEnvironment(): ConnectionEnvironment {
 }
 
 let activeApi: HttpLocalApi | undefined,
-  transport = 'unknown';
+  transport = 'unknown',
+  pathOnline: boolean | undefined;
 let active: RouteConnection | undefined,
   monitoring = false,
   revision = 0;
@@ -319,17 +320,24 @@ export function trackNativeConnection(api: HttpLocalApi) {
   active?.setForeground(AppState.currentState === 'active');
   ensureMonitoring();
 }
-const networkListeners = new Set<() => void>();
+/** The last native path fact, or undefined until the monitor has reported one.
+ * A true path proves only a default network with Internet capability, never
+ * that this server, its identity or the Internet is reachable. */
+export function deviceOnline(): boolean | undefined {return pathOnline;}
+const networkListeners = new Set<(online: boolean | undefined) => void>();
 function ensureMonitoring() {
   if (monitoring) return;
   monitoring = true;
+  // A new monitor has no fact yet; an old boolean never carries over.
+  pathOnline = undefined;
   new NativeEventEmitter(NativeModules.PorticoNetwork).addListener(
     'portico.network',
-    (event?: {transport?: string}) => {
+    (event?: {online?: unknown; transport?: string}) => {
+      pathOnline = typeof event?.online === 'boolean' ? event.online : undefined;
       transport = event?.transport ?? transport;
       activeApi?.setTransportClass(transport);
       active?.networkChanged(String(++revision));
-      for (const listener of networkListeners) listener();
+      for (const listener of networkListeners) listener(pathOnline);
     },
   );
   NativeModules.PorticoNetwork.startMonitoring();
@@ -341,8 +349,9 @@ function ensureMonitoring() {
     previous = state;
   });
 }
-/** Called when the device's network path changes (Wi-Fi to cellular, back online). */
-export function onNetworkChange(listener: () => void): () => void {
+/** Called when the device's network path changes, with the same unknown/true/false
+ * fact as deviceOnline(). A listener never receives a stale value from a prior monitor. */
+export function onNetworkChange(listener: (online: boolean | undefined) => void): () => void {
   ensureMonitoring();
   networkListeners.add(listener);
   return () => {
