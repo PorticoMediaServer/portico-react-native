@@ -24,6 +24,7 @@ function format(facts: AudioFacts | undefined): MusicFormatFacts | undefined {
  * fact is the listening snapshot's, and an unreported rate is never a matched one. */
 export function nativeMusicSignal(snapshot: NativePlaybackRuntimeSnapshot, equalizer: DeviceEqualizer | undefined): MusicSignalInput | undefined {
   const info = snapshot.session?.playbackInfo, listening = snapshot.playback.nativeListening;
+  const effects = snapshot.playback.audioEffects;
   const source = format(info?.source.audio as AudioFacts | undefined);
   if (!source) return undefined;
   const delivered = format(info?.delivered.audio as AudioFacts | undefined);
@@ -52,7 +53,14 @@ export function nativeMusicSignal(snapshot: NativePlaybackRuntimeSnapshot, equal
   });
   return Object.freeze({
     source, ...(server ? {server} : {}), output,
-    eqOn: equalizer?.on === true, eqApplied: listening?.eqApplied === true,
-    normalization: 'off', levelingApplied: listening?.levelingApplied === true,
+    // Requested effects come from the profile's own audio settings; applied facts come only from
+    // the engine for this song. A requested effect with no applied fact is "not applied", never
+    // "applied" and never silently "off".
+    eqOn: equalizer?.on === true, eqApplied: (listening?.eqApplied ?? effects.eqApplied) === true,
+    normalization: effects.settings.normalization,
+    levelingApplied: (listening?.levelingApplied ?? effects.levelingApplied) === true,
+    // The engine's own lasting fallback for this song: the line says what was lost. Unreported
+    // stays absent, so nothing invents a fallback.
+    ...(snapshot.playback.musicFallback === 'eq' ? {fallback: 'eq' as const} : {}),
   });
 }

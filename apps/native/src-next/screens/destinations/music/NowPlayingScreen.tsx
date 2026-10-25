@@ -1,10 +1,11 @@
-import React, {useRef, useState} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
 import type {MessageId} from '../../../../../../packages/i18n/src';
 import {useSyncExternalStore} from 'react';
 import {nativeEqualizer} from '../../../platform/playback/equalizer';
+import {registerOverlayKeys} from '../../../platform/overlay-keys';
 import {NativeWatchEqualizer, type NativeEqualizerCopy} from '../../watch/Equalizer';
 import {MusicSignalLine, MusicSignalSheet, type MusicSignalView} from './MusicSignal';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -58,6 +59,20 @@ const SIDE_BY_SIDE = 700;
 export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing'}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
   const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
+  // music-plus 6/6b and listening-notices 8: the signal sheet (like the EQ panel) is the top
+  // surface while it is open, so Back closes it rather than folding the player, and focus returns
+  // to the line that opened it.
+  const signalRef = useRef<View | null>(null);
+  const closePanel = useCallback(() => {
+    setPanel(null);
+    if (theme.isTV) requestAnimationFrame(() => (signalRef.current as unknown as {requestTVFocus?: () => void} | null)?.requestTVFocus?.());
+  }, [theme.isTV]);
+  useEffect(() => {
+    if (!panel) return;
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {closePanel(); return true;});
+    const release = theme.isTV ? registerOverlayKeys(key => {if (key === 'escape' || key === 'menu') {closePanel(); return true;} return false;}) : () => {};
+    return () => {back.remove(); release();};
+  }, [panel, closePanel, theme.isTV]);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const wide = width >= SIDE_BY_SIDE, side = wide && !!(queue || lyrics), position = playbackPosition(occupant), bounds = seekBounds(occupant);
   const span = bounds ? Math.max(0, bounds.end - bounds.start) : 0;
@@ -78,7 +93,7 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
-    {signal ? <View style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} onPress={() => setPanel('signal')}/></View> : null}
+    {signal ? <View style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></View> : null}
     {notice ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
       <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
       <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
@@ -125,9 +140,9 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
       <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>
     </View> : null}
     <View style={{flex: 1, paddingTop: topInset, paddingBottom: bottomInset}}>
-      {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={() => setPanel(null)}/></View> : null}
+      {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={closePanel}/></View> : null}
       {panel === 'eq' ? <View style={{position: 'absolute', inset: 0, zIndex: 30, backgroundColor: theme.colors.ink}}>
-        <NativeWatchEqualizer onBack={() => setPanel(null)} copy={equalizerCopy()} reportError={reportError} store={nativeEqualizer}/>
+        <NativeWatchEqualizer onBack={closePanel} copy={equalizerCopy()} reportError={reportError} store={nativeEqualizer}/>
       </View> : null}
       {side ? <View style={{flex: 1, flexDirection: 'row'}}>
         <ScrollView contentContainerStyle={{flexGrow: 1, justifyContent: 'center'}} style={{flex: 1, minWidth: 0}} showsVerticalScrollIndicator={false}>{column}</ScrollView>
