@@ -22,7 +22,7 @@ function format(facts: AudioFacts | undefined): MusicFormatFacts | undefined {
 /** music-plus (MC-8): the line and sheet describe the committed plan and the engine's own
  * current-song facts. Nothing here infers an applied effect from a setting: the EQ's applied
  * fact is the listening snapshot's, and an unreported rate is never a matched one. */
-export function nativeMusicSignal(snapshot: NativePlaybackRuntimeSnapshot, equalizer: DeviceEqualizer | undefined): MusicSignalInput | undefined {
+export function nativeMusicSignal(snapshot: Pick<NativePlaybackRuntimeSnapshot, 'session' | 'playback'>, equalizer: DeviceEqualizer | undefined): MusicSignalInput | undefined {
   const info = snapshot.session?.playbackInfo, listening = snapshot.playback.nativeListening;
   const effects = snapshot.playback.audioEffects;
   const source = format(info?.source.audio as AudioFacts | undefined);
