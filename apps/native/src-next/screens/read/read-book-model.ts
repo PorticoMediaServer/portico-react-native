@@ -3,8 +3,14 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {openNativeRead, openNativeReadSeries} from './eligibility';
 
+export type NativeReadVersion = Awaited<ReturnType<ReadingClient['versions']>>['versions'][number];
+
 export type NativeReadBookState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
+  /** The item's real versions; one available version opens at a time. */
+  versions: readonly NativeReadVersion[];
+  /** The selected version the manifest and progress below belong to. */
+  sourceId?: string;
   manifest?: ReadingManifest;
   progress?: ReadingProgress;
   error?: unknown;
@@ -23,7 +29,8 @@ export class NativeReadBook {
   private readonly captured?: Readonly<{sessionFamilyId: string; viewer: LocalSession['viewer']}>;
   private readonly life = new AbortController();
   private client?: ReadingClient;
-  private state: NativeReadBookState = Object.freeze({phase: 'idle'});
+  private state: NativeReadBookState = Object.freeze({phase: 'idle', versions: []});
+  private chosen?: string;
   private readonly listeners = new Set<() => void>();
   private disposed = false;
 
@@ -55,16 +62,20 @@ export class NativeReadBook {
   getSnapshot = (): NativeReadBookState => this.state;
   load = async (): Promise<void> => {
     if (!this.current() || this.state.phase === 'loading' || this.state.phase === 'ready') return;
-    this.publish({phase: 'loading'});
+    this.publish({phase: 'loading', versions: this.state.versions, ...(this.state.sourceId ? {sourceId: this.state.sourceId} : {})});
     try {
       const client = this.reading();
       const versions = await client.versions(this.item.id, this.life.signal);
-      if (!versions.versions.some(version => version.sourceId === this.item.sourceId && version.inventoryAvailable)) throw new ReadingError('source_unavailable');
-      const session = await client.open({itemId: this.item.id, sourceId: this.item.sourceId}, this.life.signal);
+      // The item's own source opens when it has inventory; otherwise the first
+      // real available version does, never an inferred format preference.
+      const selected = versions.versions.find(version => version.sourceId === (this.chosen ?? this.item.sourceId) && version.inventoryAvailable)
+        ?? versions.versions.find(version => version.inventoryAvailable);
+      if (!selected) throw new ReadingError('source_unavailable');
+      const session = await client.open({itemId: this.item.id, sourceId: selected.sourceId}, this.life.signal);
       try {
         const progress = await session.progress(this.life.signal);
         if (!this.current()) return;
-        this.publish({phase: 'ready', manifest: session.manifest, progress});
+        this.publish({phase: 'ready', versions: versions.versions, sourceId: selected.sourceId, manifest: session.manifest, progress});
       } finally {
         // The page keeps the projection, not a second open session: the reader
         // opens the one host session when Read is pressed.
@@ -72,14 +83,23 @@ export class NativeReadBook {
       }
     } catch (error) {
       if (!this.current()) return;
-      this.publish({phase: 'error', error});
+      this.publish({phase: 'error', versions: this.state.versions, error});
     }
   };
-  retry = (): Promise<void> => {this.publish({phase: 'idle'}); return this.load();};
+  /** Selecting another real, available version reloads the page's own projection. */
+  selectVersion = (sourceId: string): Promise<void> => {
+    if (!this.current() || this.state.phase === 'loading' || sourceId === this.state.sourceId) return Promise.resolve();
+    const version = this.state.versions.find(candidate => candidate.sourceId === sourceId);
+    if (!version?.inventoryAvailable) return Promise.resolve();
+    this.chosen = sourceId;
+    this.publish({phase: 'idle', versions: this.state.versions, sourceId});
+    return this.load();
+  };
+  retry = (): Promise<void> => {this.publish({phase: 'idle', versions: this.state.versions}); return this.load();};
   /** Only a saved position for this exact source revision is a resume. */
   savedProgression = (): number | undefined => {
     const saved = this.state.progress?.progress;
-    if (!saved || saved.stale || saved.sourceId !== this.item.sourceId || saved.sourceRevision !== this.state.manifest?.revision) return undefined;
+    if (!saved || saved.stale || saved.sourceId !== this.state.manifest?.sourceId || saved.sourceRevision !== this.state.manifest?.revision) return undefined;
     const progression = saved.location.progression;
     return progression > 0 && progression < 1 ? progression : undefined;
   };
@@ -87,7 +107,7 @@ export class NativeReadBook {
     const manifest = this.state.manifest;
     if (!manifest || !this.current()) return false;
     const contentsTarget = index === undefined || manifest.format !== 'epub' ? undefined : {sourceId: manifest.sourceId, sourceRevision: manifest.revision, index};
-    return openNativeRead(this.context, {itemId: this.item.id, sourceId: this.item.sourceId, ...(contentsTarget ? {contentsTarget} : {})}, this.life.signal);
+    return openNativeRead(this.context, {itemId: this.item.id, sourceId: manifest.sourceId, ...(contentsTarget ? {contentsTarget} : {})}, this.life.signal);
   };
   openSeries = (): Promise<boolean> => {
     const series = this.item.series;

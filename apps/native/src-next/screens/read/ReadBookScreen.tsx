@@ -5,6 +5,7 @@ import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -16,13 +17,14 @@ const {t} = defaultI18n;
 const initial = (title: string): string => title.trim().slice(0, 1).toUpperCase() || '·';
 
 /** phone-read 3/3c: the phone's book destination before the reader. Real manifest,
- * saved position and declared contents only; the Read action is the same one
- * library door (openNativeRead), never a second host or session owner. */
+ * versions, saved position and declared contents only; choosing another real
+ * available version reloads the same page projection, and the Read action is the
+ * same one library door (openNativeRead), never a second host or session owner. */
 export function ReadBookScreen({controller, runtime, onBack, onOpenSettings}: {
   controller: NativeReadBook; runtime: NativeShellRuntime; onBack: () => void; onOpenSettings: () => void;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets();
-  const [more, setMore] = useState(false), [details, setDetails] = useState(true);
+  const [more, setMore] = useState(false), [details, setDetails] = useState(true), [versionsOpen, setVersionsOpen] = useState(false);
   useEffect(() => {void controller.load().catch(() => {});}, [controller]);
   const manifest = state.manifest, title = manifest?.metadata.title ?? controller.item.title;
   const author = manifest?.metadata.author ?? controller.item.author?.value;
@@ -39,6 +41,12 @@ export function ReadBookScreen({controller, runtime, onBack, onOpenSettings}: {
     {id: 'details', label: t('next.reader.details'), selected: details, onSelect: () => {setDetails(value => !value); setMore(false);}},
     {id: 'settings', label: t('next.reader.openSettings'), onSelect: () => {setMore(false); onOpenSettings();}},
   ];
+  const selectedVersion = state.versions.find(version => version.sourceId === state.sourceId);
+  const versions: readonly MenuEntry[] = state.versions.map(version => ({
+    id: version.sourceId, label: `${version.format.toUpperCase()} · ${defaultI18n.bytes(version.size)}`,
+    selected: version.sourceId === state.sourceId, disabled: !version.inventoryAvailable,
+    onSelect: () => {setVersionsOpen(false); void controller.selectVersion(version.sourceId).catch(runtime.reportError);},
+  }));
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', inset: 0}}/> : null}
@@ -69,6 +77,13 @@ export function ReadBookScreen({controller, runtime, onBack, onOpenSettings}: {
           <Button icon="i-book" onPress={() => {void controller.read().catch(runtime.reportError);}} style={{marginTop: 16, minWidth: 280}}>
             {t(saved !== undefined ? 'next.cards.read' : 'next.reader.read')}
           </Button>
+          {state.versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')}
+            onPress={() => setVersionsOpen(true)} focusKind="row"
+            style={{marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
+            <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
+            <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
+            <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
+          </Focusable> : null}
           {manifest.format === 'epub' && manifest.contents?.length ? <View style={{width: '100%', marginTop: 28}}>
             <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.contents')}</Text>
             {manifest.contents.map((entry, index) => <Focusable key={`${index}-${entry.section}`} accessibilityRole="button" accessibilityLabel={entry.title}
@@ -80,8 +95,10 @@ export function ReadBookScreen({controller, runtime, onBack, onOpenSettings}: {
           {details ? <View style={{width: '100%', marginTop: 26}}>
             <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
             {[
+              ...(author ? [{label: t('filter.field.author'), value: author}] : []),
               {label: t('next.reader.format'), value: manifest.format.toUpperCase()},
               {label: t('next.reader.fileSize'), value: defaultI18n.bytes(manifest.size)},
+              ...(manifest.pageNames?.length ? [{label: t('next.reader.pagesStrip'), value: defaultI18n.number(manifest.pageNames.length)}] : []),
               ...(manifest.metadata.language ? [{label: t('next.selection.language'), value: manifest.metadata.language}] : []),
             ].map(row => <View key={row.label} style={{paddingVertical: 9, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
               <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{row.label}</Text>
@@ -91,5 +108,6 @@ export function ReadBookScreen({controller, runtime, onBack, onOpenSettings}: {
         </View>}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
+    <Menu open={versionsOpen} onOpenChange={setVersionsOpen} title={t('next.reader.version')} items={versions}/>
   </View>;
 }

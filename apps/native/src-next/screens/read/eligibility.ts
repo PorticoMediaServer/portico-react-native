@@ -36,7 +36,9 @@ export async function openNativeReadBook(context: NativeReadNavigationContext, t
   const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
   try {
     const eligibility = await nativeReadEligibility(client, target.item.id, signal);
-    if (!current() || !eligibility?.versions.some(version => version.sourceId === target.item.sourceId && version.inventoryAvailable)) return false;
+    // The page may select any real available version; the reader door still
+    // revalidates the exact selected source before it opens the host session.
+    if (!current() || !eligibility?.versions.some(version => version.inventoryAvailable)) return false;
     return context.navigation.open(destination, context.authority());
   } finally {client.dispose();}
 }
