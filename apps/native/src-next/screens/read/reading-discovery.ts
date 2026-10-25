@@ -69,10 +69,10 @@ export class NativeReadingDiscovery {
       ]);
       if (!this.current()) return;
       const failures = [continuePage, discover].filter((result): result is PromiseRejectedResult => result.status === 'rejected' && !cancelled(result.reason));
-      if (failures.length === 2) throw failures[0]!.reason;
       const continueItems = continuePage.status === 'fulfilled' ? continuePage.value.items : [];
       const recent = discover.status === 'fulfilled' ? discover.value.rows.find(row => row.key === 'recent')?.items ?? [] : [];
-      this.publish({phase: 'ready', continueItems, recent});
+      this.publish({phase: failures.length ? 'error' : 'ready', continueItems, recent,
+        ...(failures.length ? {error: failures[0]!.reason} : {})});
     } catch (error) {
       if (this.current() && !cancelled(error)) this.publish({phase: 'error', continueItems: [], recent: [], error});
     }

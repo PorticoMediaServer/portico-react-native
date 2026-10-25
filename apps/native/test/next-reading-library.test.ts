@@ -116,15 +116,31 @@ test('Discover reads only the two real producers, scoped to this library', async
   assert.equal(d.disposed(), 1);
 });
 
-test('a failed producer does not hide the row that succeeded', async () => {
+test('a failed producer preserves the successful row and exposes an error for retry', async () => {
   const d = discoveryFixture({continue: new Error('unreadable'), discover: {rows: [{key: 'recent', items: [{id: 'b2', title: 'Two'}]}]}});
   const controller = new NativeReadingDiscovery(d.context, 'books');
   try {
     await controller.load();
     const state = controller.getSnapshot();
-    assert.equal(state.phase, 'ready');
+    assert.equal(state.phase, 'error');
+    assert.equal((state.error as Error).message, 'unreadable');
     assert.deepEqual(state.continueItems, []);
     assert.deepEqual(state.recent.map(item => item.id), ['b2']);
+  } finally {controller.dispose();}
+});
+
+test('a partial failure with an empty successful row still allows retry', async () => {
+  const answers = {continue: {items: []}, discover: new Error('discover down') as unknown};
+  const d = discoveryFixture(answers), controller = new NativeReadingDiscovery(d.context, 'books');
+  try {
+    await controller.load();
+    assert.equal(controller.getSnapshot().phase, 'error');
+    assert.equal((controller.getSnapshot().error as Error).message, 'discover down');
+    answers.discover = {rows: [{key: 'recent', items: [{id: 'b2', title: 'Two'}]}]};
+    await controller.retry();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.equal(controller.getSnapshot().error, undefined);
+    assert.deepEqual(controller.getSnapshot().recent.map(item => item.id), ['b2']);
   } finally {controller.dispose();}
 });
 
