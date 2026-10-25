@@ -5,14 +5,18 @@ import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../../shell/route-registry';
 import {nativeEntryRoute, type NativeShellRoute} from '../../../shell/routes';
 import {createNativeEntryActions} from '../entry-actions';
+import {createNativeSavedSelection} from '../../saved/selection';
 import {createNativeTVSavedDestination} from './model';
+import {nativeTVSavedSelectionSource} from './tv-source';
 import {TVSavedScreen} from './TVSavedScreen';
 
 /** tv-more1–5: TV owns the Saved destination and its landing. Pushed playlist,
  * collection and saved-view pages stay with Saved's own route registration. */
 export function createNativeTVSavedRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const destination = createNativeTVSavedDestination(context);
-  let disposed = false;
+  let disposed = false, selection: ReturnType<typeof createNativeSavedSelection> | undefined;
+  // One canonical Saved selection owner, over the TV landing's own authorized projections.
+  const savedSelection = () => selection ??= createNativeSavedSelection(context, nativeTVSavedSelectionSource(destination.controller), destination.activation);
   const current = () => !disposed && context.current();
   const savedRoute = (): NativeShellRoute | undefined => {
     const route = context.navigation.getSnapshot().route;
@@ -35,10 +39,10 @@ export function createNativeTVSavedRenderer(context: NativeShellBootstrapContext
     render: (route, runtime) => {
       if (route.kind !== 'shell' || route.destination.kind !== 'saved' || !current()) return null;
       return <TVSavedScreen controller={destination.controller} runtime={runtime} actions={actions} activation={destination.activation}
-        authority={runtime.getSnapshot().authority} initialTab="watchlist" openSaved={openSaved} openEntry={openEntry}
+        authority={runtime.getSnapshot().authority} initialTab="watchlist" selection={savedSelection()} openSaved={openSaved} openEntry={openEntry}
         browseHome={() => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'home'}}, context.authority());}}/>;
     },
-    dispose: () => {if (disposed) return; disposed = true; actions.dispose(); destination.dispose();},
+    dispose: () => {if (disposed) return; disposed = true; actions.dispose(); selection?.dispose(); destination.dispose();},
   };
   return Object.freeze(renderer);
 }

@@ -25,7 +25,7 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
         return <View key={cover.id} style={{position: 'absolute', left: Math.round(width * .12) + shift, top: Math.round(width * .16) + Math.abs(index - 1) * 6,
           width: Math.round(width * .62), height: Math.round(width * .62), borderRadius: 8, overflow: 'hidden',
           transform: [{rotate: `${(index - 1) * 7}deg`}], shadowColor: theme.colors.shadow, shadowOpacity: .5, shadowRadius: 12, shadowOffset: {width: 0, height: 8}}}>
-          <Artwork source={source} width="100%" height="100%"/>
+          <Artwork source={source} width={Math.round(width * .62)} height={Math.round(width * .62)}/>
         </View>;
       })}
       <View style={{position: 'absolute', left: 12, right: 12, bottom: 12}}>

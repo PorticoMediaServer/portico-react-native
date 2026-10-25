@@ -63,7 +63,7 @@ export type NativeShellBootstrapContext = Readonly<{
   navigation: NativeShellNavigation;
 }>;
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
-export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'renderDownloads' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
+export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'mixes' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'renderDownloads' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
   account: NativeShellSnapshot['account'];
   getState: () => Pick<NativeShellSnapshot, 'destination' | 'railDestination' | 'contentVisible' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
   attach: (runtime: NativeShellRuntime) => void;
@@ -344,11 +344,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       lyrics: target => {
-        if (!current() || !local) return undefined;
-        try {
-          return Object.freeze({enabled: currentPreferences().effective['playback.showSyncedLyrics'] !== false,
-            service: new LyricsService(local, {serverId: authority.serverId, viewerId: JSON.stringify([authority.serverId, authority.accountId, authority.profileId])}, target)});
-        } catch {return undefined;}
+        // A reader exists only for the current local authority; callers ask inside that scope.
+        assertCurrent();
+        if (!local) throw cancelled();
+        return Object.freeze({enabled: currentPreferences().effective['playback.showSyncedLyrics'] !== false,
+          service: new LyricsService(local, {serverId: authority.serverId, viewerId: JSON.stringify([authority.serverId, authority.accountId, authority.profileId])}, target)});
       },
       lyricsEnabled: () => current() && currentPreferences().effective['playback.showSyncedLyrics'] !== false,
       artwork: path => {

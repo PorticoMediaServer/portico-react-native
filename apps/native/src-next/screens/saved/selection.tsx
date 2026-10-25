@@ -19,7 +19,19 @@ import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {nativeScreenServices} from '../native-screen-services';
 import {NativeLoadedDestinations} from '../search/loaded-destinations';
 import {NativeDestinationPicker} from '../destinations/DestinationPicker';
-import type {NativeSavedDestination, NativeSavedSnapshot} from './model';
+import type {SavedProjection} from '../../../../../packages/client-core/src/saved';
+
+/** The two authorized Saved projections and their change signal: everything this selection
+ * reads from a destination. The phone hub is one source; the TV Saved destination is adapted
+ * into the same shape, so both screens share one selection owner with no second store. */
+export type NativeSavedSelectionSource = Readonly<{
+  getSnapshot: () => Readonly<{phase: string;
+    myList: Readonly<{projection?: SavedProjection; route?: Readonly<{view?: string}>}>;
+    favorites: Readonly<{projection?: SavedProjection; route?: Readonly<{view?: string}>}>}>;
+  subscribe: (listener: () => void) => () => void;
+  snapshot: () => Readonly<{busy: boolean}>;
+}>;
+type SelectionSnapshot = ReturnType<NativeSavedSelectionSource['getSnapshot']>;
 import type {NativeSavedSelectionPort} from './SavedScreen';
 
 const leaf = (entry: ContentEntry): entry is ContentEntry => ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind);
@@ -28,7 +40,7 @@ const unavailable = () => Object.assign(new Error('catalogue-selection-unavailab
 /** Selection on the Saved hub, over the canonical myList/favorites projections the
  * hub already read. Detail supplies each explicitly picked leaf's grants; Saved keeps
  * its own viewer fence and revision, never a Home or Search one. */
-export function createNativeSavedSelection(context: NativeShellBootstrapContext, destination: NativeSavedDestination,
+export function createNativeSavedSelection(context: NativeShellBootstrapContext, destination: NativeSavedSelectionSource,
   activation: NativeDestinationActivationPort): NativeSavedSelectionPort & {dispose: () => void} {
   const authority = nativeDestinationLifetime(context), feedback = nativeScreenServices(context);
   const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: ContentEntry; sectionId: string; order: number}>();
@@ -40,9 +52,9 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
   let destinationController: AbortController | undefined, stopDestinations: (() => void) | undefined;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const visible = () => !disposed && authority.current() && activation.getSnapshot().visible;
-  const lists = (snapshot: NativeSavedSnapshot) => [snapshot.myList, snapshot.favorites].flatMap((list, index) => list.projection
+  const lists = (snapshot: SelectionSnapshot) => [snapshot.myList, snapshot.favorites].flatMap((list, index) => list.projection
     ? [{id: index === 0 ? 'myList' : 'favorites', list}] : []);
-  const keyFor = (snapshot: NativeSavedSnapshot) => snapshot.phase === 'ready'
+  const keyFor = (snapshot: SelectionSnapshot) => snapshot.phase === 'ready'
     ? JSON.stringify(lists(snapshot).map(({id, list}) => [id, list.projection?.scope.viewerFence, list.projection?.revision.catalog, list.projection?.revision.viewer,
       list.projection?.sections.map(section => [section.id, section.entries.length])])) : '';
   const closePersonal = () => {personalController?.abort(); personalController = undefined; stopPersonal?.(); stopPersonal = undefined; personal?.dispose(); personal = undefined; personalCurrent = undefined;};
