@@ -35,7 +35,7 @@ export function SavedTVTabs({destination, reportError, authority, activation, co
   const choose = (view: NativeSavedTVTab) => {if (activation.getSnapshot().visible) void destination.select({view}).catch(reportError);};
   return <LibraryHeader testID="native-saved-tv-header" name={defaultI18n.t('saved.title')} switcher={undefined}>
     <FocusRegion id={ids.savedTabs} entry="watchlist" orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, ...(contentRegionId ? {down: contentRegionId} : {})}}
-      style={{flexDirection: 'row', alignItems: 'center', gap: 32}}>
+      style={{flexDirection: 'row', alignItems: 'center', gap: 34}}>
       {nativeSavedTVTabs.map(tab => <Focusable key={tab.view} focusId={tab.view} testID={`saved-tab-${tab.view}`} accessibilityRole="tab"
         accessibilityLabel={defaultI18n.t(tab.label)} accessibilityState={{selected: value === tab.view}} disabled={!active.visible}
         onFocus={() => choose(tab.view)} onPress={() => choose(tab.view)}

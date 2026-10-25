@@ -48,8 +48,11 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   const count = view === 'playlists' ? (saved?.projection?.sections[0]?.totalCount ?? playlists.length) : resources.length;
   const countText = view === 'playlists' ? savedItemCount(count) : view === 'collections' ? savedCollectionCount(count) : savedViewCount(count);
   const selectFilter = (filter: PlaylistListFilter) => select({view: 'playlists', filter, ...(saved?.projection?.query.sort ? {sort: saved.projection.query.sort, direction: saved.projection.query.direction as 'asc' | 'desc'} : {})});
+  // collections.html 15-17: the page starts at 200 and ends 96 from the right, so six 236 tiles
+  // (34 apart) or three 520 saved-view tiles (32 apart) fit the frame's row exactly.
+  const columns = view === 'views' ? {columnGap: 32, rowGap: 36} : {columnGap: 34, rowGap: 44};
   return <FocusRegion id={regionId} orientation="vertical" enabled={enabled} edges={edges} style={{flex: 1}}>
-    <View style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: theme.gutter}}>
+    <View style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight}}>
       {view === 'playlists' && <>
         {!!sorts.length && <Chip focusId="tv-saved-sort" icon="i-sort" trailingIcon="i-down" disabled={!enabled} onPress={() => {
           const current = sorts.find(sort => sort.id === saved?.projection?.query.sort) ?? sorts[0];
@@ -65,8 +68,8 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
       : !count ? <StateView variant="panel" icon={view === 'playlists' ? 'i-queue' : view === 'collections' ? 'i-stack' : 'i-filter'}
         title={t(view === 'playlists' ? 'web.saved.empty.playlists' : view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views')}
         body={t(view === 'playlists' ? 'web.saved.empty.playlistsBody' : view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}/>
-      : <ScrollView contentContainerStyle={{paddingHorizontal: theme.gutter, paddingBottom: 40}}>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 34}}>
+      : <ScrollView contentContainerStyle={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingBottom: 40}}>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', ...columns}}>
           {view === 'playlists' ? playlists.map(card => <SavedTVPlaylistTile key={card.id} card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/>)
             : view === 'collections' ? resources.map(resource => <SavedTVCollectionTile key={resource.id} resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/>)
               : resources.map(resource => <SavedTVViewTile key={resource.id} resource={resource} libraries={libraries} runtime={runtime} onOpen={() => openResource(resource)}/>)}

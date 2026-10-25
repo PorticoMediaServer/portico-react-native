@@ -308,17 +308,19 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             </Switch>
             <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{savedVisibilityHelp(resource)}</Text>
           </View>}
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 14}}>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 10, paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 14}}>
             <Button testID="saved-play" focusId="saved-play" variant="primary" icon="i-play" disabled={!playable.length}
-              onPress={() => play()} style={theme.isTV ? {height: 72, minWidth: 220} : {height: 48, flex: 1}}>{t(theme.isTV && resource?.kind === 'collection' ? 'next.cards.playAll' : 'action.play')}</Button>
-            <Button testID="saved-shuffle" focusId="saved-shuffle" variant="glass" icon="i-shuffle" iconOnly disabled={playable.length < 2} onPress={() => play(true)}
-              accessibilityLabel={t('title.shuffle')} style={theme.isTV ? {width: 72, height: 72, borderRadius: 36} : {width: 48, height: 48, borderRadius: 24}}/>
-            <Button testID="saved-pin" focusId="saved-pin" variant="glass" icon={playlist?.pinned || resource?.pinned ? 'i-bookmark-f' : 'i-bookmark'} iconOnly disabled={busy || !(isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin'))}
+              onPress={() => play()} style={theme.isTV ? undefined : {height: 48, flex: 1}}>{t(theme.isTV && resource?.kind === 'collection' ? 'next.cards.playAll' : 'action.play')}</Button>
+            {/* collections.html 18/20 draw Shuffle and Pin as labelled glass buttons, and More as
+                a 72 by 14-radius square: the kit's hero glass button is that geometry already. */}
+            <Button testID="saved-shuffle" focusId="saved-shuffle" variant="glass" icon="i-shuffle" iconOnly={!theme.isTV} disabled={playable.length < 2} onPress={() => play(true)}
+              accessibilityLabel={t('title.shuffle')} style={theme.isTV ? undefined : {width: 48, height: 48, borderRadius: 24}}>{t('title.shuffle')}</Button>
+            <Button testID="saved-pin" focusId="saved-pin" variant="glass" icon={playlist?.pinned || resource?.pinned ? 'i-bookmark-f' : 'i-bookmark'} iconOnly={!theme.isTV} disabled={busy || !(isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin'))}
               onPress={pin} accessibilityLabel={t(playlist?.pinned || resource?.pinned ? 'pins.unpin' : 'pins.pin')}
-              style={theme.isTV ? {width: 72, height: 72, borderRadius: 36} : {width: 48, height: 48, borderRadius: 24}}/>
-            {theme.isTV && <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size="compact"
+              style={theme.isTV ? undefined : {width: 48, height: 48, borderRadius: 24}}>{t(playlist?.pinned || resource?.pinned ? 'pins.unpin' : 'pins.pin')}</Button>
+            {theme.isTV && <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly
               accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}}
-              onPress={() => setPageMenu(true)} style={{width: 72, height: 72, borderRadius: 36}}/>}
+              onPress={() => setPageMenu(true)} style={{width: 72, height: 72, borderRadius: 14}}/>}
             {canReorder && !theme.isTV && <Button testID="saved-reorder" focusId="saved-reorder" variant={reordering ? 'primary' : 'glass'} icon={reordering ? 'i-check' : 'i-updown'}
               onPress={() => setReordering(value => !value)}>{t(reordering ? 'order.done' : 'order.reorder')}</Button>}
           </View>
