@@ -3,6 +3,7 @@ import type {PreferenceSnapshot} from '../../../../../packages/client-core/src/p
 import type {DirectSnapshot} from '../../../../../packages/client-core/src/profile-management';
 import type {SettingsContext, SettingsCustomId, SettingsPlatform} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import {playerSettingsSupport} from '../../platform/playback/native-listening-kinds';
+import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 import {NativeModules, Platform} from 'react-native';
 
@@ -38,6 +39,7 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
       downloads: false,
       playbackSpeed: playerSettingsSupport.playbackSpeed,
       audioEffects: playerSettingsSupport.audioEffects,
+      equalizer: nativeEqualizer.getSnapshot().supported,
       // Only the device whose engine actually has a rate-matching bridge offers the row.
       sampleRateMatching: Platform.OS === 'ios' && typeof NativeModules?.PorticoPlaybackModule?.setAudioSampleRateMatching === 'function',
     }),

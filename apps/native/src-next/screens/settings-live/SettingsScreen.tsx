@@ -356,7 +356,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   }, [showEqualizer, equalizer.ready, runtime.reportError]);
   const showSafeMode = theme.isTV && page.id === 'quality' && nativeSafeModeAvailable(devicePreferences);
   const showDynamicRange = theme.isTV && nativeDynamicRangeMatchingAvailable();
-  const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId),
+  const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId).filter(id => id !== 'equalizer'),
     ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : []),
     ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', ...(!theme.isTV ? ['settings-away-limit-change'] : [])] : []),
     ...(theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' ? passthroughFormats.map(format => `settings-passthrough-${format}`) : []),
@@ -425,7 +425,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
             : choiceList ? (() => {const options = choiceList.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)})); const selected = options.some(option => option.value === String(value)) ? String(value) : undefined; return <Select testID={id} accessibilityLabel={t(row.label)} value={selected} options={options} onValueChange={next => {const choice = choiceList.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}} disabled={state.busy}/>;})()
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
-      })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}
+      })}
       {section.id === 'limits' && awayLimitLabel ? <>
         <SettingsRow testID="settings-away-limit" label={t('next.settingsSpec.account.quality.groups.0.rows.3.label')} description={t('next.settingsSpec.account.quality.groups.0.rows.3.help')} value={awayLimitLabel}/>
         {!theme.isTV && <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>}

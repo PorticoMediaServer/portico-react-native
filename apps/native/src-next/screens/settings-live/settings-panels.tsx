@@ -1,6 +1,7 @@
 import {DeviceAboutPanel} from './DeviceAboutPanel';
+import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {NativeModules, Text, View} from 'react-native';
 import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
 import {idempotencyKey} from '../../../../../packages/client-core/src/playback-v1/http';
@@ -145,6 +146,7 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
     case 'about': return <DeviceAboutPanel {...deps} runtime={_runtime}/>;
     case 'privacyNote': return <PrivacyNotePanel {...deps}/>;
     case 'remoteControls': return <RemoteControlsPanel {...deps}/>;
+    case 'equalizer': return <EqualizerPanel deps={deps} runtime={_runtime}/>;
     default: return undefined;
   }
 }
