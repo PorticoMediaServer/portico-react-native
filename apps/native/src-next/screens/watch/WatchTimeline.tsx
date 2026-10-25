@@ -39,7 +39,7 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
   const span = end - start;
   const current = useCallback(() => !!fence && sameFence(playback.getSnapshot().fence, fence) && !source.retired, [fence, playback, source.retired]);
-  useEffect(() => {dragging.current = false; setPreview(undefined); onPreview?.(undefined);}, [fence]);
+  useEffect(() => {dragging.current = false; setPreview(undefined); onPreview?.(undefined);}, [fence, onPreview]);
   const target = useCallback((x: number) => width.current > 0 && span > 0 ? Math.max(start, Math.min(end, start + x / width.current * span)) : undefined, [start, end, span]);
   const gesture = useMemo(() => Gesture.Pan().enabled(enabled && source.capabilities.seek).minDistance(0).runOnJS(true)
     .onBegin(event => {if (!fence || !current()) return; dragging.current = true; controls.scrub(fence, true); const landing = target(event.x); setPreview(landing); onPreview?.(landing);})
