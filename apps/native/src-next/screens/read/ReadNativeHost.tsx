@@ -64,8 +64,13 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   }, [active, annotations]);
   useEffect(() => annotations.subscribe(() => {
     const snapshot = annotations.getSnapshot();
-    if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) console.warn('portico_annotation_journal',
-      JSON.stringify({phase: snapshot.phase, queued: snapshot.queued, unresolved: snapshot.unresolved, error: String(snapshot.error ?? '')}));
+    if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) {
+      // Closed codes only: never the parser/transport message, which can carry private text.
+      const raw = typeof (snapshot.error as {code?: unknown} | undefined)?.code === 'string' ? String((snapshot.error as {code: string}).code) : '';
+      const code = raw ? raw.replace(/[^a-z_]/g, '').slice(0, 40) : snapshot.error ? 'native_error' : '';
+      console.warn('portico_annotation_journal', JSON.stringify({phase: snapshot.phase, queued: snapshot.queued,
+        unresolved: snapshot.unresolved, ...(code ? {error: code} : {})}));
+    }
   }), [annotations]);
   useEffect(() => {
     const life = new AbortController(), captured = context.session();

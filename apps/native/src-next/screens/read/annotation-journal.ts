@@ -91,7 +91,8 @@ type Backend = Readonly<{read: (assert?: () => void, signal?: AbortSignal) => Pr
 const RETIRED = 'native_annotation_journal_retired';
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const sameIdentity = (a: NativeAnnotationIdentity, b: NativeAnnotationIdentity) => a.serverId === b.serverId && a.accountId === b.accountId && a.profileId === b.profileId;
-const text = (value: unknown, max: number): value is string => typeof value === 'string' && new TextEncoder().encode(value).length <= max;
+const text = (value: unknown, max: number): value is string => typeof value === 'string' && new TextEncoder().encode(value).length <= max
+  && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value);
 const integer = (value: unknown, max = Number.MAX_SAFE_INTEGER): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= max;
 const format = (value: unknown): value is NativeAnnotationFormat => value === 'epub' || value === 'pdf' || value === 'cbz';
 const reason = (value: unknown): value is NativeAnnotationUnresolved => value === 'stale-source' || value === 'source-changed' || value === 'server-newer'
@@ -240,12 +241,16 @@ function nativeQueueBackend(identity: NativeAnnotationIdentity, storage: Pick<Na
     let value: NativeAnnotationRecord | undefined;
     return storage.change(key, raw => {guard(); value = record(raw, identity); return {record: raw ?? null, value};}, undefined, guard)
       .then(() => {guard(); return value;});
-  }, change};
+  }, change: (update, assert, signal) => {
+    const guard = guardOf(assert, signal, live);
+    guard();
+    return change(update, assert, signal).then(() => {guard();}); // Post-write: unknown-commit on a throw.
+  }};
 }
 
 function leaseBackend(state: NativeAnnotationLeaseState, identity: NativeAnnotationIdentity, live: () => boolean): Backend {
   let tail: Promise<unknown> = Promise.resolve();
-  const leaseLive = () => {if (!live() || !state.current()) throw new Error(RETIRED);};
+  const leaseLive = () => live() && state.current();
   const turn = <T,>(work: () => Promise<T>): Promise<T> => {
     const run = tail.then(async () => {leaseLive(); const value = await work(); leaseLive(); return value;});
     tail = run.catch(() => {});
@@ -253,17 +258,21 @@ function leaseBackend(state: NativeAnnotationLeaseState, identity: NativeAnnotat
   };
   return {
     read: (assert, signal) => turn(async () => {
-      guardOf(assert, signal, leaseLive)();
-      return record(await state.readState(ANNOTATION_LEASE_STATE), identity);
+      const guard = guardOf(assert, signal, leaseLive);
+      guard();
+      const value = record(await state.readState(ANNOTATION_LEASE_STATE), identity);
+      guard(); // After the actual read.
+      return value;
     }),
     change: (update, assert, signal) => turn(async () => {
       const guard = guardOf(assert, signal, leaseLive);
       guard();
       const current = record(await state.readState(ANNOTATION_LEASE_STATE), identity);
-      guard();
+      guard(); // After the actual read.
       const next = update(current);
       guard(); // The last point before the durable write.
       await state.writeState(ANNOTATION_LEASE_STATE, JSON.stringify(next));
+      guard(); // Unknown-commit: a throw here must never be reported as a clean success.
     }),
   };
 }
@@ -275,22 +284,36 @@ export class NativeAnnotationJournal {
   private readonly local: Pick<NativeQueueStore, 'change'>;
   private ticket?: Readonly<{identity: NativeAnnotationIdentity; backend: Backend; live: () => boolean}>;
   private life?: {alive: boolean};
+  private binding = 0;
   constructor(storage: Pick<NativeQueueStore, 'change'> = new NativeQueueStore()) {this.local = storage;}
   /** Bind before any operation. Migration of the legacy key happens before the ticket
    * becomes visible, and the legacy record is removed only after the new one is durable. */
+  /** Exact bind identity: a later bind/unbind retires this one before it can install, and a
+   * migration that was overtaken must not publish its ticket over the successor. */
   bind = async (identity: NativeAnnotationIdentity, lease?: NativeAnnotationLeaseState): Promise<void> => {
+    const token = ++this.binding;
+    if (this.life) this.life.alive = false; // Retire the previous ticket synchronously.
     const life = {alive: true};
-    if (lease) {
-      this.ticket = Object.freeze({identity: Object.freeze({...identity}), backend: leaseBackend(lease, identity, () => life.alive), live: () => life.alive});
-    } else {
-      await this.migrate(identity);
-      this.ticket = Object.freeze({identity: Object.freeze({...identity}), backend: nativeQueueBackend(identity, this.local, () => life.alive), live: () => life.alive});
-    }
     this.life = life;
+    const still = () => this.binding === token && life.alive;
+    const ticket = Object.freeze({identity: Object.freeze({...identity}),
+      backend: lease ? leaseBackend(lease, identity, still) : nativeQueueBackend(identity, this.local, still), live: still});
+    try {
+      if (!lease) {
+        await this.migrate(identity, still);
+        if (!still()) throw new Error(RETIRED);
+      }
+      if (!still()) throw new Error(RETIRED);
+      this.ticket = ticket;
+    } catch (error) {
+      if (this.life === life) {life.alive = false; this.life = undefined;} // Never leave a half-bound life.
+      throw error;
+    }
   };
   /** Retire the current ticket synchronously; old operations then fail their own guard and
    * never choose a successor backend. */
   unbind(): void {
+    this.binding++;
     if (this.life) this.life.alive = false;
     this.life = undefined; this.ticket = undefined;
   }
@@ -301,28 +324,54 @@ export class NativeAnnotationJournal {
     if (!ticket.live()) throw new Error(RETIRED);
     return ticket;
   }
-  private async migrate(identity: NativeAnnotationIdentity): Promise<void> {
+  /** Copy the legacy 32-bit-key record, preserving any same-id conflict as unresolved, then
+   * clear the legacy key only if it is still the exact record that was copied. */
+  private async migrate(identity: NativeAnnotationIdentity, still: () => boolean): Promise<void> {
     const legacy = legacyJournalKey(identity), key = nativeAnnotationJournalKey(identity);
     if (legacy === key) return;
-    let carried: NativeAnnotationRecord | undefined;
-    await this.local.change(legacy, raw => {carried = record(raw, identity); return {record: raw ?? null, value: undefined};});
+    let carried: NativeAnnotationRecord | undefined, snapshot: string | undefined;
+    await this.local.change(legacy, raw => {
+      if (!still()) throw new Error(RETIRED);
+      snapshot = raw == null ? undefined : JSON.stringify(raw);
+      carried = record(raw, identity);
+      return {record: raw ?? null, value: undefined};
+    });
     if (!carried) return;
+    let conflict = false;
     await this.local.change(key, raw => {
+      if (!still()) throw new Error(RETIRED);
       const existing = record(raw, identity);
       if (!existing) return {record: carried!, value: undefined};
       const groups = [...existing.groups];
       for (const group of carried!.groups) {
-        const at = groups.findIndex(value => JSON.stringify([value.source.itemId, value.source.sourceId, value.source.sourceRevision, value.source.format])
-          === JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]));
+        const wanted = JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]);
+        const at = groups.findIndex(value => JSON.stringify([value.source.itemId, value.source.sourceId, value.source.sourceRevision, value.source.format]) === wanted);
         if (at < 0) {groups.push(group); continue;}
         const operations = [...groups[at]!.operations];
-        for (const operation of group.operations) if (!operations.some(value => value.id === operation.id)) operations.push(operation);
+        for (const operation of group.operations) {
+          const same = operations.find(value => value.id === operation.id);
+          if (!same) {operations.push(operation); continue;}
+          // A different edit for the same id is not silently discarded: keep both stores as
+          // they are and report the conflict instead of clearing the legacy record.
+          if (same.observedAt !== operation.observedAt || JSON.stringify(same) !== JSON.stringify(operation)) conflict = true;
+        }
         groups[at] = {...groups[at]!, operations: Object.freeze(operations), cache: groups[at]!.cache ?? group.cache} as NativeAnnotationGroup;
       }
-      return {record: Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)}), value: undefined};
+      if (conflict) return {record: raw ?? null, value: undefined};
+      const merged = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)}) as NativeAnnotationRecord;
+      const total = groups.reduce((sum, value) => sum + value.operations.length, 0);
+      if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS || bytes(merged) > MAX_RECORD_BYTES)
+        throw new Error('native_annotation_journal_migration_overflow');
+      return {record: merged, value: undefined};
     });
-    // Only after the new record is durable does the legacy key go away.
-    await this.local.change(legacy, () => ({record: null, value: undefined}));
+    if (conflict) throw new Error('native_annotation_journal_migration_conflict');
+    if (snapshot !== undefined) {
+      await this.local.change(legacy, raw => {
+        if (!still()) throw new Error(RETIRED);
+        // Clear only the exact snapshot that was copied; a concurrent add/replacement stays.
+        return raw != null && JSON.stringify(raw) === snapshot ? {record: null, value: undefined} : {record: raw ?? null, value: undefined};
+      });
+    }
   }
   snapshot = async (identity: NativeAnnotationIdentity, assert?: () => void, signal?: AbortSignal): Promise<NativeAnnotationRecord | undefined> => {
     const ticket = this.store(identity);
@@ -383,19 +432,27 @@ export class NativeAnnotationJournal {
   };
   /** Persist that these operations were actually put on the wire. A transport failure after
    * this leaves the evidence that an absent entry may be a committed-then-deleted create. */
-  markAttempted = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, ids: readonly string[], assert?: () => void, signal?: AbortSignal): Promise<void> => {
-    if (!ids.length) return;
+  markAttempted = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource,
+    refs: readonly NativeAnnotationOperationRef[], assert?: () => void, signal?: AbortSignal): Promise<void> => {
+    if (!refs.length) return;
     const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
+    let changed = 0;
     const ticket = this.store(identity);
     await ticket.backend.change((current) => {
-      if (!current) return empty(identity);
+      if (!current) throw new Error('native_annotation_journal_attempt_missing');
       const groups = current.groups.map(group => {
         if (JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) !== wanted) return group;
-        const operations = group.operations.map(operation => ids.includes(operation.id) ? {...operation, attempted: true} as NativeAnnotationOperation : operation);
+        const operations = group.operations.map(operation => {
+          if (!refs.some(ref => ref.id === operation.id && ref.observedAt === operation.observedAt)) return operation;
+          changed++;
+          return {...operation, attempted: true} as NativeAnnotationOperation;
+        });
         return {...group, operations} as NativeAnnotationGroup;
       });
       return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
     }, assert, signal);
+    // The witness for every exact operation must be durable before any wire write.
+    if (changed !== refs.length) throw new Error('native_annotation_journal_attempt_missing');
   };
   /** The only operation that removes queued private records: an explicit discard. */
   discard = async (identity: NativeAnnotationIdentity, signal?: AbortSignal): Promise<void> => {
@@ -410,9 +467,14 @@ export class NativeAnnotationJournal {
       || next.baseComplete !== undefined && typeof next.baseComplete !== 'boolean'
       || next.attempted !== undefined && typeof next.attempted !== 'boolean') throw new Error('native_annotation_journal_invalid');
     if (!next.delete && annotationContent(next.content).id !== next.id) throw new Error('native_annotation_journal_invalid');
+    const witness = {
+      ...(next.attempted === true ? {attempted: true} : {}),
+      ...(next.baseFingerprint === undefined ? {} : {baseFingerprint: next.baseFingerprint}),
+      ...(next.baseComplete === undefined ? {} : {baseComplete: next.baseComplete}),
+    } as const;
     const operation: NativeAnnotationOperation = next.delete
-      ? Object.freeze({id: next.id, delete: true, observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt})
-      : Object.freeze({id: next.id, delete: false, content: annotationContent(next.content), observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt});
+      ? Object.freeze({id: next.id, delete: true, observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt, ...witness})
+      : Object.freeze({id: next.id, delete: false, content: annotationContent(next.content), observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt, ...witness});
     const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
     const ticket = this.store(identity);
     let revision = 0;

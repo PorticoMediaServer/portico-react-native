@@ -115,17 +115,25 @@ export class NativeAnnotationSync {
       && live.viewer.authority === identity.viewer.authority && live.viewer.serverId === identity.viewer.serverId
       && live.viewer.accountId === identity.viewer.accountId && live.viewer.profileId === identity.viewer.profileId;
   }
+  /** Read the whole bounded set, or fail: a page budget exhaustion is never treated as a
+   * complete set, and every page must share one revision with unique ids. */
   private async pages(session: ReadingSession, signal: AbortSignal): Promise<PageState> {
-    let cursor = '', revision: number | undefined, entries: ReadingAnnotation[] = [];
+    let cursor = '', revision: number | undefined, entries: ReadingAnnotation[] = [], exhausted = false;
+    const ids = new Set<string>();
     for (let page = 0; page < PAGE_LIMIT; page++) {
       if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
       const out = await session.annotations(cursor, cursor ? revision : undefined, signal);
+      if (revision !== undefined && out.revision !== revision) throw new ReadingError('invalid_document');
       revision = out.revision;
-      entries = [...entries, ...out.entries];
+      for (const entry of out.entries) {
+        if (ids.has(entry.id)) throw new ReadingError('invalid_document');
+        ids.add(entry.id); entries.push(entry);
+      }
       if (entries.length > SET_LIMIT) throw new ReadingError('invalid_document');
-      if (!out.nextCursor) break;
+      if (!out.nextCursor) {exhausted = true; break;}
       cursor = out.nextCursor;
     }
+    if (!exhausted) throw new ReadingError('invalid_document'); // Never present a page-budget subset as complete.
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
     return {revision: revision ?? 0, entries};
   }
@@ -164,54 +172,60 @@ export class NativeAnnotationSync {
       await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
       for (const operation of group.operations) {
         if (!this.fresh(identity, life) || signal.aborted) return true;
-        let decision = nativeAnnotationDecision(state, operation);
-        if (decision.kind === 'apply') {
-          const mutation = operation.delete
-            ? {operation: 'delete' as const, id: operation.id, expectedRevision: state.revision}
-            : {...operation.content!, operation: 'upsert' as const, expectedRevision: state.revision};
+        const settled = (outcome: NativeAnnotationResolution) =>
+          this.journal.resolve(identity, group.source, [outcome],
+            () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
+        const decision = nativeAnnotationDecision(state, operation);
+        if (decision.kind !== 'apply') {
+          await settled({id: operation.id, observedAt: operation.observedAt, ...decision});
+          continue;
+        }
+        const build = (revision: number) => operation.delete
+          ? {operation: 'delete' as const, id: operation.id, expectedRevision: revision}
+          : {...operation.content!, operation: 'upsert' as const, expectedRevision: revision};
+        const witness = () => this.journal.markAttempted(identity, group.source, [{id: operation.id, observedAt: operation.observedAt}],
+          () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
+        try {
+          if (!this.fresh(identity, life) || signal.aborted) return true; // Re-check after the page/cache awaits.
+          await witness(); // Durable evidence before any wire write.
+          if (!this.fresh(identity, life) || signal.aborted) return true;
+          const saved = await session.mutateAnnotation(build(state.revision), signal);
+          if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
+          await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'applied'});
+        } catch (error) {
+          if (cancelled(error, signal) || !this.fresh(identity, life)) return true;
+          if (!displaced(error)) {
+            if (retryable(error)) throw error;
+            await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved', reason: 'refused'});
+            continue;
+          }
+          // One fresh read may explain the displacement; the payload is unchanged.
+          state = await this.pages(session, signal);
+          const again = nativeAnnotationDecision(state, operation);
+          if (again.kind !== 'apply') {await settled({id: operation.id, observedAt: operation.observedAt, ...again}); continue;}
+          if (!this.fresh(identity, life) || signal.aborted) return true;
           try {
-            // Evidence first: if the answer is lost, the next pass must not assume the
-            // entry was never created.
-            // No mutation may go on the wire without the durable evidence that it did.
-            await this.journal.markAttempted(identity, group.source, [operation.id],
-              () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
-            const saved = await session.mutateAnnotation(mutation, signal);
+            await witness();
+            const saved = await session.mutateAnnotation(build(state.revision), signal);
             if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
-            state = await this.pages(session, signal);
-            await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
-            decision = {kind: 'resolved'};
-          } catch (error) {
-            if (cancelled(error, signal) || !this.fresh(identity, life)) return true;
-            if (displaced(error)) {
-              state = await this.pages(session, signal);
-              const again = nativeAnnotationDecision(state, operation);
-              if (again.kind !== 'apply') decision = again;
-              else {
-                const retry = operation.delete
-                  ? {operation: 'delete' as const, id: operation.id, expectedRevision: state.revision}
-                  : {...operation.content!, operation: 'upsert' as const, expectedRevision: state.revision};
-                try {
-                  await session.mutateAnnotation(retry, signal);
-                  state = await this.pages(session, signal);
-                  await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
-                  decision = {kind: 'resolved'};
-                } catch (second) {
-                  if (cancelled(second, signal) || !this.fresh(identity, life)) return true;
-                  if (retryable(second)) throw second;
-                  decision = {kind: 'unresolved', reason: displaced(second) ? 'conflict' : 'refused'};
-                }
-              }
-            } else if (retryable(error)) throw error;
-            else decision = {kind: 'unresolved', reason: 'refused'};
+            await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'applied'});
+          } catch (second) {
+            if (cancelled(second, signal) || !this.fresh(identity, life)) return true;
+            if (retryable(second)) throw second;
+            await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved',
+              reason: displaced(second) ? 'conflict' : 'refused'});
+            continue;
           }
         }
-        if (decision.kind !== 'apply' && this.fresh(identity, life)) {
-          await this.journal.resolve(identity, group.source, [{id: operation.id, observedAt: operation.observedAt, ...decision}],
-            () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
-        }
+        // The operation is settled; a failed refresh stops the pass (remaining ops stay queued)
+        // but never un-settles a mutation the server already accepted.
+        try {
+          state = await this.pages(session, signal);
+          await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
+        } catch {return true;}
       }
     } catch (error) {
-      if (this.fresh(identity, life) && !signal.aborted && error instanceof ReadingError && (error.code === 'not_permitted' || error.code === 'invalid_document')) {
+      if (this.fresh(identity, life) && !signal.aborted && error instanceof ReadingError && error.code === 'not_permitted') {
         await mark('refused'); return false;
       }
       if (this.fresh(identity, life) && !signal.aborted) this.publish({...this.state, phase: 'error', error}, life);
@@ -244,8 +258,11 @@ export class NativeAnnotationSync {
         const remaining = await this.journal.list(nativeAnnotationIdentity(identity.viewer), life.signal);
         this.publish({phase: 'idle', ...nativeAnnotationJournalCounts(remaining)}, life);
       } catch (error) {
-        const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer)).catch(() => []);
-        this.publish({phase: 'error', ...nativeAnnotationJournalCounts(groups), error}, life);
+        // Never read the journal again after retirement without the same life/ticket: keep the
+        // last honest counts when that read cannot be proven current.
+        const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer), life.signal).catch(() => undefined);
+        this.publish({phase: 'error', ...(groups ? nativeAnnotationJournalCounts(groups)
+          : {queued: this.state.queued, unresolved: this.state.unresolved}), ...(error ? {error} : {})}, life);
       }
     })().finally(() => {if (this.running === run) this.running = undefined;});
     this.running = run;
