@@ -2,7 +2,7 @@ import {readingHighlightsSavePort} from '../../platform/reading-highlights-save'
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
-import {createReadingHost, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
+import {createReadingHost, preferenceValue, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
 import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {nativeRouteCrypto} from '../../platform/server-connections';
@@ -100,7 +100,14 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         await downloads.device.open(); if (!current()) throw new Error('reading_retired');
         const entry = offlineDownloads.getSnapshot().entries.find(value => value.id === target.downloadId && value.itemId === target.itemId);
         if (!entry || offlineDownloads.publicationSource(entry).sourceId !== target.sourceId) throw new Error('reading_unavailable');
-        session = await offlineDownloads.readingSession(entry, {signal: life.signal, current, paused: () => preferences.getSnapshot().values['privacy.pauseWatchHistory'] === true});
+        // This is a write gate, not a claimed user setting: only the server's real
+        // published value (or its own registry default) of boolean false permits an
+        // offline progress write. A missing, non-boolean or unreadable preference
+        // withholds it rather than assuming permission.
+        const paused = () => {
+          try {return preferenceValue(preferences.getSnapshot(), 'privacy.pauseWatchHistory') !== false;} catch {return true;}
+        };
+        session = await offlineDownloads.readingSession(entry, {signal: life.signal, current, paused});
       } else {
         if (!client) throw new Error('reading_unavailable');
         const versions = await client.versions(target.itemId, life.signal);
