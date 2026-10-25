@@ -78,6 +78,21 @@ internal object PorticoDownloadCenter {
   private val transfers = Executors.newFixedThreadPool(2) { Thread(it, "portico-download-transfer") }
   private val fileWork = PorticoDownloadWork(transfers)
   private val entries = HashMap<String, MutableMap<String, Any?>>()
+  // Process-local identities only. These never enter `entries` or the manifest.
+  internal class PublicationGeneration(val entry: MutableMap<String, Any?>, val value: String = java.util.UUID.randomUUID().toString()) { var retired = false }
+  internal class PublicationStateTicket(val id: String, val generation: PublicationGeneration, val fields: List<String>)
+  internal class PublicationStateRegistry {
+    internal val tickets = HashMap<String, PublicationStateTicket>()
+    internal val used = HashSet<String>()
+    internal var closed = false
+  }
+  private val publicationGenerations = HashMap<String, PublicationGeneration>()
+  private fun retirePublicationGeneration(id: String) { publicationGenerations.remove(id)?.retired = true }
+  private fun publicationGeneration(id: String, entry: MutableMap<String, Any?>): String {
+    val prior = publicationGenerations[id]
+    if (prior != null && !prior.retired && prior.entry === entry) return prior.value
+    return PublicationGeneration(entry).also { publicationGenerations[id] = it }.value
+  }
   private val active = HashMap<String, Transfer>()
   private val lastEmit = HashMap<String, Long>()
   private var attempts = 0.0
@@ -157,6 +172,7 @@ internal object PorticoDownloadCenter {
   private fun published(id: String, entry: Map<String, Any?>): Map<String, Any?> {
     val copy = HashMap(entry)
     copy["dir"] = android.net.Uri.fromFile(directory(id)).toString() + "/"
+    copy["publicationGeneration"] = publicationGeneration(id, entries.getValue(id))
     // The address is a credential: it is used here and never handed back.
     copy.remove("grantUrl")
     return copy
@@ -181,6 +197,7 @@ internal object PorticoDownloadCenter {
     id!!
     val entry = entries[id] ?: HashMap()
     if (entry["state"] == "ready") return published(id, entry)
+    retirePublicationGeneration(id)
     // Continue and retry both arrive here: an earlier transfer for the same download ends first.
     active.remove(id)?.let { it.stopped = "superseded"; it.call?.cancel() }
     // What is already on the device belongs to one exact file. It is continued under any address
@@ -308,6 +325,7 @@ internal object PorticoDownloadCenter {
     val folder = directory(id)
     val removed = File(root(), ".$id-${java.util.UUID.randomUUID()}.removed")
     if (folder.exists() && !folder.renameTo(removed)) return false
+    retirePublicationGeneration(id)
     active.remove(id)?.let { it.stopped = "removed"; it.call?.cancel() }
     entries.remove(id)
     // Removing and immediately downloading again uses the same directory. Removal belongs
@@ -324,6 +342,7 @@ internal object PorticoDownloadCenter {
     val entry = entries[id] ?: return "not_found"
     if (meta == null || meta.length >= 65536) return "too_large"
     val previous = entry["meta"]
+    if (previous != meta) retirePublicationGeneration(id!!)
     entry["meta"] = meta
     if (!save()) { if (previous != null) entry["meta"] = previous else entry.remove("meta"); return "write_failed" }
     changed(id!!, true)
@@ -339,6 +358,7 @@ internal object PorticoDownloadCenter {
     for ((id, meta) in metas) {
       val entry = entries[id] ?: continue
       previous[id] = entry["meta"]
+      if (entry["meta"] != meta) retirePublicationGeneration(id)
       entry["meta"] = meta
     }
     if (!save()) {
@@ -352,14 +372,90 @@ internal object PorticoDownloadCenter {
   // --- what travels with a download: its description, artwork and subtitles -------------------
 
   private fun extra(id: String?, name: String?): File? {
-    if (!safeIdentifier(id) || entries[id] == null || name == null || !EXTRA.matches(name)) return null
+    if (!safeIdentifier(id) || entries[id] == null || name == null || name.startsWith("reader-state-") || !EXTRA.matches(name)) return null
     return File(File(directory(id!!), "extras"), name)
+  }
+
+  /** All state ticket operations run on `work`, including close/invalidate and the final rename.
+   * This is equality/custody, not new receipt verification or offline admission. */
+  private fun publicationStateFields(entry: Map<String, Any?>): List<String>? = try {
+    val meta = PorticoListeningOwner.parse((entry["meta"] as String).toByteArray(Charsets.UTF_8)) as Map<*, *>
+    val receipt = meta["receipt"] as Map<*, *>
+    val claims = receipt["claims"] as Map<*, *>
+    val publication = claims["publication"] as Map<*, *>
+    val artifact = claims["artifact"] as Map<*, *>
+    val bytes = PorticoMpvSupport.integer(entry["bytes"]) ?: error("state_identity")
+    check(claims["itemId"] == entry["itemId"] && artifact["sha256"] == entry["sha256"] && PorticoMpvSupport.integer(artifact["bytes"]) == bytes)
+    listOf(entry["itemId"], meta["owner"], entry["sha256"], bytes.toString(), receipt["keyId"], receipt["payload"], receipt["signature"],
+      publication["sourceId"], publication["revision"], publication["format"], publication["documentSha256"]).map { (it as String).also { value -> check(value.isNotEmpty()) } }
+  } catch (_: Exception) { null }
+
+  fun publicationStateInvalidate(registry: PublicationStateRegistry) {
+    registry.closed = true; registry.tickets.clear(); registry.used.clear()
+  }
+  fun publicationStateClose(registry: PublicationStateRegistry, handle: String?) {
+    if (registry.closed || handle == null || !handle.matches(Regex("[A-Za-z0-9_-]{8,128}"))) return
+    if (registry.used.size >= 4096 && !registry.used.contains(handle)) { publicationStateInvalidate(registry); return }
+    registry.used.add(handle); registry.tickets.remove(handle)
+  }
+  fun publicationStateOpen(registry: PublicationStateRegistry, handle: String?, id: String?, generation: String?, expected: String?): Boolean {
+    if (registry.closed || handle == null || !handle.matches(Regex("[A-Za-z0-9_-]{8,128}")) || registry.used.contains(handle)) return false
+    if (registry.used.size >= 4096) { publicationStateInvalidate(registry); return false }
+    registry.used.add(handle) // Includes failed opens: this original handle can never adopt a successor.
+    if (registry.tickets.size >= 8 || id == null || !safeIdentifier(id) || expected == null || expected.toByteArray(Charsets.UTF_8).size > 65536) return false
+    val original = publicationGenerations[id] ?: return false
+    val entry = entries[id] ?: return false
+    val fields = publicationStateFields(entry) ?: return false
+    val captured = try { PorticoListeningOwner.parse(expected.toByteArray(Charsets.UTF_8)) as? List<*> } catch (_: Exception) { null }
+    if (original.retired || original.entry !== entry || original.value != generation || entry["state"] != "ready" || captured != fields) return false
+    registry.tickets[handle] = PublicationStateTicket(id, original, fields)
+    return true
+  }
+  private fun publicationStateTicket(registry: PublicationStateRegistry, handle: String, name: String): PublicationStateTicket {
+    check(!registry.closed && name.matches(Regex("reader-state-[A-Za-z0-9_-]{1,64}\\.json")))
+    val ticket = registry.tickets[handle] ?: error("reading_retired")
+    val entry = entries[ticket.id] ?: error("reading_retired")
+    check(!ticket.generation.retired && entry === ticket.generation.entry && publicationGenerations[ticket.id] === ticket.generation && entry["state"] == "ready" && publicationStateFields(entry) == ticket.fields)
+    return ticket
+  }
+  fun publicationStateRead(registry: PublicationStateRegistry, handle: String, name: String): String {
+    val ticket = publicationStateTicket(registry, handle, name)
+    val file = File(File(directory(ticket.id), "extras"), name)
+    val stat = try { android.system.Os.lstat(file.path) } catch (error: android.system.ErrnoException) {
+      if (error.errno == android.system.OsConstants.ENOENT) return "" else throw error
+    }
+    check(android.system.OsConstants.S_ISREG(stat.st_mode) && stat.st_size in 0L..1048576L)
+    val bytes = java.io.FileInputStream(file).use { input ->
+      val out = ByteArray(stat.st_size.toInt()); var offset = 0
+      while (offset < out.size) { val count = input.read(out, offset, out.size - offset); check(count > 0); offset += count }
+      check(input.read() == -1); out
+    }
+    return Charsets.UTF_8.newDecoder()
+      .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+      .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+      .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+  }
+  fun publicationStateWrite(registry: PublicationStateRegistry, handle: String, name: String, json: String) {
+    val ticket = publicationStateTicket(registry, handle, name)
+    val bytes = json.toByteArray(Charsets.UTF_8)
+    check(bytes.size <= 1048576)
+    val parser = org.json.JSONTokener(json); parser.nextValue(); check(parser.nextClean() == '\u0000')
+    val file = File(File(directory(ticket.id), "extras"), name)
+    val holding = File(file.path + "." + java.util.UUID.randomUUID() + ".tmp")
+    try {
+      check(file.parentFile?.isDirectory == true || file.parentFile?.mkdirs() == true)
+      FileOutputStream(holding).use { it.write(bytes); it.fd.sync() }
+      // No hop to fileWork/transfer/IO executors between this proof and the atomic rename.
+      check(publicationStateTicket(registry, handle, name) === ticket)
+      check(holding.renameTo(file))
+    } finally { holding.delete() } // Only this invocation's scratch; never the person's record.
   }
 
   /** Writes one small text file beside the download. False when it could not be kept. */
   fun writeExtra(id: String?, name: String?, text: String?): Boolean {
     val file = extra(id, name) ?: return false
     if (text == null || text.length > MAX_EXTRA) return false
+    if (name == "publication.json") retirePublicationGeneration(id!!)
     return try {
       file.parentFile?.mkdirs()
       val holding = File(file.path + ".tmp")
@@ -417,6 +513,7 @@ internal object PorticoDownloadCenter {
       post {
         // An old fetch must neither overwrite a newer extra nor remove a replacement download.
         val current = entries[id] === entry && extraAttempts[key] === attempt
+        if (current && outcome == "saved" && name == "publication.json") retirePublicationGeneration(id!!)
         if (extraAttempts[key] === attempt) extraAttempts.remove(key)
         val result = if (!current) "later" else if (outcome == "saved" && !holding.renameTo(file)) "later" else outcome
         holding.delete()
@@ -581,6 +678,7 @@ internal object PorticoDownloadCenter {
   private fun finish(id: String, transfer: Transfer, part: File, failure: String?, digest: String) {
     val entry = accepts(id, transfer) ?: return
     active.remove(id)
+    retirePublicationGeneration(id)
     var error = failure
     if (error == null) {
       if (digest != transfer.digest || part.length() != transfer.bytes) error = "verification_failed"
