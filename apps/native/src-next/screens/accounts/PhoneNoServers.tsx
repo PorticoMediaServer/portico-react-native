@@ -12,8 +12,8 @@ const alwaysCurrent = () => true;
 const ownerCurrent = (current: () => boolean) => {try {return current();} catch {return false;}};
 
 /** Empty directory only: discovery and invitation entry still prove their server. */
-export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin, onSettings, username, isCurrent = alwaysCurrent, notice}: {
-  busy: boolean; error?: React.ReactNode; notice?: Readonly<{title: string; body: string}>; isCurrent?: () => boolean; onSettings?: () => void; username?: string; onFind: () => void; onRefresh: () => void;
+export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin, onSettings, onDownloads, username, isCurrent = alwaysCurrent, notice}: {
+  busy: boolean; error?: React.ReactNode; notice?: Readonly<{title: string; body: string}>; isCurrent?: () => boolean; onSettings?: () => void; onDownloads?: () => void; username?: string; onFind: () => void; onRefresh: () => void;
   onJoin: (invitation: string, address: string) => void; onShare: () => void; onSignOut: () => void; onBack?: () => void;
 }) {
   const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
@@ -59,6 +59,7 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{notice?.body ?? t('web.chooser.noneBody')}</Text>
         {error}
       </View>
+      {onDownloads && <Button variant="glass" disabled={busy} onPress={onDownloads}>{t('downloads.title')}</Button>}
       {onSettings && <Button variant="text" disabled={busy} onPress={onSettings}>{username ? username + " · " + t('settings.title') : t('settings.title')}</Button>}
       <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
         <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('web.directJoin.title')}</Text>

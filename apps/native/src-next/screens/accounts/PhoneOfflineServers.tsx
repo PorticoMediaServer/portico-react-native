@@ -8,9 +8,9 @@ import {nativeType, useTheme} from '../../kit/theme';
 import type {DirectoryRow} from './directory-chooser';
 
 /** Presentation only: shared committed directory opening owns every command. */
-export function PhoneOfflineServers({rows, busy, activeId, retryIn, username, onRetry, onSettings, onJoin, onFind, onRefresh, onBack}: {
+export function PhoneOfflineServers({rows, busy, activeId, retryIn, username, onDownloads, onRetry, onSettings, onJoin, onFind, onRefresh, onBack}: {
   rows: readonly DirectoryRow[]; busy: boolean; activeId?: string; retryIn?: number; username?: string;
-  onRetry: (id: string) => void; onSettings?: () => void; onJoin?: () => void; onFind?: () => void; onRefresh: () => void; onBack: () => void;
+  onDownloads?: () => void; onRetry: (id: string) => void; onSettings?: () => void; onJoin?: () => void; onFind?: () => void; onRefresh: () => void; onBack: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   return <View testID="phone-offline-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -27,6 +27,7 @@ export function PhoneOfflineServers({rows, busy, activeId, retryIn, username, on
       </View>)}
       {retryIn !== undefined && !busy && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.chooser.checkingAgain', {seconds: retryIn})}</Text>}
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('accounts.tvOffline.help')}</Text>
+      {onDownloads && <Button variant="glass" disabled={busy} onPress={onDownloads}>{t('downloads.title')}</Button>}
       {onSettings && <Button variant="glass" disabled={busy} onPress={onSettings}>{t('settings.row.porticoAccount')}</Button>}
       {onJoin && <Button variant="glass" disabled={busy} onPress={onJoin}>{t('services.start.join')}</Button>}
       {onFind && <Button variant="glass" disabled={busy} onPress={onFind}>{t('connection.discovery.find')}</Button>}

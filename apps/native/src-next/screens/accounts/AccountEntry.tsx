@@ -34,6 +34,7 @@ import type {ResetFileLocation} from '../../../../../packages/client-core/src/ac
 import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneNoServers} from './PhoneNoServers';
+import type {AccountDownloadsEntry} from './downloads-entry-model';
 import {PhoneAccountWorkspace} from './PhoneAccountWorkspace';
 import {NativeAccountWorkspace} from '../../platform/account-workspace';
 import {TVNoServers} from './TVNoServers';
@@ -58,7 +59,7 @@ const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
-export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
+export function AccountEntry({downloads, onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {downloads?: AccountDownloadsEntry; onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
   const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
@@ -123,6 +124,17 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace; createSource?: () => NativeAccountWorkspace};
   const accountWorkspace = useRef<WorkspaceOpening | undefined>(undefined);
   const retireAccountWorkspace = () => {const ticket = accountWorkspace.current; accountWorkspace.current = undefined; if (ticket) {ticket.active = false; ticket.source?.dispose();}};
+  type DownloadsOpening = {source: AccountDownloadsEntry; active: boolean};
+  const downloadsOwner = useRef<DownloadsOpening | undefined>(undefined), [downloadValue, setDownloadValue] = useState<{opening: DownloadsOpening; available: boolean}>();
+  if (downloadsOwner.current?.source !== downloads && downloadsOwner.current) downloadsOwner.current.active = false;
+  useLayoutEffect(() => {
+    if (!downloads) {setDownloadValue(undefined); return;}
+    const opening: DownloadsOpening = {source: downloads, active: true}; downloadsOwner.current = opening;
+    const update = () => {if (!opening.active || downloadsOwner.current !== opening) return;
+      const available = downloads.current() && downloads.getSnapshot().available; setDownloadValue({opening, available});};
+    const off = downloads.subscribe(update); update();
+    return () => {opening.active = false; if (downloadsOwner.current === opening) downloadsOwner.current = undefined; off();};
+  }, [downloads]);
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
   const acting = useRef(false), adoptingTV = useRef(false);
   useLayoutEffect(() => {
@@ -1040,7 +1052,13 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && directoryAttempt.current === attempt && accountScope.current === scope
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope.familyId;
-    return <TVOfflineServers username={nativeAccounts.accountCredentials().getSnapshot().session?.account.username}
+    const capturedDownload = downloadValue?.opening;
+    const openDownloads = () => {
+      if (!current() || busyRef.current || !downloadValue?.available || !capturedDownload?.active || downloadsOwner.current !== capturedDownload
+        || capturedDownload.source !== downloads || !capturedDownload.source.current() || !capturedDownload.source.getSnapshot().available) return;
+      capturedDownload.source.open();
+    };
+    return <TVOfflineServers onDownloads={!!capturedDownload && capturedDownload.source === downloads && capturedDownload.active && downloadValue?.available && downloads?.current() ? openDownloads : undefined} username={nativeAccounts.accountCredentials().getSnapshot().session?.account.username}
       onSettings={() => openAccountWorkspace(scope, current)}
       onJoin={() => {if (current() && !busyRef.current) openInvitationEntry();}}
       onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
@@ -1081,8 +1099,15 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
     const notice = (singleTVFailure || singlePhoneRefusal) && capturedTarget
       ? {title: t('web.chooser.refusedTitle', {server: capturedTarget.name}), body: t('web.chooser.refusedBody')} : undefined;
+    const capturedDownload = downloadValue?.opening;
+    const openDownloads = () => {
+      if (!current() || busyRef.current || !downloadValue?.available || !capturedDownload?.active || downloadsOwner.current !== capturedDownload
+        || capturedDownload.source !== downloads || !capturedDownload.source.current() || !capturedDownload.source.getSnapshot().available) return;
+      capturedDownload.source.open();
+    };
     const EmptyDirectory = Platform.isTV ? TVNoServers : PhoneNoServers;
-    return <EmptyDirectory {...(!Platform.isTV ? {username: nativeAccounts.accountCredentials().getSnapshot().session?.account.username,
+    return <EmptyDirectory {...(!Platform.isTV ? {onDownloads: !!capturedDownload && capturedDownload.source === downloads && capturedDownload.active && downloadValue?.available && downloads?.current() ? openDownloads : undefined,
+      username: nativeAccounts.accountCredentials().getSnapshot().session?.account.username,
       onSettings: () => openAccountWorkspace(scope, current)} : {})} isCurrent={current} notice={notice} busy={busy} error={notice ? undefined : status} onBack={() => {if (current()) back();}}
       onJoin={(raw, origin) => {
         if (!current() || busyRef.current || acting.current) return;
