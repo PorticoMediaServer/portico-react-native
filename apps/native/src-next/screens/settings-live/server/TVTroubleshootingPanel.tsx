@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 import {routePath} from '../../../../../../packages/contracts/src/routes';
-import {parseLogPage, type LogRecord} from '../../../../../../packages/client-core/src/server-administration';
+import {parseAdminServerEvents, parseLogPage, type AdminServerEvent, type AdminServerEventCode, type LogRecord} from '../../../../../../packages/client-core/src/server-administration';
 import type {MessageId} from '../../../../../../packages/i18n/src';
 import {Focusable} from '../../../kit/controls';
 import {shellType} from '../../../kit/shell/visual';
@@ -11,7 +11,6 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeScreenLifetime} from '../lifetime';
 import type {NativeSettingsLivePorts} from '../ports';
 import {createTVServerReader} from './tv-server-reader';
-import {parseAdminServerEvents, type AdminServerEvent, type AdminServerEventCode} from './tv-admin-events';
 
 const latest = 8;
 

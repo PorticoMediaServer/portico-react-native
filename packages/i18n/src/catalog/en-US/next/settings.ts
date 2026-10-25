@@ -1,4 +1,7 @@
 export const settingsMessages = {
+  'next.settings.appLog.empty': 'No recent app log entries to send.',
+  'next.settings.appLog.recipient': 'Recipient: {owner}',
+  'next.settings.appLog.sent': 'The app log was sent to {owner}.',
   'next.shell.switchToLocalSignIn': 'Switch to local sign-in',
   'next.settings.backup.protectTitle': 'Backup passphrase',
   'next.settings.backup.changeTitle': 'Change backup passphrase',
@@ -116,21 +119,22 @@ export const settingsMessages = {
   'next.tvPeople.monthsAgo': '{count, plural, one {# month ago} other {# months ago}}',
   // TV Troubleshooting, the administrator's page (Root §27): the latest eligible
   // maintenance events, one reviewed sentence each. Nothing here is built from a
-  // server message or from any field of a record.
+  // server message or from any field of a record. A control code says the action
+  // was accepted, never that the work behind it finished.
   'next.tvTroubleshooting.title': 'Recent server events',
   'next.tvTroubleshooting.empty': 'No server events to show.',
   'next.tvTroubleshooting.alertAcknowledge': 'An alert was acknowledged.',
   'next.tvTroubleshooting.downloadSettings': 'Download settings were changed.',
-  'next.tvTroubleshooting.jobCancel': 'A background task was cancelled.',
-  'next.tvTroubleshooting.jobPause': 'A background task was paused.',
-  'next.tvTroubleshooting.jobResume': 'A background task resumed.',
-  'next.tvTroubleshooting.jobRetry': 'A background task was retried.',
-  'next.tvTroubleshooting.optimizationCancel': 'A prepared version was cancelled.',
-  'next.tvTroubleshooting.optimizationDelete': 'A prepared version was deleted.',
-  'next.tvTroubleshooting.optimizationRequest': 'A version was prepared.',
-  'next.tvTroubleshooting.optimizationRetry': 'Preparing a version was retried.',
-  'next.tvTroubleshooting.scheduleApply': 'A schedule was applied.',
-  'next.tvTroubleshooting.settingsApply': 'Server settings were applied.',
+  'next.tvTroubleshooting.jobCancel': 'Cancelling a background task was requested.',
+  'next.tvTroubleshooting.jobPause': 'Pausing a background task was requested.',
+  'next.tvTroubleshooting.jobResume': 'Resuming a background task was requested.',
+  'next.tvTroubleshooting.jobRetry': 'A background task was asked to run again.',
+  'next.tvTroubleshooting.optimizationCancel': 'Cancelling a prepared version was requested.',
+  'next.tvTroubleshooting.optimizationDelete': 'Deleting a prepared version was requested.',
+  'next.tvTroubleshooting.optimizationRequest': 'A prepared version was requested.',
+  'next.tvTroubleshooting.optimizationRetry': 'Preparing a version was asked to run again.',
+  'next.tvTroubleshooting.scheduleApply': 'A schedule was changed.',
+  'next.tvTroubleshooting.settingsApply': 'Server settings were changed.',
   'next.settings.peopleTotal': '{total, plural, one {# person} other {# people}}',
   'next.settings.people.inviteTitle': 'Invite someone',
   'next.settings.people.role': 'Role',

@@ -11,6 +11,8 @@
  */
 import {nextMessages} from './en-US/next/index.ts';
 import {musicMixMessages} from './en-US/music-mixes.ts';
+import {musicMetadataMessages} from './en-US/music-metadata.ts';
+import {remoteAccessMessages} from './en-US/remote-access.ts';
 import {webMessages} from './en-US/web.ts';
 import {channelMessages} from './en-US/channels.ts';
 import {preferenceMessages} from './en-US/preferences.ts';
@@ -29,6 +31,8 @@ import {liveOwnerMessages} from './en-US/live-owner.ts';
 import {savedViewSummaryMessages} from './en-US/saved-view.ts';
 
 export const enUS = {
+  ...remoteAccessMessages,
+  ...musicMetadataMessages,
   // Player engine facts shown by the shared player; keep their existing wording.
   "playback.engine.rateUnavailable": "This speed is unavailable for this media. Choose a supported speed, then press Play.",
   "playback.engine.seekUnavailable": "That position is not available yet. Try seeking again.",
@@ -1279,6 +1283,13 @@ export const enUS = {
   'notice.recordingConflict.liveLate.body': '{title} started late because every tuner was being used to watch live TV. The start of the program is missing.',
   'notice.recordingConflict.liveFailed.title': 'Recording did not start',
   'notice.recordingConflict.liveFailed.body': 'Portico could not record {title} because every tuner was being used to watch live TV.',
+  // Preparation is server-side readiness to transfer, never device completion (ruling 33).
+  // The inbox cannot reproject later restrictions, so its generic label stays restriction-free.
+  'notice.download.genericTitle': 'Your download',
+  'notice.download.prepared.title': 'Ready to save',
+  'notice.download.prepared.body': '{title} is ready to save to your device.',
+  'notice.download.preparationFailed.title': 'Preparation failed',
+  'notice.download.preparationFailed.body': '{title} could not be prepared for download.',
 
   // ── Server console ───────────────────────────────────────────────
   'server.messageEveryone': 'Message everyone',
