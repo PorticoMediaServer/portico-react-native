@@ -18,7 +18,8 @@ class FakeSavedService {
   disposed = false;
   committed: string[] = [];
   snapshot: any = {phase: 'idle', projection: null, playlist: null, error: null, lastFailure: undefined};
-  constructor(public options: any) {FakeSavedService.instances.push(this);}
+  options: any;
+  constructor(options: any) {this.options = options; FakeSavedService.instances.push(this);}
   subscribe = () => () => {};
   select = async (route: any) => {
     this.route = route;

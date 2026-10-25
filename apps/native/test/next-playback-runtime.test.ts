@@ -25,6 +25,9 @@ import {committedInfo, infoWords} from './helpers/playback-info.ts';
 import type {ObservedPlayback} from '../../../packages/client-core/src/playback-v1/observed-playback.ts';
 import type {PlaybackInfoWords} from '../../../packages/client-core/src/playback-info-projection.ts';
 
+// React Native supplies this compile-time flag; the Node fixture has no RN bootstrap.
+Object.assign(globalThis, {__DEV__: false});
+
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
 const versionLifetime = (isCurrent: () => boolean = () => true) => ({signal: new AbortController().signal, isCurrent});
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
