@@ -24,13 +24,17 @@ import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHa
 import {TVIdentityCodeForm} from '../../tv/auth/TVIdentityCodeForm';
 import type {NativeProfileRecovery} from '../../platform/profile-recovery';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
+import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
+import {PhoneMovePassword} from './PhoneMovePassword';
 import {DirectoryAccessRefused} from './DirectoryAccessRefused';
 import {directoryAccessRefused, directoryClockSkew, directoryIdentityUnconfirmed} from './directory-refusal';
 import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
-export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
+export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move';
+type MemberMove = Awaited<ReturnType<NativeServerSignIn['createMemberMove']>>;
+type MemberMoveSnapshot = ReturnType<MemberMove['getSnapshot']>;
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
 type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
 type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'} | RequiredSetup;
@@ -50,6 +54,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
   const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'failed'>('idle');
+  const [memberMove, setMemberMove] = useState<MemberMove>(), [moveSnapshot, setMoveSnapshot] = useState<MemberMoveSnapshot>();
+  const memberMoveRef = useRef<MemberMove | undefined>(undefined), memberOperation = useRef<NativeServerSignIn | undefined>(undefined), memberFactorOperation = useRef<NativeServerSignIn | undefined>(undefined);
+  const stopMemberMove = () => {memberMoveRef.current?.dispose(); memberMoveRef.current = undefined; memberOperation.current = undefined; setMemberMove(undefined); setMoveSnapshot(undefined);};
+  useEffect(() => {if (!memberMove) return; const publish = () => setMoveSnapshot(memberMove.getSnapshot()); publish(); return memberMove.subscribe(publish);}, [memberMove]);
   const [pinRecovery, setPinRecovery] = useState<PINRecovery>();
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
   const lifetime = useRef(true), directoryAttempt = useRef(0), retryDelay = useRef(20), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
@@ -71,7 +79,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
-  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; memberMoveRef.current?.dispose(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) stopRetry(); setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useEffect(() => {
     if (stage !== 'address') return;
@@ -106,11 +114,12 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
+    if (stage === 'member-move') {stopMemberMove(); setStage('uses-portico'); return;}
     if (pinRecoveryRef.current) {retireRecovery(); setCode(''); return;}
     if (stage === 'servers' && target) {cancelDirectory(); return;}
     if (stage === 'profile-forgot-pin') {setCode(''); setError(undefined); setStage('profile-pin'); return;}
@@ -146,7 +155,19 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     else if (result.kind === 'challenge') {factorKind.current = 'local'; setCode(''); setRecovery(false); setStage('factor');}
     else onComplete();
   };
+  useEffect(() => {
+    if (stage !== 'member-move' || !memberMove || moveSnapshot?.phase !== 'adopted'
+      || moveSnapshot.result?.kind !== 'challenge' || memberOperation.current !== operation.current) return;
+    const result = memberMove.takeAcceptedResult();
+    if (result?.kind === 'challenge') {memberFactorOperation.current = operation.current; consume(result);}
+  }, [stage, memberMove, moveSnapshot]);
   const directory = async () => {
+    const move = memberMoveRef.current;
+    if (move && memberOperation.current === operation.current && move.getSnapshot().phase === 'portico') {
+      await move.redeemPortico();
+      if (lifetime.current && memberMoveRef.current === move && memberOperation.current === operation.current) setStage('member-move');
+      return;
+    }
     const attempt = ++directoryAttempt.current;
     const credentials = nativeAccounts.accountCredentials(), session = await credentials.accessSession();
     const current = () => {
@@ -223,6 +244,31 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     if (Platform.isTV) return startTV('portico');
     account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
     const available = await next.prepare(); if (lifetime.current) {setOptions(available); setStage('portico');}
+  };
+  const beginMemberMove = async () => {
+    const source = operation.current;
+    if (!source || !server || server.move !== 'to_portico' || Platform.isTV) return;
+    stopMemberMove();
+    const move = await source.createMemberMove('password');
+    if (!lifetime.current || operation.current !== source) {move.dispose(); return;}
+    memberMoveRef.current = move; memberOperation.current = source;
+    setMemberMove(move); setMoveSnapshot(move.getSnapshot()); setStage('member-move');
+  };
+  const createMoveAccount = async () => {
+    const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
+    if (!lifetime.current || !memberMoveRef.current) return;
+    const existing = credentials.getSnapshot().session;
+    if (existing) {accountScope.current = {accountId: existing.account.id, familyId: existing.familyId}; setStage('account-sign-out'); return;}
+    account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
+    const available = await next.prepare();
+    if (lifetime.current && account.current === next && memberMoveRef.current) {setOptions(available); setStage('register');}
+  };
+  const differentMoveAccount = async () => {
+    const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
+    if (!lifetime.current || !memberMoveRef.current) return;
+    const signedIn = credentials.getSnapshot().session;
+    if (signedIn) {accountScope.current = {accountId: signedIn.account.id, familyId: signedIn.familyId}; setStage('account-sign-out');}
+    else {memberMoveRef.current.cancel(); setStage('member-move');}
   };
   const requestReset = async () => {
     await account.current!.forgot(username, email);
@@ -324,7 +370,18 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
       {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}</Button>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}</View>);
-  if (stage === 'uses-portico') return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico));
+  if (stage === 'uses-portico') return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico),
+    !Platform.isTV && server?.move === 'to_portico' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberMove);}}>{t('accounts.move.oldPasswordAction')}</Button>);
+  if (stage === 'member-move' && memberMove && moveSnapshot && memberOperation.current === operation.current) {
+    if (moveSnapshot.phase === 'password') return <PhoneMovePassword controller={memberMove} serverName={server!.name} onBack={back}/>;
+    if (moveSnapshot.phase === 'portico') return <PhoneAccountMoveNotice busy={busy || moveSnapshot.busy} state={{kind: 'to-portico', serverName: server!.name,
+      onContinue: () => {void run(portico);}, onCreateAccount: () => {void run(createMoveAccount);}}}/>;
+    if (moveSnapshot.phase === 'collision' && moveSnapshot.collision) return <PhoneAccountMoveNotice busy={busy || moveSnapshot.busy}
+      state={{kind: 'collision', details: moveSnapshot.collision, onDifferentAccount: () => {void run(differentMoveAccount);}, onBack: back}}/>;
+    if (moveSnapshot.phase === 'adopted' && moveSnapshot.result && moveSnapshot.result.kind !== 'challenge') return <PhoneAccountMoveNotice state={{kind: 'linked', onChooseProfile: () => {
+      const result = memberMove.takeAcceptedResult(); if (!result || memberOperation.current !== operation.current) return; stopMemberMove(); consume(result);
+    }}}/>;
+  }
   if (stage === 'identity-code' && Platform.isTV) return <TVIdentityCodeForm server={identityAddress} code={identityCode} wrong={identityWrong} busy={busy}
     onChange={value => {setIdentityCode(value); setIdentityWrong(false);}} onSubmit={value => {void run(() => confirmCode(value));}}/>;
   if (stage === 'identity-code') return <StateLayout testID="accounts-identity-code" title={t('connection.identity.checkTitle', {server: identityAddress})} body={t('connection.identity.checkBody')}
@@ -340,7 +397,9 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
     <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>);
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
-    if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else consume(await operation.current!.completeSecondFactor(code));
+    if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
+      const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);
+    } else consume(await operation.current!.completeSecondFactor(code));
     setCode('');
   }, !code));
   if (stage === 'portico') return layout(t('accounts.signIn.portico'), t('auth.accountLead'), options?.password ? fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')) : undefined,
