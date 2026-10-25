@@ -130,19 +130,24 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   }
 
   async attachFolder(source: RemoteSource, libraryId: string, folder: Pick<RemoteFolder, 'name' | 'path' | 'relative'>, guard: () => boolean): Promise<void> {
+    const status = await this.sourceStatus(source, guard);
+    if (!('assignmentFenceSupported' in status) || status.assignmentFenceSupported !== true) throw Object.assign(screenScopeEnded(), {code: 'remote_source_changed'});
     const fresh = await this.sourceFolders(source, folder.relative ? {path: folder.relative} : {}, guard);
     if (fresh.path !== folder.path || fresh.relative !== folder.relative) throw screenScopeEnded();
     const api = this.assignmentApi(guard), scope = {serverId: this.lifetime.authority.serverId, viewerId: this.lifetime.authority.profileId};
     const config = await readLibraryInventoryConfig(api, scope, libraryId);
     if (config.sources.some(value => value.path === folder.path && value.enabled)) return;
-    await saveLibraryFolder(api, libraryId, undefined, {name: folder.name, path: folder.path, classification: 'local',
-      followSymlinks: false, intervalSeconds: 21600, expectedRevision: config.revision, acceptReplacement: false});
+    const settings = {expectedRemoteSource: {sourceId: source.id, generation: source.generation}, name: folder.name, path: folder.path, classification: 'local' as const,
+      followSymlinks: false, intervalSeconds: 21600, expectedRevision: config.revision, acceptReplacement: false};
+    await saveLibraryFolder(api, libraryId, undefined, settings);
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
   }
 
   async validateAssignmentFolders(source: RemoteSource, folders: readonly Pick<RemoteFolder, 'path' | 'relative'>[], guard: () => boolean): Promise<void> {
     if (!folders.length || folders.length > 64) throw screenScopeEnded();
+    const status = await this.sourceStatus(source, guard);
+    if (!('assignmentFenceSupported' in status) || status.assignmentFenceSupported !== true) throw Object.assign(screenScopeEnded(), {code: 'remote_source_changed'});
     for (const folder of folders) {
       const fresh = await this.sourceFolders(source, folder.relative ? {path: folder.relative} : {}, guard);
       if (fresh.path !== folder.path || fresh.relative !== folder.relative) throw screenScopeEnded();

@@ -50,7 +50,9 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
         if (!owns()) return;
         const operation = controller.libraryAssignment(owns);
         try {
-          await operation.createLibrary({name: draft.name, kind: draft.kind, folders: draft.folders.map(value => value.path)});
+          const input = {name: draft.name, kind: draft.kind, folders: draft.folders.map(value => value.path),
+            expectedRemoteSource: {sourceId: draft.source.id, generation: draft.source.generation}};
+          await operation.createLibrary(input);
           if (!owns()) return;
           const result = operation.getSnapshot().mutation;
           if (result.phase === 'ambiguous') setAmbiguous(true);
