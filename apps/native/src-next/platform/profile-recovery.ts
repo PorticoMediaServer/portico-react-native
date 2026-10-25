@@ -40,7 +40,9 @@ export class NativeProfileRecovery {
   private challenge?: Extract<DirectSignIn, {kind: 'challenge'}>;
   private pendingFence?: () => boolean;
   private disposed = false;
-  constructor(private readonly ports: NativeRecoveryPorts) {
+  private readonly ports: NativeRecoveryPorts;
+  constructor(ports: NativeRecoveryPorts) {
+    this.ports = ports;
     if (!ports.snapshot.profiles.some(profile => profile.id === ports.profileId)) throw new Error('This profile is no longer available.');
     this.management = ports.snapshot.canManage;
     this.state = Object.freeze({phase: this.management ? 'pin' : ports.kind === 'local' ? 'password' : 'portico'});
