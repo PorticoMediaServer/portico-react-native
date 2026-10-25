@@ -166,9 +166,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const items: MenuEntry[] = [], pinned = playlist?.pinned === true || resource?.pinned === true;
     if (isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin')) items.push({id: 'pin', label: t(pinned ? 'pins.unpin' : 'pins.pin'),
       icon: pinned ? 'i-bookmark-f' : 'i-bookmark', onSelect: () => {setPageMenu(false); pin();}});
-    if (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update')) items.push({id: 'rename', label: t('web.saved.rename'),
+    if (!(theme.isTV && resource?.kind === 'view') && (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update'))) items.push({id: 'rename', label: t('web.saved.rename'),
       icon: 'i-edit', onSelect: () => {setPageMenu(false); setRenaming(true);}});
-    if (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete')) items.push({id: 'delete',
+    if (!(theme.isTV && resource?.kind === 'view') && (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete'))) items.push({id: 'delete',
       label: t(isPlaylist ? 'web.saved.deletePlaylist' : resource?.kind === 'view' ? 'web.saved.deleteView' : 'web.saved.deleteCollection'),
       icon: 'i-trash', destructive: true, onSelect: () => {setPageMenu(false); setDeleting(true);}});
     return items;
