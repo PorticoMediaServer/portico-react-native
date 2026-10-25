@@ -44,13 +44,14 @@ export async function openNativeRead(context: NativeReadNavigationContext, targe
 /** The phone's drawn book destination: a visible, inventory-available Reading
  * item of this library, whose exact version the signed producer still offers.
  * The action is checked against the origin captured when the page was laid out. */
-export async function openNativeReadBook(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; item: ReadingItem}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
+export async function openNativeReadBook(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; item: ReadingItem; stillCurrent?: () => boolean}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
   const selected = context.session(), item = target.item;
-  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin)) return false;
+  const stillCurrent = () => {try {return target.stillCurrent ? target.stillCurrent() : true;} catch {return false;}};
+  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin) || !stillCurrent()) return false;
   if (item.libraryId !== target.libraryId || item.inventoryAvailable !== true || !item.id || !item.sourceId) return false;
   const destination: NativeShellRoute = {kind: 'read-book', libraryId: target.libraryId, item};
   if (!context.navigation.allows(destination)) return false;
-  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId;
+  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId && stillCurrent();
   const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
   try {
     const eligibility = await nativeReadEligibility(client, item.id, signal);
@@ -59,6 +60,37 @@ export async function openNativeReadBook(context: NativeReadNavigationContext, t
     // that exact source again before opening its host session.
     if (!current() || !eligibility?.versions.some(version => version.inventoryAvailable)) return false;
     return context.navigation.open(destination, context.authority());
+  } finally {client.dispose();}
+}
+/** The Downloads surface's "Go to title" for a downloaded publication. The item
+ * identity and version come from the device's signed publication binding; the
+ * page's own start metadata comes from one authorized preview session, which is
+ * closed before the Reading route is admitted. Nothing is inferred from the
+ * cached download label, and a preview that cannot be retired is never ready. */
+export async function openNativeReadingDetail(context: NativeReadNavigationContext, origin: NativeReadOrigin, target: Readonly<{libraryId: string; itemId: string; sourceId: string; title: string; stillCurrent?: () => boolean}>, signal?: AbortSignal): Promise<boolean> {
+  const selected = context.session();
+  const suppliedCurrent = () => {try {return target.stillCurrent ? target.stillCurrent() : true;} catch {return false;}};
+  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin) || !suppliedCurrent()) return false;
+  const current = () => !signal?.aborted && originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId && suppliedCurrent();
+  const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
+  try {
+    const session = await client.open({itemId: target.itemId, sourceId: target.sourceId}, signal);
+    let item: ReadingItem | undefined, closeError: unknown;
+    try {
+      const manifest = session.manifest;
+      if (manifest.itemId !== target.itemId || manifest.sourceId !== target.sourceId) return false;
+      const series = manifest.metadata.series;
+      item = Object.freeze({
+        id: target.itemId, libraryId: target.libraryId, title: manifest.metadata.title || target.title,
+        format: manifest.format, sourceId: target.sourceId, inventoryAvailable: true as const,
+        ...(series && series.libraryId === target.libraryId && /^[A-Za-z0-9_-]{43}$/.test(series.id)
+          ? {series: Object.freeze({id: series.id, name: series.name, source: series.source, ...(series.number === undefined ? {} : {number: series.number})})} : {}),
+      });
+    } finally {try {await session.close();} catch (error) {closeError = error;}}
+    // A preview that could not be retired must not become an admitted route.
+    if (closeError) throw closeError;
+    if (!item || !current()) return false;
+    return openNativeReadBook(context, {libraryId: target.libraryId, item, stillCurrent: suppliedCurrent}, origin, signal);
   } finally {client.dispose();}
 }
 /** The series page only admits a signed series of this library that currently
