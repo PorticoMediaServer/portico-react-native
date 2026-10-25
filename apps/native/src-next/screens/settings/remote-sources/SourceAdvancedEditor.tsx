@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Text} from 'react-native';
-import type {RemoteSource, SourceAdvanced, SourceAdvancedSettings} from '../../../../../../packages/client-core/src/remote-sources';
+import type {RemoteSource, RemoteSourceStatus, SourceAdvanced, SourceAdvancedSettings} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
@@ -16,7 +16,9 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
 }) {
   const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0);
   const [settings, setSettings] = useState<SourceAdvancedSettings>(), [values, setValues] = useState<SourceAdvanced>();
+  const [facts, setFacts] = useState<RemoteSourceStatus>();
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [saved, setSaved] = useState(false);
+  const factsFlight = useRef(false);
   const draft = useMemo(() => Object.freeze({settings, values}), [settings, values]);
   const latestDraft = useRef(draft); latestDraft.current = draft;
   const renderedRevision = revision.current;
@@ -29,7 +31,14 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
   };
-  useEffect(() => {void load();
+  const loadFacts = async () => {
+    if (factsFlight.current || !current()) return;
+    factsFlight.current = true;
+    try {const next = await controller.sourceStatus(source, current); if (current()) setFacts(next);}
+    catch {if (current()) setFacts(undefined);}
+    finally {factsFlight.current = false;}
+  };
+  useEffect(() => {void load(); void loadFacts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const save = async () => {
@@ -72,13 +81,26 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
         <Select disabled={busy} label={label('tabs.3.groups.2.rows.0.label')} value={String(values.cacheFloorBytes / GIB)}
           options={floors.map((value, index) => ({value: String(value), label: label(`tabs.3.groups.2.rows.0.control.options.${index}.label`)}))}
           onValueChange={value => {const next = Number(value); if (floors.includes(next)) set('cacheFloorBytes', next * GIB);}}/>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.advCacheUsed', {used: defaultI18n.bytes(settings.cacheUsedBytes)})}</Text>
         {!settings.cacheApplied && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.advCachePending')}</Text>}
         {settings.cacheError && <Problem message={t(settings.cacheError === 'source_changed' ? 'next.remoteSources.advCacheChanged'
           : settings.cacheError === 'mount_unavailable' ? 'next.remoteSources.advCacheUnavailable' : 'next.remoteSources.advCacheFailed')}/>}
       </>}
+      {(!!facts?.remote || !!facts?.backgroundSpeed) && <>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.connection')}</Text>
+        {!!facts?.remote && <>
+          <Text style={[theme.type.body, {color: theme.colors.text}]}>{t('next.remoteSources.remote')}</Text>
+          <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{facts.remote}</Text>
+        </>}
+        {!!facts?.backgroundSpeed && <>
+          <Text style={[theme.type.body, {color: theme.colors.text}]}>{t('next.remoteSources.backgroundSpeed')}</Text>
+          <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{facts.backgroundSpeed}</Text>
+          <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.backgroundSpeedHelp')}</Text>
+        </>}
+      </>}
     </>}
     {saved && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.saved')}</Text>}
     <Problem message={error}/>
-    <Button disabled={busy} variant="text" onPress={() => {void load();}}>{t('next.remoteSources.refresh')}</Button>
+    <Button disabled={busy} variant="text" onPress={() => {void load(); void loadFacts();}}>{t('next.remoteSources.refresh')}</Button>
   </Page>;
 }
