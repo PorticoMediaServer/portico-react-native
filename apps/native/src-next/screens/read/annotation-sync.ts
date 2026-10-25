@@ -67,13 +67,14 @@ export function nativeAnnotationDecision(state: PageState, operation: NativeAnno
   if (state.revision < operation.baseRevision) return {kind: 'unresolved', reason: 'conflict'};
   if (!entry) {
     if (operation.baseUpdatedAt > 0) return {kind: 'unresolved', reason: 'deleted-elsewhere'};
-    if (operation.attempted === true) {
-      // The set did not advance after the attempt, so the server never accepted it.
-      return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
+    // Legacy records without an explicit attempted flag are UNKNOWN: an earlier online
+    // fallback could already have committed before the queue entry was written. Only an
+    // explicit false is evidence that nothing was sent.
+    if (operation.attempted === false) {
+      return operation.baseComplete === true || state.revision === operation.baseRevision
+        ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
     }
-    // Never sent: a client id cannot exist elsewhere, and with an unchanged set the absence
-    // is the base we captured. A complete base makes that true at any later revision.
-    if (operation.baseComplete === true) return {kind: 'apply'};
+    // Attempted (or unknown): only an unchanged set proves the server did not accept it.
     return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
   }
   if (current === wanted) return {kind: 'resolved'}; // our own committed retry
@@ -117,12 +118,13 @@ export class NativeAnnotationSync {
   }
   /** Read the whole bounded set, or fail: a page budget exhaustion is never treated as a
    * complete set, and every page must share one revision with unique ids. */
-  private async pages(session: ReadingSession, signal: AbortSignal): Promise<PageState> {
+  private async pages(session: ReadingSession, signal: AbortSignal, source: NativeAnnotationSource): Promise<PageState> {
     let cursor = '', revision: number | undefined, entries: ReadingAnnotation[] = [], exhausted = false;
     const ids = new Set<string>();
     for (let page = 0; page < PAGE_LIMIT; page++) {
       if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
       const out = await session.annotations(cursor, cursor ? revision : undefined, signal);
+      if (out.sourceId !== source.sourceId || out.sourceRevision !== source.sourceRevision) throw new ReadingError('invalid_document');
       if (revision !== undefined && out.revision !== revision) throw new ReadingError('invalid_document');
       revision = out.revision;
       for (const entry of out.entries) {
@@ -167,7 +169,7 @@ export class NativeAnnotationSync {
       if (manifest.itemId !== group.source.itemId || manifest.sourceId !== group.source.sourceId) {await mark('source-changed'); return false;}
       if (manifest.revision !== group.source.sourceRevision) {await mark('source-changed'); return false;}
       if (manifest.canAnnotate !== true) {await mark('refused'); return false;}
-      let state = await this.pages(session, signal);
+      let state = await this.pages(session, signal, group.source);
       // Cache only the whole set; the journal stores it only when it fits without trimming.
       await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
       for (const operation of group.operations) {
@@ -200,7 +202,7 @@ export class NativeAnnotationSync {
             continue;
           }
           // One fresh read may explain the displacement; the payload is unchanged.
-          state = await this.pages(session, signal);
+          state = await this.pages(session, signal, group.source);
           const again = nativeAnnotationDecision(state, operation);
           if (again.kind !== 'apply') {await settled({id: operation.id, observedAt: operation.observedAt, ...again}); continue;}
           if (!this.fresh(identity, life) || signal.aborted) return true;
@@ -220,7 +222,7 @@ export class NativeAnnotationSync {
         // The operation is settled; a failed refresh stops the pass (remaining ops stay queued)
         // but never un-settles a mutation the server already accepted.
         try {
-          state = await this.pages(session, signal);
+          state = await this.pages(session, signal, group.source);
           await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
         } catch {return true;}
       }

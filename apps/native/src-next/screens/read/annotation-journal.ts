@@ -90,6 +90,7 @@ type Backend = Readonly<{read: (assert?: () => void, signal?: AbortSignal) => Pr
 
 const RETIRED = 'native_annotation_journal_retired';
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const compareId = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const sameIdentity = (a: NativeAnnotationIdentity, b: NativeAnnotationIdentity) => a.serverId === b.serverId && a.accountId === b.accountId && a.profileId === b.profileId;
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && new TextEncoder().encode(value).length <= max
   && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value);
@@ -180,8 +181,11 @@ function operation(raw: unknown): NativeAnnotationOperation {
     ...(raw.baseComplete === undefined ? {} : {baseComplete: raw.baseComplete}),
     ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}), ...(content ? {content} : {})});
 }
-function cacheValue(raw: unknown, sourceFormat: NativeAnnotationFormat): NativeAnnotationCache {
-  if (!object(raw) || raw.complete !== true || !integer(raw.revision) || !Array.isArray(raw.entries) || raw.entries.length > MAX_CACHE_ENTRIES) throw new Error('native_annotation_journal_invalid');
+function cacheValue(raw: unknown, sourceFormat: NativeAnnotationFormat): NativeAnnotationCache | undefined {
+  if (!object(raw) || !integer(raw.revision) || !Array.isArray(raw.entries) || raw.entries.length > MAX_CACHE_ENTRIES) throw new Error('native_annotation_journal_invalid');
+  // A legacy/unproven cache (no complete:true) is ineligible for complete-set semantics, but its
+  // group's queued operations stay fully readable — never strand or delete the record.
+  if (raw.complete !== true) return undefined;
   const entries = raw.entries.map(entry => annotationEntry(entry, sourceFormat));
   if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({revision: raw.revision, entries: Object.freeze(entries), complete: true});
@@ -202,7 +206,8 @@ function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotat
     const operations = group.operations.map(operation);
     if (new Set(operations.map(value => value.id)).size !== operations.length) throw new Error('native_annotation_journal_invalid');
     for (const value of operations) if (value.content && value.content.location.format !== sourceFormat) throw new Error('native_annotation_journal_invalid');
-    const cache = group.cache === undefined ? {} : {cache: cacheValue(group.cache, sourceFormat)};
+    const cached = group.cache === undefined ? undefined : cacheValue(group.cache, sourceFormat);
+    const cache = cached === undefined ? {} : {cache: cached};
     return Object.freeze({source: Object.freeze({itemId: group.source.itemId, sourceId: group.source.sourceId,
       sourceRevision: group.source.sourceRevision, format: sourceFormat}), operations: Object.freeze(operations),
       localRevision: (group.localRevision as number | undefined) ?? 0, ...cache});
@@ -401,12 +406,13 @@ export class NativeAnnotationJournal {
       const at = base.groups.findIndex(group => JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) === wanted);
       if (at < 0) {
         if (base.groups.length >= MAX_JOURNAL_GROUPS) return base; // Refuse only this cache, never a queued group.
-        const next = Object.freeze({...base, groups: Object.freeze([...base.groups, Object.freeze({source: Object.freeze({...source}), operations: Object.freeze([]), localRevision: revision, cache})])}) as NativeAnnotationRecord;
+        const next = Object.freeze({...base, groups: Object.freeze([...base.groups, Object.freeze({source: Object.freeze({...source}), operations: Object.freeze([]), localRevision: 1, cache})])}) as NativeAnnotationRecord;
         return fit(next) ?? base;
       }
       const groups = [...base.groups];
       const group = groups[at]!;
-      groups[at] = Object.freeze({...group, localRevision: Math.max(group.localRevision, revision), cache});
+      const same = JSON.stringify(group.cache?.entries) === JSON.stringify(cache.entries) && group.cache?.revision === cache.revision;
+      groups[at] = Object.freeze({...group, localRevision: same ? group.localRevision : group.localRevision + 1, cache});
       const next = Object.freeze({...base, groups: Object.freeze(groups)}) as NativeAnnotationRecord;
       return fit(next) ?? base; // Too big: keep the previous record untouched.
     }, undefined, signal);
@@ -425,7 +431,8 @@ export class NativeAnnotationJournal {
           if (resolution.outcome !== 'unresolved') return [];
           return [{...operation, unresolved: resolution.reason} as NativeAnnotationOperation];
         });
-        return {...group, operations} as NativeAnnotationGroup;
+        const changed = operations.length !== group.operations.length || JSON.stringify(operations) !== JSON.stringify(group.operations);
+        return {...group, operations, localRevision: changed ? group.localRevision + 1 : group.localRevision} as NativeAnnotationGroup;
       }).filter(group => group.operations.length > 0 || group.cache !== undefined);
       return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
     }, assert, signal);
@@ -500,7 +507,7 @@ export class NativeAnnotationJournal {
       const localRevision = bump ? (existing?.localRevision ?? 0) + 1 : existing?.localRevision ?? 0;
       revision = localRevision;
       const group: NativeAnnotationGroup = Object.freeze({...existing, source: Object.freeze({...source}),
-        operations: Object.freeze(operations.sort((a, b) => a.observedAt - b.observedAt || a.id.localeCompare(b.id))), localRevision});
+        operations: Object.freeze(operations.sort((a, b) => a.observedAt - b.observedAt || compareId(a.id, b.id))), localRevision});
       if (at < 0) groups.push(group); else groups[at] = group;
       const total = groups.reduce((sum, value) => sum + value.operations.length, 0);
       if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS) throw new Error('native_annotation_journal_full');
@@ -545,9 +552,11 @@ export function nativeAnnotationView(record: NativeAnnotationRecord | undefined,
     if (op.delete) {map.delete(op.id); continue;}
     if (op.content) map.set(op.id, Object.freeze({...op.content, createdAt: op.observedAt, updatedAt: op.observedAt}));
   }
-  const entries = [...map.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const entries = [...map.values()].sort((a, b) => compareId(a.id, b.id));
   const complete = cache?.complete === true;
-  return Object.freeze({revision: Math.max(group?.localRevision ?? 0, cache?.revision ?? 0), entries: Object.freeze(entries), complete});
+  // The view token is the source-local monotonic revision; the server revision lives on the
+  // cache and on each queued operation as its captured base.
+  return Object.freeze({revision: group?.localRevision ?? 0, entries: Object.freeze(entries), complete});
 }
 
 /** The OfflineCore publication lease a session exposes, when this reader is reading the

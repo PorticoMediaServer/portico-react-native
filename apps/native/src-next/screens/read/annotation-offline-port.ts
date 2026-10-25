@@ -74,6 +74,7 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
       baseUpdatedAt: cached ? 1 : 0,
       ...(cached ? {baseFingerprint: nativeAnnotationFingerprint(cached)} : {}),
       baseComplete: group?.cache?.complete === true,
+      attempted: false, // Never put on the wire: an absent entry is evidence when the base is complete.
     }, captured.expectedRevision, guard, signal);
     if (signal?.aborted || !fresh()) throw new ReadingError('cancelled'); // Queued privately, never reported as saved.
     onQueued?.();
