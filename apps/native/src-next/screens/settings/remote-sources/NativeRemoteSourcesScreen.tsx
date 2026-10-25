@@ -17,7 +17,7 @@ import {ConnectionEditor, DisconnectEditor, ReadingEditor, receiptCheckRequired,
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
 type Mode = {kind: 'connection'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect'; source: RemoteSource};
 
-/** Supported WebDAV cohort only. Settings owns the entry. Unavailable producer flows are not offered. */
+/** Canonical source reading settings plus WebDAV connection management. Settings owns the entry. */
 export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
   const next = useRef(0), currentPorts = useRef(ports);
   currentPorts.current = ports;
@@ -71,9 +71,9 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), selected)}</Text>
       {!!selected.origin && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{selected.origin}</Text>}
       <Button variant="text" onPress={close}>{t('next.remoteSources.back')}</Button>
+      <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
       {selected.kind === 'webdav' && <>
         <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>
-        <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
         <Button variant="text" disabled={blocked} onPress={() => open({kind: 'disconnect', source: selected})}>{t('next.remoteSources.disconnect')}</Button>
       </>}
     </> : <>
