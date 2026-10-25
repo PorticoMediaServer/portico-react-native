@@ -14,15 +14,19 @@ import {alpha, shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../../ports';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
-import {useFormState, useStorageForms} from './forms';
+import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './forms';
 
 type Translate = typeof defaultI18n.t;
 const IDS = ['runtime', 'maintenance', 'logs'] as const;
 
 /** Settings › Server › Storage & backups › Limits and retention (owner-server.html frame 36a). */
 export function LimitsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
+  const group = useStorageForms(ports, IDS, runtime.reportError);
+  return group ? <Limits key={group.mount} group={group} runtime={runtime} t={t}/> : null;
+}
+function Limits({runtime, t, group}: {runtime: NativeShellRuntime; t: Translate; group: StorageForms}) {
   const theme = useTheme();
-  const {forms, set, state} = useStorageForms(ports, IDS);
+  const {forms, set} = group, state = useStorageSet(group);
   const runtimeState = useFormState<RuntimeSettings, unknown>(forms.runtime);
   const maintenanceState = useFormState<MaintenanceSettings, MaintenanceDocument>(forms.maintenance);
   const logsState = useFormState<LogsDraft, LogSettings>(forms.logs);

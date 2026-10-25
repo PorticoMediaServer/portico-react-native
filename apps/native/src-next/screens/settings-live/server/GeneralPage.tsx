@@ -20,7 +20,7 @@ import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
-import {useFormState, useStorageForms} from './storage/forms';
+import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './storage/forms';
 
 type Translate = typeof defaultI18n.t;
 type ViewerRole = 'owner' | 'administrator' | 'member';
@@ -28,9 +28,13 @@ const IDS = ['runtime', 'maintenance'] as const;
 
 /** Settings › Server › General on the phone (slots server-general group 1–2 and the drawn background/restart rows). */
 export function NativeServerGeneral({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
+  const group = useStorageForms(ports, IDS, runtime.reportError);
+  return group ? <General key={group.mount} group={group} ports={ports} runtime={runtime} compactHeader={compactHeader}/> : null;
+}
+function General({ports, runtime, compactHeader = false, group}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean; group: StorageForms}) {
   const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
   const {api, lifetime} = useSettingsRequestScope(context);
-  const {forms, set, state} = useStorageForms(ports, IDS);
+  const {forms, set} = group, state = useStorageSet(group);
   const runtimeState = useFormState<RuntimeSettings, unknown>(forms.runtime);
   const maintenanceState = useFormState<MaintenanceSettings, MaintenanceDocument>(forms.maintenance);
   const [updates, setUpdates] = useState<UpdateReport>(), [updateError, setUpdateError] = useState<unknown>(), [checking, setChecking] = useState(false);
