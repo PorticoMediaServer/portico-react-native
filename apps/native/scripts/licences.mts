@@ -5,7 +5,7 @@
 //   node --experimental-strip-types apps/native/scripts/licences.mts --check    # fail if a fresh run differs
 //   node --experimental-strip-types apps/native/scripts/licences.mts --record   # record the JavaScript bundles first (Metro, ~3 min)
 //
-// Output: apps/native/src/licences/android.json (Android, Android TV, Fire TV), apple.json
+// Output: apps/native/licences/generated/android.json (Android, Android TV, Fire TV), apple.json
 // (iPhone, iPad, Apple TV) and apps/vega/src/licences/vega.json (Vega).
 //
 // Inputs (all under apps/native/licences/ unless named):
@@ -52,7 +52,7 @@ import type {LicenceData, LicenceSource} from '../../../packages/client-core/src
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const APPS_SOURCE = 'https://github.com/PorticoMediaServer/portico-react-native';
 const ENGINE_SOURCE = `${APPS_SOURCE}/releases`;
-export const OUTPUTS = {android: 'apps/native/src/licences/android.json', apple: 'apps/native/src/licences/apple.json', vega: 'apps/vega/src/licences/vega.json'} as const;
+export const OUTPUTS = {android: 'apps/native/licences/generated/android.json', apple: 'apps/native/licences/generated/apple.json', vega: 'apps/vega/src/licences/vega.json'} as const;
 type Client = keyof typeof OUTPUTS;
 const INVENTORY = 'apps/native/licences';
 const BUNDLES = {android: {app: 'apps/native', platform: 'android'}, apple: {app: 'apps/native', platform: 'ios'}, vega: {app: 'apps/vega', platform: 'kepler'}} as const;

@@ -106,7 +106,7 @@ test('WebView native code stays iOS-only while its bundled JS has one exact npm 
   const tvos = readFileSync(path.join(root, 'tvos/Podfile.lock'), 'utf8');
   assert.match(ios, /^  - react-native-webview \(16\.0\.0\):$/m);
   assert.doesNotMatch(tvos, /react-native-webview/);
-  const inventory = JSON.parse(readFileSync(path.join(root, 'src/licences/apple.json'), 'utf8'));
+  const inventory = JSON.parse(readFileSync(path.join(root, 'licences/generated/apple.json'), 'utf8'));
   const entries = inventory.components.filter(component => component.name === 'react-native-webview');
   assert.equal(entries.length, 1);
   const entry = entries[0];

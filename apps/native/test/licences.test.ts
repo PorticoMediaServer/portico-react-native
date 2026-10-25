@@ -15,8 +15,8 @@ const root = new URL('../../../', import.meta.url);
 const at = (rel: string) => new URL(rel, root);
 const read = (rel: string) => readFileSync(at(rel), 'utf8');
 const lists = {
-  android: 'apps/native/src/licences/android.json',
-  apple: 'apps/native/src/licences/apple.json',
+  android: 'apps/native/licences/generated/android.json',
+  apple: 'apps/native/licences/generated/apple.json',
   vega: 'apps/vega/src/licences/vega.json',
 } as const;
 const load = (rel: string) => JSON.parse(read(rel)) as LicenceData;

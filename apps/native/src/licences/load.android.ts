@@ -3,7 +3,7 @@ import {devicePlatform} from '../bridge/device-platform';
 
 /** Android, Android TV and Fire TV: android.json (see load.ts). */
 export function loadLicences(): LicenceData | undefined {
-  return parseLicenceData(require('./android.json'));
+  return parseLicenceData(require('../../licences/generated/android.json'));
 }
 
 /** The Fire TV build (no Google Play services) or the Google one, for the libraries only one carries. */
