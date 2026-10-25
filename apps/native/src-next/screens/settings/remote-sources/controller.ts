@@ -2,6 +2,13 @@ import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfig
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
+function terminalRefusal(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const refusal = error as {status?: unknown; statusCode?: unknown; code?: unknown};
+  return refusal.status === 401 || refusal.status === 403 || refusal.statusCode === 401 || refusal.statusCode === 403
+    || refusal.code === 'unauthorized' || refusal.code === 'forbidden' || refusal.code === 'not_permitted';
+}
+
 export type NativeRemoteSourcesSnapshot = Readonly<{allowed: boolean; sources: RemoteState}>;
 
 /** A screen owns its reads. It neither borrows the legacy panel nor persists credential drafts. */
@@ -15,6 +22,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
 
   constructor(ports: NativeSettingsLivePorts) {
     const lifetime = new NativeScreenLifetime(ports.context);
+    let retire = () => lifetime.dispose();
     const admitted = () => {
       const account = ports.context.account;
       return lifetime.current() && account.canManage && !account.account.disabled
@@ -27,9 +35,14 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
       request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => {
         if (!admitted()) return Promise.reject(screenScopeEnded());
         return lifetime.request(async current => {
-          const result = await ports.context.api.request<T>(path, method, body, current);
-          if (!admitted()) throw screenScopeEnded();
-          return result;
+          try {
+            const result = await ports.context.api.request<T>(path, method, body, current);
+            if (!admitted()) throw screenScopeEnded();
+            return result;
+          } catch (error) {
+            if (terminalRefusal(error)) retire();
+            throw error;
+          }
         }, signal);
       },
     }, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId}, async () => {
@@ -40,6 +53,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     this.ports = ports;
     this.lifetime = lifetime;
     this.service = service;
+    retire = () => this.dispose();
     this.offService = service.subscribe(() => {
       if (!this.allowed()) {this.dispose(); return;}
       this.publish({allowed: true, sources: service.getSnapshot()});
