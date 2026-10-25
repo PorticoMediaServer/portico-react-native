@@ -412,7 +412,8 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
           }
           const options = control.type === 'choice' ? control.choices.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)})) : localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}));
           const current = String(value);
-          return <SettingsRow key={id} testID={id} {...copy} value={options.find(option => option.value === current)?.label ?? current}
+          const currentLabel = options.find(option => option.value === current)?.label;
+          return <SettingsRow key={id} testID={id} {...copy} value={currentLabel}
             onPress={() => setChoices({title: copy.label, help: copy.description, value: current, options, apply: next => {
               if (control.type === 'choice') {const choice = control.choices.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}
               else change(row, next);
@@ -421,7 +422,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         const choiceList = control.type === 'choice' ? control.choices : undefined;
         return <SettingsRow key={id} testID={id} {...copy}
           control={control.type === 'switch' ? <Switch testID={id} checked={value === true} accessibilityLabel={t(row.label)} disabled={state.busy || !enabled(row)} onCheckedChange={next => change(row, next)}/>
-            : choiceList ? <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={choiceList.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)}))} onValueChange={next => {const choice = choiceList.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}} disabled={state.busy}/>
+            : choiceList ? (() => {const options = choiceList.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)})); const selected = options.some(option => option.value === String(value)) ? String(value) : undefined; return <Select testID={id} accessibilityLabel={t(row.label)} value={selected} options={options} onValueChange={next => {const choice = choiceList.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}} disabled={state.busy}/>;})()
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}
