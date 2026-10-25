@@ -37,5 +37,5 @@ export function NativeLiveActionPanels({actions, context, runtime}: {actions: Na
   ];
   return <Menu key={sheet.id} open onOpenChange={value => {if (!value) close();}} restoreFocus={false} title={t('next.controls.more')}
     description={sheet.offer.programme.title} items={items} presentation="sideSheet" width={640} testID="watch-live-more-menu"
-    context={state.error ? <StateView {...runtime.error(state.error, () => actions.dismissError(sheet))}/> : <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sheet.offer.channel.name}</Text>}/>;
+    context={state.error ? <StateView {...runtime.error(state.error, () => actions.dismissError(sheet))} primaryAction={undefined} secondaryAction={undefined} additionalActions={undefined}/> : <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sheet.offer.channel.name}</Text>}/>;
 }

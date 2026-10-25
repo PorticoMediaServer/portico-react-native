@@ -58,12 +58,20 @@ export function NativeSeriesRuleSheet({controller, draft, defaults, runtime, ope
           keywords: [...built.config.keywords], blockedKeywords: [...built.config.blockedKeywords], options: {...built.config.options}};
         for (const values of [config.allowedChannels, config.blockedChannels, config.keywords, config.blockedKeywords]) Object.freeze(values);
         Object.freeze(config.options);Object.freeze(config);
+        const anchor = Object.freeze({...built.anchor});
         const id = controller.newRuleID(lifetime);void id.catch(() => {});
-        command.current = Object.freeze({id, config, anchor: Object.freeze({...built.anchor})});
+        command.current = Object.freeze({id, config, anchor});
       }
       const original = command.current;
+      let ruleId: string | undefined;
+      if (original) {
+        try {ruleId = await original.id;}
+        catch (failure) {if (command.current === original) command.current = undefined;throw failure;}
+        if (!current()) return;
+      }
       const result = await controller.createRule(original?.config ?? built.config, original?.anchor ?? built.anchor, lifetime, original?.id);
       if (lifetime && current() && !result) throw new Error('recording_action_unavailable');
+      if (original && result && result.value.id !== ruleId) throw new Error('recording_rule_unavailable');
       if (result && current()) {onCreated();if (current()) onOpenChange(false);}
     } catch (failure) {if (current()) setError(failure);}
     finally {busyCommand.current = false;if (current()) setBusy(false);}
@@ -75,7 +83,8 @@ export function NativeSeriesRuleSheet({controller, draft, defaults, runtime, ope
     headerContext={<View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: tv ? 18 : 12}}><Icon name="i-repeatrule" size={tv ? 26 : 20} color={theme.colors.accentStrong}/><Text style={[shellType(tv ? 22 : 14, 700), {color: theme.colors.accentStrong}]}>{t('guide.recordSeriesTitle')}</Text></View>}
     placement={tv || theme.width >= 700 ? 'side' : undefined} width={tv ? 760 : undefined} initialFocusRef={primary} returnFocusRef={cancel} testID="live-series-rule">
     <ScrollView contentContainerStyle={{gap: 12}}>
-      {error !== undefined && <StateView testID="live-series-rule-error" {...runtime.error(error, () => setError(undefined))}/>}
+      {error !== undefined && <StateView testID="live-series-rule-error" {...runtime.error(error, () => setError(undefined))}
+        {...(lifetime ? {primaryAction: undefined, secondaryAction: undefined, additionalActions: undefined} : {})}/>}
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: tv ? 18 : 6}}>
         {preview && <Text style={[shellType(tv ? 22 : 13, 700), {color: theme.colors.text}]}>{t('recordings.matches', {count: preview.matches})}</Text>}
         {titleMatch && <Text style={[shellType(tv ? 22 : 13, 400), {color: theme.colors.textTertiary}]}>{t('guide.matchesByTitle')}</Text>}

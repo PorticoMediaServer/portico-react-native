@@ -102,7 +102,9 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   schedule = (draft: RecordingDraft, options: RecordingOptions, lifetime?: DVRCommandLifetime) => {
     const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
     this.requireCommand(original);
-    return this.act(service => service.schedule(draft, options, original), original);
+    const capturedDraft = original ? Object.freeze({channel: Object.freeze({...draft.channel}), programme: Object.freeze({...draft.programme}), series: draft.series}) : draft;
+    const capturedOptions = original ? Object.freeze({...options}) : options;
+    return this.act(service => service.schedule(capturedDraft, capturedOptions, original), original);
   };
   cancel = (recording: Recording) => this.act(service => service.cancel(recording));
   keep = (recording: Recording) => this.act(service => service.keep(recording));
@@ -119,9 +121,12 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   };
   createRule = (config: RuleConfig, anchor: Occurrence, lifetime?: DVRCommandLifetime, preparedId?: Promise<string>) => {
     const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;this.requireCommand(original);
+    const captured = original ? Object.freeze({...config, allowedChannels: [...config.allowedChannels], blockedChannels: [...config.blockedChannels],
+      keywords: [...config.keywords], blockedKeywords: [...config.blockedKeywords], options: Object.freeze({...config.options})}) : config;
+    const capturedAnchor = original ? Object.freeze({...anchor}) : anchor;
     return this.act(async service => {
       const id = await (preparedId ?? service.newRuleID(original));this.requireCommand(original);
-      return service.saveRule(id, 0, config, anchor, original);
+      return service.saveRule(id, 0, captured, capturedAnchor, original);
     }, original);
   };
   previewRule = async (config: RuleConfig, lifetime?: DVRCommandLifetime): Promise<RulePreview> => {

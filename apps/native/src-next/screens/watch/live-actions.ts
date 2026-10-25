@@ -33,6 +33,7 @@ export class NativeTVLiveActions {
   private command?: AbortController;
   private sheet?: NativeLiveActionSheet;
   private sheetController?: AbortController;
+  private seriesEntry?: {sheet: NativeLiveActionSheet};
   private favoriteCommand?: {sheet: NativeLiveActionSheet; channel: GuideChannelRow; favorite: boolean; hidden: boolean};
   private opening?: {source: Source; projected: ChannelProgramme; port: NativeLiveWatchPort; controller: AbortController; viewerFence?: string};
   constructor(private context: NativeShellBootstrapContext, private guide: NativeTVLiveGuide) {
@@ -75,6 +76,7 @@ export class NativeTVLiveActions {
     this.command?.abort();this.command = undefined;this.sheetController?.abort();this.sheetController = undefined;this.sheet = undefined;
     clearTimeout(this.confirmationTimer);this.confirmationTimer = undefined;
     this.favoriteCommand = undefined;
+    this.seriesEntry = undefined;
     this.opening?.controller.abort();this.opening = undefined;
     const source = this.guide.captureSource(), port = nativeLiveWatchPort(this.context), projected = this.context.playback.getSnapshot().playback.linear?.programme;
     if (!source || !port?.current() || !projected || !Number.isFinite(projected.startMs) || !Number.isFinite(projected.endMs) || projected.endMs <= projected.startMs) {this.publish(empty);return;}
@@ -114,7 +116,7 @@ export class NativeTVLiveActions {
   };
   openMore = (expected: NativeLiveActionSnapshot) => {if (this.state === expected && expected.offer && !expected.busy && !expected.sheet && !this.guide.getSnapshot().open) this.openSheet(expected.offer, 'more');};
   private openSheet(offer: NativeLiveActionOffer, kind: NativeLiveActionSheet['kind'], defaults?: SeriesForm) {
-    const opening = this.opening;if (!opening || !this.current(opening) || this.state.offer !== offer) return;
+    const opening = this.opening;if (!opening || !this.current(opening) || this.state.offer !== offer || this.state.busy || this.seriesEntry) return;
     this.sheetController?.abort();if (!this.current(opening) || this.state.offer !== offer) return;
     this.favoriteCommand = undefined;
     const controller = new AbortController();this.sheetController = controller;
@@ -124,15 +126,17 @@ export class NativeTVLiveActions {
   }
   close = (expected?: NativeLiveActionSheet) => {
     if (!this.sheet || expected && this.sheet !== expected) return false;
+    this.seriesEntry = undefined;
     this.favoriteCommand = undefined;
-    this.sheetController?.abort();this.sheetController = undefined;this.sheet = undefined;this.publish({...this.state, sheet: undefined});return true;
+    this.sheetController?.abort();this.sheetController = undefined;this.sheet = undefined;this.publish({...this.state, sheet: undefined, busy: false});return true;
   };
-  details = (sheet: NativeLiveActionSheet) => {if (this.sheet === sheet && sheet.lifetime.isCurrent()) this.openSheet(sheet.offer, 'details');};
+  private sheetAvailable(sheet: NativeLiveActionSheet) {return this.sheet === sheet && sheet.kind === 'more' && sheet.lifetime.isCurrent() && !this.state.busy && !this.seriesEntry;}
+  details = (sheet: NativeLiveActionSheet) => {if (this.sheetAvailable(sheet)) this.openSheet(sheet.offer, 'details');};
   dismissError = (sheet: NativeLiveActionSheet) => {if (this.sheet === sheet && sheet.lifetime.isCurrent()) this.publish({...this.state, error: undefined});};
   favorite = async (sheet: NativeLiveActionSheet, onError: (error: unknown) => void) => {
     const opening = this.opening;
     const current = () => !!opening && this.current(opening) && this.sheet === sheet && sheet.lifetime.isCurrent();
-    if (!opening || !current() || this.state.busy) return;
+    if (!opening || !current() || !this.sheetAvailable(sheet)) return;
     this.publish({...this.state, busy: true, error: undefined});
     try {
       if (this.favoriteCommand?.sheet !== sheet) {
@@ -149,13 +153,21 @@ export class NativeTVLiveActions {
       this.publish({...this.state, offer: Object.freeze({...sheet.offer, channel})});
       if (current()) this.close(sheet);
     } catch (error) {if (current()) {this.publish({...this.state, error});if (current()) onError(error);}}
-    finally {if (this.opening === opening && this.current(opening)) this.publish({...this.state, busy: false});}
+    finally {if (current()) this.publish({...this.state, busy: false});}
   };
   series = async (sheet: NativeLiveActionSheet) => {
-    if (this.sheet !== sheet || !sheet.lifetime.isCurrent() || !sheet.offer.channel.recordAvailable || sheet.offer.channel.kind !== 'live') return;
-    let defaults: SeriesForm | undefined;
-    try {defaults = seriesFormDefaults(await sheet.port.owner.dvrSettings());} catch {defaults = undefined;}
-    if (this.sheet === sheet && sheet.lifetime.isCurrent()) this.openSheet(sheet.offer, 'series', defaults);
+    if (!this.sheetAvailable(sheet) || !sheet.offer.channel.recordAvailable || sheet.offer.channel.kind !== 'live') return;
+    const entry = {sheet};this.seriesEntry = entry;this.publish({...this.state, busy: true, error: undefined});
+    try {
+      if (this.seriesEntry !== entry || this.sheet !== sheet || !sheet.lifetime.isCurrent()) return;
+      let defaults: SeriesForm | undefined;
+      try {defaults = seriesFormDefaults(await sheet.port.owner.dvrSettings());} catch {defaults = undefined;}
+      if (this.seriesEntry !== entry || this.sheet !== sheet || !sheet.lifetime.isCurrent()) return;
+      this.seriesEntry = undefined;this.publish({...this.state, busy: false});
+      if (this.sheetAvailable(sheet)) this.openSheet(sheet.offer, 'series', defaults);
+    } finally {
+      if (this.seriesEntry === entry) {this.seriesEntry = undefined;if (this.sheet === sheet && sheet.lifetime.isCurrent()) this.publish({...this.state, busy: false});}
+    }
   };
   seriesCreated = (sheet: NativeLiveActionSheet) => {
     const opening = this.opening;
@@ -166,5 +178,5 @@ export class NativeTVLiveActions {
     if (!this.current(opening)) return;
     this.confirmationTimer = setTimeout(() => {if (this.current(opening)) this.publish({...this.state, confirmed: undefined});}, 6000);
   }
-  dispose() {this.disposed = true;clearTimeout(this.confirmationTimer);this.command?.abort();this.sheetController?.abort();this.opening?.controller.abort();for (const off of this.off) off();this.listeners.clear();}
+  dispose() {this.disposed = true;this.seriesEntry = undefined;clearTimeout(this.confirmationTimer);this.command?.abort();this.sheetController?.abort();this.opening?.controller.abort();for (const off of this.off) off();this.listeners.clear();}
 }
