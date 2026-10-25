@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {DirectSnapshot} from '../../../packages/client-core/src/profile-management';
 import {settingsStructure} from '../../../packages/client-core/src/presentation/settings-structure';
+import {installationIdentity,setInstallationIdentity} from '../../../packages/client-core/src/installation';
 import {nativeAccountPanelIds, nativeSettingsContext, nativeSettingsUnavailablePanelIds} from '../src-next/screens/settings-live/settings-context';
 
 const preferences = {
@@ -54,12 +55,24 @@ test('an administrator sees only the administrator tier, never the owner pages',
 });
 
 test('the structure omits every drawn panel this build cannot draw rather than leaving an empty section', () => {
-  const structure = settingsStructure(nativeSettingsContext(source('owner'), 'phone'));
-  const rows = structure.headings.flatMap(heading => heading.pages).flatMap(page => page.sections).flatMap(section => section.rows);
-  const custom = rows.filter(row => row.kind === 'custom').map(row => row.kind === 'custom' ? row.id : '');
-  for (const id of nativeSettingsUnavailablePanelIds) assert.equal(custom.includes(id), false, id);
-  for (const id of nativeAccountPanelIds) assert.equal(custom.includes(id), true, id);
-  for (const section of structure.headings.flatMap(heading => heading.pages).flatMap(page => page.sections)) assert.ok(section.rows.length > 0, section.id);
+  const original = installationIdentity();
+  setInstallationIdentity(undefined);
+  try {
+    const context = nativeSettingsContext(source('owner'), 'phone');
+    const structure = settingsStructure(context);
+    const rows = structure.headings.flatMap(heading => heading.pages).flatMap(page => page.sections).flatMap(section => section.rows);
+    const custom = rows.filter(row => row.kind === 'custom').map(row => row.kind === 'custom' ? row.id : '');
+    for (const id of nativeSettingsUnavailablePanelIds) assert.equal(custom.includes(id), false, id);
+    for (const id of nativeAccountPanelIds.filter(id => id !== 'deviceName')) assert.equal(custom.includes(id), true, id);
+    assert.equal(context.capabilities.deviceName, false);
+    assert.equal(custom.includes('deviceName'), false, 'a missing installation name supplies no device-name row');
+    for (const section of structure.headings.flatMap(heading => heading.pages).flatMap(page => page.sections)) assert.ok(section.rows.length > 0, section.id);
+    setInstallationIdentity({installationId: 'm0_005_settings_installation_0000000000', name: 'Named phone', platform: 'android', app: 'Portico', appVersion: 'test'});
+    const namedContext = nativeSettingsContext(source('owner'), 'phone');
+    const namedRows = settingsStructure(namedContext).headings.flatMap(heading => heading.pages).flatMap(page => page.sections).flatMap(section => section.rows);
+    assert.equal(namedContext.capabilities.deviceName, true);
+    assert.ok(namedRows.some(row => row.kind === 'custom' && row.id === 'deviceName'), 'the real installation-name capability admits its panel');
+  } finally {setInstallationIdentity(original);}
 });
 
 test('the dashboard route stays the owner and administrator read-only page on television', () => {
