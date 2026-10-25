@@ -40,6 +40,8 @@ const tvSearchR46 = {
   topRow: {flexDirection: 'row', gap: 36, alignItems: 'center'},
   meta: {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 26, rowGap: 10, marginBottom: 14},
   metaProgress: {width: 160},
+  /** tv.html#f5 `.mprog`: the bar, then the drawn resume point, on its own line. */
+  resumeLine: {flexDirection: 'row', alignItems: 'center', gap: 14},
   genreClip: {position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 16, overflow: 'hidden'},
   genreCopy: {position: 'absolute', left: 30, bottom: 26},
 } as const;
@@ -167,7 +169,7 @@ export function TVSearchTag({children}: {children: React.ReactNode}) {
 export function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}: Pick<NativeTVSearchScreenProps, 'runtime' | 'actions'> & {entry: SearchEntry; group: SearchGroup; selection?: ReturnType<NativeSearchSelectionPort['item']>; disabled: boolean}) {
   const theme = useTheme(), anchor = useRef<View>(null), content = media(entry) ? entry : undefined, kind = topResultKindLabel(group);
   const text = content && cardText(homeSubject(content), 'search', runtime.text), title = content?.displayTitle || entry.title;
-  const progress = text?.progress, caption = text?.caption.filter(part => part.id !== 'year') ?? [];
+  const progress = text?.progress, resume = text?.resume, caption = text?.caption.filter(part => part.id !== 'year') ?? [];
   return <CardFrame focusId={tvTopResultFocusId(group, entry)} testID="tv-search-top-result" title={title} disabled={disabled} selection={selection}
     menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen?.(entry, group)} onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, anchor)}
     style={tvSearchR46.topResult} pressableStyle={tvSearchR46.topRow}>
@@ -178,8 +180,10 @@ export function TVSearchTopResult({entry, group, runtime, actions, selection, di
         <View style={tvSearchR46.meta}>{content?.year !== undefined && <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{content.year}</Text>}
           {kind && <Text style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
           {caption.map(part => part.id === 'season-count' ? <TVSearchTag key={part.id}>{part.text}</TVSearchTag>
-            : <Text key={part.id} style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{part.text}</Text>)}
-          {progress !== undefined && progress > 0 && <View style={tvSearchR46.metaProgress}><Progress value={progress} height={6} radius={6}/></View>}</View>
+            : <Text key={part.id} style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{part.text}</Text>)}</View>
+        {((progress !== undefined && progress > 0) || resume) && <View style={tvSearchR46.resumeLine}>
+          {progress !== undefined && progress > 0 && <View style={tvSearchR46.metaProgress}><Progress value={progress} height={6} radius={6}/></View>}
+          {resume && <Text numberOfLines={1} style={[browseType(theme, 20, 700), {color: theme.colors.text}]}>{resume.text}</Text>}</View>}
         <Parts parts={text?.detail} style={browseType(theme, 24, 400)}/></View></>}
   </CardFrame>;
 }
