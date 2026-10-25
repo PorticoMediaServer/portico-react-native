@@ -28,7 +28,9 @@ function CodePresenter(props: TVCodePresenterProps) {
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400, lineHeight = 1.45) => nativeType({size, weight, tracking: 0, lineHeight: size * lineHeight}, theme.textScale);
   const aside = <View style={{position: 'absolute', right: 140, top: 0, bottom: 0, width: 720, justifyContent: 'center'}}>
     <View style={{paddingTop: 52, paddingHorizontal: 56, paddingBottom: 48, borderRadius: 28, backgroundColor: '#0d1b25C7',
-      borderWidth: 1.5, borderColor: `${theme.colors.text}1A`, alignItems: 'center'}}>
+      borderWidth: 1.5, borderColor: `${theme.colors.text}1A`, alignItems: 'center',
+      // auth8/9 .codecard shadow 0 60px 120px -40px rgba(0,0,0,.9).
+      boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0, 0, 0, 0.9)'}]}}>
       {material.nativeBlur && <View pointerEvents="none" style={{position: 'absolute', inset: 0, borderRadius: 28, overflow: 'hidden'}}>
         <BlurView style={{position: 'absolute', inset: 0}} blurType="dark" blurAmount={30} reducedTransparencyFallbackColor="#0d1b25"/>
       </View>}
@@ -36,7 +38,7 @@ function CodePresenter(props: TVCodePresenterProps) {
         <QRCode value={props.verificationUriComplete} size={260}/>
       </View>}
       <Text selectable style={[type(30, 700), {color: theme.colors.textSecondary}]}>{address ? `${address.host}${address.pathname}` : undefined}</Text>
-      <Text selectable style={[type(90, 800, 1.05), {color: theme.colors.text, letterSpacing: 3.6, marginTop: 10, marginBottom: 16}]}>{props.userCode ?? t('activation.preparingCode')}</Text>
+      <Text selectable style={[type(90, 800, 1.05), {color: theme.colors.text, letterSpacing: 3.6, fontVariant: ['tabular-nums'], marginTop: 10, marginBottom: 16}]}>{props.userCode ?? t('activation.preparingCode')}</Text>
       <Text style={[type(21), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('activation.codeRefreshes')}</Text>
     </View>
   </View>;
