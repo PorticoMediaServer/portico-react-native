@@ -1,7 +1,7 @@
 import {decode} from '../../../../packages/contracts/src/runtime';
 import type {RouteRequest} from '../../../../packages/contracts/src/routes';
 import {ApiError, type LocalSession} from '../../../../packages/client-core/src';
-import {MemberAccountMoveClient, type MoveCodePreview, type MoveCollisionDetails, type MoveCredential} from '../../../../packages/client-core/src/account-move';
+import {MemberAccountMoveClient, accountMoveLink, consumeAccountMoveFragment, type MoveCodePreview, type MoveCollisionDetails, type MoveCredential} from '../../../../packages/client-core/src/account-move';
 import type {DirectSignIn, ProfileAPI} from '../../../../packages/client-core/src/profile-management';
 import {requestIdentityAssertion, requestPorticoChallenge, type HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 import {routeOrigin, type RouteCrypto, type ServerPin} from '../../../../packages/client-core/src/route-identity';
@@ -19,6 +19,8 @@ export type NativeMoveHostedCapture = Readonly<{
  * the synchronous fence is also supplied to the canonical command client. */
 export type NativeMemberMovePorts<Result> = Readonly<{
   api: ProfileAPI; server: ServerSignIn; pin: ServerPin; crypto: RouteCrypto;
+  /** Captured verified issuer; absent legacy callers refuse links. */
+  origin?: string;
   installationId: string; signal: AbortSignal;
   isCurrent: () => boolean; assertCurrent: () => Promise<void>;
   retainedAppFamilyId?: string; operationAccountFamilyId: () => string | undefined;
@@ -63,6 +65,23 @@ export class NativeMemberAccountMove<Result> {
   getSnapshot = () => this.state;
   /** Read-only eligibility for UI work on this exact immutable issuing operation. */
   isCurrentOpening = () => this.current(this.epoch);
+
+  /** A link supplies input only to this already-proved issuer. Never follow its URL. */
+  readCodeInput = (raw: string): string | undefined => {
+    if (!this.isCurrentOpening()) return;
+    if (/^[A-Za-z0-9_-]{43}$/.test(raw)) return raw;
+    if (!this.ports.origin || raw.length > 8192) return;
+    try {
+      const url = new URL(raw);
+      if (url.origin !== routeOrigin(this.ports.origin)) return;
+      // Decode only this private URL object; no navigation/history/storage write.
+      const link = consumeAccountMoveFragment(url, {replaceState: () => {}});
+      if (!link || link.id !== undefined && link.id !== this.ports.server.id
+        || raw !== accountMoveLink(this.ports.origin, link.code, link.id)) return;
+      return this.isCurrentOpening() ? link.code : undefined;
+    } catch { return; }
+  };
+
   takeAcceptedResult = (): Result | undefined => {
     const accepted = this.accepted; this.accepted = undefined;
     return accepted && !this.disposed && accepted.epoch === this.epoch && !this.ports.signal.aborted && accepted.isCurrent()
