@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {NativeRemoteSourcesController} from './controller.ts';
-import type {NativeSettingsLivePorts} from '../../settings-live/ports';
+import {NativeRemoteSourcesController} from '../src-next/screens/settings/remote-sources/controller.ts';
+import type {NativeSettingsLivePorts} from '../src-next/screens/settings-live/ports';
 
 const source = {id: 'archive', kind: 'webdav', name: 'Archive', rootPath: 'Media', generation: 1,
   state: 'ready', rangeSupport: 'conditional', insecureLocal: false, credentialPresent: true, origin: 'https://storage.example'};
