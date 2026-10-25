@@ -104,7 +104,8 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
   const art = runtime.artwork(entry.posterUrl);
   const minutes = snapshot.songDurationSeconds === undefined ? undefined : Math.max(1, Math.round(snapshot.songDurationSeconds / 60));
   const facts = [entry.artist?.name, entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false}),
-    snapshot.songTotal !== undefined && minutes !== undefined ? t('music.songCountAndDuration', {songs: snapshot.songTotal, minutes}) : undefined].filter((value): value is string => !!value);
+    snapshot.songTotal === undefined ? undefined : minutes === undefined ? t('title.songCount', {count: snapshot.songTotal})
+      : t('music.songCountAndDuration', {songs: snapshot.songTotal, minutes})].filter((value): value is string => !!value);
   return <View testID="native-tv-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>

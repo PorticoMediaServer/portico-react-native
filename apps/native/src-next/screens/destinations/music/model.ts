@@ -191,8 +191,9 @@ export class NativeTVMusicController {
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
     const complete = page.complete && page.entries.length === page.total;
-    const duration = complete ? page.entries.reduce((sum, entry) => sum + (entry.duration ?? 0), 0) : undefined;
-    this.publish({phase: 'ready', songs: page.entries, songTotal: page.total, ...(duration ? {songDurationSeconds: duration} : {}), favorite});
+    const duration = complete && page.entries.every(entry => entry.duration !== undefined)
+      ? page.entries.reduce((sum, entry) => sum + entry.duration!, 0) : undefined;
+    this.publish({phase: 'ready', songs: page.entries, songTotal: page.total, songDurationSeconds: duration, favorite});
     // Recommendations must not prevent the album's own tracks from loading.
     // A failure still reaches the existing error presenter, retaining the tracks.
     if (!this.current() || signal.aborted) return;

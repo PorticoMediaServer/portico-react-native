@@ -129,7 +129,8 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
   const facts = [
     entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false}),
     entry.genres?.[0],
-    snapshot.songTotal !== undefined && minutes !== undefined ? t('music.songCountAndDuration', {songs: snapshot.songTotal, minutes}) : undefined,
+    snapshot.songTotal === undefined ? undefined : minutes === undefined ? t('title.songCount', {count: snapshot.songTotal})
+      : t('music.songCountAndDuration', {songs: snapshot.songTotal, minutes}),
   ].filter((value): value is string => !!value);
   const title = entry.displayTitle ?? entry.title;
   return <View testID="native-phone-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
