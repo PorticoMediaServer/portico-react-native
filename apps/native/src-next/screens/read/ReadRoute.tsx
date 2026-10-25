@@ -7,7 +7,7 @@ import type {ReadNativeHost} from './ReadNativeHost';
 import {nativeReadHost} from './host-component';
 
 type ReadTarget = Extract<NativeShellRoute, {kind: 'read'}>;
-const targetKey = (target: ReadTarget) => JSON.stringify([target.itemId, target.sourceId, target.contentsTarget?.sourceRevision, target.contentsTarget?.index]);
+const targetKey = (target: ReadTarget) => JSON.stringify([target.itemId, target.sourceId, target.downloadId, target.contentsTarget?.sourceRevision, target.contentsTarget?.index]);
 type Preferences = React.ComponentProps<typeof ReadNativeHost>['preferences'];
 export function createNativeReadRenderer(context: NativeShellBootstrapContext, preferences: Preferences, openSettings: () => void): NativeRouteRenderer {
   if (Platform.isTV) throw new Error('native_read_unavailable');

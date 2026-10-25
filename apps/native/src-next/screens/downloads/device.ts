@@ -6,6 +6,7 @@ import {createNativeOfflineEntryPlayback} from './playback';
 
 let connection: object | undefined;
 type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; service: DownloadsService;
+  wantPublication: (...args: Parameters<typeof offlineDownloads.wantPublication>) => ReturnType<typeof offlineDownloads.wantPublication>;
   want: (...args: Parameters<typeof offlineDownloads.want>) => ReturnType<typeof offlineDownloads.want>;
   display: (...args: Parameters<typeof offlineDownloads.display>) => ReturnType<typeof offlineDownloads.display>;
   dispose: () => void}>;
@@ -40,11 +41,13 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     playable: entry => {assertBorrowed(); return source.playable(entry);},
     playabilityReason: entry => {assertBorrowed(); return source.playabilityReason(entry);},
     note: entry => {assertBorrowed(); return source.note(entry);},
+    ...(source.publicationSource ? {publicationSource: (entry: OfflineEntry) => {assertBorrowed(); return source.publicationSource!(entry);}} : {}),
     displayFacts: async entry => {assertBorrowed(); const facts = await source.displayFacts(entry); assertBorrowed(); return facts;},
     localMedia: async entry => {assertBorrowed(); const media = await source.localMedia(entry); assertBorrowed(); return media;},
     ...(openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await openOffline(entry);}} : {}),
   };
   return Object.freeze({device: Object.freeze(borrowed), service: current.lease.service,
+    wantPublication: (...args) => {assertBorrowed(); return current.lease.wantPublication(...args);},
     want: (...args) => {assertBorrowed(); return current.lease.want(...args);},
     display: (...args) => {assertBorrowed(); return current.lease.display(...args);},
     dispose: () => {
@@ -103,6 +106,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
   };
   const guarded: NativeOfflineDownloadsDevice = {
     ...adapter,
+    ...(adapter.publicationSource ? {publicationSource: (entry: OfflineEntry) => {assertCurrent(); return adapter.publicationSource!(entry);}} : {}),
     getSnapshot: () => {assertCurrent(); return adapter.getSnapshot();},
     subscribe: listener => {assertCurrent(); return adapter.subscribe(() => {if (current()) listener();});},
     open,
@@ -118,6 +122,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     note: entry => {assertCurrent(); return adapter.note(entry);},
   };
   return Object.freeze({device: Object.freeze(guarded), service,
+    wantPublication: (...args) => {assertCurrent(); return device.wantPublication(...args);},
     want: (...args) => {assertCurrent(); return device.want(...args);},
     display: (...args) => {assertCurrent(); return device.display(...args);},
     dispose: () => {
