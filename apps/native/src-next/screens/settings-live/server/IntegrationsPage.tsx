@@ -59,4 +59,3 @@ function AssistantsTab({ports, t, openCreateKey, isCurrent}: {ports: NativeSetti
     <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textSecondary, marginTop: 14}]}>{t('api.mcp.keyHelp')}</Text><Button size="compact" variant="glass" onPress={() => {if (current()) openCreateKey();}}>{t('web.access.createKey')}</Button>
   </View>;
 }
-
