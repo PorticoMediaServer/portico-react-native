@@ -1,3 +1,4 @@
+import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -31,6 +32,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
+    '../../../../../packages/client-core/src/password-strength': passwordPolicy,
     './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},

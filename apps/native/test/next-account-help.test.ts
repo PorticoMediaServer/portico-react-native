@@ -1,3 +1,4 @@
+import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -29,6 +30,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'failed'})},
     '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
+    '../../../../../packages/client-core/src/password-strength': passwordPolicy,
     './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {accountCredentials: () => account}},
