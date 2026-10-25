@@ -36,7 +36,7 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel}
   return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={null}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
     {page && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{page.path}</Text>}
-    <Switch label={t('next.remoteSources.showHiddenFolders')} value={hidden} disabled={busy} onValueChange={value => {void read(page?.relative ?? '', value);}}/>
+    <Switch checked={hidden} disabled={busy} onCheckedChange={value => {void read(page?.relative ?? '', value);}}>{t('next.remoteSources.showHiddenFolders')}</Switch>
     {!!page?.relative && <Button disabled={busy} variant="text" onPress={() => {void read(parent);}}>{t('next.remoteSources.upOneFolder')}</Button>}
     {busy && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.folderListing')}</Text>}
     {page && !page.entries.length && !busy && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.noFoldersHere')}</Text>}
