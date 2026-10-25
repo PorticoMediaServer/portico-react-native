@@ -23,7 +23,8 @@ export async function readNativeSignInHint(session: LocalSession, origin: string
   });
 }
 export class NativeSignInEnded extends Error {
-  constructor(readonly hint: NativeSignInHint) {super('native_sign_in_ended');}
+  readonly hint: NativeSignInHint;
+  constructor(hint: NativeSignInHint) {super('native_sign_in_ended');this.hint = hint;}
 }
 /** Only an actual terminal credential refusal/expiry selects this form. Selection
  * replacement, storage damage, permission and route/identity failures keep their handling. */
