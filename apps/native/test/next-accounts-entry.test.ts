@@ -36,7 +36,8 @@ test('normal product entry signs in locally through actual React/native bridges 
     await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
     await app.fill('Username', 'synthetic_user'); await app.fill('Password', 'synthetic_password'); await app.tapLabel('Sign in');
     assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Who’s watching on Synthetic living room?'));
-    await app.tapLabel('Synthetic viewer'); await app.fill('Four-digit PIN', '1234'); await app.tapLabel('Continue');
+    await app.tapLabel('Synthetic viewer'); await app.fill('Four-digit PIN', '1234');
+    assert.equal(app.requests.filter((request: any) => request.path === '/v1/direct/profiles/profile/select').length, 1, 'fourth PIN digit submits exactly one selection');
     const {nativeAppSessions} = await import('../src-next/platform/app-session-storage.ts');
     const saved = await nativeAppSessions.selected();
     assert.equal(saved?.connection.session.sessionFamilyId, 'new_selected_family');
