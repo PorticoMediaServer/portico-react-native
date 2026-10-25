@@ -10,6 +10,10 @@ import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresenta
 import {currentOccupant} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
+import {musicSignalView} from '../screens/destinations/music/MusicSignal';
+import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
+import {nativeEqualizer} from '../platform/playback/equalizer';
+import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects';
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
 import type {NativeShellRuntime} from './runtime';
 import {sameAuthority, type ShellAuthority} from './model';
@@ -150,6 +154,9 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   useEffect(() => {measureExpandedSlot();}, [measureExpandedSlot, watchSlot, window, snapshot.fence]);
   const horizontalVideo = docked && (local?.kind === 'video' || local?.kind === 'live');
   const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? dockFade.value : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
+  const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
+  // music-plus (MC-8): the line is the committed plan plus the engine's own facts, or nothing.
+  const signal = useMemo(() => {const input = nativeMusicSignal(snapshot, equalizer.value); return input ? musicSignalView(input) : undefined;}, [snapshot, equalizer.value]);
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
@@ -165,7 +172,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   // listening surface, drawn from the same dock occupant and the listening owner's
   // queue. The dock stays underneath; this never starts a second session.
   const dockedLocal = snapshot.dock.local;
-  const nowPlaying = !theme.isTV && presentation && dockedLocal?.expanded === true && (dockedLocal.kind === 'music' || dockedLocal.kind === 'audiobook')
+  const nowPlaying = presentation && dockedLocal?.expanded === true && (dockedLocal.kind === 'music' || dockedLocal.kind === 'audiobook')
     && sameFence(dockedLocal.fence, presentation.fence) ? currentOccupant(adapter.dock, snapshot.dock, {local: presentation}) : null;
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
@@ -179,10 +186,12 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
         <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
+          tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>
         {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined}
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
+          signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
           onClose={() => {const current = adapter.getSnapshot(); if (current.dock.local?.expanded && current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.onTransition(adapter.dock.collapse(current.fence)).catch(runtime.reportError);}}/>}
       </View>
     </Animated.View>
