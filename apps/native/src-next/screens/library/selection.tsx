@@ -168,7 +168,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     // A retained menu acts on the selection it was drawn for, never on a successor.
     if (view !== snapshot()) return;
     const current = producer, op = current?.model.captureOperation();
-    if (!current || !op || !visible() || pending || destinations || personal?.service.getSnapshot().busy) return;
+    if (!current || !op || !visible() || pending || destinations || bulk || personal?.service.getSnapshot().busy
+      || !!personal?.service.getSnapshot().results.length) return;
     const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current && current.model.isOperationCurrent(op);
     pending = controller; emit();
     try {
@@ -189,7 +190,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     // live one before any operation or transport is captured.
     if (view !== snapshot()) return;
     const current = producer, op = current?.model.captureOperation();
-    if (!current || !op || op.target.mode !== 'explicit' || !visible() || pending || destinations || personal?.service.getSnapshot().busy) return;
+    if (!current || !op || op.target.mode !== 'explicit' || !visible() || pending || destinations || bulk
+      || !!personal?.service.getSnapshot().results.length || personal?.service.getSnapshot().busy) return;
     const capability = action === 'myList' || action === 'removeMyList' ? 'myList' : action === 'favorite' ? 'favorite' : 'watched';
     if (!view.summary.every[capability] || !op.target.items.every(value => value.item.capabilities[capability])) return;
     const entries = entriesFor(op.target.items.map(value => value.key));
@@ -261,6 +263,12 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy || !!bulk, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal,
     destination: () => destinations, destinationKind: () => destinationKind, openDestination, closeDestinations,
     // Only an active captured view with a validated descriptor can offer Select all.
+    /** Bar Done/Cancel/Back: only the view it was drawn for may force-clear, and a
+     * current operation can still be cancelled. */
+    cancel: (view: SelectionSnapshot<BrowseSelectionContext>) => {
+      if (view !== snapshot() || !visible()) return;
+      clear();
+    },
     whole: () => snapshot()?.active && visible() ? producer?.whole() : undefined,
     /** The bar's own view and descriptor id: a retained menu never selects a successor. */
     selectWhole: (view: SelectionSnapshot<BrowseSelectionContext>, id: string) => {
@@ -322,6 +330,7 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; active(): boolean; queueControl(): boolean; clear(): void;
   execute(action: 'play' | 'playNext' | 'playLater', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>;
+  cancel(view: SelectionSnapshot<BrowseSelectionContext>): void;
   whole(): Readonly<{id: string; total: number}> | undefined;
   selectWhole(view: SelectionSnapshot<BrowseSelectionContext>, id: string): void;
   destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
@@ -363,7 +372,7 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
     return parts.length ? [{id: field, text: `${spec.label}: ${parts.join(' · ')}`}] : [];
   }) : [];
   const props: SelectionBarProps = {count: summary?.count ?? 0, selectionLabel: summary ? selectedItemsLabel(summary) : undefined,
-    onCancel: () => {setMenu(null); store.clear();}, actions, menu, onMenuChange: setMenu,
+    onCancel: () => {setMenu(null); store.cancel(state!);}, actions, menu, onMenuChange: setMenu,
     ...(whole ? {selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: whole.total}), onSelectAll: () => store.selectWhole(state!, whole.id)} : {}),
     fourthSlot: summary && selectionFourthAction(summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {
