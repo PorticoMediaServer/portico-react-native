@@ -29,7 +29,7 @@ export type NativeWatchHostContext = Readonly<{
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
-  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight'>;
+  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet'>;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   panel: (context: NativeWatchHostContext) => React.ReactNode;
@@ -120,7 +120,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
       <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={expanded && lossNotice?.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
-        width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'}
+        width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}

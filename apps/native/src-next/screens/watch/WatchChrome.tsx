@@ -35,6 +35,8 @@ export type NativeWatchChromeProps = Readonly<{
   width: number;
   height: number;
   compact: boolean;
+  /** An expanded-size-class device (iPad): tablet-play3 draws an 84 pt centre button. */
+  tablet?: boolean;
   /** Book-mode edge chrome avoids the padded crease; centre transport does not move. */
   edgeInsets?: Readonly<{left?: number; right?: number}>;
   skipBackSeconds: number;
@@ -220,7 +222,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     </View>
     <View style={{position: 'absolute', inset: 0, backgroundColor: '#04090d80'}}/>
   </View>;
-  const big = theme.isTV ? 88 : compact ? 58 : 74, small = theme.isTV ? 64 : compact ? 46 : 58;
+  const tablet = props.tablet === true;
+  const big = theme.isTV ? 88 : compact ? (tablet ? 84 : 58) : 74, small = theme.isTV ? 64 : compact ? 46 : 58;
   const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
     iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
@@ -260,7 +263,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     <Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
       accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={theme.isTV && visible}
       focusable={visible} disabled={!visible || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
-      style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : 28}/>
+      style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : compact && tablet ? 34 : 28}/>
     {skip(true)}
     {queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, theme.isTV || compact ? undefined : 46)}
   </View>;
