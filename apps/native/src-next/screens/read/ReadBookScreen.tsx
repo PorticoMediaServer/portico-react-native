@@ -41,7 +41,7 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   // (wide but short, e.g. 914x411) stays a phone page, and portrait keeps one column.
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
   const wide = dimensions.width > dimensions.height && layout.kind !== 'phone', rowHero = layout.kind !== 'phone';
-  const [more, setMore] = useState(false), [tab, setTab] = useState('contents');
+  const [more, setMore] = useState(false), [tab, setTab] = useState('contents'), [heroHeight, setHeroHeight] = useState(0), [collapsed, setCollapsed] = useState(false);
   useLayoutEffect(() => {
     if (!controller.arm()) return;
     void controller.load().catch(() => {});
@@ -83,31 +83,53 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
         versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
-        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor}/>;
+        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}/>;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
       <View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.ink, opacity: .5}}/>
     </View>
-    <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
-      style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>
-    <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('next.controls.more')} onPress={() => setMore(true)}
-      style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/>
-    <ScrollView contentContainerStyle={{paddingTop: Math.max(96, insets.top + 56), paddingBottom: insets.bottom + 48}} showsVerticalScrollIndicator={false}>
+    {rowHero ? <>
+      <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
+        style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>
+      <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('next.controls.more')} onPress={() => setMore(true)}
+        style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/>
+    </> : <>
+      {/* phone-read 3/3c: past the hero the page pins its bar and the Contents/Details
+          tabs, keeping the same back and More actions in place. */}
+      <View pointerEvents={collapsed ? 'auto' : 'box-none'} style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+        paddingTop: insets.top + 6, height: insets.top + 50 + (collapsed && contents.length ? 42 : 0),
+        backgroundColor: collapsed ? theme.colors.ink : 'transparent', borderBottomWidth: collapsed ? 1 : 0, borderBottomColor: theme.colors.line}}>
+        <View pointerEvents="box-none" style={{height: 44, paddingHorizontal: 10, justifyContent: 'center'}}>
+          <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack} style={{height: 44, width: 44}}/>
+          {collapsed ? <View pointerEvents="none" style={{position: 'absolute', left: 64, right: 64, height: 44, justifyContent: 'center'}}>
+            <Text numberOfLines={1} style={[browseType(theme, 17, 700), {textAlign: 'center', color: theme.colors.text}]}>{title}</Text>
+          </View> : null}
+        </View>
+        {collapsed && contents.length ? <Tabs testID="native-read-book-pin-tabs" value={tab} onValueChange={setTab} style={{height: 42}}
+          items={[{value: 'contents', label: t('next.reader.contents')}, {value: 'details', label: t('next.reader.details')}]}/> : null}
+      </View>
+      <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('next.controls.more')} onPress={() => setMore(true)}
+        style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 11, height: 44, width: 44}}/>
+    </>}
+    <ScrollView contentContainerStyle={{paddingTop: Math.max(96, insets.top + 56), paddingBottom: insets.bottom + 48}} showsVerticalScrollIndicator={false}
+      scrollEventThrottle={64}
+      onScroll={event => {const y = event.nativeEvent.contentOffset.y;
+        setCollapsed(current => {const next = !rowHero && heroHeight > 0 && y > heroHeight - 50; return next === current ? current : next;});}}>
       {body}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef, onHeroHeight}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean; rowHero: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
   listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
-  canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>;
+  canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>; onHeroHeight: (height: number) => void;
 }) {
   const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
@@ -181,7 +203,10 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
       {coverArt}
       <View style={{flex: 1, minWidth: 0}}>{copy}{actions}</View>
     </View>
-    : <><View style={{alignItems: 'center', paddingHorizontal: 20}}>{coverArt}{copy}</View>{actions}</>;
+    : <><View style={{alignItems: 'center', paddingHorizontal: 20}} onLayout={event => {
+      const next = Math.round(event.nativeEvent.layout.height);
+      if (next > 0) onHeroHeight(next);
+    }}>{coverArt}{copy}</View>{actions}</>;
   const opening = manifest.metadata.openingLines ? <View style={{marginHorizontal: rowHero ? (wide ? 32 : 28) : 20, marginTop: 18}}>
     <Text style={[browseType(theme, 13, 700), {color: theme.colors.textTertiary}]}>{t('next.reader.openingLines')}</Text>
     <Text numberOfLines={4} style={[browseType(theme, 14.5, 400), {color: theme.colors.textSecondary, lineHeight: 23, marginTop: 6, paddingLeft: 14,
