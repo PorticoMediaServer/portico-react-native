@@ -1,4 +1,5 @@
 import {NativeTVReceiver} from '../screens/settings-live/NativeTVReceiver';
+import {NativeHomeEmpty} from '../screens/home/HomeEmpty';
 import React, {type RefObject} from 'react';
 import {BackHandler, Platform, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
@@ -12,7 +13,6 @@ import {homeSpotlightModels} from '../../../../packages/client-core/src/presenta
 import {selectionHaptic} from '../platform/haptics';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 import {nativeScreenServices, NativeScreenFeedbackHost} from '../screens/native-screen-services';
-import {StateView} from '../kit/states';
 import {OwnerTag} from '../kit/shell';
 import {HomeSelectionBars} from './HomeSelectionBars';
 import {HomeSelectionOverlays} from './HomeSelectionOverlays';
@@ -31,7 +31,6 @@ import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap
 import type {NativeShellRuntime} from './runtime';
 import {createNativeMusicMixes, type NativeMusicMixesCaller} from '../screens/destinations/music/mixes';
 
-const t = defaultI18n.t;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const failure = (code: string) => Object.assign(new Error(code), {code});
 type Registration = {row: HomeRow; order: number; context: string; coordinate: number; first: number; last: number};
@@ -346,7 +345,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     },
     renderDestination: destination => render({kind: 'shell', destination}),
     renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
-    renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
+    renderHomeEmpty: () => <NativeHomeEmpty owner={context.account.account.role === 'owner'} serverName={context.serverName}
+      hasLibraries={context.libraries().length > 0} onSwitchServer={nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined}/>,
     renderDownloads: () => <NativeDownloadSheet context={context}/>,
     libraryMenu: library => {
       const common = {read: isReadingLibraryKind(library.kind),
