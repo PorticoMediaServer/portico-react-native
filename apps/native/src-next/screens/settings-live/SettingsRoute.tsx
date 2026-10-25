@@ -72,7 +72,7 @@ export function createNativeEqualizerSettingsRenderer(context: NativeShellBootst
     render: (route, runtime) => {
       lifetime.assert();
       if (route.kind !== 'settings-equalizer') throw new Error('native_equalizer_settings_route_mismatch');
-      return <NativeEqualizerSettingsScreen runtime={runtime} onBack={() => context.navigation.back(context.authority())}/>;
+      return <NativeEqualizerSettingsScreen runtime={runtime} onBack={() => {lifetime.assert(); context.navigation.back(context.authority());}}/>;
     },
     dispose: () => lifetime.dispose(),
   };
