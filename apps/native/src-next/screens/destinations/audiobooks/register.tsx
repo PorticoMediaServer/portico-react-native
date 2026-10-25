@@ -40,7 +40,14 @@ export function createNativeBookRenderer(context: NativeShellBootstrapContext): 
       const page = pageFor(route);
       if (!page) return null;
       const back = () => {if (current()) context.navigation.back(context.authority());};
-      const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open(entry.kind === 'book' ? {kind: 'book', entry} : {kind: 'audiobook', entry}, context.authority());};
+      // An author or series named by a book's own context keeps that book's library,
+      // so its destination is a real page and the rail can still highlight the
+      // library; the entry's own library wins when the server sent one.
+      const openEntry = (entry: ContentEntry) => {
+        if (!current() || !page.entry.libraryId) return;
+        const target: ContentEntry = entry.libraryId ? entry : Object.freeze({...entry, libraryId: page.entry.libraryId});
+        context.navigation.open(entry.kind === 'book' ? {kind: 'book', entry: target} : {kind: 'audiobook', entry: target}, context.authority());
+      };
       return route.kind === 'book'
         ? <BookScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>
         : <AuthorSeriesScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
