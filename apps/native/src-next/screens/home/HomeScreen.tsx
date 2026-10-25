@@ -391,16 +391,29 @@ function HomeWindow({runtime, row, sectionOrder, visible, physicalIds, retainedI
   return children;
 }
 
+const noPictureInPictureStore = () => () => {};
+
 function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible, preferred, medium = false, current}: {
   runtime: NativeShellRuntime; row: HomeRow; entry: ContentEntry; rank?: number; context: LayoutItemContext; width: number; rowIndex: number; visible: boolean; preferred: boolean; medium?: boolean; current: () => boolean;
 }) {
   const theme = useTheme(), anchor = useRef<View>(null), text = homeCardText(entry, row.kind === 'continue' || row.id === 'continue_books', runtime.text), target = homePlayTarget(row, entry);
+  // The admitted PiP fact only names the Continue row's own card when the same entry and a
+  // current fence are playing; a matching title in a new or recommendation shelf stays quiet.
+  const continueRow = row.kind === 'continue';
+  const pictureInPicture = useSyncExternalStore(runtime.playback?.subscribe ?? noPictureInPictureStore, () => {
+    if (!continueRow) return '';
+    const playback = runtime.playback?.getSnapshot();
+    if (playback?.pictureInPicture?.active !== true || !playback.fence || !playback.entry) return '';
+    return playback.entry.kind === entry.kind && playback.entry.libraryId === entry.libraryId && playback.entry.id === entry.id
+      ? runtime.text.t('next.player.playingInPictureInPicture') : '';
+  }, () => '');
+  const cardText = pictureInPicture ? {...text, caption: [...text.caption, {id: 'picture-in-picture', text: pictureInPicture, role: 'status' as const}]} : text;
   const navigate = () => {if (current()) runtime.actions.navigate(entry);};
   const offers = homeEntryCapabilities(entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
   const play = offers.playable && target?.playback ? () => {homeActionDiagnostics.action('home-card', 'primary-play'); if (current()) runtime.actions.play(entry, target.playback!);} : undefined;
   const actions = play && (theme.isTV || row.kind === 'continue') ? {primaryAction: 'play' as const, onPlay: play, onNavigate: navigate}
     : {primaryAction: 'navigate' as const, onNavigate: navigate, ...(play ? {onPlay: play} : {})};
-  const props: CardProps = {...text, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred, testID: context.testID,
+  const props: CardProps = {...cardText, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred, testID: context.testID,
     ...(medium ? {titleTextStyle: mediumCardType.title, captionTextStyle: mediumCardType.caption} : {}),
     menuAnchorRef: anchor, moreExpanded: runtime.selection(row.id).isMenuOpen?.(entry.id),
     accessibilityState: {expanded: !!runtime.selection(row.id).isMenuOpen?.(entry.id)},
@@ -408,8 +421,8 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
   const art = runtime.artwork(row.artworkShape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl);
   return <ArtworkPlacementContext.Provider value={{row: rowIndex + 1, column: context.index, group: row.id}}>
     {rank ? <RankedCard {...props} rank={rank} artwork={art} isNew={entry.new} watched={entry.watched}/>
-      : row.artworkShape === 'landscape' ? <WideCard {...props} artwork={art} progress={text.progress} watched={entry.watched}/>
-      : row.artworkShape === 'square' ? <SquareCard {...props} artwork={art} progress={text.progress} watched={entry.watched} isNew={entry.new}/>
+      : row.artworkShape === 'landscape' ? <WideCard {...props} artwork={art} progress={cardText.progress} watched={entry.watched}/>
+      : row.artworkShape === 'square' ? <SquareCard {...props} artwork={art} progress={cardText.progress} watched={entry.watched} isNew={entry.new}/>
       : <PosterCard {...props} artwork={art} watched={entry.watched} isNew={entry.new}/>}
   </ArtworkPlacementContext.Provider>;
 }

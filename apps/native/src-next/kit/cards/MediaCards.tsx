@@ -94,7 +94,7 @@ export function WideCard(props: WideCardProps) {
   const handheld = t.layoutMode === 'phone';
   // kit.css draws the on-art fact separator (.gap) at 12 px, 16 px on TV.
   const factsGap = t.isTV ? 16 : 12;
-  const compactFacts = handheld ? [...(props.caption ?? []), ...(props.detail ?? [])].filter(part => part.id === 'episode-label' || part.id === 'remaining') : undefined;
+  const compactFacts = handheld ? [...(props.caption ?? []), ...(props.detail ?? [])].filter(part => part.id === 'episode-label' || part.id === 'remaining' || part.id === 'picture-in-picture') : undefined;
   return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={52} centered />}>
     {s => <ArtFrame height={height} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected}>
       <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="wide" source={props.artwork} fallback={props.artworkFallback} width={width} height={height} />
