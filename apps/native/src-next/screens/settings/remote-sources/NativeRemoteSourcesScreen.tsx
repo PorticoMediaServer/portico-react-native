@@ -27,7 +27,7 @@ export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}:
     void controller.load();
     return () => controller.dispose();
   }, [ports]);
-  return owned ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime} onBackHandlerChange={onBackHandlerChange}/>
+  return owned && owned.ports === ports ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime} onBackHandlerChange={onBackHandlerChange}/>
     : <StateView title={runtime.text.t('next.remoteSources.loading')}/>;
 }
 
