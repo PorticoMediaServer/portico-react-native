@@ -55,6 +55,15 @@ export function TVPeoplePanel({ports, runtime, lifetime}: {ports: NativeSettings
     if (days < 35) return t('next.tvPeople.weeksAgo', {count: Math.floor(days / 7)});
     return t('next.tvPeople.monthsAgo', {count: Math.floor(days / 30)});
   };
+  const expiry = (iso: string): string | undefined => {
+    const at = new Date(iso);
+    if (!Number.isFinite(at.getTime())) return undefined;
+    const start = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const time = new Intl.DateTimeFormat(runtime.text.locale ?? 'en-US', {hour: 'numeric', minute: '2-digit'}).format(at);
+    const days = Math.ceil((start(at) - start(new Date())) / 86400000);
+    if (days <= 0) return t('next.tvPeople.expiresToday', {time});
+    return t('next.tvPeople.expiresIn', {count: days});
+  };
   const row = (id: string, title: string, meta: string[], status?: string) => <Focusable key={id} focusId={id} focusKind="row" accessibilityRole="text" accessibilityLabel={[title, ...meta, status].filter(Boolean).join('. ')}
     style={{flexDirection: 'row', gap: 20, alignItems: 'center', padding: 22, marginBottom: 8, borderRadius: 16, backgroundColor: theme.colors.raised}}>
     <View style={{width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.accent}33`}}><Text style={[shellType(22, 700), {color: theme.colors.accentStrong}]}>{title.slice(0, 1).toUpperCase()}</Text></View>
@@ -81,8 +90,8 @@ export function TVPeoplePanel({ports, runtime, lifetime}: {ports: NativeSettings
     }) : <StateView title={t('next.tvPeople.noAccounts')}/>)}
     {group('invitations', 'next.tvPeople.invitations', state.invitations.length ? state.invitations.map(invitation => {
       const title = t(invitation.role === 'admin' ? 'next.tvPeople.invitationForAdmin' : 'next.tvPeople.invitationForMember');
-      const expires = when(invitation.expiresAt);
-      return row(`invitation:${invitation.id}`, title, expires ? [t('next.tvPeople.expires', {when: expires})] : [], t('next.tvPeople.notUsed'));
+      const expires = expiry(invitation.expiresAt);
+      return row(`invitation:${invitation.id}`, title, expires ? [expires] : [], t('next.tvPeople.notUsed'));
     }) : <StateView title={t('next.tvPeople.noInvitations')}/>)}
     {group('devices', 'next.tvPeople.devices', state.devices.length ? state.devices.map(device => {
       const meta = [device.platform, when(device.firstSeenAt) ? t('next.tvPeople.firstSeen', {when: when(device.firstSeenAt)}) : ''].filter(Boolean);
