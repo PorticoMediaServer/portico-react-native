@@ -217,12 +217,12 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     if (!state.active || !state.selectedKeys.length) return;
     const selected = [...windows.values()].filter(window => state.selectedKeys.includes(window.key)).flatMap(window => leaf(window.entry) ? [window.entry] : []);
     if (selected.length !== state.selectedKeys.length) return;
-    const captured = token, currentModel = model, route = context.navigation.getSnapshot().revision, fence = state.context.scope.privacyFence;
+    const captured = token, currentModel = model, route = context.navigation.getSnapshot().revision;
     const controller = new AbortController();
     const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
       && context.navigation.getSnapshot().revision === route && currentModel.getSnapshot().active;
     bulkController = controller;
-    bulk = new NativeBulkMedia({api: context.api, scope: authority.scope, requestId: feedback.requestId, signal: controller.signal, isCurrent: current, fence}, selected);
+    bulk = new NativeBulkMedia({api: context.api, scope: authority.scope, requestId: feedback.requestId, signal: controller.signal, isCurrent: current}, selected);
     stopBulk = bulk.subscribe(emit);
     void (kind === 'edit' ? bulk.openEditor() : bulk.openDelete()).catch(error => {if (current()) feedback.reportError(error, 'detail');});
     emit();

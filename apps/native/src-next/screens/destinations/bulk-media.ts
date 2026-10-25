@@ -1,23 +1,29 @@
 import {deletionAllowed, parseDeletePreview, parseDeleteResult, type DeletePreview, type DeleteResult} from '../../../../../packages/client-core/src/administration';
-import {fetchBulkMetadataPreview, metadataPreviewTargets, type BulkMetadataPreview} from '../../../../../packages/client-core/src/home-selection';
+import {fetchBulkMetadataPreview, metadataPreviewTargets, type BulkMetadataPreview, type BulkMetadataPreviewTarget} from '../../../../../packages/client-core/src/home-selection';
 import type {HomeApi} from '../../../../../packages/client-core/src/home';
 import {validBulkEdit, validateBulkReceipt, type BulkEdit, type BulkReceipt} from '../../../../../packages/client-core/src/metadata-bulk';
 import type {BulkChanges, BulkFieldValue, BulkResultView} from '../../kit/selection';
 import {routePath} from '../../../../../packages/contracts/src/routes';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CatalogueSelectionOptions} from '../../../../../packages/client-core/src/catalogue-selection';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 
 const unavailable = (code = 'selection-admin-unavailable') => Object.assign(new Error(code), {code});
 const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
+/** Bounded, localized copy only: a raw error's message or string is never drawn. */
+const failure = (kind: 'edit' | 'delete') => defaultI18n.t('error.title.action', {subject: kind === 'edit' ? 'playlist' : 'other'});
 
 /** Bulk metadata edit and media deletion for one explicit captured leaf selection.
  *
  * The preview is the server's own (schema, shared/mixed values, per-target expected
  * revisions, and the delete preview's files/disk/blocks). Only explicit changes are
- * sent, each chunk keeps its operation id and receipt through a retry, and the delete
- * body keeps its revision, confirmation and operation id across an uncertain answer.
- * The caller's Search/Saved lifetime is checked before and after every read and write,
- * and a preview whose viewer fence is not the captured one is refused. */
+ * sent; one operation runs at a time with its plan fixed before the first id is minted;
+ * each chunk keeps its operation id and receipt through a retry, and the delete body
+ * keeps its revision, confirmation and operation id across an uncertain answer. Every
+ * opening has its own epoch: a superseded preview or write can neither publish nor act
+ * after a close or a newer opening. The metadata preview's own authority fence is
+ * remembered per opening (never compared with a Search or Saved fence), and its exact
+ * targets are checked against the captured selection. */
 export type NativeBulkMediaSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'saving' | 'result' | 'uncertain' | 'error';
   preview?: BulkMetadataPreview;
@@ -39,23 +45,38 @@ const fieldValue = (preview: BulkMetadataPreview): Readonly<Record<string, BulkF
         values: field.values, entries: field.entries, truncated: field.truncated}
     : {state: 'mixed' as const, distinctCount: 0, values: [], entries: [], truncated: false}];
 }));
+const envelope = (raw: unknown, serverId: string): unknown => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw unavailable('invalid-admin-envelope');
+  const value = raw as {protocolVersion?: unknown; serverId?: unknown; result?: unknown};
+  if (typeof value.protocolVersion !== 'string' || !/^\d+\.\d+$/.test(value.protocolVersion) || value.protocolVersion.length > 8) throw unavailable('invalid-admin-envelope');
+  if (value.serverId !== serverId) throw unavailable('admin-authority-changed');
+  return value.result;
+};
 
 export class NativeBulkMedia {
-  private readonly options: CatalogueSelectionOptions & Readonly<{fence: string}>;
+  private readonly options: CatalogueSelectionOptions;
   private readonly entries: readonly ContentEntry[];
-  private readonly targets: ReturnType<typeof metadataPreviewTargets>;
+  private readonly captured: readonly Readonly<{kind: ContentEntry['kind']; id: string; libraryId: string}>[];
+  private readonly targets: readonly BulkMetadataPreviewTarget[];
   private readonly listeners = new Set<() => void>();
   private disposed = false;
+  private epoch = 0;
+  private controller?: AbortController;
+  private flight = false;
   private state: NativeBulkMediaSnapshot = Object.freeze({phase: 'idle', lockEdited: true, changes: {}, receipts: [], singleItemFields: [], values: {}});
   private edits: {body: BulkEdit; receipt?: BulkReceipt}[] = [];
-  private deleteBody?: Readonly<Record<string, unknown>>;
   private baseEdit?: Omit<BulkEdit, 'operationId' | 'targets'>;
+  private deleteBody?: Readonly<Record<string, unknown>>;
+  private deletePreviewIds?: readonly string[];
+  /** The metadata domain's own fence, learned from this opening's first preview. */
+  private previewFence?: string;
 
-  constructor(options: CatalogueSelectionOptions & Readonly<{fence: string}>, entries: readonly ContentEntry[]) {
+  constructor(options: CatalogueSelectionOptions, entries: readonly ContentEntry[]) {
     this.options = options;
     this.entries = Object.freeze([...entries]);
     if (!entries.length || entries.length > 200 || new Set(entries.map(entry => entry.id)).size !== entries.length
       || entries.some(entry => !entry.libraryId || !['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind))) throw unavailable();
+    this.captured = Object.freeze(entries.map(entry => Object.freeze({kind: entry.kind, id: entry.id, libraryId: entry.libraryId!})));
     this.targets = metadataPreviewTargets(entries.map(entry => ({kind: entry.kind, id: entry.id, libraryId: entry.libraryId!})));
   }
 
@@ -66,147 +87,224 @@ export class NativeBulkMedia {
     this.state = Object.freeze({...this.state, ...patch});
     for (const listener of [...this.listeners]) listener();
   }
-  private assert(): void {
-    if (this.disposed || this.options.signal.aborted || !this.options.isCurrent()) {
-      if (!this.disposed) this.dispose();
+  private live(epoch: number): boolean {
+    return !this.disposed && this.epoch === epoch && !this.options.signal.aborted && this.options.isCurrent();
+  }
+  private assertLive(epoch: number): void {
+    if (!this.live(epoch)) {
+      if (!this.disposed && (this.options.signal.aborted || !this.options.isCurrent())) this.dispose();
       throw cancelled();
     }
   }
-  private async api<T>(path: string, method: string, body: unknown): Promise<T> {
-    this.assert();
-    const value = await this.options.api.request<T>(path, method, body, this.options.signal);
-    this.assert();
+  private publishFor(epoch: number, patch: Partial<NativeBulkMediaSnapshot>): void {if (this.live(epoch)) this.publish(patch);}
+  /** A new opening retires every earlier read/write and its retained plan. */
+  private begin(patch: Partial<NativeBulkMediaSnapshot>): number {
+    const epoch = ++this.epoch;
+    this.controller?.abort();
+    this.controller = new AbortController();
+    this.flight = false; this.edits = []; this.baseEdit = undefined; this.deleteBody = undefined; this.deletePreviewIds = undefined; this.previewFence = undefined;
+    this.publish(patch);
+    return epoch;
+  }
+  /** Claimed synchronously, before any await that mints an id or sends a body. */
+  private claim(epoch: number, patch: Partial<NativeBulkMediaSnapshot>): boolean {
+    if (this.flight || !this.live(epoch)) return false;
+    this.flight = true; this.publish(patch); return true;
+  }
+  private finish(epoch: number): void {if (this.live(epoch)) this.flight = false;}
+  private signal(epoch: number): AbortSignal {this.assertLive(epoch); return this.controller!.signal;}
+  private async request<T>(epoch: number, path: string, method: string, body: unknown): Promise<T> {
+    this.assertLive(epoch);
+    const value = await this.options.api.request<T>(path, method, body, this.signal(epoch));
+    this.assertLive(epoch);
     return value;
+  }
+  private previewApi(epoch: number): HomeApi {
+    return {request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+      this.assertLive(epoch);
+      const value = await this.options.api.request<T>(path, method, body, signal ?? this.signal(epoch));
+      this.assertLive(epoch);
+      return value;
+    }} as unknown as HomeApi;
+  }
+  /** The preview must describe exactly the captured leaves (never a parent expansion). */
+  private assertTargets(preview: BulkMetadataPreview, targets: readonly BulkMetadataPreviewTarget[]): void {
+    if (preview.serverId !== this.options.scope.serverId || preview.targets.length !== targets.length
+      || preview.targets.some((target, index) => target.id !== targets[index]!.id || target.libraryId !== targets[index]!.libraryId || target.kind !== targets[index]!.kind)) {
+      throw unavailable('metadata-targets-changed');
+    }
+    if (this.previewFence !== undefined && preview.viewerFence !== this.previewFence) throw unavailable('metadata-authority-changed');
+    this.previewFence = preview.viewerFence;
+  }
+  private readPreview(epoch: number, targets: readonly BulkMetadataPreviewTarget[]): Promise<BulkMetadataPreview> {
+    return fetchBulkMetadataPreview(this.previewApi(epoch), {targets}, this.options.scope.serverId, this.signal(epoch));
   }
 
   openEditor = async (): Promise<void> => {
-    this.publish({phase: 'loading', error: undefined, receipts: []});
-    this.edits = [];
+    const epoch = this.begin({phase: 'loading', error: undefined, receipts: [], result: undefined, preview: undefined, changes: {}, values: {}, deletion: undefined});
+    if (!this.claim(epoch, {phase: 'loading'})) return;
     try {
-      const preview = await fetchBulkMetadataPreview(this.options.api as unknown as HomeApi, {targets: this.targets}, this.options.scope.serverId, this.options.signal);
-      this.assert();
-      if (preview.viewerFence !== this.options.fence) throw unavailable('metadata-authority-changed');
-      this.publish({phase: 'ready', preview, values: fieldValue(preview), singleItemFields: preview.singleItemFields, lockEdited: true, changes: {}});
-    } catch (error) {this.publish({phase: 'error', error: message(error)});}
+      const preview = await this.readPreview(epoch, this.targets);
+      this.assertTargets(preview, this.targets);
+      this.publishFor(epoch, {phase: 'ready', preview, values: fieldValue(preview), singleItemFields: preview.singleItemFields, lockEdited: true, changes: {}, receipts: [], result: undefined});
+    } catch {this.publishFor(epoch, {phase: 'error', error: failure('edit')});}
+    finally {this.finish(epoch);}
   };
-  setChanges = (changes: BulkChanges) => this.publish({changes});
-  setLockEdited = (lockEdited: boolean) => this.publish({lockEdited});
-  save = async (): Promise<void> => {
-    const preview = this.state.preview, changes = this.state.changes;
-    if (!preview || (this.state.phase !== 'ready' && this.state.phase !== 'uncertain')) return;
-    if (!this.edits.length) {
-      const fields: Record<string, {value?: string; values?: readonly string[]}> = {};
-      const lists: Record<string, {add?: readonly string[]; remove?: readonly string[]}> = {};
-      let genres: {add?: readonly string[]; remove?: readonly string[]} | undefined;
-      for (const spec of preview.schema) {
-        const change = changes[spec.field];
-        if (!change) continue;
-        if ('add' in change || 'remove' in change) {
-          const list = {...('add' in change ? {add: change.add} : {}), ...('remove' in change ? {remove: change.remove} : {})};
-          if (spec.field === 'genres') genres = list;
-          else lists[spec.field] = list;
-        } else if ('value' in change) fields[spec.field] = {value: change.value};
-      }
-      if (!Object.keys(fields).length && !Object.keys(lists).length && !genres) {this.publish({phase: 'result', result: {results: [], updated: 0, failed: 0}}); return;}
-      for (let start = 0; start < preview.targets.length; start += 200) {
-        this.assert();
-        const operationId = await this.options.requestId();
-        this.assert();
-        const body: BulkEdit = {operationId, targets: preview.targets.slice(start, start + 200).map(({kind, id, expectedRevision}) => ({kind, id, expectedRevision})),
-          ...(Object.keys(fields).length ? {fields} : {}), ...(Object.keys(lists).length ? {lists} : {}), ...(genres ? {genres} : {}), lockEdited: this.state.lockEdited};
-        if (!validBulkEdit(body, preview.schema)) throw unavailable('invalid-bulk-edit');
-        this.baseEdit = {...(Object.keys(fields).length ? {fields} : {}), ...(Object.keys(lists).length ? {lists} : {}), ...(genres ? {genres} : {}), lockEdited: this.state.lockEdited};
-        this.edits.push({body});
-      }
+  setChanges = (changes: BulkChanges): void => {
+    // A retained plan (or a write in flight) owns the draft: the same values are retried.
+    if (this.edits.length || this.baseEdit || this.flight) return;
+    this.publish({changes});
+  };
+  setLockEdited = (lockEdited: boolean): void => {
+    if (this.edits.length || this.baseEdit || this.flight) return;
+    this.publish({lockEdited});
+  };
+  private async plan(epoch: number, preview: BulkMetadataPreview, changes: BulkChanges, lockEdited: boolean): Promise<{base: Omit<BulkEdit, 'operationId' | 'targets'>; edits: {body: BulkEdit}[]}> {
+    const fields: Record<string, {value?: string; values?: readonly string[]}> = {};
+    const lists: Record<string, {add?: readonly string[]; remove?: readonly string[]}> = {};
+    let genres: {add?: readonly string[]; remove?: readonly string[]} | undefined;
+    for (const spec of preview.schema) {
+      const change = changes[spec.field];
+      if (!change) continue;
+      if ('add' in change || 'remove' in change) {
+        const list = {...('add' in change ? {add: change.add} : {}), ...('remove' in change ? {remove: change.remove} : {})};
+        if (spec.field === 'genres') genres = list; else lists[spec.field] = list;
+      } else if ('value' in change) fields[spec.field] = {value: change.value};
     }
-    this.publish({phase: 'saving', error: undefined});
+    if (!Object.keys(fields).length && !Object.keys(lists).length && !genres) return {base: {}, edits: []};
+    const base: Omit<BulkEdit, 'operationId' | 'targets'> = {...(Object.keys(fields).length ? {fields} : {}), ...(Object.keys(lists).length ? {lists} : {}), ...(genres ? {genres} : {}), lockEdited};
+    const edits: {body: BulkEdit}[] = [];
+    for (let start = 0; start < preview.targets.length; start += 200) {edits.push({body: {...base, operationId: await this.nextId(epoch), targets: preview.targets.slice(start, start + 200).map(({kind, id, expectedRevision}) => ({kind, id, expectedRevision}))}});}
+    for (const edit of edits) if (!validBulkEdit(edit.body, preview.schema)) throw unavailable('invalid-bulk-edit');
+    return {base, edits};
+  }
+  private async nextId(epoch: number): Promise<string> {
+    this.assertLive(epoch);
+    const id = await this.options.requestId();
+    this.assertLive(epoch);
+    return id;
+  }
+  private async write(epoch: number, edit: BulkEdit): Promise<BulkReceipt> {
+    return validateBulkReceipt(await this.request<unknown>(epoch, routePath('post_metadata_bulk'), 'POST', edit), edit);
+  }
+  save = async (): Promise<void> => {
+    const epoch = this.epoch, preview = this.state.preview, changes = this.state.changes, lockEdited = this.state.lockEdited;
+    if (!preview || (this.state.phase !== 'ready' && this.state.phase !== 'uncertain')) return;
+    if (!this.claim(epoch, {phase: 'saving', error: undefined})) return;
     try {
+      if (!this.edits.length) {
+        const planned = await this.plan(epoch, preview, changes, lockEdited);
+        this.assertLive(epoch);
+        this.baseEdit = planned.base;
+        this.edits = planned.edits;
+        if (!this.edits.length) {this.publishFor(epoch, {phase: 'result', result: {results: [], updated: 0, failed: 0}}); return;}
+      }
       const receipts: BulkReceipt[] = [...this.state.receipts];
       for (const edit of this.edits) {
         if (edit.receipt) continue;
-        const raw = await this.api<unknown>(routePath('post_metadata_bulk'), 'POST', edit.body);
-        edit.receipt = validateBulkReceipt(raw, edit.body);
+        edit.receipt = await this.write(epoch, edit.body);
         receipts.push(edit.receipt);
-        this.publish({receipts});
+        this.publishFor(epoch, {receipts});
       }
-      this.publish({phase: 'result', result: bulkView(receipts)});
-    } catch (error) {this.publish({phase: 'uncertain', error: message(error)});}
+      this.publishFor(epoch, {phase: 'result', result: bulkView(receipts)});
+    } catch {this.publishFor(epoch, {phase: 'uncertain', error: failure('edit')});}
+    finally {this.finish(epoch);}
   };
+  /** A retry re-reads the failed leaves' own current revisions, then re-sends only them
+   * with the same retained change set; it never reuses a stored expected revision. */
   retry = async (failedIds: readonly string[]): Promise<void> => {
-    const preview = this.state.preview;
-    if (!preview) return;
+    const epoch = this.epoch, preview = this.state.preview, base = this.baseEdit;
+    if (!preview || !base || this.flight || !failedIds.length) return;
     const latest = new Map<string, boolean>();
     for (const receipt of this.state.receipts) for (const row of receipt.results) latest.set(row.id, row.ok);
     const failed = new Set([...latest].filter(([, ok]) => !ok).map(([id]) => id));
-    if (!failedIds.length || failedIds.some(id => !failed.has(id))) return;
+    if (failedIds.some(id => !failed.has(id)) || new Set(failedIds).size !== failedIds.length) return;
     const targets = preview.targets.filter(target => failedIds.includes(target.id));
     if (!targets.length) return;
-    this.edits = [];
-    for (let start = 0; start < targets.length; start += 200) {
-      const operationId = await this.options.requestId();
-      if (!this.baseEdit) return;
-      const body: BulkEdit = {...this.baseEdit, operationId, targets: targets.slice(start, start + 200).map(({kind, id, expectedRevision}) => ({kind, id, expectedRevision}))};
-      if (!this.state.preview || !validBulkEdit(body, this.state.preview.schema)) return;
-      this.edits.push({body});
-    }
-    this.publish({phase: 'saving', error: undefined});
+    if (!this.claim(epoch, {phase: 'saving', error: undefined})) return;
     try {
+      const fresh = await this.readPreview(epoch, targets);
+      this.assertTargets(fresh, targets);
+      const edits: {body: BulkEdit}[] = [];
+      for (let start = 0; start < fresh.targets.length; start += 200) {
+        edits.push({body: {...base, operationId: await this.nextId(epoch), targets: fresh.targets.slice(start, start + 200).map(({kind, id, expectedRevision}) => ({kind, id, expectedRevision}))}});
+      }
+      for (const edit of edits) if (!validBulkEdit(edit.body, fresh.schema)) throw unavailable('invalid-bulk-edit');
+      this.edits = edits;
       const receipts: BulkReceipt[] = [...this.state.receipts];
       for (const edit of this.edits) {
-        const raw = await this.api<unknown>(routePath('post_metadata_bulk'), 'POST', edit.body);
-        edit.receipt = validateBulkReceipt(raw, edit.body);
+        edit.receipt = await this.write(epoch, edit.body);
         receipts.push(edit.receipt);
-        this.publish({receipts});
+        this.publishFor(epoch, {receipts});
       }
-      this.publish({phase: 'result', result: bulkView(receipts)});
-    } catch (error) {this.publish({phase: 'uncertain', error: message(error)});}
+      this.publishFor(epoch, {phase: 'result', result: bulkView(receipts)});
+    } catch {this.publishFor(epoch, {phase: 'uncertain', error: failure('edit')});}
+    finally {this.finish(epoch);}
   };
 
   openDelete = async (): Promise<void> => {
-    this.deleteBody = undefined;
-    this.publish({deletion: {phase: 'loading', confirmation: '', removeFiles: false}});
+    const epoch = this.begin({phase: 'idle', deletion: {phase: 'loading', confirmation: '', removeFiles: false}});
+    if (!this.claim(epoch, {deletion: {phase: 'loading', confirmation: '', removeFiles: false}})) return;
     try {
-      const raw = await this.api<{protocolVersion: string; serverId: string; result: unknown}>(routePath('post_admin_media_delete_preview'), 'POST',
-        {itemIds: this.entries.map(entry => entry.id)});
-      const preview = parseDeletePreview(raw.result);
-      this.assert();
-      this.publish({deletion: {phase: 'ready', preview, confirmation: '', removeFiles: false}});
-    } catch (error) {this.publish({deletion: {phase: 'error', confirmation: '', removeFiles: false, error: message(error)}});}
+      const result = envelope(await this.request<unknown>(epoch, routePath('post_admin_media_delete_preview'), 'POST', {itemIds: this.captured.map(entry => entry.id)}), this.options.scope.serverId);
+      const preview = parseDeletePreview(result);
+      this.assertDeletePreview(preview);
+      this.deletePreviewIds = preview.targets.map(target => target.itemId);
+      this.publishFor(epoch, {deletion: {phase: 'ready', preview, confirmation: '', removeFiles: false}});
+    } catch {this.publishFor(epoch, {deletion: {phase: 'error', confirmation: '', removeFiles: false, error: failure('delete')}});}
+    finally {this.finish(epoch);}
   };
-  setDeletion = (patch: Partial<NonNullable<NativeBulkMediaSnapshot['deletion']>>) => {
+  /** The preview must cover exactly the captured selection, once each. */
+  private assertDeletePreview(preview: DeletePreview): void {
+    const ids = preview.targets.map(target => target.itemId);
+    if (ids.length !== this.captured.length || new Set(ids).size !== ids.length
+      || ids.some(id => !this.captured.some(entry => entry.id === id))
+      || preview.targets.some(target => !this.captured.some(entry => entry.id === target.itemId && entry.libraryId === target.libraryId))) {
+      throw unavailable('delete-targets-changed');
+    }
+  }
+  setDeletion = (patch: Partial<NonNullable<NativeBulkMediaSnapshot['deletion']>>): void => {
     const deletion = this.state.deletion;
-    if (!deletion) return;
+    if (!deletion || this.flight) return;
     this.publish({deletion: {...deletion, ...patch}});
   };
   deleteNow = async (): Promise<void> => {
-    const deletion = this.state.deletion, preview = deletion?.preview;
+    const epoch = this.epoch, deletion = this.state.deletion, preview = deletion?.preview;
     if (!deletion || !preview || (deletion.phase !== 'ready' && deletion.phase !== 'uncertain')) return;
     if (!deletionAllowed(preview) || deletion.confirmation.trim() !== preview.confirmation) return;
-    if (!this.deleteBody) {
-      const operationId = await this.options.requestId();
-      this.deleteBody = Object.freeze({itemIds: preview.targets.map(target => target.itemId), expectedRevision: preview.revision,
-        confirmation: deletion.confirmation, deleteFiles: deletion.removeFiles, operationId});
-    }
-    this.setDeletion({phase: 'saving', error: undefined});
+    if (!this.claim(epoch, {deletion: {...deletion, phase: 'saving', error: undefined}})) return;
     try {
-      const raw = await this.api<{protocolVersion: string; serverId: string; result: unknown}>(routePath('post_admin_media_delete'), 'POST', this.deleteBody);
-      const result = parseDeleteResult(raw.result);
-      this.setDeletion({phase: 'result', result});
-    } catch (error) {this.setDeletion({phase: 'uncertain', error: message(error)});}
+      this.assertDeletePreview(preview);
+      if (!this.deleteBody) {
+        const operationId = await this.nextId(epoch);
+        this.deleteBody = Object.freeze({itemIds: preview.targets.map(target => target.itemId), expectedRevision: preview.revision,
+          confirmation: deletion.confirmation, deleteFiles: deletion.removeFiles, operationId});
+      }
+      const result = parseDeleteResult(envelope(await this.request<unknown>(epoch, routePath('post_admin_media_delete'), 'POST', this.deleteBody), this.options.scope.serverId));
+      // One receipt per previewed target, and none for a title that was not previewed.
+      const ids = result.receipts.map(receipt => receipt.itemId);
+      if (ids.length !== preview.targets.length || new Set(ids).size !== ids.length || ids.some(id => !this.deletePreviewIds?.includes(id))) throw unavailable('delete-result-mismatch');
+      this.publishFor(epoch, {deletion: {...deletion, phase: 'result', result, error: undefined}});
+    } catch {this.publishFor(epoch, {deletion: {...deletion, phase: 'uncertain', error: failure('delete')}});}
+    finally {this.finish(epoch);}
   };
   close = (): void => {
-    this.deleteBody = undefined;
-    this.publish({phase: 'idle', deletion: undefined, error: undefined, receipts: [], changes: {}, preview: undefined, result: undefined});
-    this.edits = [];
+    this.epoch++;
+    this.controller?.abort();
+    this.controller = undefined;
+    this.flight = false; this.edits = []; this.baseEdit = undefined; this.deleteBody = undefined; this.deletePreviewIds = undefined; this.previewFence = undefined;
+    this.publish({phase: 'idle', deletion: undefined, error: undefined, receipts: [], changes: {}, preview: undefined, result: undefined, values: {}, singleItemFields: []});
   };
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true;
+    this.epoch++;
+    this.controller?.abort();
+    this.controller = undefined;
     this.listeners.clear();
   };
 }
 
-const message = (error: unknown): string => error instanceof Error ? error.message : String(error ?? '');
 function bulkView(receipts: readonly BulkReceipt[]): BulkResultView {
   const results = receipts.flatMap(receipt => receipt.results);
   return {results, updated: results.filter(row => row.ok).length, failed: results.filter(row => !row.ok).length};
