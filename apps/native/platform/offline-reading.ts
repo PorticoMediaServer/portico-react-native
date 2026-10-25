@@ -1,9 +1,9 @@
 import type {NativeOfflinePublicationLease} from './offline-reading-authority';
 import {NativeModules, Platform} from 'react-native';
-import {decodePostReadingSessionsResponse, decodeGetReadingSessionsSessionIdProgressResponse} from '../../../packages/contracts/src';
+import {decodeGetReadingSessionsSessionIdProgressResponse} from '../../../packages/contracts/src';
 import type {ReadingManifest, ReadingLocation, ReadingProgress, ReadingSavedProgress} from '../../../packages/client-core/src/reading';
 import type {ReadingHostSession} from '../../../packages/client-core/src/reading-host';
-import {ReadingError} from '../../../packages/client-core/src/reading';
+import {ReadingError, parseReadingManifest} from '../../../packages/client-core/src/reading';
 import {nativeRouteCrypto} from '../src-next/platform/server-connections';
 
 export type PublicationBinding = Readonly<{sourceId: string; revision: string; format: 'epub' | 'pdf' | 'cbz'; documentSha256: string}>;
@@ -71,7 +71,7 @@ export async function parseOfflinePublication(raw: string, binding: PublicationB
   if (doc.spine.some(value => !path(value) || !names.has(value)) || new Set(doc.spine).size !== doc.spine.length || doc.pageNames.some(value => !path(value) || !names.has(value)) || new Set(doc.pageNames).size !== doc.pageNames.length) fail();
   if (binding.format === 'epub' ? !resources.length || !doc.spine.length || doc.pageNames.length : binding.format === 'cbz' ? !doc.pageNames.length || doc.pageNames.length !== resources.length || doc.spine.length || doc.contents.length : resources.length || doc.spine.length || doc.pageNames.length || doc.contents.length) fail();
   for (const value of doc.contents) {keys(value, ['title', 'section', 'depth'], ['fragment']); if (!text(value.title, 4096) || !value.title.length || !path(value.section) || !names.has(value.section) || !integer(value.depth, 0, 16) || value.fragment !== undefined && !text(value.fragment, 1024)) fail();}
-  const manifest = decodePostReadingSessionsResponse({sessionId: handle, itemId, sourceId: binding.sourceId, revision: binding.revision, format: binding.format, size: bytes, metadata: doc.metadata,
+  const manifest = parseReadingManifest({sessionId: handle, itemId, sourceId: binding.sourceId, revision: binding.revision, format: binding.format, size: bytes, metadata: doc.metadata,
     ...(binding.format === 'epub' ? {resources: resources.map(({path, mime, size}) => ({path, mime, size})), spine: doc.spine, ...(doc.contents.length ? {contents: doc.contents} : {})} : {}), ...(binding.format === 'cbz' ? {pageNames: doc.pageNames} : {})});
   const initialProgress = validProgress({progress: doc.progress}, manifest);
   return Object.freeze({manifest, resources: Object.freeze(resources), initialProgress});
