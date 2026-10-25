@@ -59,8 +59,16 @@ export class NativePorticoSignIn {
   private async authenticate(work: (signal: AbortSignal) => Promise<HostedSession>, callerCurrent?: () => boolean) {
     this.check(); if (this.authenticating) throw Object.assign(new Error('native_account_attempt_active'), {name: 'AbortError'});
     this.authenticating = true;
+    // Every admission carries this source's own lifetime, whether or not the caller
+    // supplied a predicate, and a supplied predicate is combined with it rather than
+    // replacing it: a retired source can never adopt a known result.
+    const admitted = () => {
+      if (this.abort.signal.aborted || !this.isCurrent()) return false;
+      if (!callerCurrent) return true;
+      try {return callerCurrent() === true;} catch {return false;}
+    };
     try {
-      const result = await nativeAccounts.authenticatePorticoAccount(async signal => {this.check(); return work(signal);}, callerCurrent);
+      const result = await nativeAccounts.authenticatePorticoAccount(async signal => {this.check(); return work(signal);}, admitted);
       await this.checkpoint({mfa: undefined, transactionId: undefined, completionCode: undefined}); return result;
     } catch (error) {
       if (error instanceof MFARequiredError) await this.checkpoint({mfa: error.challenge});
@@ -145,20 +153,24 @@ export class NativePorticoSignIn {
     // the now-invalid token is never replayed and no extra completion is sent.
     const pending = this.providerRefresh;
     if (pending) await this.refreshProvider(pending, this.abort.signal, caller);
-    const transaction = this.transaction;
+    const transaction = this.transaction, attempt = this.providerAttempt;
     if (!transaction) throw new Error('native_provider_incomplete');
     try {
       // The instance's own lifetime and the form's are linked into the wire request.
       // The known complete session is handed to the owned coordinator together with
       // this form's predicate: it refuses adoption for a retired caller and still
       // queues exact fresh-family compensation, so the result is never hidden.
+      // The original transaction and provider attempt stay in the coordinator's own
+      // admission predicate, so removing the callback post-throw moved those guards
+      // here instead of dropping them.
+      const admitted = () => this.transaction === transaction && this.providerAttempt === attempt && callerLive();
       const accepted = await this.authenticate(async signal => {
         const linked = linkNativeAbortSignals([this.abort.signal, caller?.signal, signal]);
         try {
           if (!callerLive()) throw new CodedError('cancelled', 'native_provider_changed');
           return await this.api().complete(transaction.transactionId, {username, displayName, factor, onboardingToken: transaction.onboardingToken}, linked.signal);
         } finally {linked.dispose();}
-      }, callerLive);
+      }, admitted);
       this.providerRefresh = undefined;
       return accepted;
     } catch (error) {
