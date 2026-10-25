@@ -7,14 +7,18 @@ import {Select} from '../../../kit/controls/Select';
 import {StateView} from '../../../kit/states';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeSettingsLivePorts} from '../ports';
-import {useFormState, useStorageForms} from './storage/forms';
+import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './storage/forms';
 
 const IDS = ['runtime'] as const;
 
 /** Server settings rows use revisioned forms, never the account preference renderer. */
 export function NativeServerSegments({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+  const group = useStorageForms(ports, IDS, runtime.reportError);
+  return group ? <Segments key={group.mount} group={group} ports={ports} runtime={runtime}/> : null;
+}
+function Segments({ports, runtime, group}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; group: StorageForms}) {
   const t = runtime.text.t as typeof defaultI18n.t;
-  const {forms, set, state} = useStorageForms(ports, IDS);
+  const {forms, set} = group, state = useStorageSet(group);
   const settings = useFormState<RuntimeSettings, unknown>(forms.runtime);
   if (settings.loadError !== undefined && !settings.draft) return <StateView {...runtime.error(settings.loadError, () => {void forms.runtime.load();})}/>;
   return <View style={{flex: 1}}>
