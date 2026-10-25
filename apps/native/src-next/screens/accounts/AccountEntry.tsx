@@ -333,7 +333,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   };
   const submitTVFactor = async (value: string) => {
     if (factorKind.current === 'portico') {await account.current!.factor(value); await directory();}
-    else consume(await operation.current!.completeSecondFactor(value));
+    else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(value) : operation.current!.completeSecondFactor(value)));
   };
   const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password') => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
     textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy}/>;
@@ -421,7 +421,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
       const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);
-    } else consume(await operation.current!.completeSecondFactor(code));
+    } else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(code) : operation.current!.completeSecondFactor(code)));
     setCode('');
   }, !code));
   if (stage === 'portico') return layout(t('accounts.signIn.portico'), t('auth.accountLead'), options?.password ? fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')) : undefined,

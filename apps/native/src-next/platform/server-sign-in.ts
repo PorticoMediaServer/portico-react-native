@@ -47,13 +47,15 @@ export class NativeServerSignIn {
   private disposeRequested = false;
   private readonly issued = new Map<string, LocalSession>();
   private readonly requiredSetupHandoff: boolean;
+  private hostedLease?: () => boolean;
+  private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
   private memberMove?: {dispose: () => void};
   private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
   constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean} = {}) {
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
   }
-  private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation;
+  private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease());
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
   /** Public hand-offs use the connected, identity-verified server origin. The
@@ -126,18 +128,39 @@ export class NativeServerSignIn {
         signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
       this.server = system;
       const signal = this.controller.signal, hosted = new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch);
-      const assertHostedCurrent = () => {
-        this.assertCurrent();
+      const api = connected.api, routes = connected.connection, origin = api.baseUrl, pin = routes.pin;
+      const samePin = () => {const live = api.getRouteConnection()?.pin; return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;};
+      this.hostedLease = () => {
         const live = credentials.getSnapshot().session;
-        if (this.api !== connected.api || live?.account.id !== account.account.id || live.familyId !== account.familyId) throw mismatch();
+        return this.api === api && live?.account.id === account.account.id && live.familyId === account.familyId && samePin();
+      };
+      const assertHostedCurrent = () => {this.assertCurrent();};
+      const before = await nativeAppSessions.read(); assertHostedCurrent();
+      const protectedFamilies = new Set(before.servers.map(value => value.connection.session.sessionFamilyId));
+      if (this.account) protectedFamilies.add(this.account.sessionFamilyId);
+      const retireFresh = async (fresh: LocalSession) => {
+        if (fresh.viewer.authority !== 'local' || fresh.viewer.serverId !== pin.serverId
+          || fresh.installationId !== this.installation?.installationId || protectedFamilies.has(fresh.sessionFamilyId)
+          || fresh.sessionFamilyId === this.account?.sessionFamilyId) return;
+        const stored = await nativeAppSessions.read();
+        if (stored.servers.some(value => value.connection.session.sessionFamilyId === fresh.sessionFamilyId) || !samePin()) return;
+        // Cleanup uses only this command's original issuer and proven routes,
+        // never the now-selected server or its credential. Normal consume owns
+        // retirement after the synchronous handoff below.
+        const cleanup = new HttpLocalApi(origin, fresh.accessToken, nativeNetworkFetch); cleanup.useRoutes(routes);
+        await cleanup.logout();
       };
       const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown) => {
         assertHostedCurrent();
         try {const result = await hosted.request<T>(path, method, body, signal); assertHostedCurrent(); return result;}
         catch (error) {assertHostedCurrent(); throw hostedSignInUnavailable(error) ?? error;}
       }};
-      return this.consume(await porticoSignIn(officialHosted, hostedUrl,
-        connected.api, server.id, {signal, crypto: nativeRouteCrypto}));
+      const result = await porticoSignIn(officialHosted, hostedUrl, api, server.id, {signal, crypto: nativeRouteCrypto});
+      try {assertHostedCurrent();}
+      catch (error) {if (result.kind === 'signed-in') await retireFresh(result.session); throw error;}
+      if (result.kind === 'challenge') this.directoryFactor = {api, token: result.token, expiresAt: result.expiresAt, assert: assertHostedCurrent, retire: retireFresh};
+      return this.consume(result);
+
     });
   }
   localTVSignIn() {
@@ -165,6 +188,21 @@ export class NativeServerSignIn {
     return this.run(async () => {
       if (!this.api || !this.challenge || this.server?.signIn !== 'local') throw mismatch();
       return this.consume(await completeDirectSignInChallenge(this.api, this.challenge, code, this.controller.signal));
+    });
+  }
+  directoryChallengePending() {return this.directoryFactor !== undefined;}
+  /** Only the challenge returned by this exact directory sign-in can continue
+   * with its captured Hosted family and original server issuer. */
+  completeDirectorySecondFactor(code: string) {
+    return this.run(async () => {
+      const factor = this.directoryFactor;
+      if (!factor || this.api !== factor.api || this.challenge !== factor.token || Date.parse(factor.expiresAt) <= Date.now()) throw cancelled();
+      factor.assert();
+      const result = await completeDirectSignInChallenge(factor.api, factor.token, code, this.controller.signal);
+      try {factor.assert(); if (this.directoryFactor !== factor || this.challenge !== factor.token) throw cancelled();}
+      catch (error) {if (result.kind === 'signed-in') await factor.retire(result.session); throw error;}
+      this.directoryFactor = result.kind === 'challenge' ? {...factor, token: result.token, expiresAt: result.expiresAt} : undefined;
+      return this.consume(result);
     });
   }
   private async consume(result: DirectSignIn) {
@@ -418,7 +456,7 @@ export class NativeServerSignIn {
   }
   private cancel() {
     if (this.controller.signal.aborted) return;
-    this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
+    this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
     this.probe.dispose(); this.unfence();
     const routes = this.api?.getRouteConnection();
     void Promise.resolve(this.running).catch(() => {}).then(() => Promise.allSettled([...this.issued.values()].map(session => this.retire(session)))).finally(() => routes?.dispose());
