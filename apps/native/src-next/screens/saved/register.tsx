@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useSyncExternalStore} from 'react';
 import {Platform, View, useWindowDimensions} from 'react-native';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src/index';
@@ -20,6 +20,7 @@ import {nativeScreenServices} from '../native-screen-services';
 import {createNativeSavedSelection} from './selection';
 import {createNativeDownloadsView} from '../downloads/view';
 import {NativeHomeSavedViewSummaries} from '../home/saved-view-summaries';
+import {createNativeSavedDirectoryCommands} from './directory-commands';
 
 const savedDownloadsCopy: NativeSavedDownloadsCopy = Object.freeze({downloading: 'next.saved.phone.downloading'});
 const onThisPhone: MessageId = 'next.saved.phone.onThisPhone';
@@ -130,10 +131,13 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnH
 }) {
   const active = useSyncExternalStore(entry.view.activation.subscribe, entry.view.activation.getSnapshot);
   const route = useMemo(() => nativeSavedRouteTarget(entry.route), [entry.route]);
+  const commands = useMemo(() => createNativeSavedDirectoryCommands(context, entry.route, entry.view.activation), [context, entry]);
+  useLayoutEffect(() => () => commands.dispose(), [commands]);
   const common = {destination: entry.view.source, activation: entry.view.activation, runtime};
   const body = route.view === 'playlists' || route.view === 'collections' || route.view === 'views'
     ? <SavedDirectoryScreen {...common} route={route as NativeSavedDirectoryRoute} actions={entry.view.actions} libraries={libraries} back={back} open={open} changed={changed}
-        summaries={'summaries' in entry.view ? entry.view.summaries : undefined}/>
+        summaries={'summaries' in entry.view ? entry.view.summaries : undefined} commands={commands}
+        routeCurrent={() => context.current() && context.navigation.getSnapshot().route === entry.route}/>
     : route.view === 'watchlist' || route.view === 'favorites' || route.view === 'history'
       ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed}/>
       : <SavedResourceHost context={context} entry={entry} route={route} runtime={runtime} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary}/>;

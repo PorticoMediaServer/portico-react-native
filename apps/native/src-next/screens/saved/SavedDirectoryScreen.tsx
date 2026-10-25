@@ -1,5 +1,5 @@
-import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
-import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import {ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -11,7 +11,7 @@ import {Button, Chip, Focusable} from '../../kit/controls';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 
 import {Icon, type IconName} from '../../kit/Icon';
-import {Banner} from '../../kit/overlays';
+import {Banner, Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -19,9 +19,10 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSavedViewDestination} from './view-model';
-import {SavedNameSheet} from './SavedForms';
+import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
 import {savedItemCount, savedLibraryName, savedMosaicPaths, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
 import type {NativeSavedViewSummaries} from './state';
+import type {NativeSavedDirectoryCommands, SavedDirectoryCommandLease} from './directory-commands';
 
 const noSummarySubscribe = (_listener: () => void) => () => {};
 const noSummaryRevision = () => 0;
@@ -29,6 +30,8 @@ const t = defaultI18n.t;
 
 type DirectoryView = 'playlists' | 'collections' | 'views';
 export type NativeSavedDirectoryRoute = Readonly<{view: DirectoryView; sort?: string; direction?: 'asc' | 'desc'; filter?: PlaylistListFilter; shape?: 'posters' | 'squares'}>;
+
+type DirectoryTarget = Readonly<{resource: PersonalResource; lease: SavedDirectoryCommandLease}>;
 
 export type NativeSavedDirectoryProps = Readonly<{
   route: NativeSavedDirectoryRoute;
@@ -42,16 +45,26 @@ export type NativeSavedDirectoryProps = Readonly<{
   changed?: () => void;
   /** The Saved views directory's real condition summaries, when its owner is live. */
   summaries?: NativeSavedViewSummaries;
+  /** Real pin/rename/delete over the same lifetime, for the directory tiles. */
+  commands?: NativeSavedDirectoryCommands;
+  /** The exact host route is still current, from the owning Saved route host. */
+  routeCurrent?: () => boolean;
 }>;
 
 /** collections.html 10a–10c. Each directory is the server's own bounded page;
  * the + sends the real create command and the rows open the pushed pages. */
-export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed, summaries}: NativeSavedDirectoryProps) {
-  const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed, summaries, commands, routeCurrent}: NativeSavedDirectoryProps) {
+  const theme = useTheme(), insets = useSafeAreaInsets();
   useSyncExternalStore(summaries?.subscribe ?? noSummarySubscribe, summaries?.getSnapshot ?? noSummaryRevision);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [creating, setCreating] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
+  const [menu, setMenu] = useState<{target: DirectoryTarget; anchor: RefObject<View | null>}>(), [renaming, setRenaming] = useState<DirectoryTarget>(),
+    [removing, setRemoving] = useState<DirectoryTarget>(), [commandBusy, setCommandBusy] = useState(false);
+  const [paneWidth, setPaneWidth] = useState(0);
+  const commandTicket = useRef<Readonly<{ticket: object; lease: SavedDirectoryCommandLease}> | undefined>(undefined);
+  const mounted = useRef(false);
+  const renameOpening = useRef<DirectoryTarget | undefined>(undefined), removeOpening = useRef<DirectoryTarget | undefined>(undefined);
   useEffect(() => {void destination.select(route).catch(runtime.reportError);}, [destination, route, runtime]);
   const saved = snapshot.saved, personal = snapshot.personal;
   const error = snapshot.error ?? saved?.error ?? personal?.error;
@@ -63,7 +76,8 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
   const createEnabled = route.view === 'playlists' ? saved?.projection?.actions?.includes('create_playlist') === true : route.view === 'collections';
   const filters = route.view === 'playlists' ? saved?.projection?.filters ?? [] : [];
   const sorts = route.view === 'playlists' ? saved?.projection?.sorts ?? [] : [];
-  const width = dimensions.width - theme.gutter * 2;
+  const tablet = theme.platform !== 'phone';
+  const tileColumns = paneWidth >= 1000 ? 4 : paneWidth >= 640 ? 3 : 2, tileWidth = paneWidth > 0 ? (paneWidth - 12 * (tileColumns - 1)) / tileColumns : 0;
   const create = (input: {name: string; summary: string; visibility: 'private' | 'server'}) => {
     if (busy) return;
     setBusy(true); setProblem('');
@@ -75,6 +89,45 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
       .finally(() => setBusy(false));
   };
   const retry = () => {void destination.retry().catch(runtime.reportError);};
+  const runCommand = (lease: SavedDirectoryCommandLease, work: () => Promise<void>) => {
+    if (commandBusy || commandTicket.current || !mounted.current) return;
+    const now = activation.getSnapshot();
+    if (!now.visible || now.revision !== lease.revision || now.intent !== lease.intent || routeCurrent?.() === false) return;
+    const ticket = {};
+    commandTicket.current = {ticket, lease};
+    const held = () => commandTicket.current?.ticket === ticket;
+    const current = () => {
+      if (!mounted.current || !held() || routeCurrent?.() === false) return false;
+      const live = activation.getSnapshot();
+      return live.visible && live.revision === lease.revision && live.intent === lease.intent;
+    };
+    setCommandBusy(true); setProblem('');
+    void work().then(() => {if (!current()) return; changed?.(); void destination.retry().catch(runtime.reportError);})
+      .catch((failure: unknown) => {if (current()) setProblem(presentError(failure, 'saved', {operation: 'save'}).body);})
+      .finally(() => {if (!held()) return; const stillCurrent = current(); commandTicket.current = undefined; if (stillCurrent) setCommandBusy(false);});
+  };
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; commandTicket.current = undefined; renameOpening.current = undefined; removeOpening.current = undefined;};}, []);
+  useLayoutEffect(() => {
+    const off = activation.subscribe(() => {
+      const now = activation.getSnapshot(), held = commandTicket.current;
+      if (held && (!now.visible || now.revision !== held.lease.revision || now.intent !== held.lease.intent)) {commandTicket.current = undefined; setCommandBusy(false);}
+      if (menu && (!now.visible || now.revision !== menu.target.lease.revision || now.intent !== menu.target.lease.intent)) setMenu(undefined);
+      if (renaming && (!now.visible || now.revision !== renaming.lease.revision || now.intent !== renaming.lease.intent)) {renameOpening.current = undefined; setRenaming(undefined);}
+      if (removing && (!now.visible || now.revision !== removing.lease.revision || now.intent !== removing.lease.intent)) {removeOpening.current = undefined; setRemoving(undefined);}
+    });
+    return () => {off();};
+  }, [activation, menu, removing, renaming]);
+
+  const menuFor = (target: DirectoryTarget) => {
+    const resource = target.resource, items: MenuEntry[] = [];
+    if (resource.actions.includes('pin')) items.push({id: 'pin', label: t(resource.pinned ? 'pins.unpin' : 'pins.pin'), icon: (resource.pinned ? 'i-bookmark-f' : 'i-bookmark') as IconName,
+      onSelect: () => {setMenu(undefined); runCommand(target.lease, () => commands!.pin(resource, target.lease, !resource.pinned));}});
+    if (resource.actions.includes('update')) items.push({id: 'rename', label: t('web.saved.rename'), icon: 'i-edit' as IconName,
+      onSelect: () => {setMenu(undefined); renameOpening.current = target; setRenaming(target);}});
+    if (resource.actions.includes('delete')) items.push({id: 'delete', label: t(resource.kind === 'view' ? 'web.saved.deleteView' : 'web.saved.deleteCollection'),
+      icon: 'i-trash' as IconName, destructive: true, onSelect: () => {setMenu(undefined); removeOpening.current = target; setRemoving(target);}});
+    return items;
+  };
   const empty = (id: MessageId, body: MessageId) => <StateView variant="inline" title={t(id)} body={t(body)}/>;
   return <View testID={`native-saved-directory-${route.view}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -110,19 +163,40 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
       {route.view === 'views' && <Text style={[browseType(theme, 13, 400, 0, 19.5), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: 12, marginBottom: 4}]}>{t('next.saved.viewsHelp')}</Text>}
       {problem !== '' && <View style={{paddingHorizontal: theme.gutter, paddingTop: 10}}><Banner variant="notice" tone="error" placement="inline" message={problem} action={{label: t('action.dismiss'), onPress: () => setProblem('')}}/></View>}
       {error && !loading ? <StateView variant="inline" {...runtime.error(error, retry)}/> : loading ? <View style={{paddingVertical: 32}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View>
-        : route.view === 'playlists' ? (playlists.length ? <View style={{marginTop: 6}}>{playlists.map(playlist => <SavedDirectoryRow key={playlist.id} id={`playlist-${playlist.id}`}
-          title={playlist.title} caption={[savedItemCount(playlist.count), playlist.subtitle].filter(Boolean)} mosaic={(playlist.artworkPaths ?? []).map(path => runtime.artwork(path))}
-          pinned={false} onPress={() => open({view: 'playlist', playlistId: playlist.id})}/>)}</View>
+        : route.view === 'playlists' ? (playlists.length ? (tablet ? <View onLayout={event => setPaneWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginHorizontal: theme.gutter, marginTop: 6}}>
+          {playlists.map(playlist => <View key={playlist.id} style={{width: tileWidth}}>
+            <SavedDirectoryTile id={`playlist-${playlist.id}`} title={playlist.title} caption={[savedItemCount(playlist.count), playlist.subtitle].filter(Boolean) as string[]}
+              mosaic={(playlist.artworkPaths ?? []).map(path => runtime.artwork(path))} pinned={playlist.pinned === true}
+              onPress={() => open({view: 'playlist', playlistId: playlist.id})} onMenu={() => {}} commands={false}/>
+          </View>)}</View>
+          : <View style={{marginTop: 6}}>{playlists.map(playlist => <SavedDirectoryRow key={playlist.id} id={`playlist-${playlist.id}`}
+            title={playlist.title} caption={[savedItemCount(playlist.count), playlist.subtitle].filter(Boolean)} mosaic={(playlist.artworkPaths ?? []).map(path => runtime.artwork(path))}
+            pinned={false} onPress={() => open({view: 'playlist', playlistId: playlist.id})}/>)}</View>)
           : empty('web.saved.empty.playlists', 'web.saved.empty.playlistsBody'))
-        : resources.length ? <View style={{marginTop: 6}}>{resources.map(resource => {
-          const paths = route.view === 'views' ? savedMosaicPaths(resource) : resource.artworkPaths ?? [];
-          return <SavedDirectoryRow key={resource.id} id={`resource-${resource.id}`} title={resource.name}
-            caption={route.view === 'collections' ? [savedTitleCount(resource.entryCount)] : [resource.definition ? savedLibraryName(libraries, resource.definition.libraryId) : undefined,
-              savedViewCount(resource.entryCount)]} note={route.view === 'collections' ? savedVisibility(resource)
-                : resource.onHome ? {text: t('next.saved.onHome'), icon: 'i-home', strong: true} : undefined}
-            summary={route.view === 'views' ? summaries?.line(resource, summaryText) : undefined} filterTile={route.view === 'views' && !paths.length} pinned={resource.pinned}
-            mosaic={paths.map(path => runtime.artwork(path))} onPress={() => open({view: 'resource', resourceId: resource.id})}/>;
-        })}</View>
+        : resources.length ? (tablet ? <View onLayout={event => setPaneWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginHorizontal: theme.gutter, marginTop: 6}}>
+          {resources.map(resource => {
+            const paths = route.view === 'views' ? savedMosaicPaths(resource) : resource.artworkPaths ?? [];
+            const target: DirectoryTarget = {resource, lease: active};
+            return <View key={resource.id} style={{width: tileWidth}}>
+              <SavedDirectoryTile id={`resource-${resource.id}`} title={resource.name}
+                caption={(route.view === 'collections' ? [savedTitleCount(resource.entryCount)] : [resource.definition ? savedLibraryName(libraries, resource.definition.libraryId) : undefined,
+                  savedViewCount(resource.entryCount)]).filter((value): value is string => !!value)}
+                note={route.view === 'collections' ? savedVisibility(resource) : resource.onHome ? {text: t('next.saved.onHome'), icon: 'i-home', strong: true} : undefined}
+                summary={route.view === 'views' ? summaries?.line(resource, summaryText) : undefined} filterTile={route.view === 'views' && !paths.length} pinned={resource.pinned}
+                mosaic={paths.map(path => runtime.artwork(path))} menuOpen={menu?.target.resource.id === resource.id}
+                onPress={() => open({view: 'resource', resourceId: resource.id})} onMenu={anchor => setMenu({target, anchor})}
+                commands={!!commands && resource.actions.some(action => action === 'pin' || action === 'update' || action === 'delete')}/>;
+            </View>;
+          })}</View>
+          : <View style={{marginTop: 6}}>{resources.map(resource => {
+            const paths = route.view === 'views' ? savedMosaicPaths(resource) : resource.artworkPaths ?? [];
+            return <SavedDirectoryRow key={resource.id} id={`resource-${resource.id}`} title={resource.name}
+              caption={route.view === 'collections' ? [savedTitleCount(resource.entryCount)] : [resource.definition ? savedLibraryName(libraries, resource.definition.libraryId) : undefined,
+                savedViewCount(resource.entryCount)]} note={route.view === 'collections' ? savedVisibility(resource)
+                  : resource.onHome ? {text: t('next.saved.onHome'), icon: 'i-home', strong: true} : undefined}
+              summary={route.view === 'views' ? summaries?.line(resource, summaryText) : undefined} filterTile={route.view === 'views' && !paths.length} pinned={resource.pinned}
+              mosaic={paths.map(path => runtime.artwork(path))} onPress={() => open({view: 'resource', resourceId: resource.id})}/>;
+          })}</View>)
           : empty(route.view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views', route.view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}
       {!!(route.view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
         <Button variant="glass" size="compact" onPress={() => {void destination.next(route.view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);}}>{t('action.showMore')}</Button>
@@ -130,6 +204,21 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
     </ScrollView>
     <SavedNameSheet open={creating} title={t(route.view === 'playlists' ? 'web.saved.newPlaylist' : 'web.saved.newCollection')} action={t('web.saved.create')}
       withSummary withVisibility={route.view === 'collections'} busy={busy} error={problem || undefined} testID="saved-create" onClose={() => setCreating(false)} onSave={create}/>
+    {!!commands && <Menu testID="saved-directory-menu" open={!!menu} onOpenChange={open => {if (!open) setMenu(current => current === menu ? undefined : current);}} anchorRef={menu?.anchor} returnFocusRef={menu?.anchor}
+      title={menu?.target.resource.name} items={menu ? menuFor(menu.target) : []}/>}
+    <SavedNameSheet open={!!renaming} title={t(renaming?.resource.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}
+      action={t('action.save')} initialName={renaming?.resource.name ?? ''} initialSummary={renaming?.resource.summary ?? ''} withSummary busy={commandBusy}
+      error={problem || undefined} testID="saved-directory-rename"
+      onClose={() => {const target = renaming; if (!target) return; if (renameOpening.current === target) renameOpening.current = undefined; setRenaming(current => current === target ? undefined : current);}}
+      onSave={input => {const target = renaming; if (!target || renameOpening.current !== target) return; renameOpening.current = undefined; setRenaming(current => current === target ? undefined : current);
+        if (commands) runCommand(target.lease, () => commands.rename(target.resource, target.lease, input.name, input.summary));}}/>
+    <SavedConfirmSheet open={!!removing} title={t('web.saved.deleteTitle', {name: removing?.resource.name ?? ''})} destructive busy={commandBusy}
+      body={t(removing?.resource.kind === 'view' ? 'web.saved.deleteViewBody' : 'web.saved.deleteCollectionBody')}
+      action={t(removing?.resource.kind === 'view' ? 'web.saved.deleteViewAction' : 'web.saved.deleteCollectionAction')}
+      error={problem || undefined} testID="saved-directory-delete"
+      onClose={() => {const target = removing; if (!target) return; if (removeOpening.current === target) removeOpening.current = undefined; setRemoving(current => current === target ? undefined : current);}}
+      onConfirm={() => {const target = removing; if (!target || removeOpening.current !== target) return; removeOpening.current = undefined; setRemoving(current => current === target ? undefined : current);
+        if (commands) runCommand(target.lease, () => commands.remove(target.resource, target.lease));}}/>
   </View>;
 }
 
@@ -139,6 +228,34 @@ function playlistSortLabel(sort: string | undefined): string {
   if (sort === 'updated' || sort === 'added') return t('web.saved.sort.added');
   if (sort === 'count') return t('playlists.sort', {field: 'count'});
   return t('web.saved.sort.other');
+}
+
+function SavedDirectoryTile({id, title, caption, note, summary, mosaic, filterTile, pinned, menuOpen, commands, onPress, onMenu}: {
+  id: string; title: string; caption: readonly string[]; note?: Readonly<{text: string; icon: IconName; strong: boolean}>; summary?: string;
+  mosaic: readonly (ArtworkSource | undefined)[]; filterTile?: boolean; pinned?: boolean; menuOpen?: boolean; commands: boolean;
+  onPress: () => void; onMenu: (anchor: RefObject<View | null>) => void;
+}) {
+  const theme = useTheme(), [artWidth, setArtWidth] = useState(0), anchor = useRef<View>(null), paths = mosaic.filter((source): source is NonNullable<typeof source> => !!source).slice(0, 4);
+  return <View style={{position: 'relative', borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden', borderWidth: menuOpen ? 1 : 0, borderColor: theme.colors.accent}}>
+    <Focusable testID={`saved-directory-${encodeURIComponent(id)}`} onPress={onPress} focusKind="row" focusRadius={14} accessibilityRole="button" accessibilityLabel={title}>
+      <View onLayout={event => setArtWidth(event.nativeEvent.layout.width)} style={{width: '100%', aspectRatio: 1, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: theme.colors.ink}}>
+        {paths.map((source, index) => <Artwork key={`${source.cacheKey}:${index}`} source={source} width={Math.max(1, artWidth / 2)} height={Math.max(1, artWidth / 2)} visible priority={index === 0} style={{borderRadius: 0}}/>)}
+        {!paths.length && filterTile && <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-filter" size={32} color={theme.colors.text}/></View>}
+      </View>
+      <View style={{padding: 12, gap: 4}}>
+        <Text numberOfLines={1} style={[browseType(theme, 16, 700, -.01), {color: theme.colors.text}]}>{title}</Text>
+        {!!caption.length && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>{caption.map(part => <Text key={part} numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary}]}>{part}</Text>)}</View>}
+        {note && <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1}}><Icon name={note.icon} size={13} color={note.strong ? theme.colors.accentStrong : theme.colors.textTertiary}/>
+          <Text numberOfLines={2} style={[browseType(theme, 13, note.strong ? 700 : 600), {color: note.strong ? theme.colors.accentStrong : theme.colors.textTertiary, flexShrink: 1}]}>{note.text}</Text></View>}
+        {!!summary && <Text numberOfLines={2} style={[browseType(theme, 12.5, 400, 0, 17.5), {color: theme.colors.textSecondary}]}>{summary}</Text>}
+        {pinned && <Icon name="i-bookmark-f" size={16} color={theme.colors.accentStrong}/>}
+      </View>
+    </Focusable>
+    {commands && <Focusable ref={anchor} testID={`saved-directory-more-${encodeURIComponent(id)}`} accessibilityRole="button" accessibilityLabel={t('card.more', {title})} onPress={() => onMenu(anchor)} focusRadius={16}
+      style={{position: 'absolute', top: 8, right: 8, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.ink}}>
+      <Icon name="i-more" size={20} color={theme.colors.text}/>
+    </Focusable>}
+  </View>;
 }
 
 function SavedDirectoryRow({id, title, caption, note, summary, mosaic, filterTile, pinned, onPress}: {
