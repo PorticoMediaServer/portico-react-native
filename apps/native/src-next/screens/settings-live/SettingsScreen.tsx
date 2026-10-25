@@ -1,3 +1,4 @@
+import {NativePassthroughRow, nativePassthroughFocusId} from './NativePassthroughRow';
 import {NativeLossNoticesRow, nativeLossNoticesFocusId} from './NativeLossNoticesRow';
 import {NativeSafeModeRow, nativeSafeModeAvailable, nativeSafeModeFocusId} from './NativeSafeModeRow';
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
@@ -282,7 +283,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId),
     ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : []),
     ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', ...(!theme.isTV ? ['settings-away-limit-change'] : [])] : []),
-    ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [nativeLossNoticesFocusId] : [])]);
+    ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [...(Platform.OS === 'android' ? [nativePassthroughFocusId] : []), nativeLossNoticesFocusId] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
     if (row.kind === 'composite' && row.storage === 'device') {void devicePreferences.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
@@ -351,7 +352,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         <SettingsRow testID="settings-away-limit" label={t('next.settingsSpec.account.quality.groups.0.rows.3.label')} description={t('next.settingsSpec.account.quality.groups.0.rows.3.help')} value={awayLimitLabel}/>
         {!theme.isTV && <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>}
       </> : null}</View>
-    </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <NativeLossNoticesRow context={ports.context} runtime={runtime}/>}
+    </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <>{Platform.OS === 'android' && <NativePassthroughRow context={ports.context} runtime={runtime}/>}<NativeLossNoticesRow context={ports.context} runtime={runtime}/></>}
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>

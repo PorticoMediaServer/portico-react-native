@@ -26,6 +26,7 @@ async function fixture() {
   });
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
     './NativeSafeModeRow': safeMode,
+    './NativePassthroughRow': {NativePassthroughRow: 'NativePassthroughRow', nativePassthroughFocusId: 'settings-device-audio-passthrough'},
     './NativeLossNoticesRow': {NativeLossNoticesRow: 'NativeLossNoticesRow', nativeLossNoticesFocusId: 'settings-device-loss-notices'},
     react,
     'react-native': {Dimensions: {get: () => ({width: 800, height: 1024})}, Platform: {OS: 'ios', isTV: false, isPad: true}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
