@@ -12,7 +12,7 @@ export const hiddenReadingLibraryOnTV = (kind: string): boolean => isReadingLibr
  * Current authorized library facts decide; a stale library id cannot admit Read. */
 export function nativeReadRouteAllowed(route: NativeShellRoute, libraries: readonly Library[], isTV: boolean, origin?: ShellDestination): boolean {
   if (!isTV) return true;
-  if (route.kind === 'read') return false;
+  if (route.kind === 'read' || route.kind === 'read-book' || route.kind === 'read-series') return false;
   const allowedLibrary = (id: string) => {
     const library = libraries.find(candidate => candidate.id === id);
     return !!library && !hiddenReadingLibraryOnTV(library.kind);
