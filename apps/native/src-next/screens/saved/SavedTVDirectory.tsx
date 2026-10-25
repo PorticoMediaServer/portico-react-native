@@ -7,7 +7,7 @@ import type {PlaylistCard, PlaylistListFilter} from '../../../../../packages/cli
 import {Chip, Focusable} from '../../kit/controls';
 import {AmbientArt, CoverMosaic, MediaArt} from '../../kit/artwork';
 import {CardFrame} from '../../kit/cards/primitives';
-import {FocusRegion} from '../../kit/focus';
+import {FocusRegion, type FocusEdges} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -30,12 +30,13 @@ export type NativeSavedTVDirectoryProps = Readonly<{
   libraries: readonly Library[];
   enabled: boolean;
   regionId: string;
+  edges?: FocusEdges;
   select: (route: Readonly<{view: NativeSavedTVDirectoryView; sort?: string; direction?: 'asc' | 'desc'; filter?: PlaylistListFilter}>) => void;
   openPlaylist: (card: PlaylistCard) => void;
   openResource: (resource: PersonalResource) => void;
 }>;
 
-export function SavedTVDirectory({view, destination, runtime, libraries, enabled, regionId, select, openPlaylist, openResource}: NativeSavedTVDirectoryProps) {
+export function SavedTVDirectory({view, destination, runtime, libraries, enabled, regionId, edges, select, openPlaylist, openResource}: NativeSavedTVDirectoryProps) {
   const theme = useTheme();
   const snapshot = React.useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const saved = snapshot.saved, personal = snapshot.personal;
@@ -46,9 +47,8 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   const error = snapshot.error ?? saved?.error ?? personal?.error, loading = snapshot.phase === 'loading' && !saved?.projection && !personal?.resources.length;
   const count = view === 'playlists' ? (saved?.projection?.sections[0]?.totalCount ?? playlists.length) : resources.length;
   const countText = view === 'playlists' ? savedItemCount(count) : view === 'collections' ? savedCollectionCount(count) : savedViewCount(count);
-  const first = view === 'playlists' ? playlists[0]?.id : resources[0]?.id;
   const selectFilter = (filter: PlaylistListFilter) => select({view: 'playlists', filter, ...(saved?.projection?.query.sort ? {sort: saved.projection.query.sort, direction: saved.projection.query.direction as 'asc' | 'desc'} : {})});
-  return <View style={{flex: 1}}>
+  return <FocusRegion id={regionId} orientation="vertical" enabled={enabled} edges={edges} style={{flex: 1}}>
     <View style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: theme.gutter}}>
       {view === 'playlists' && <>
         {!!sorts.length && <Chip focusId="tv-saved-sort" icon="i-sort" trailingIcon="i-down" disabled={!enabled} onPress={() => {
@@ -66,12 +66,11 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
         title={t(view === 'playlists' ? 'web.saved.empty.playlists' : view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views')}
         body={t(view === 'playlists' ? 'web.saved.empty.playlistsBody' : view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}/>
       : <ScrollView contentContainerStyle={{paddingHorizontal: theme.gutter, paddingBottom: 40}}>
-        <FocusRegion id={regionId} entry={first ? tileId(view, first) : undefined} orientation="vertical" enabled={enabled}
-          style={{flexDirection: 'row', flexWrap: 'wrap', gap: 34}}>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 34}}>
           {view === 'playlists' ? playlists.map(card => <SavedTVPlaylistTile key={card.id} card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/>)
             : view === 'collections' ? resources.map(resource => <SavedTVCollectionTile key={resource.id} resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/>)
               : resources.map(resource => <SavedTVViewTile key={resource.id} resource={resource} libraries={libraries} runtime={runtime} onOpen={() => openResource(resource)}/>)}
-        </FocusRegion>
+        </View>
         {!!(view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingTop: 20}}>
           <Focusable accessibilityRole="button" focusId="tv-saved-more" disabled={!enabled} onPress={() => {void destination.next(view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);}}
             style={{height: 64, paddingHorizontal: 26, borderRadius: 14, backgroundColor: theme.colors.raised, justifyContent: 'center'}}>
@@ -79,7 +78,7 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
           </Focusable>
         </View>}
       </ScrollView>}
-  </View>;
+  </FocusRegion>;
 }
 
 function tileId(view: NativeSavedTVDirectoryView, id: string) {return `saved-tv-${view}-${id}`;}
