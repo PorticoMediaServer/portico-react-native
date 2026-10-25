@@ -1,3 +1,4 @@
+import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
 import React, {useEffect, useMemo, useState} from 'react';
 import {NativeModules, Text, View} from 'react-native';
 import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
@@ -114,6 +115,7 @@ function nativeRequestId(): string {
 /** The account pages' custom surfaces this build draws with real data. Server pages are their own routes. */
 export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSettingsPanelDeps, _runtime: NativeShellRuntime): React.ReactNode {
   switch (id) {
+    case 'server.segments': return <IntroCreditsReview {...deps} runtime={_runtime}/>;
     case 'identity': return <IdentityPanel {...deps}/>;
     case 'profiles': return <SettingsRow first testID="settings-panel-profiles" label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
     case 'servers': return <SettingsRow first testID="settings-panel-servers" label={deps.t('settings.section.servers')} value={deps.context.serverName} onPress={() => deps.openRoute({kind: 'servers'})}/>;
