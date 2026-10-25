@@ -19,7 +19,8 @@ import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon, type IconName} from '../../kit/Icon';
-import {SettingsRow, SettingsSearchResults, LanguageList, type LanguageOption} from '../../kit/shell';
+import {SettingsRow, SettingsSearchResults, LanguageList, ShortcutTiles, type LanguageOption} from '../../kit/shell';
+import {ProfileFace} from '../../kit/artwork';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {StateView} from '../../kit/states';
@@ -66,6 +67,7 @@ export function nativeSettingsIcon(name: string): IconName {
 
 export function NativeSettingsScreen({ports, controller, runtime, devicePreferences}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences}) {
   const theme = useTheme(), t = runtime.text.t, registry = useFocusRegistry(), insets = useSafeAreaInsets();
+  const shell = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
@@ -175,11 +177,18 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     return false;
   }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage, theme.width]);
   const compact = !theme.isTV && theme.width < 600;
+  const account = ports.context.account.account;
+  const signedIn = account.hostedAccountId
+    ? t('settings.signedInWithAccount', {server: ports.serverName()})
+    : t('settings.signedInAs', {server: ports.serverName(), username: account.username});
+  // The drawn sheet heads the profile, then the routes this build can really open.
+  const sheetShortcuts = shell.account.actions.filter(action => action.id !== 'settings');
+  const closeSettings = () => {controller.lifetime.assert(); ports.context.navigation.back(ports.context.authority());};
   // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
   useEffect(() => {
-    setNativeScreenChromeHidden('settings-pushed', compact && pushed);
-    return () => setNativeScreenChromeHidden('settings-pushed', false);
-  }, [compact, pushed]);
+    setNativeScreenChromeHidden('settings-sheet', compact);
+    return () => setNativeScreenChromeHidden('settings-sheet', false);
+  }, [compact]);
   useScreenBack(runtime, back, theme.isTV || remoteSourcesPage);
   if (!page) throw new Error('native_settings_structure_empty');
   // Libraries and Live TV draw their own pages and own their scrolling; they are not
@@ -198,24 +207,43 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   // Android may report 0 here while the surface still draws under the status bar; StatusBar.currentHeight is the measured fallback.
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0);
   return <Screen style={!theme.isTV ? {paddingTop: topInset + 14} : undefined}>
+    {/* phone-app 8: the avatar opens Settings as a sheet, with the drawn grabber, title and Done. */}
+    {compact && !pushed && <View testID="settings-sheet-header" style={{height: 52, paddingHorizontal: 10, justifyContent: 'center'}}>
+      <View accessible={false} pointerEvents="none" style={{position: 'absolute', top: 6, alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.colors.lineStrong}}/>
+      <Text accessibilityRole="header" pointerEvents="none" style={[shellType(17, 700), {position: 'absolute', left: 0, right: 0, textAlign: 'center', color: theme.colors.text}]}>{t('next.shell.settings')}</Text>
+      <Button testID="settings-sheet-done" variant="text" size="small" onPress={closeSettings} style={{alignSelf: 'flex-end', minHeight: 38, paddingHorizontal: 6, marginRight: -4}} textStyle={shellType(16, 700)}>{t('action.done')}</Button>
+    </View>}
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
       {(!compact || !pushed) && <View style={{width: compact ? '100%' : theme.isTV ? searching ? 500 : 480 : 280}}>
-        {(!theme.isTV || !searching) && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 30, 800), {color: theme.colors.text, marginBottom: 24, marginHorizontal: 20}]}>{t('next.shell.settings')}</Text>}
+        {(theme.isTV ? !searching : !compact) && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 30, 800), {color: theme.colors.text, marginBottom: 24, marginHorizontal: 20}]}>{t('next.shell.settings')}</Text>}
         <FocusRegion id={searchField} entry="input" edges={{left: ids.rail, down: searching ? `${keyboard}.row.0` : column}}>
           <TextField focusId="input" testID="settings-search" variant="search" leadingIcon="i-search" accessibilityLabel={t('next.shell.searchSettings')} placeholder={t('next.shell.searchSettings')} value={query} onChangeText={setQuery} showSoftInputOnFocus={!theme.isTV}
             onFocus={() => {if (theme.isTV && !searching) {setSearching(true); setSearchRevision(value => value + 1);}}} containerStyle={{marginHorizontal: theme.isTV ? 0 : 16}}/>
         </FocusRegion>
-        {theme.isTV && searching ? <View style={{marginTop: 32}}><NativeTVKeyboard id={keyboard} value={query} onChangeText={setQuery} activation={{visible: true, intent: 'enter', revision: searchRevision}} leftRegionId={ids.rail} rightRegionId={matchingPages[0] ? ids.surface(`settings.matches.${matchingPages[0].id}`) : undefined} width={500} testID="settings-keyboard" onVoice={voiceSearch.start} voiceBusy={voiceSearch.busy}/></View> : <ScrollView style={{marginTop: 20, marginHorizontal: theme.isTV ? -16 : 0}} contentContainerStyle={theme.isTV ? {paddingHorizontal: 16} : undefined}>
+        {theme.isTV && searching ? <View style={{marginTop: 32}}><NativeTVKeyboard id={keyboard} value={query} onChangeText={setQuery} activation={{visible: true, intent: 'enter', revision: searchRevision}} leftRegionId={ids.rail} rightRegionId={matchingPages[0] ? ids.surface(`settings.matches.${matchingPages[0].id}`) : undefined} width={500} testID="settings-keyboard" onVoice={voiceSearch.start} voiceBusy={voiceSearch.busy}/></View> : <ScrollView style={{marginTop: 20, marginHorizontal: theme.isTV ? -16 : 0}} contentContainerStyle={theme.isTV ? {paddingHorizontal: 16} : {paddingBottom: 24 + insets.bottom}}>
           {query.trim().length >= 2 ? <SettingsSearchResults matches={matches} query={query} onNavigate={address => choose(address)}/>
-            : <FocusRegion id={column} entry={orderedPages[0].id} order={orderedPages.map(value => value.id)} orientation="vertical" edges={{left: ids.rail, right: rows}} onLayout={enter}>
-              <Text style={[shellType(theme.isTV ? 20 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 20, marginBottom: 10}]}>{t('settings.heading.account')}</Text>
-              {theme.isTV
-                ? tvPageGroups.map((group, index) => <React.Fragment key={group.join('-')}>
-                    {index > 0 && <View style={{height: 26}}/>}
-                    {group.flatMap(id => orderedPages.filter(value => value.id === id)).map(pageRow)}
-                  </React.Fragment>)
-                : orderedPages.map(pageRow)}
-            </FocusRegion>}
+            : <>
+              {compact && <>
+                <Focusable testID="settings-profile-card" accessibilityRole="button" accessibilityLabel={shell.profile.name} onPress={() => choose('profile')} focusKind="row" focusRadius={14} style={{marginHorizontal: 16, minHeight: 64, paddingHorizontal: 14, gap: 12, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.raised}}>
+                  <ProfileFace {...shell.profile} size={38} locked={shell.profile.pinRequired} scaleOnFocus={false}/>
+                  <View style={{flex: 1, minWidth: 0}}>
+                    <Text numberOfLines={1} style={[shellType(16, 700), {color: theme.colors.text}]}>{shell.profile.name}</Text>
+                    <Text numberOfLines={1} style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{signedIn}</Text>
+                  </View>
+                  <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
+                </Focusable>
+                {sheetShortcuts.length > 0 && <ShortcutTiles testID="settings-shortcuts" actions={sheetShortcuts}/>}
+              </>}
+              <FocusRegion id={column} entry={orderedPages[0].id} order={orderedPages.map(value => value.id)} orientation="vertical" edges={{left: ids.rail, right: rows}} onLayout={enter}>
+                <Text style={[shellType(theme.isTV ? 20 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 20, marginBottom: 10}]}>{t('settings.heading.account')}</Text>
+                {theme.isTV
+                  ? tvPageGroups.map((group, index) => <React.Fragment key={group.join('-')}>
+                      {index > 0 && <View style={{height: 26}}/>}
+                      {group.flatMap(id => orderedPages.filter(value => value.id === id)).map(pageRow)}
+                    </React.Fragment>)
+                  : orderedPages.map(pageRow)}
+              </FocusRegion>
+            </>}
             {theme.isTV && !searching && <View testID="settings-key-hints" style={{gap: 8, marginTop: 34, marginLeft: 20}}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><KeyCap label={t('next.controls.native.up')}/><KeyCap label={t('next.controls.native.down')}/><Text style={[shellType(15, 400), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintChoose')}</Text></View>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><KeyCap label={t('next.controls.native.right')}/><Text style={[shellType(15, 400), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintEdit')}</Text><View style={{width: 12}}/><KeyCap label={t('next.controls.native.left')}/><Text style={[shellType(15, 400), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintPages')}</Text></View>

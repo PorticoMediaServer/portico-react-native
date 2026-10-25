@@ -171,7 +171,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
           profileRef={avatarRef} short={dimensions.height - insets.top - insets.bottom < 800}
           onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
           onProfile={() => setAccountOpen(true)}/>}
-        {destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
+        {destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => navigate({kind: 'settings'})} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar landscape={landscapePhone} destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
       </>)}
     {theme.isTV ? <TVProfileMenu snapshot={snapshot} open={accountOpen} onOpenChange={setAccountOpen} returnFocusRef={avatarRef}/>
