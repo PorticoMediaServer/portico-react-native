@@ -58,6 +58,7 @@ export class HlsSource {
   private generation = 0;
   private closed = false;
   private requests = new Set<XMLHttpRequest>();
+  private readonly pending = new Set<() => void>();
   /** Where playback is headed while a seek is being asked for. */
   private target: number | undefined;
   /**
@@ -195,8 +196,11 @@ export class HlsSource {
    * apart; a failure is reported to `failed`.
    */
   async open(position: number): Promise<void> {
+    const generation = ++this.generation;
     try {
+      this.assertCurrent(generation);
       const text = await this.get(this.url, 'text');
+      this.assertCurrent(generation);
       const master = parseMaster(text, this.url);
       // A media playlist given directly is one muxed track.
       const video = master?.video ?? this.url, codecs = master?.codecs ?? [];
@@ -206,9 +210,9 @@ export class HlsSource {
         master ? this.get(video, 'text').then(body => this.read(body, video)) : Promise.resolve(this.read(text, video)),
         chosen ? this.get(chosen.url, 'text').then(body => this.read(body, chosen.url)) : Promise.resolve(null),
       ]);
-      if (this.closed) return;
-      await this.attach();
-      if (this.closed) return;
+      this.assertCurrent(generation);
+      await this.attach(generation);
+      this.assertCurrent(generation);
       const videoCodecs = codecs.filter(isVideoCodec), audioCodecs = codecs.filter(codec => !isVideoCodec(codec));
       // Music and audiobooks are a stream with no picture: its one track is the sound.
       const soundOnly = codecs.length > 0 && videoCodecs.length === 0;
@@ -223,17 +227,18 @@ export class HlsSource {
         const type = `${packets(audioList) ? 'video/mp2t' : 'audio/mp4'}; codecs="${audioCodecs.join(',') || 'mp4a.40.2'}"`;
         this.tracks.push({kind: 'audio', url: chosen.url, playlist: audioList, buffer: this.add(type), next: 0, loaded: Date.now()});
       }
-      if (this.live) { await this.openLive(position); return; }
+      if (this.live) { await this.openLive(position, generation); return; }
       const total = Math.max(...this.tracks.map(track => track.playlist.segments.reduce((sum, segment) => sum + segment.duration, 0)));
       if (total > 0 && videoList.ended) { try { this.source.duration = total; } catch { /* the element works it out */ } }
-      for (const track of this.tracks) await this.start(track);
+      for (const track of this.tracks) await this.start(track, generation);
       // Filled from where playback will begin: the element is still at zero until it is sent there.
+      this.assertCurrent(generation);
       this.target = position;
       this.point(position);
       const video0 = this.tracks[0], first = segmentNumbered(video0.playlist, video0.next);
       if (first) {
-        await this.append(video0.buffer, await this.get(first.url, 'arraybuffer'));
-        if (this.closed) return;
+        await this.append(video0.buffer, await this.get(first.url, 'arraybuffer'), generation);
+        this.assertCurrent(generation);
         video0.next = first.number + 1;
         try {
           const ranges = video0.buffer.buffered;
@@ -243,33 +248,38 @@ export class HlsSource {
         } catch { this.offset = 0; }
         trace(`hls clock offset ${this.offset.toFixed(3)} s`);
       }
-      void this.pump(++this.generation);
+      this.assertCurrent(generation);
+      void this.pump(generation);
     } catch (error) {
-      this.fail(error);
+      if (generation === this.generation) this.fail(error);
     }
   }
 
   /** A channel: begin at `position` on its timeline, or where live viewing begins. */
-  private async openLive(position: number): Promise<void> {
+  private async openLive(position: number, generation: number): Promise<void> {
+    this.assertCurrent(generation);
     for (const track of this.tracks) {
+      this.assertCurrent(generation);
       // Each segment follows the one before it, whatever its own clock says (a new programme
       // restarts it). A device that will not do that keeps the segments' own times, and playback
       // is carried over the gaps (`cross`).
       try { track.buffer.mode = 'sequence' as never; } catch { /* the segments' own times are used */ }
-      await this.start(track);
+      await this.start(track, generation);
     }
+    this.assertCurrent(generation);
     const list = this.tracks[0].playlist;
     const wanted = Number.isFinite(position) ? this.originMs! + position * 1000 : NaN;
     const first = (Number.isFinite(wanted) ? segmentAtDate(list, wanted) : undefined) ?? liveStart(list);
     if (!first) throw new SourceError(true, 'the channel has no segments yet');
     for (const track of this.tracks) track.next = first.number;
-    const landed = await this.feed(this.tracks[0], first);
-    if (this.closed) return;
+    const landed = await this.feed(this.tracks[0], first, generation);
+    this.assertCurrent(generation);
     // Inside the segment when a moment was asked for and it holds that moment.
     const into = landed && Number.isFinite(wanted) && landed.dateMs !== undefined ? Math.max(0, Math.min(landed.end - landed.start, (wanted - landed.dateMs) / 1000)) : 0;
     this.begin = landed ? landed.start + into : NaN;
     trace(`hls channel begins at segment ${first.number}, element time ${this.begin.toFixed(2)}`);
-    void this.pump(++this.generation);
+    this.assertCurrent(generation);
+    void this.pump(generation);
   }
 
   private read(text: string, url: string): Playlist {
@@ -282,55 +292,85 @@ export class HlsSource {
     try { return this.source.addSourceBuffer(type); } catch (error) { throw new SourceError(false, `${type}: ${String((error as Error)?.message ?? error)}`, 0, 'unsupported'); }
   }
 
-  private attach(): Promise<void> {
+  private assertCurrent(generation: number): void {
+    if (this.closed) throw new SourceError(false, 'closed');
+    if (generation !== this.generation) throw new SourceError(false, 'superseded');
+  }
+
+  private attach(generation: number): Promise<void> {
+    this.assertCurrent(generation);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new SourceError(false, 'media source did not open')), 10000);
-      this.source.addEventListener('sourceopen', () => { clearTimeout(timer); resolve(); });
-      try { this.player.srcObject = this.source as never; } catch (error) { clearTimeout(timer); reject(new SourceError(false, String((error as Error)?.message ?? error))); }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (error?: SourceError) => {
+        clearTimeout(timer); this.source.removeEventListener('sourceopen', opened); this.pending.delete(cancel);
+        if (error) reject(error); else resolve();
+      };
+      const opened = () => finish();
+      const cancel = () => finish(new SourceError(false, 'closed'));
+      if (this.closed) {cancel(); return;}
+      this.pending.add(cancel);
+      this.source.addEventListener('sourceopen', opened);
+      timer = setTimeout(() => finish(new SourceError(false, 'media source did not open')), 10000);
+      try { this.player.srcObject = this.source as never; }
+      catch (error) { finish(new SourceError(false, String((error as Error)?.message ?? error))); }
     });
   }
 
   /** The track's initialization segment. */
-  private async start(track: Track): Promise<void> {
+  private async start(track: Track, generation: number): Promise<void> {
+    this.assertCurrent(generation);
     if (!track.playlist.init) return;
-    await this.append(track.buffer, await this.get(track.playlist.init, 'arraybuffer'));
+    await this.append(track.buffer, await this.get(track.playlist.init, 'arraybuffer'), generation);
   }
 
-  /** A source buffer does one thing at a time: resolves once it is free (or, at worst, after five
-   * seconds, when the call that follows says for itself what is wrong). */
+  /** Wait for an existing buffer operation; closing the source retires its wait immediately. */
   private free(buffer: SourceBuffer): Promise<void> {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
+      if (this.closed) {reject(new SourceError(false, 'closed')); return;}
       let busy = false;
       try { busy = buffer.updating; } catch { /* asked as it was removed */ }
       if (!busy) { resolve(); return; }
-      const done = () => { clearTimeout(timer); buffer.removeEventListener('updateend', done); resolve(); };
-      const timer = setTimeout(done, 5000);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (error?: SourceError) => {
+        clearTimeout(timer); buffer.removeEventListener('updateend', done); this.pending.delete(cancel);
+        if (error) reject(error); else resolve();
+      };
+      const done = () => finish();
+      const cancel = () => finish(new SourceError(false, 'closed'));
+      this.pending.add(cancel);
+      timer = setTimeout(done, 5000);
       buffer.addEventListener('updateend', done);
     });
   }
 
-  private async append(buffer: SourceBuffer, data: ArrayBuffer): Promise<void> {
+  private async append(buffer: SourceBuffer, data: ArrayBuffer, generation: number): Promise<void> {
     await this.free(buffer);
+    this.assertCurrent(generation);
     return new Promise((resolve, reject) => {
-      const off = () => { buffer.removeEventListener('updateend', done); buffer.removeEventListener('error', broke); };
+      const off = () => { buffer.removeEventListener('updateend', done); buffer.removeEventListener('error', broke); this.pending.delete(cancel); };
       const done = () => { off(); resolve(); };
       const broke = () => { off(); reject(new SourceError(false, 'append failed', 0, 'decode')); };
+      const cancel = () => { off(); reject(new SourceError(false, 'closed')); };
+      this.pending.add(cancel);
       buffer.addEventListener('updateend', done);
       buffer.addEventListener('error', broke);
       try { buffer.appendBuffer(data); } catch (error) { off(); reject(new SourceError(false, String((error as Error)?.message ?? error), 0, 'decode')); }
     });
   }
 
-  /** Takes `from` to `to` out of the buffer. An append still in flight (one a seek has just
-   * overtaken) is waited for first: a buffer refuses a removal while it is busy, and what that
-   * append brought would otherwise be left behind. */
-  private async remove(buffer: SourceBuffer, from: number, to: number): Promise<void> {
+  /** A superseded seek/audio switch cannot remove a successor's buffered data. */
+  private async remove(buffer: SourceBuffer, from: number, to: number, generation: number): Promise<void> {
+    this.assertCurrent(generation);
     if (!(to > from)) return;
     await this.free(buffer);
-    return new Promise(resolve => {
-      const done = () => { buffer.removeEventListener('updateend', done); resolve(); };
+    this.assertCurrent(generation);
+    return new Promise((resolve, reject) => {
+      const off = () => {buffer.removeEventListener('updateend', done); this.pending.delete(cancel);};
+      const done = () => {off(); resolve();};
+      const cancel = () => {off(); reject(new SourceError(false, 'closed'));};
+      this.pending.add(cancel);
       buffer.addEventListener('updateend', done);
-      try { buffer.remove(from, to); } catch { buffer.removeEventListener('updateend', done); resolve(); }
+      try { buffer.remove(from, to); } catch {off(); resolve();}
     });
   }
 
@@ -374,7 +414,7 @@ export class HlsSource {
     const generation = ++this.generation;
     void (async () => {
       try {
-        for (const track of this.tracks) await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER);
+        for (const track of this.tracks) await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER, generation);
         if (generation !== this.generation || this.closed) return;
         this.point(position);
         await this.pump(generation);
@@ -396,7 +436,7 @@ export class HlsSource {
       this.arrival = {dateMs, resolve, reject};
       void (async () => {
         try {
-          for (const track of this.tracks) await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER);
+          for (const track of this.tracks) await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER, generation);
           if (generation !== this.generation || this.closed) return;
           this.placed = [];
           const list = this.tracks[0].playlist;
@@ -424,9 +464,11 @@ export class HlsSource {
     const generation = ++this.generation;
     const playlist = this.read(await this.get(rendition.url, 'text'), rendition.url);
     if (generation !== this.generation || this.closed) throw new SourceError(false, 'superseded');
-    await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER);
+    await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER, generation);
+    this.assertCurrent(generation);
     track.url = rendition.url; track.playlist = playlist; track.loaded = Date.now();
-    await this.start(track);
+    await this.start(track, generation);
+    this.assertCurrent(generation);
     track.next = numberAt(playlist, this.target ?? this.position());
     void this.pump(generation);
   }
@@ -446,13 +488,14 @@ export class HlsSource {
 
   /** Fetches and appends one segment of `track`. For the first track of a channel, answers where
    * it landed in the element's time. */
-  private async feed(track: Track, segment: Segment, generation?: number): Promise<Placed | undefined> {
-    const current = () => generation === undefined || (generation === this.generation && !this.closed);
+  private async feed(track: Track, segment: Segment, generation: number): Promise<Placed | undefined> {
+    this.assertCurrent(generation);
+    const current = () => generation === this.generation && !this.closed;
     const data = await this.get(segment.url, 'arraybuffer');
     if (!current()) return undefined;
     const clock = this.live && track === this.tracks[0];
     const before = clock ? this.spans(track.buffer) : [];
-    await this.append(track.buffer, data);
+    await this.append(track.buffer, data, generation);
     if (!current()) return undefined;
     track.next = segment.number + 1;
     if (!clock) return undefined;
@@ -497,14 +540,15 @@ export class HlsSource {
   }
 
   /** A channel: what has been played and left behind is given back. */
-  private async trim(): Promise<void> {
+  private async trim(generation: number): Promise<void> {
     const here = this.placedAt(Number(this.player.currentTime));
     if (!here) return;
     let kept = 0;
     for (let index = this.placed.indexOf(here) - 1; index >= 0; index--) {
       const entry = this.placed[index];
       if (kept < BEHIND_S) { kept += entry.end - entry.start; continue; }
-      for (const track of this.tracks) await this.remove(track.buffer, entry.start, entry.end);
+      for (const track of this.tracks) await this.remove(track.buffer, entry.start, entry.end, generation);
+      this.assertCurrent(generation);
       this.placed.splice(index, 1);
     }
   }
@@ -549,9 +593,9 @@ export class HlsSource {
           if (generation !== this.generation) return;
           fed = true;
           trace(`hls ${track.kind} segment ${segment.number} (${segment.start.toFixed(2)}+${segment.duration.toFixed(2)}) buffered ${this.ranges(track)} at ${Number(this.player.currentTime).toFixed(2)}`);
-          if (!this.live && position > BEHIND_S * 2) await this.remove(track.buffer, 0, position - BEHIND_S + this.offset);
+          if (!this.live && position > BEHIND_S * 2) await this.remove(track.buffer, 0, position - BEHIND_S + this.offset, generation);
         }
-        if (this.live && fed) await this.trim();
+        if (this.live && fed) await this.trim(generation);
         if (finished) { try { if (this.source.readyState === 'open') this.source.endOfStream(); } catch { /* already ended */ } }
         if (!fed) await wait(IDLE_MS);
       }
@@ -570,9 +614,11 @@ export class HlsSource {
   }
 
   close(): void {
+    if (this.closed) return;
     this.stopExposure();
     this.closed = true;
     this.generation++;
+    for (const cancel of [...this.pending]) cancel();
     this.arrival?.reject(new SourceError(false, 'closed'));
     this.arrival = undefined;
     for (const request of [...this.requests]) { try { request.abort(); } catch { /* finished */ } }

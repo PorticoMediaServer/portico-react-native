@@ -1,5 +1,5 @@
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
-import React, {useCallback, useEffect, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
@@ -57,6 +57,12 @@ type Command = Readonly<{
 const MAX = 9007199254740991;
 const whole = (value: unknown, least: number): value is number => typeof value === 'number' && Number.isFinite(value) && Math.floor(value) === value && value >= least && value <= MAX;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Attachment scopes are the existing three-field engine contract, not a new playback lease. */
+const inBinding = (value: unknown, binding: Binding): boolean => {
+  if (!value || typeof value !== 'object') return false;
+  const scoped = value as Record<string, unknown>;
+  return scoped.intentId === binding.intentId && scoped.sessionId === binding.sessionId && scoped.generation === binding.generation;
+};
 
 const PROGRESS_MS = 500, SUBTITLE_MS = 100;
 const SEEK_LIMIT_MS = 10000;
@@ -86,7 +92,7 @@ let kept: {binding: Binding; position: number} | undefined;
 /** The app is not on screen. */
 let away = false;
 /** The surface the mounted `PorticoPlayer` view draws on. */
-let surface: string | null = null;
+let surface: Readonly<{owner: object; lease: string; handle: string}> | null = null;
 /** The app's component, which the system addresses transport keys to. */
 let component: unknown;
 
@@ -226,11 +232,12 @@ class Engine {
   /** Gives the element the view's surface, or takes it away. */
   attach(): void {
     this.takeKeys();
-    if (!this.opened || this.closed || this.attached === surface) return;
+    const wanted = surface?.lease === this.binding.lease ? surface.handle : null;
+    if (!this.opened || this.closed || this.attached === wanted) return;
     try {
       if (this.attached) this.player.clearSurfaceHandle(this.attached);
-      if (surface) this.player.setSurfaceHandle(surface);
-      this.attached = surface;
+      if (wanted) this.player.setSurfaceHandle(wanted);
+      this.attached = wanted;
     } catch (error) {
       trace(`surface: ${String((error as Error)?.message ?? error)}`, true);
     }
@@ -308,8 +315,9 @@ class Engine {
       if (typeof target === 'number') go(target);
       else target.then(go, () => { if (this.seek?.revision === pending.revision) this.sought(false); });
     }
-    applySubtitles(command.subtitles, this.source, error => this.publish('subtitleStatus', {error}));
-    this.applyAudio(command.audio);
+    const subtitles = inBinding(command.subtitles?.binding, command.binding) ? command.subtitles : null;
+    applySubtitles(subtitles, this.source, error => this.publish('subtitleStatus', {error}));
+    this.applyAudio(inBinding(command.audio?.binding, command.binding) ? command.audio : null);
     const held = this.heldAway();
     if (this.wantPaused || held || command.rate !== 1 || !!pending || !!this.seek) { if (!this.player.paused) this.player.pause(); }
     else if (this.player.paused && !this.over) void this.player.play().catch(() => this.fail({uncertain: true}, 'play'));
@@ -323,29 +331,39 @@ class Engine {
    */
   private applyAudio(audio: AudioCommand | null | undefined): void {
     const hls = this.hls;
-    if (!audio || !hls || !Array.isArray(audio.renditions)) return;
+    if (!audio || !hls || !Array.isArray(audio.renditions)) {this.audioKey = ''; return;}
     const stamp = {audioBinding: audio.binding, audioEpoch: audio.epoch};
-    const offered = hls.audio();
-    const indexOf = (id: string) => { const name = audio.renditions.find(rendition => rendition.id === id)?.name; return name === undefined ? -1 : offered.findIndex(rendition => rendition.name === name); };
-    const playing = () => audio.renditions.find(rendition => rendition.name === offered[hls.audioIndex()]?.name)?.id ?? null;
+    const offered = hls.audio(), mapped = new Map<string, number>(), used = new Set<number>();
+    let valid = audio.renditions.length > 0 && audio.renditions.length <= 16 && audio.renditions.length === offered.length;
+    for (const rendition of audio.renditions) {
+      if (!rendition || typeof rendition.id !== 'string' || !rendition.id || mapped.has(rendition.id) || typeof rendition.name !== 'string' || !rendition.name) {valid = false; break;}
+      const matches = offered.map((candidate, index) => candidate.name === rendition.name ? index : -1).filter(index => index >= 0);
+      if (matches.length !== 1 || used.has(matches[0])) {valid = false; break;}
+      mapped.set(rendition.id, matches[0]); used.add(matches[0]);
+    }
+    // Partial or ambiguous metadata never becomes a list of successful mappings.
+    if (!valid) mapped.clear();
+    const playing = () => [...mapped].find(([, index]) => index === hls.audioIndex())?.[0] ?? null;
     const key = JSON.stringify([audio.binding, audio.epoch]);
     if (key !== this.audioKey) {
       this.audioKey = key; this.audioRevision = 0; this.audioSequence = 0;
-      this.publish('audioMapped', {...stamp, renditionIds: audio.renditions.filter(rendition => indexOf(rendition.id) >= 0).map(rendition => rendition.id)});
-      this.publish('audioObserved', {...stamp, audioSequence: ++this.audioSequence, renditionId: playing()});
+      this.publish('audioMapped', {...stamp, renditionIds: [...mapped.keys()], ...(!valid ? {audioMappingFailure: 'unsupported_metadata'} : {})});
+      if (valid) this.publish('audioObserved', {...stamp, audioSequence: ++this.audioSequence, renditionId: playing()});
     }
     const pending = audio.pending;
     if (!pending || pending.revision <= this.audioRevision) return;
     this.audioRevision = pending.revision;
-    const index = indexOf(pending.renditionId);
-    if (index < 0) { this.publish('audioUnavailable', {...stamp, renditionId: pending.renditionId}); this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); return; }
+    const index = mapped.get(pending.renditionId);
+    if (index === undefined) { this.publish('audioUnavailable', {...stamp, renditionId: pending.renditionId}); this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); return; }
+    const current = () => !this.closed && engine === this && key === this.audioKey && this.audioRevision === pending.revision
+      && accepted?.audio?.pending?.revision === pending.revision && accepted.audio.pending.renditionId === pending.renditionId;
     hls.selectAudio(index).then(
       () => {
-        if (key !== this.audioKey) return;
+        if (!current()) return;
         this.publish('audioApplied', {...stamp, audioRevision: pending.revision, renditionId: pending.renditionId});
         this.publish('audioObserved', {...stamp, audioSequence: ++this.audioSequence, renditionId: playing()});
       },
-      () => { if (key === this.audioKey) this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); },
+      () => { if (current()) this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); },
     );
   }
 
@@ -619,17 +637,33 @@ export const PorticoPlaybackModule = withEvents({
  * The surface the picture is drawn on. As on Apple, the view's lifetime and the lease's are
  * separate: the engine plays without a surface, and takes whichever one is mounted.
  */
-export function PorticoPlayer({lease: _lease, pictureInPictureRequest: _request, children: _children, onLayout, ...view}: ViewProps & {lease: string; pictureInPictureRequest?: number}): React.ReactElement {
+/** One actual native surface mount; its callbacks retain this immutable lease and owner. */
+function LeaseSurface({heldLease}: {heldLease: string}): React.ReactElement {
+  const owner = useRef<object>({}).current;
+  const live = useRef(true);
+  const detach = useCallback(() => {
+    if (surface?.owner !== owner) return;
+    surface = null; engine?.attach();
+  }, [owner]);
+  useLayoutEffect(() => {
+    live.current = true;
+    return () => {live.current = false; detach();};
+  }, [detach]);
+  const created = useCallback((handle: string) => {
+    if (!live.current || !heldLease || heldLease !== lease) return;
+    surface = {owner, lease: heldLease, handle}; engine?.attach();
+  }, [heldLease, owner]);
+  return React.createElement(KeplerVideoSurfaceView, {style: StyleSheet.absoluteFill, onSurfaceViewCreated: created, onSurfaceViewDestroyed: detach});
+}
+
+export function PorticoPlayer({lease: viewLease, surfaceActive = true, pictureInPictureRequest: _request, pictureInPictureBinding: _pictureBinding, children: _children, onLayout, ...view}: ViewProps & {lease: string; surfaceActive?: boolean; pictureInPictureRequest?: number; pictureInPictureBinding?: unknown}): React.ReactElement {
   const app = useKeplerAppStateManager();
   component ??= app.getComponentInstance();
-  const created = useCallback((handle: string) => { surface = handle; engine?.attach(); }, []);
-  const destroyed = useCallback(() => { surface = null; engine?.attach(); }, []);
-  useEffect(() => destroyed, [destroyed]);
   const [size, setSize] = useState({width: 0, height: 0});
   const laidOut = useCallback((event: LayoutChangeEvent) => { const {width, height} = event.nativeEvent.layout; setSize({width, height}); onLayout?.(event); }, [onLayout]);
   return React.createElement(View, {...view, onLayout: laidOut},
-    React.createElement(KeplerVideoSurfaceView, {style: StyleSheet.absoluteFill, onSurfaceViewCreated: created, onSurfaceViewDestroyed: destroyed}),
-    React.createElement(SubtitleLabel, size));
+    surfaceActive && viewLease ? React.createElement(LeaseSurface, {key: viewLease, heldLease: viewLease}) : null,
+    surfaceActive ? React.createElement(SubtitleLabel, size) : null);
 }
 
 /**
