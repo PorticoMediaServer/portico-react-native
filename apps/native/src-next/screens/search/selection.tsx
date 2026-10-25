@@ -245,7 +245,8 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), personal: () => personal?.service.getSnapshot(), busy: () => !!pending || !!personal?.service.getSnapshot().busy, queueControl,
     clear: () => {if (personal?.service.getSnapshot().busy || destinations?.snapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); closeDestinations(); model?.clear(); emit();}, selectLoaded, execute, applyPersonal, retryPersonal,
-    openDestination, closeDestinations, destination: () => destinations, destinationKind: () => destinationKind, openAdmin, closeBulk, bulk: () => bulk};
+    openDestination, closeDestinations, destination: () => destinations, destinationKind: () => destinationKind, openAdmin, closeBulk, bulk: () => bulk,
+    entries: () => [...windows.values()].flatMap(window => leaf(window.entry) ? [window.entry] : [])};
   const port: NativeSearchSelectionPort = {
     register: () => {reconcile(); return () => {};},
     item: (group, entry) => {
@@ -265,7 +266,7 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched'): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
   openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void; destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
-  openAdmin(kind: 'edit' | 'delete'): void; closeBulk(): void; bulk(): NativeBulkMedia | undefined};
+  openAdmin(kind: 'edit' | 'delete'): void; closeBulk(): void; bulk(): NativeBulkMedia | undefined; entries(): readonly ContentEntry[]};
 function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
@@ -280,16 +281,20 @@ function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: s
   // The bounded direct Saved pickers are offered for an explicit leaf selection; the
   // controller re-reads every leaf's own Detail grant before it writes anything.
   if (state.summary.count > 0) actions.push({id: 'playlist', disabled: store.busy()}, {id: 'collection', disabled: store.busy()});
+  if (state.summary.every.edit) actions.push({id: 'edit', disabled: store.busy()});
+  if (state.summary.every.delete) actions.push({id: 'delete', disabled: store.busy()});
   if (state.summary.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
-  if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   const personal = store.personal();
   const props: SelectionBarProps = {count: state.summary.count, selectionLabel: selectedItemsLabel(state.summary),
     selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: () => {void store.selectLoaded();}, onCancel: () => {setMenu(null); store.clear();},
     actions, menu, onMenuChange: setMenu, topInset: insets.top, fourthSlot: selectionFourthAction(state.summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}
       else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action);}
-      else if (action === 'playlist' || action === 'collection') {setMenu(null); store.openDestination(action);}}};
+      else if (action === 'playlist' || action === 'collection') {setMenu(null); store.openDestination(action);}
+      else if (action === 'edit' || action === 'delete') {setMenu(null); store.openAdmin(action);}}};
   const destination = store.destination(), destinationKind = store.destinationKind();
+  const bulk = store.bulk(), bulkState = bulk?.getSnapshot();
   return <><View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
     <View style={theme.isTV ? {position: 'absolute', left: 200, right: 96, top: 58} : undefined}><SelectionBar {...props}/></View>
     {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}
@@ -308,5 +313,20 @@ function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: s
     {destination && destinationKind && <NativeDestinationPicker controller={destination} kind={destinationKind} open
       selectionLabel={selectedItemsLabel(state.summary)} count={state.summary.count} artwork={artwork}
       onOpenChange={open => {if (!open && !destination.snapshot().busy) store.closeDestinations();}}/>}
+    {bulk && bulkState && (bulkState.deletion
+      ? <DeleteMediaDialog open owner ownerHeader={<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{selectedItemsLabel(state.summary)}</Text>}
+          selectionCount={state.summary.count} preview={bulkState.deletion.preview ?? null} loading={bulkState.deletion.phase === 'loading'} error={bulkState.deletion.error}
+          result={bulkState.deletion.result} confirmation={bulkState.deletion.confirmation} onConfirmationChange={value => bulk.setDeletion({confirmation: value})}
+          removeFiles={bulkState.deletion.removeFiles} onRemoveFilesChange={value => bulk.setDeletion({removeFiles: value})}
+          onDelete={() => {void bulk.deleteNow();}} pending={bulkState.deletion.phase === 'saving'} renderArtwork={() => undefined}
+          onOpenChange={open => {if (!open) store.closeBulk();}} testID="search-delete-media"/>
+      : <BulkEditor open title={defaultI18n.t('next.selection.native.action.edit')} count={state.summary.count} saveLabel={defaultI18n.t('action.save')}
+          schema={bulkState.preview?.schema ?? []} values={bulkState.values} changes={bulkState.changes} onChangesChange={bulk.setChanges}
+          lockEdited={bulkState.lockEdited} onLockEditedChange={bulk.setLockEdited} onSave={() => {void bulk.save();}}
+          pending={bulkState.phase === 'saving'} error={bulkState.error} result={bulkState.result}
+          resultEntries={store.entries().map(entry => ({id: entry.id, title: entry.displayTitle ?? entry.title, artwork: artwork(entry.posterUrl)}))}
+          onRetry={ids => {void bulk.retry(ids);}} singleItemFields={bulkState.singleItemFields}
+          ownerHeader={<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{selectedItemsLabel(state.summary)}</Text>}
+          onOpenChange={open => {if (!open) store.closeBulk();}} testID="search-bulk-editor"/>)}
   </>;
 }
