@@ -779,7 +779,10 @@ static NSString *PorticoSafeFileName(NSString *value) {
 #pragma mark - What travels with a download
 
 - (NSURL *)extraURL:(NSString *)identifier name:(NSString *)name {
-  if (!PorticoSafeIdentifier(identifier) || !self->_entries[identifier] || !PorticoSafeExtraName(name) || [name hasPrefix:@"reader-state-"]) return nil;
+  if (!PorticoSafeIdentifier(identifier) || !self->_entries[identifier] || !PorticoSafeExtraName(name)) return nil;
+  // Shared by generic read/write/fetch: aliases on case-insensitive storage cannot bypass custody.
+  NSString *reserved = name.lowercaseString;
+  if ([reserved hasPrefix:@"reader-state-"] || ([reserved isEqual:@"publication.json"] && ![name isEqual:@"publication.json"])) return nil;
   return [[self extrasFor:identifier] URLByAppendingPathComponent:name];
 }
 
