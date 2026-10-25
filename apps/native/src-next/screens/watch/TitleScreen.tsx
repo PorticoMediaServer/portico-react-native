@@ -388,7 +388,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               return <TitleEpisode entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)}
                 title={entry.displayTitle ?? entry.title} label={copy.caption} caption={layout === 'row' ? copy.detail : undefined}
                 width={width} layout={layout} artWidth={layout === 'row' ? (tabletWatch ? 224 : theme.platform === 'tablet' ? 210 : undefined) : undefined}
-                watched={entry.watched} progress={copy.progress}
+                watched={entry.watched} progress={copy.progress} open={layout === 'tile' && openEpisode.entry?.id === entry.id}
                 length={layout === 'tile' && entry.duration ? durationText(entry.duration, t) : undefined}
                 status={entry.id === playingEpisodeId ? t('player.miniPlaying') : entry.id === nextEpisodeId ? t('player.queue') : undefined}
                 artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={layout === 'row' ? entry.overview : undefined}

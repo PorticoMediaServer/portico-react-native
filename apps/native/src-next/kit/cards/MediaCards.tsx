@@ -24,7 +24,7 @@ export type CircleCardProps = CardProps & ({art: CircleArtProps; person?: false}
 export type CoverCardProps = PosterCardProps & {kind?: 'book' | 'periodical' | 'newspaper'; next?: boolean};
 
 /** SelectionCircle belongs to the selection family; cards only position the actual control. */
-function Overlays({props, hovered, height, holding = false, playSize = 40, centered = false, episode = false, pause}: {props: CardProps; hovered: boolean; height: number; holding?: boolean; playSize?: number; centered?: boolean; episode?: boolean; pause?: () => void}) {
+function Overlays({props, hovered, height, holding = false, playSize = 40, centered = false, episode = false, persistentPlay = false, pause}: {props: CardProps; hovered: boolean; height: number; holding?: boolean; playSize?: number; centered?: boolean; episode?: boolean; /** tablet7: a touch tile always shows its Play on the picture. */ persistentPlay?: boolean; pause?: () => void}) {
   const t = useTheme(), {selection, onPlay, onMore, title} = props;
   if (props.disabled || holding) return null;
   const circleInset = t.isTV ? 12 : t.layoutMode === 'desktop' ? 10 : episode ? 6 : 7;
@@ -35,7 +35,7 @@ function Overlays({props, hovered, height, holding = false, playSize = 40, cente
     </Focusable> : selection?.active ? <View style={{position: 'absolute', left: circleInset, top: circleInset}}>
       <SelectionCircle selected={selection.selected} selecting size={t.isTV ? 44 : 24} interactive={false} accessibilityLabel={defaultI18n.t('card.select', {title})} />
     </View> : null}
-    {!t.isTV && !selection?.active && hovered && (onPlay || pause) && <CardAction name={pause ? 'i-pause' : 'i-play'} label={pause ? defaultI18n.t('next.cards.pause') : defaultI18n.t('card.play', {title})} onPress={pause ?? onPlay!} size={playSize}
+    {!t.isTV && !selection?.active && (hovered || persistentPlay) && (onPlay || pause) && <CardAction name={pause ? 'i-pause' : 'i-play'} label={pause ? defaultI18n.t('next.cards.pause') : defaultI18n.t('card.play', {title})} onPress={pause ?? onPlay!} size={playSize}
       style={centered ? {position: 'absolute', left: '50%', top: height / 2 - playSize / 2, marginLeft: -playSize / 2} : {position: 'absolute', bottom: 10, right: 10}} />}
     {!t.isTV && !selection?.active && (hovered || props.menuVisibility === 'always') && onMore && <CardAction name="i-more" label={defaultI18n.t('card.more', {title})} onPress={onMore} color={t.colors.text}
       style={{position: 'absolute', right: 4, top: 4, backgroundColor: t.colors.scrim}} />}
@@ -130,12 +130,14 @@ export type EpisodeTileProps = CardProps & Media & {
    * page that draws a larger still (the tablet's watch page) passes its size. */
   artWidth?: number;
   onDownload?: () => void;
+  /** tablet7: the episode this panel belongs to is open. */
+  open?: boolean;
 };
 
 export function EpisodeTile(props: EpisodeTileProps) {
   const t = useTheme(), row = props.layout === 'row' || (!t.isTV && props.layout !== 'tile');
   const width = props.width ?? (row ? 350 : t.spec.episode.width[t.platform]), artWidth = row ? props.artWidth ?? 136 : width, height = artWidth * 9 / 16;
-  const art = (focused: boolean, hovered: boolean, holding: boolean) => <ArtFrame width={artWidth} height={height} radius={row ? 8 : undefined} focused={focused} hovered={hovered} holding={holding} hoverScale={t.spec.card.hover.episodeScale} selected={props.selection?.selected}>
+  const art = (focused: boolean, hovered: boolean, holding: boolean) => <ArtFrame width={artWidth} height={height} radius={row ? 8 : undefined} focused={focused} hovered={hovered} holding={holding} hoverScale={t.spec.card.hover.episodeScale} selected={props.selection?.selected || props.open}>
     <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="still" backdropFallback={props.backdropFallback} source={props.artwork} fallback={props.artworkFallback} width={artWidth} height={height} />
     {props.length && !row && <View style={{position: 'absolute', right: t.spec.episode.duration.inset[t.platform], top: t.spec.episode.duration.inset[t.platform]}}><Badge>{props.length}</Badge></View>}
     {props.status && !row && <View style={{position: 'absolute', left: t.isTV ? 16 : 8, top: t.isTV ? 14 : 8}}><Badge kind="new">{props.status}</Badge></View>}
@@ -155,8 +157,8 @@ export function EpisodeTile(props: EpisodeTileProps) {
     onAccessibilityAction={event => event.nativeEvent.actionName === 'download' ? props.onDownload?.() : props.onAccessibilityAction?.(event)}
     overlay={s => row ? <View pointerEvents="box-none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
     <View pointerEvents="box-none" style={{width: artWidth, height}}><Overlays props={{...props, onMore: undefined}} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered episode /></View>
-    {!props.disabled && !props.selection?.active && (props.onDownload || props.onMore) && <CardAction name={props.onDownload ? 'i-dl' : 'i-more'} label={props.onDownload ? defaultI18n.t('next.cards.download') : defaultI18n.t('card.more', {title: props.title})} onPress={props.onDownload ?? props.onMore!} size={38} color={t.colors.textTertiary} style={{position: 'absolute', right: 0, top: (height - 38) / 2, backgroundColor: 'transparent'}} />}
-  </View> : <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered episode />}>
+    {!props.disabled && !props.selection?.active && (props.onDownload || props.onMore) && <CardAction name={props.onDownload ? 'i-dl' : 'i-more'} label={props.onDownload ? defaultI18n.t('next.cards.download') : defaultI18n.t('card.more', {title: props.title})} onPress={props.onDownload ?? props.onMore!} size={t.isTV ? 38 : 44} color={t.colors.textTertiary} style={{position: 'absolute', right: 0, top: (height - (t.isTV ? 38 : 44)) / 2, backgroundColor: 'transparent'}} />}
+  </View> : <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={48} persistentPlay={!t.isTV} episode />}>
     {s => <><View style={{flexDirection: row ? 'row' : 'column', gap: row ? 14 : 0, alignItems: row ? 'center' : undefined}}>{art(s.focused, s.hovered, s.holding)}{text}</View>
       {props.synopsis && <Text numberOfLines={row ? 2 : 3} style={[row ? titleStyle(t, 13, 600) : t.type.episodeBody, {color: t.colors.textSecondary, marginTop: row ? 9 : 8, lineHeight: row ? 18.85 * t.textScale : undefined}]}>{props.synopsis}</Text>}
     </>}
