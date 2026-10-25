@@ -123,7 +123,7 @@ test('a quality change re-plans the playing session in place: the same session, 
     d.engine.position = 61;
     d.engine.fact('progress');
     await settle();
-    await d.playback.changePlayback({quality: {mode: 'fixed', id: '720p'}});
+    await d.playback.changePlayback({quality: {mode: 'fixed', id: '720p-high'}});
     await settle();
     const after = d.playback.getSnapshot();
     assert.equal(after.session!.id, before.session!.id, 'the same session');
@@ -134,7 +134,7 @@ test('a quality change re-plans the playing session in place: the same session, 
     assert.equal(queueAfter.id, queueBefore.id, 'the same queue');
     assert.equal(queueAfter.currentEntryId, queueBefore.currentEntryId, 'at the same entry');
     assert.deepEqual(queueAfter.entries.map(e => (e.hidden ? '' : e.itemId)), ['ep-1', 'ep-2', 'ep-3'], 'Up Next is untouched');
-    assert.deepEqual(d.path.session(after.session!.id)!.presentation.quality, {mode: 'fixed', id: '720p'}, 'the menu ticks what the server put in force');
+    assert.deepEqual(d.path.session(after.session!.id)!.presentation.quality, {mode: 'fixed', id: '720p-high'}, 'the menu ticks what the server put in force');
     const reload = d.engine.commands.find(c => c.binding.generation === after.session!.generation)!;
     assert.ok(reload.pendingSeek?.positionSeconds >= 61, `the engine opens the new stream where the picture was (${reload.pendingSeek?.positionSeconds})`);
     assert.equal(d.server.session(after.session!.id)!.ended, false);

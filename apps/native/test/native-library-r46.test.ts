@@ -15,7 +15,7 @@ function elements(node: any): Element[] {
   return node && typeof node === 'object' && 'props' in node ? [node, ...elements(node.props.children)] : [];
 }
 const alpha = (color: string, opacity: number) => `${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
-const flatten = (style: any) => Array.isArray(style) ? Object.assign({}, ...style.flat(9).filter(Boolean).map(flatten)) : style ?? {};
+const flatten = (style: any): Record<string, unknown> => Array.isArray(style) ? Object.assign({}, ...style.flat(9).filter(Boolean).map(flatten)) : style ?? {};
 
 async function libraryScreen(width: number, isTV = false) {
   const host = hooks(), theme = createTheme({width, isTV});
@@ -82,7 +82,7 @@ test('the phone compact header is one 44 row with the drawn back control and a s
   assert.ok(centre, 'the switcher is centred on the screen itself');
   assert.equal(flatten(centre!.props.style).alignItems, 'center');
   assert.deepEqual(elements(centre!.props.children)[0].props.children, ['SWITCHER']);
-  assert.deepEqual(nodes.find(node => flatten(node.props.style).marginLeft === 'auto').props.children[0], 'MENU');
+  assert.deepEqual(nodes.find(node => flatten(node.props.style).marginLeft === 'auto')!.props.children[0], 'MENU');
   assert.equal(tree.props.children.at(-1), 'PIVOTS', 'the pivot strip follows the row');
 
   const washed = flatten(module.LibraryCompactHeader({switcher: 'S', menu: 'M', wash: true, onLibraries: () => {}}).props.style);

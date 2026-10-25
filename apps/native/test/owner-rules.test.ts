@@ -107,7 +107,7 @@ test('a time of day is read as people type it, and nothing else is', () => {
 
 // ── Metadata ──
 
-const settings: MetadataSettings = {revision: 4, localArtworkLimitBytes: 10 * 2 ** 30, localArtworkUsedBytes: 1, includeAdult: false, tmdbCredentialConfigured: true, tvdbCredentialConfigured: false, openSubtitlesKeyConfigured: false, openSubtitlesUsername: 'sam', openSubtitlesPasswordConfigured: true,
+const settings: MetadataSettings = {revision: 4, localArtworkLimitBytes: 10 * 2 ** 30, localArtworkUsedBytes: 1, includeAdult: false, artworkMaxEdge: 1920, tmdbCredentialConfigured: true, tvdbCredentialConfigured: false, openSubtitlesKeyConfigured: false, openSubtitlesUsername: 'sam', openSubtitlesPasswordConfigured: true,
   openSubtitles: {keySource: 'none', accountSource: 'owner', account: 'not_checked', problem: '', checkedAt: '', retryAt: '', downloadsRemaining: 0, downloadsAllowed: 0, downloadsResetAt: ''}};
 
 test('the subtitle provider’s key and account are sent only as edited', () => {
@@ -252,7 +252,7 @@ test('the title that is kept stays; the other goes into it', () => {
 // ── The television Dashboard ──
 
 const job = (id: string, state: Job['state'], updatedAt: number, kind = 'library_scan'): Job => ({id, kind, resource: 'Movies', trigger: 'manual', state, phase: '', revision: 1, attempt: 1, createdAt: updatedAt - 1000, updatedAt, nextAt: 0, settingsRevision: 1, lane: 'scan', actions: ['cancel']});
-const alert = (id: string, status: string, lastAt: number): Alert => ({id, code: 'low_storage', severity: 'warning', status, firstAt: lastAt - 5000, lastAt, occurrences: 1, revision: 1});
+const alert = (id: string, status: string, lastAt: number): Alert => ({id, code: 'low_storage', params: {}, severity: 'warning', status, firstAt: lastAt - 5000, lastAt, occurrences: 1, revision: 1});
 
 test('background work in progress: what is running first, then what waits; finished and failed work is not shown', () => {
   const jobs = [job('done', 'succeeded', 50), job('wait', 'queued', 40), job('run-old', 'running', 10), job('fail', 'failed', 60), job('run-new', 'running', 30), job('held', 'paused', 20), job('gone', 'cancelled', 70)];

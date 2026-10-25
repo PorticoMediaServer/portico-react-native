@@ -14,7 +14,7 @@ const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : 
 const flat = (node: any) => Array.isArray(node) ? node : nodes(node);
 const texts = (node: any) => flat(node).filter(n => n.type === 'Text');
 const label = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
-const flatten = (style: any) => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
+const flatten = (style: any): Record<string, unknown> => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
 const state = (node: any) => ({focused: false, hovered: false, pressed: false, holding: false});
 // JSX always hands children through the createElement rest argument, so a lone render prop arrives in an array.
 const childFn = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
