@@ -161,6 +161,10 @@ const native = NativeModules.PorticoDownloads as undefined | {
   readState(): Promise<string>; writeState(json: string): Promise<void>;
   localFile(id: string): Promise<{url: string; durationSeconds: number}>;
   writeExtra(id: string, name: string, text: string): Promise<void>; readExtra(id: string, name: string): Promise<string>;
+  publicationStateOpen(handle: string, id: string, generation: string, expected: string): Promise<void>;
+  publicationStateRead(handle: string, name: string): Promise<string>;
+  publicationStateWrite(handle: string, name: string, json: string): Promise<void>;
+  publicationStateClose(handle: string): void;
   /** 'saved', 'missing' (the server has none for this title), 'later' or 'invalid'. */
   fetchExtra(id: string, name: string, url: string): Promise<string>;
 };
@@ -245,6 +249,8 @@ export const offlineWaiting = (waiting: OfflineWaiting) => (waiting ? serviceTex
 const revokesOwnedFile = (code: string) => code !== '' && code !== 'unknown_receipt' && code !== 'unknown_preparation';
 
 export class OfflineDownloads {
+  /** Identity from the native outbound clone, excluded from enumerable app/guest/persisted data. */
+  private readonly publicationStateGenerations = new WeakMap<OfflineEntry, string>();
   private state: OfflineSnapshot = Object.freeze({supported: !!native && !Platform.isTV, ready: false, entries: [], settings: defaults, freeBytes: 0, usedBytes: 0, pendingProgress: 0, otherBytes: 0});
   private listeners = new Set<() => void>();
   /** Everything on the device. `state.entries` is the subset the connected
@@ -403,7 +409,7 @@ export class OfflineDownloads {
     this.metas.set(raw.id, {...meta, receipt, title: info});
     const lines = info ? downloadTitleLines(info) : undefined;
     const art = (meta.extras ?? []).find(name => name === 'poster' || name === 'cover');
-    return Object.freeze({
+    const entry: OfflineEntry = Object.freeze({
       id: raw.id, itemId: String(raw.itemId ?? ''), title: lines?.title || String(raw.title ?? ''), subtitle: lines?.subtitle ?? String(raw.subtitle ?? ''), quality: String(raw.quality ?? ''),
       artworkUrl: art && dir ? dir + 'extras/' + art : '',
       state: raw.state, error: String(raw.error ?? ''), waiting: raw.waiting === 'wifi' || raw.waiting === 'network' ? raw.waiting : '', held: raw.intent === 'hold',
@@ -412,6 +418,8 @@ export class OfflineDownloads {
       owner: typeof meta.owner === 'string' && meta.owner ? meta.owner : undefined,
       info, onServer: meta.onServer !== false, changedOnServer: meta.changed === true,
     });
+    if (typeof raw.publicationGeneration === 'string') this.publicationStateGenerations.set(entry, raw.publicationGeneration);
+    return entry;
   }
   private accept(raw: any) {
     if (raw?.state === 'removed') { this.metas.delete(raw.id); this.dirs.delete(raw.id); this.publishEntries(this.all.filter(e => e.id !== raw.id)); void this.measure(); return; }
@@ -1053,8 +1061,21 @@ export class OfflineDownloads {
     const read = this.localRead(entry), owner = this.ownerKey(), initial = read();
     if (!native || !owner || !nativePublicationReadsAvailable() || this.playabilityReason(initial)) throw new Error('reading_unavailable');
     const binding = this.publicationBinding(initial.receipt), abort = new AbortController(); let disposed = false;
+    // State authority belongs to the original entry, not a renewed/latest receipt found later.
+    const stateGeneration = this.publicationStateGenerations.get(entry);
+    let stateExpected: string | undefined;
+    try {
+      const original = entry.receipt, publication = this.publicationBinding(original);
+      if (original && offlineOwnerKey(original.claims.viewer) === owner) stateExpected = JSON.stringify([
+        entry.itemId, owner, original.claims.artifact.sha256, String(original.claims.artifact.bytes),
+        original.keyId, original.payload, original.signature, publication.sourceId, publication.revision, publication.format, publication.documentSha256,
+      ]);
+    } catch { /* Legacy/unknown state authority stays unavailable; ordinary media admission is unchanged. */ }
+    let stateHandle: string | undefined;
+    let stateOpen: Promise<void> | undefined;
+    const closeState = () => {if (stateOpen && stateHandle && typeof native.publicationStateClose === 'function') native.publicationStateClose(stateHandle);};
     const current = () => {try {const live = read(); return !disposed && !abort.signal.aborted && !scope.signal.aborted && scope.current() && !this.playabilityReason(live) && this.publicationBinding(live.receipt).documentSha256 === binding.documentSha256;} catch {return false;}};
-    const retire = () => {if (disposed) return; disposed = true; abort.abort(); off(); clearTimeout(timer); scope.signal.removeEventListener('abort', retire);};
+    const retire = () => {if (disposed) return; disposed = true; closeState(); abort.abort(); off(); clearTimeout(timer); scope.signal.removeEventListener('abort', retire);};
     const off = this.subscribe(() => {if (!current()) retire();});
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expiry = () => {if (!current()) {retire(); return;} timer = setTimeout(expiry, Math.max(1, Math.min(2147483647, Date.parse(read().receipt!.claims.expiresAt) - this.receiptNow())));};
@@ -1063,11 +1084,19 @@ export class OfflineDownloads {
     const journalName = (name: string) => {if (!/^reader-state-[A-Za-z0-9_-]{1,64}\.json$/.test(name)) throw new Error('reading_invalid_state');};
     let serial: Promise<unknown> = Promise.resolve();
     const state = <T,>(work: () => Promise<T>) => {const result = serial.then(async () => {assert(); const value = await work(); assert(); return value;}); serial = result.catch(() => {}); return result;};
+    const stateTicket = async () => {
+      assert();
+      if (!stateGeneration || !stateExpected || !['publicationStateOpen', 'publicationStateRead', 'publicationStateWrite', 'publicationStateClose'].every(key => typeof Reflect.get(native, key) === 'function')) throw new Error('reading_state_unavailable');
+      stateHandle ??= 'state_' + Array.from(nativeRouteCrypto.random(20), byte => byte.toString(16).padStart(2, '0')).join('');
+      stateOpen ??= native.publicationStateOpen(stateHandle, entry.id, stateGeneration, stateExpected);
+      try {await stateOpen; assert();} catch (error) {closeState(); throw error;}
+      return stateHandle;
+    };
     const lease: NativeOfflinePublicationLease = {entryId: entry.id, itemId: entry.itemId, owner, binding, signal: abort.signal, current,
       receipt: () => {assert(); return read().receipt!;},
       descriptor: () => state(() => native.readExtra(entry.id, 'publication.json')),
-      readState: name => {journalName(name); return state(async () => {const value = await native.readExtra(entry.id, name); if (publicationUTF8(value).length > 1 << 20) throw new Error('reading_state_limit'); return value;});},
-      writeState: (name, json) => {journalName(name); if (typeof json !== 'string' || publicationUTF8(json).length > 1 << 20) throw new Error('reading_state_limit'); JSON.parse(json); return state(() => native.writeExtra(entry.id, name, json));},
+      readState: name => {journalName(name); return state(async () => {const handle = await stateTicket(); assert(); const value = await native.publicationStateRead(handle, name); assert(); if (publicationUTF8(value).length > 1 << 20) throw new Error('reading_state_limit'); return value;});},
+      writeState: (name, json) => {journalName(name); if (typeof json !== 'string' || publicationUTF8(json).length > 1 << 20) throw new Error('reading_state_limit'); JSON.parse(json); return state(async () => {const handle = await stateTicket(); assert(); await native.publicationStateWrite(handle, name, json); assert();});},
       dispose: retire,
     };
     if (!current()) {retire(); throw new Error('reading_retired');}

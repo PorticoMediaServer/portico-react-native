@@ -64,6 +64,30 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 @property (atomic, readonly) BOOL porticoObserving;
 @end
 
+// State capabilities belong to the serial download owner, never the manifest or guest.
+@interface PorticoPublicationGeneration : NSObject
+@property(nonatomic,strong) NSMutableDictionary *entry;
+@property(nonatomic,copy) NSString *value;
+@property BOOL retired;
+@end
+@implementation PorticoPublicationGeneration
+@end
+@interface PorticoPublicationStateTicket : NSObject
+@property(nonatomic,copy) NSString *identifier;
+@property(nonatomic,strong) PorticoPublicationGeneration *generation;
+@property(nonatomic,copy) NSArray<NSString *> *fields;
+@end
+@implementation PorticoPublicationStateTicket
+@end
+@interface PorticoPublicationStateRegistry : NSObject
+@property(nonatomic,strong) NSMutableDictionary<NSString *,PorticoPublicationStateTicket *> *tickets;
+@property(nonatomic,strong) NSMutableSet<NSString *> *used;
+@property BOOL closed;
+@end
+@implementation PorticoPublicationStateRegistry
+- (instancetype)init {if((self=[super init])){_tickets=[NSMutableDictionary new];_used=[NSMutableSet new];}return self;}
+@end
+
 @interface PorticoDownloadOwner () <NSURLSessionDownloadDelegate>
 @property (atomic, weak) PorticoDownloads *emitter;
 @property (nonatomic, readonly) dispatch_queue_t queue;
@@ -90,11 +114,19 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 - (void)writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)publicationOpen:(NSString *)handle identifier:(NSString *)identifier owner:(NSString *)owner digest:(NSString *)digest reads:(PorticoPublicationReads *)reads resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)publicationStateOpen:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle identifier:(NSString *)identifier generation:(NSString *)generation expected:(NSString *)expected resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)publicationStateRead:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)publicationStateWrite:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle name:(NSString *)name json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)publicationStateClose:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle;
+- (void)publicationStateInvalidate:(PorticoPublicationStateRegistry *)registry;
+- (void)retirePublicationGeneration:(NSString *)identifier;
+- (PorticoPublicationGeneration *)publicationGeneration:(NSString *)identifier;
 @end
 
 @implementation PorticoDownloadOwner {
   NSURLSession *_session;
   NSMutableDictionary<NSString *, NSMutableDictionary *> *_entries;
+  NSMutableDictionary<NSString *, PorticoPublicationGeneration *> *_publicationGenerations;
   NSMutableDictionary<NSString *, NSNumber *> *_lastEmit;
   NSMutableDictionary<NSString *, NSURLSessionDownloadTask *> *_activeTasks;
   dispatch_queue_t _queue;
@@ -126,6 +158,7 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 - (instancetype)init {
   if ((self = [super init])) {
     _queue = dispatch_queue_create("tv.getportico.downloads", DISPATCH_QUEUE_SERIAL);
+    _publicationGenerations = [NSMutableDictionary new];
     _lastEmit = [NSMutableDictionary new];
     _activeTasks = [NSMutableDictionary new];
     _pending = [NSMutableArray new];
@@ -240,6 +273,8 @@ static NSString *PorticoSafeFileName(NSString *value) {
       if (PorticoSafeIdentifier(key) && [entry isKindOfClass:NSDictionary.class]) entries[key] = [entry mutableCopy];
     }
   }
+  for (PorticoPublicationGeneration *generation in _publicationGenerations.allValues) generation.retired = YES;
+  [_publicationGenerations removeAllObjects];
   _entries = entries;
   _loaded = YES;
   _unreadable = NO;
@@ -317,6 +352,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   NSMutableDictionary *entry = [self->_entries[identifier] mutableCopy];
   if (!entry) return @{@"id": identifier, @"state": @"removed"};
   entry[@"dir"] = [self directoryFor:identifier].absoluteString;
+  entry[@"publicationGeneration"] = [self publicationGeneration:identifier].value;
   [entry removeObjectForKey:@"grantUrl"];
   [entry removeObjectForKey:@"retargeted"];
   return entry;
@@ -457,6 +493,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 - (void)file:(NSString *)identifier from:(NSURL *)holding {
   NSMutableDictionary *entry = self->_entries[identifier];
   if (!entry || [entry[@"state"] isEqual:@"ready"]) { [[NSFileManager defaultManager] removeItemAtURL:holding error:nil]; return; }
+  [self retirePublicationGeneration:identifier];
   NSString *expected = [entry[@"sha256"] isKindOfClass:NSString.class] ? entry[@"sha256"] : @"";
   NSString *actual = expected.length ? [self digestOf:holding] : @"";
   if (expected.length && ![actual isEqualToString:expected.lowercaseString]) {
@@ -591,6 +628,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   dispatch_async(_queue, ^{
     NSMutableDictionary *entry = self->_entries[identifier] ?: [NSMutableDictionary new];
     if ([entry[@"state"] isEqual:@"ready"]) { self->_entries[identifier] = entry; resolve([self published:identifier]); return; }
+    [self retirePublicationGeneration:identifier];
     // The bytes already fetched belong to one exact file.
     NSString *wanted = [request[@"sha256"] isKindOfClass:NSString.class] ? [request[@"sha256"] lowercaseString] : @"";
     BOOL sameFile = wanted.length > 0 && [entry[@"sha256"] isKindOfClass:NSString.class] && [[entry[@"sha256"] lowercaseString] isEqual:wanted];
@@ -682,6 +720,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
     dispatch_async(self->_queue, ^{
       [self->_activeTasks[identifier] cancel];
       [self->_activeTasks removeObjectForKey:identifier];
+      [self retirePublicationGeneration:identifier];
       [self->_entries removeObjectForKey:identifier];
       [[NSFileManager defaultManager] removeItemAtURL:[self directoryFor:identifier] error:nil];
       [self saveManifest]; [self changed:identifier force:YES];
@@ -697,6 +736,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
     if (!entry) { reject(@"not_found", @"This download no longer exists.", nil); return; }
     if (meta.length >= 65536) { reject(@"too_large", @"This download's details are too large to keep.", nil); return; }
     id previous = entry[@"meta"];
+    if (![previous isEqual:meta]) [self retirePublicationGeneration:identifier];
     entry[@"meta"] = meta;
     if (![self saveManifest]) {
       if (previous) entry[@"meta"] = previous; else [entry removeObjectForKey:@"meta"];
@@ -722,6 +762,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
       NSMutableDictionary *entry = self->_entries[identifier];
       if (!entry) continue;
       previous[identifier] = entry[@"meta"] ?: NSNull.null;
+      if (![entry[@"meta"] isEqual:metas[identifier]]) [self retirePublicationGeneration:identifier];
       entry[@"meta"] = metas[identifier];
     }
     if (![self saveManifest]) {
@@ -738,8 +779,108 @@ static NSString *PorticoSafeFileName(NSString *value) {
 #pragma mark - What travels with a download
 
 - (NSURL *)extraURL:(NSString *)identifier name:(NSString *)name {
-  if (!PorticoSafeIdentifier(identifier) || !self->_entries[identifier] || !PorticoSafeExtraName(name)) return nil;
+  if (!PorticoSafeIdentifier(identifier) || !self->_entries[identifier] || !PorticoSafeExtraName(name) || [name hasPrefix:@"reader-state-"]) return nil;
   return [[self extrasFor:identifier] URLByAppendingPathComponent:name];
+}
+
+- (void)retirePublicationGeneration:(NSString *)identifier {
+  _publicationGenerations[identifier].retired = YES;
+  [_publicationGenerations removeObjectForKey:identifier];
+}
+- (PorticoPublicationGeneration *)publicationGeneration:(NSString *)identifier {
+  NSMutableDictionary *entry = _entries[identifier];
+  PorticoPublicationGeneration *generation = _publicationGenerations[identifier];
+  if (generation && generation.entry == entry && !generation.retired) return generation;
+  generation = [PorticoPublicationGeneration new]; generation.entry = entry; generation.value = NSUUID.UUID.UUIDString;
+  _publicationGenerations[identifier] = generation;
+  return generation;
+}
+// Equality/custody of the original signed envelope; core still owns verification/admission.
+static NSArray<NSString *> *PorticoPublicationStateFields(NSDictionary *entry) {
+  NSString *raw = entry[@"meta"]; if (![raw isKindOfClass:NSString.class]) return nil;
+  NSData *data = [raw dataUsingEncoding:NSUTF8StringEncoding]; if (!data) return nil;
+  NSDictionary *meta = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  if (![meta isKindOfClass:NSDictionary.class]) return nil;
+  NSDictionary *receipt = meta[@"receipt"]; if (![receipt isKindOfClass:NSDictionary.class]) return nil;
+  NSDictionary *claims = receipt[@"claims"]; if (![claims isKindOfClass:NSDictionary.class]) return nil;
+  NSDictionary *publication = claims[@"publication"], *artifact = claims[@"artifact"];
+  if (![publication isKindOfClass:NSDictionary.class] || ![artifact isKindOfClass:NSDictionary.class]) return nil;
+  NSNumber *bytes = entry[@"bytes"], *claimedBytes = artifact[@"bytes"];
+  if (![bytes isKindOfClass:NSNumber.class] || ![claimedBytes isKindOfClass:NSNumber.class] || bytes.longLongValue < 1 || bytes.longLongValue > 2147483648LL || bytes.doubleValue != bytes.longLongValue || ![bytes isEqualToNumber:claimedBytes] || ![artifact[@"sha256"] isEqual:entry[@"sha256"]] || ![claims[@"itemId"] isEqual:entry[@"itemId"]]) return nil;
+  NSArray *fields = @[entry[@"itemId"] ?: NSNull.null, meta[@"owner"] ?: NSNull.null, entry[@"sha256"] ?: NSNull.null,
+    [NSString stringWithFormat:@"%lld",bytes.longLongValue], receipt[@"keyId"] ?: NSNull.null, receipt[@"payload"] ?: NSNull.null, receipt[@"signature"] ?: NSNull.null,
+    publication[@"sourceId"] ?: NSNull.null, publication[@"revision"] ?: NSNull.null, publication[@"format"] ?: NSNull.null, publication[@"documentSha256"] ?: NSNull.null];
+  for (id field in fields) if (![field isKindOfClass:NSString.class] || ![field length]) return nil;
+  return fields;
+}
+static BOOL PorticoPublicationStateHandle(NSString *handle) {
+  if (![handle isKindOfClass:NSString.class] || handle.length < 8 || handle.length > 128) return NO;
+  return [handle rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"] invertedSet]].location == NSNotFound;
+}
+static BOOL PorticoPublicationStateName(NSString *name) {
+  if (![name isKindOfClass:NSString.class]) return NO;
+  NSRange match = [name rangeOfString:@"^reader-state-[A-Za-z0-9_-]{1,64}\\.json$" options:NSRegularExpressionSearch];
+  return match.location == 0 && match.length == name.length;
+}
+- (void)publicationStateInvalidate:(PorticoPublicationStateRegistry *)registry {
+  dispatch_async(_queue, ^{registry.closed = YES; [registry.tickets removeAllObjects]; [registry.used removeAllObjects];});
+}
+- (void)publicationStateClose:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle {
+  dispatch_async(_queue, ^{
+    if (registry.closed || !PorticoPublicationStateHandle(handle)) return;
+    if (registry.used.count >= 4096 && ![registry.used containsObject:handle]) {registry.closed = YES; [registry.tickets removeAllObjects]; [registry.used removeAllObjects]; return;}
+    [registry.used addObject:handle]; [registry.tickets removeObjectForKey:handle];
+  });
+}
+- (void)publicationStateOpen:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle identifier:(NSString *)identifier generation:(NSString *)expectedGeneration expected:(NSString *)expected resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+  dispatch_async(_queue, ^{
+    if (registry.closed || !PorticoPublicationStateHandle(handle) || [registry.used containsObject:handle]) {reject(@"reading_retired",@"reading_retired",nil);return;}
+    if (registry.used.count >= 4096) {registry.closed = YES; [registry.tickets removeAllObjects]; [registry.used removeAllObjects]; reject(@"reading_retired",@"reading_retired",nil);return;}
+    [registry.used addObject:handle]; // Failed opens cannot adopt a successor under this handle.
+    NSData *raw = [expected isKindOfClass:NSString.class] ? [expected dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    if (!PorticoSafeIdentifier(identifier) || registry.tickets.count >= 8 || !raw || raw.length > 65536) {reject(@"reading_retired",@"reading_retired",nil);return;}
+    PorticoPublicationGeneration *generation = self->_publicationGenerations[identifier];
+    NSMutableDictionary *entry = self->_entries[identifier];
+    NSArray *fields = PorticoPublicationStateFields(entry);
+    id captured = [NSJSONSerialization JSONObjectWithData:raw options:0 error:nil];
+    if (!generation || generation.retired || generation.entry != entry || ![generation.value isEqual:expectedGeneration] || ![entry[@"state"] isEqual:@"ready"] || !fields || ![fields isEqual:captured]) {reject(@"reading_retired",@"reading_retired",nil);return;}
+    PorticoPublicationStateTicket *ticket = [PorticoPublicationStateTicket new]; ticket.identifier = identifier; ticket.generation = generation; ticket.fields = fields;
+    registry.tickets[handle] = ticket; resolve(nil);
+  });
+}
+- (PorticoPublicationStateTicket *)publicationStateTicket:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle name:(NSString *)name {
+  if (registry.closed || !PorticoPublicationStateHandle(handle) || !PorticoPublicationStateName(name)) return nil;
+  PorticoPublicationStateTicket *ticket = registry.tickets[handle]; if (!ticket) return nil;
+  NSDictionary *entry = _entries[ticket.identifier];
+  if (ticket.generation.retired || _publicationGenerations[ticket.identifier] != ticket.generation || entry != ticket.generation.entry || ![entry[@"state"] isEqual:@"ready"] || ![ticket.fields isEqual:PorticoPublicationStateFields(entry)]) return nil;
+  return ticket;
+}
+- (void)publicationStateRead:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+  dispatch_async(_queue, ^{
+    PorticoPublicationStateTicket *ticket = [self publicationStateTicket:registry handle:handle name:name];
+    if (!ticket) {reject(@"reading_retired",@"reading_retired",nil);return;}
+    NSURL *file = [[self extrasFor:ticket.identifier] URLByAppendingPathComponent:name];
+    NSError *error = nil;
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:file.path error:&error];
+    if (!attributes && [error.domain isEqual:NSCocoaErrorDomain] && error.code == NSFileNoSuchFileError) {resolve(@"");return;}
+    if (![attributes[NSFileType] isEqual:NSFileTypeRegular]) {reject(@"reading_state_unavailable",@"reading_state_unavailable",nil);return;}
+    NSNumber *size = attributes[NSFileSize];
+    NSData *raw = size && size.longLongValue <= 1048576 ? [NSData dataWithContentsOfURL:file] : nil;
+    NSString *value = raw ? [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding] : nil;
+    if (!value) {reject(@"reading_state_unavailable",@"reading_state_unavailable",nil);return;} resolve(value);
+  });
+}
+- (void)publicationStateWrite:(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle name:(NSString *)name json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+  dispatch_async(_queue, ^{
+    PorticoPublicationStateTicket *ticket = [self publicationStateTicket:registry handle:handle name:name];
+    NSData *raw = [json isKindOfClass:NSString.class] ? [json dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    if (!ticket || !raw || raw.length > 1048576 || ![NSJSONSerialization JSONObjectWithData:raw options:NSJSONReadingFragmentsAllowed error:nil]) {reject(@"reading_state_write_failed",@"reading_state_write_failed",nil);return;}
+    NSURL *file = [[self extrasFor:ticket.identifier] URLByAppendingPathComponent:name];
+    if (![[NSFileManager defaultManager] createDirectoryAtURL:[self extrasFor:ticket.identifier] withIntermediateDirectories:YES attributes:nil error:nil]) {reject(@"reading_state_write_failed",@"reading_state_write_failed",nil);return;}
+    // No IO hop: proof and synchronous atomic replacement share close/remove/meta's owner turn.
+    if ([self publicationStateTicket:registry handle:handle name:name] != ticket || ![raw writeToURL:file options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:nil]) {reject(@"reading_state_write_failed",@"reading_state_write_failed",nil);return;}
+    resolve(nil);
+  });
 }
 
 // One small text file kept beside the download (its description, chapters and markers).
@@ -748,6 +889,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
     NSURL *file = [self extraURL:identifier name:name];
     NSData *data = [text isKindOfClass:NSString.class] ? [text dataUsingEncoding:NSUTF8StringEncoding] : nil;
     if (!file || !data || data.length > PorticoMaxExtraBytes) { reject(@"write_failed", @"This download's details could not be saved.", nil); return; }
+    if ([name isEqual:@"publication.json"]) [self retirePublicationGeneration:identifier];
     [[NSFileManager defaultManager] createDirectoryAtURL:[self extrasFor:identifier] withIntermediateDirectories:YES attributes:nil error:nil];
     if (![data writeToURL:file options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:nil]) { reject(@"write_failed", @"This download's details could not be saved.", nil); return; }
     resolve(nil);
@@ -786,6 +928,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
         // The download may have been removed while this was in flight: leave nothing behind.
         if (!holding || !self->_entries[identifier]) { if (holding) [[NSFileManager defaultManager] removeItemAtURL:holding error:nil]; resolve(outcome); return; }
         [[NSFileManager defaultManager] createDirectoryAtURL:[self extrasFor:identifier] withIntermediateDirectories:YES attributes:nil error:nil];
+        if ([name isEqual:@"publication.json"]) [self retirePublicationGeneration:identifier];
         [[NSFileManager defaultManager] removeItemAtURL:file error:nil];
         BOOL kept = [[NSFileManager defaultManager] moveItemAtURL:holding toURL:file error:nil];
         if (!kept) [[NSFileManager defaultManager] removeItemAtURL:holding error:nil];
@@ -951,6 +1094,7 @@ static NSString *PorticoCoverDirectory(NSError **error) {
 @implementation PorticoDownloads {
   PorticoDownloadOwner *_owner;
   PorticoPublicationReads *_publicationReads;
+  PorticoPublicationStateRegistry *_publicationState;
   NSMutableDictionary<NSString *, NSString *> *_coverFiles;
   NSLock *_coverLock;
   NSUInteger _coverGeneration;
@@ -963,6 +1107,7 @@ RCT_EXPORT_MODULE()
   if ((self = [super init])) {
     _owner = [PorticoDownloadOwner shared];
     _publicationReads=[PorticoPublicationReads new];
+    _publicationState=[PorticoPublicationStateRegistry new];
     _coverFiles=[NSMutableDictionary dictionary];
     _coverLock=[NSLock new];
     _owner.emitter = self;
@@ -971,7 +1116,7 @@ RCT_EXPORT_MODULE()
   }
   return self;
 }
-- (void)invalidate {[_publicationReads invalidate];[_coverLock lock];_coverRetired=YES;_coverGeneration++;NSArray<NSString *> *paths=[_coverFiles allValues];[_coverFiles removeAllObjects];[_coverLock unlock];for (NSString *path in paths) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];[super invalidate];}
+- (void)invalidate {[_owner publicationStateInvalidate:_publicationState];[_publicationReads invalidate];[_coverLock lock];_coverRetired=YES;_coverGeneration++;NSArray<NSString *> *paths=[_coverFiles allValues];[_coverFiles removeAllObjects];[_coverLock unlock];for (NSString *path in paths) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];[super invalidate];}
 - (dispatch_queue_t)methodQueue { return _owner.queue; }
 - (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
 - (void)startObserving { _porticoObserving = YES; }
@@ -995,6 +1140,16 @@ RCT_EXPORT_METHOD(setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(
 RCT_EXPORT_METHOD(setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   [_owner whenLoaded:^{ [self->_owner setMetas:metas resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
 }
+RCT_EXPORT_METHOD(publicationStateOpen:(NSString *)handle identifier:(NSString *)identifier generation:(NSString *)generation expected:(NSString *)expected resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{[self->_owner publicationStateOpen:self->_publicationState handle:handle identifier:identifier generation:generation expected:expected resolve:resolve reject:reject];} otherwise:^{PorticoRefuseUnreadable(reject);}];
+}
+RCT_EXPORT_METHOD(publicationStateRead:(NSString *)handle name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{[self->_owner publicationStateRead:self->_publicationState handle:handle name:name resolve:resolve reject:reject];} otherwise:^{PorticoRefuseUnreadable(reject);}];
+}
+RCT_EXPORT_METHOD(publicationStateWrite:(NSString *)handle name:(NSString *)name json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{[self->_owner publicationStateWrite:self->_publicationState handle:handle name:name json:json resolve:resolve reject:reject];} otherwise:^{PorticoRefuseUnreadable(reject);}];
+}
+RCT_EXPORT_METHOD(publicationStateClose:(NSString *)handle) {[_owner publicationStateClose:_publicationState handle:handle];}
 RCT_EXPORT_METHOD(writeExtra:(NSString *)identifier name:(NSString *)name text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   [_owner whenLoaded:^{ [self->_owner writeExtra:identifier name:name text:text resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
 }
