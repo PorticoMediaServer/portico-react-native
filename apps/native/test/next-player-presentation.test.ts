@@ -63,14 +63,21 @@ test('foldable5 splits the wide tabletop into the controls column and the episod
   const wide = resolvePlayerPresentation({...input(880, 840, [fold]), upNext: true})!;
   assert.equal(wide.mode, 'tabletop');
   assert.deepEqual(wide.controls, {x: 28, y: 436, width: 508, height: 370});
-  assert.deepEqual(wide.episodes, {x: 576, y: 440, width: 276, height: 234});
+  assert.deepEqual(wide.episodes, {x: 576, y: 440, width: 276, height: 238});
   assert.equal(wide.hingeBand!.height, 32);
   assert.deepEqual(wide.picture, letterboxPlayerPicture({x: 0, y: 0, width: 880, height: 404}));
   const film = resolvePlayerPresentation({...input(880, 840, [fold]), upNext: false})!;
   assert.equal(film.episodes, undefined, 'a film draws no episodes it does not have');
   assert.deepEqual(film.controls, {x: 0, y: 436, width: 880, height: 404});
   const narrow = resolvePlayerPresentation({...input(626, 890, [{orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, right: 626, top: 445, bottom: 445}}]), upNext: true})!;
-  assert.equal(narrow.episodes, undefined, 'the narrower tabletop keeps its one column');
+  assert.deepEqual(narrow.controls, {x: 0, y: 461, width: 626, height: 255}, 'foldable4 stacks the controls over frame 5 rows');
+  assert.deepEqual(narrow.episodes, {x: 0, y: 716, width: 626, height: 162}, 'two compact rows and their heading');
+  const filmNarrow = resolvePlayerPresentation({...input(626, 890, [{orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, right: 626, top: 445, bottom: 445}}]), upNext: false})!;
+  assert.equal(filmNarrow.episodes, undefined);
+  assert.deepEqual(filmNarrow.controls, {x: 0, y: 461, width: 626, height: 429}, 'a film keeps the one column');
+  const short = resolvePlayerPresentation({...input(626, 860, [{orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, right: 626, top: 428, bottom: 428}}]), upNext: true})!;
+  assert.equal(short.episodes, undefined, 'a half that cannot hold the column and both rows drops to one column instead of clipping');
+  assert.deepEqual(short.controls, {x: 0, y: 444, width: 626, height: 416});
 });
 
 test('full-window panels take the exact right page or tablet-play380pt beside the picture', () => {

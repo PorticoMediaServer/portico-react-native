@@ -3,6 +3,14 @@ import type {PlatformFold, PlatformPostureSnapshot} from '../platformPostureStor
 export type PlayerRect = Readonly<{x: number; y: number; width: number; height: number}>;
 /** foldable9: one layout cross-fade, omitted entirely with reduced motion. */
 export const playerPostureCrossFadeMs = 250;
+/** foldable5: the frame's own 276 × 234 box, plus our own 20 pt heading where
+ * the frame draws a 13 pt one. */
+const TABLETOP_COLUMN_EPISODES = 238;
+/** foldable4's stacked half: the frame's 12+44+12+44+9+80+10+44 steps with a
+ * 44 pt seek target, then the heading and two compact 66 pt rows with their 10 pt
+ * gap. Both must fit before the stack is offered, so nothing is ever clipped. */
+const TABLETOP_STACK_CONTROLS = 255;
+const TABLETOP_STACK_EPISODES = 162;
 export type PlayerWindow = Readonly<{width: number; height: number}>;
 /** Geometry consumed from the posture publisher, never inferred from a device name. */
 export type PlayerFold = Pick<PlatformFold, 'bounds' | 'orientation' | 'state'>;
@@ -83,11 +91,17 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
     const surface = rect(0, 0, width, top);
     // foldable5: at the drawn 880 a show's lower half holds the controls on the
     // left (508 wide, 16 under the crease) and the episodes that follow on the
-    // right, in the frame's 276 × 234 box; a film keeps the one-column controls
-    // the narrower tabletop uses.
-    const split = width >= 880 && lower >= 240 && input.upNext === true;
-    const controls = split ? rect(28, bottom, 508, Math.max(0, lower - 34)) : rect(0, bottom, width, lower);
-    const episodes = split ? rect(576, bottom + 4, Math.max(0, width - 604), Math.min(234, Math.max(0, lower - 4))) : undefined;
+    // right, in the frame's 276 × 234 box. foldable4's narrower half stacks the
+    // same controls over two of frame 5's compact 66 pt rows. A film keeps the
+    // one-column controls.
+    const wide = width >= 880 && lower >= 240, stack = !wide && lower >= TABLETOP_STACK_CONTROLS + TABLETOP_STACK_EPISODES;
+    const split = input.upNext === true && (wide || stack);
+    const controls = wide && split ? rect(28, bottom, 508, Math.max(0, lower - 34))
+      : stack && split ? rect(0, bottom, width, TABLETOP_STACK_CONTROLS)
+      : rect(0, bottom, width, lower);
+    const episodes = wide && split ? rect(576, bottom + 4, Math.max(0, width - 604), Math.min(TABLETOP_COLUMN_EPISODES, Math.max(0, lower - 4)))
+      : stack && split ? rect(0, bottom + TABLETOP_STACK_CONTROLS, width, TABLETOP_STACK_EPISODES)
+      : undefined;
     return {...common, mode: 'tabletop', surface, picture: letterboxPlayerPicture(surface), controls, content: controls, episodes,
       panel: panelOpen ? controls : undefined, hingeBand: rect(0, top, width, bottom - top), controlsAutoHide: false};
   }

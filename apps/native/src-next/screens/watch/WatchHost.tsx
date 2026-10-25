@@ -150,7 +150,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
       <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice && lossNotice.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
-        tabletop={!isTV && layout.mode === 'tabletop' && !!layout.episodes}
+        tabletop={!isTV && layout.mode === 'tabletop' && layout.episodes ? (layout.controls.width < window.width ? 'column' : 'stacked') : undefined}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}

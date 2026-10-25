@@ -90,7 +90,7 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
       {defaultI18n.number(count, {useGrouping: false})} · {t('title.episodes')}</Text>}
     {pane && following.length > 0 && <Text testID="watch-episodes-pane-heading" accessibilityRole="header" style={{paddingHorizontal: 0, paddingBottom: 4,
       fontFamily: 'Manrope-Bold', fontSize: 12.5, fontWeight: '700', color: theme.colors.accentStrong}}>{t('player.post.upNext')}</Text>}
-    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingHorizontal: 8, paddingBottom: 16}} scrollEventThrottle={32}
+    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={pane ? {paddingHorizontal: 8, paddingBottom: 12, gap: 10} : {paddingHorizontal: 8, paddingBottom: 16}} scrollEventThrottle={32}
       onScroll={event => {
         // foldable3g/5: the season keeps going as the list reaches its end.
         const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;

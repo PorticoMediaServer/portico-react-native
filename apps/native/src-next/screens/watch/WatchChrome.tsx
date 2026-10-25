@@ -39,7 +39,7 @@ export type NativeWatchChromeProps = Readonly<{
   /** An expanded-size-class device (iPad): tablet-play3 draws an 84 pt centre button. */
   tablet?: boolean;
   /** foldable4/5: the controls column under a horizontal hinge's top surface. */
-  tabletop?: boolean;
+  tabletop?: 'column' | 'stacked';
   /** Book-mode edge chrome avoids the padded crease; centre transport does not move. */
   edgeInsets?: Readonly<{left?: number; right?: number}>;
   skipBackSeconds: number;
@@ -231,11 +231,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     </View>
     <View style={{position: 'absolute', inset: 0, backgroundColor: '#04090d80'}}/>
   </View>;
-  const tablet = props.tablet === true, tabletop = props.tabletop === true;
-  // foldable5: the tabletop's controls column is508 wide with the frame's46/56/84
-  // transport; the full window keeps its60 sides and74/58.
+  const tablet = props.tablet === true, tabletop = props.tabletop;
+  // foldable5: the 508-wide column is the frame's 46/56/84 transport with space
+  // between its rows; foldable4 stacks the same rows with the frame's 12/12/9/10
+  // steps over an 80 centre and keeps the Episodes pill above the two rows.
+  const stacked = tabletop === 'stacked';
   const side = tabletop ? 22 : undefined;
-  const big = theme.isTV ? 88 : tabletop ? 84 : compact ? (tablet ? 84 : 58) : 74, small = theme.isTV ? 64 : tabletop ? 56 : compact ? 46 : 58;
+  const big = theme.isTV ? 88 : tabletop ? (stacked ? 80 : 84) : compact ? (tablet ? 84 : 58) : 74, small = theme.isTV ? 64 : tabletop ? 56 : compact ? 46 : 58;
   const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
     iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
@@ -315,7 +317,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   if (tabletop) return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
-        <View style={{flex: 1, flexDirection: 'column', justifyContent: 'space-between'}}>
+        <View style={{flex: 1, flexDirection: 'column', justifyContent: stacked ? 'flex-start' : 'space-between', paddingTop: stacked ? 12 : 0}}>
           <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 6}}>
             {icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, 44)}
             {!linear && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}>
@@ -327,7 +329,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             {props.onPictureInPicture && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 44)}
             {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'), false, false, 44)}
           </View>
-          <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 14}}>
+          <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: stacked ? 12 : 0}}>
             <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
             <View style={{flex: 1}}>
               <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={false} enabled={visible} liveEdge={liveEdge} onPreview={setLanding}
@@ -335,11 +337,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             </View>
             <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>
           </View>
-          <View style={{height: 84, alignItems: 'center', justifyContent: 'center'}}>{transport}</View>
-          <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 8}}>
-            {linear
+          <View style={{height: stacked ? 80 : 84, alignItems: 'center', justifyContent: 'center', marginTop: stacked ? 9 : 0}}>{transport}</View>
+          <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: stacked ? 10 : 0}}>
+            {stacked && (linear
               ? (props.onGuide ? chip('episodes', 'i-list', t('player.live.guide'), undefined, () => {if (current() && props.onGuide) props.onGuide();}, true) : null)
-              : null}
+              : fence.kind === 'queue' && fence.showId ? chip('episodes', 'i-stack', t('title.episodes'), undefined, undefined, true) : null)}
             <View style={{flex: 1}}/>
             {source.capabilities.subtitleTrack && chip('subtitles', 'i-cc', linear ? t('player.live.captions') : t('player.opt.subtitles'), props.subtitle ?? (linear ? t('player.opt.off') : undefined), undefined, true)}
             {source.capabilities.audioTrack && audioTracks > 1 && chip('audio', 'i-audio', t('title.audio'), props.audio, undefined, true)}
