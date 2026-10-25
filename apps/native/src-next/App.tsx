@@ -21,6 +21,7 @@ if (!Platform.isTV) {
   require('./screens/destinations/audiobooks/register');
   require('./screens/read/register');
   require('./screens/people/register');
+  require('./screens/notifications/register');
   require('./screens/search/register');
   const {registerNativeWatch, createNativeWatchBindings} = require('./screens/watch') as typeof import('./screens/watch');
   registerNativeWatch(createNativeWatchBindings);
