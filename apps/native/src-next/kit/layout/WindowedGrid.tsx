@@ -22,6 +22,9 @@ export type WindowedGridProps<T> = {
   paddingTop?: number;
   paddingBottom?: number;
   stickyOffset?: number;
+  /** Scrolls before the grid; the toolbar remains pinned beneath the shell. */
+  header?: ReactNode;
+  stickyHeader?: ReactNode;
   overscanRows?: number;
   initialIndex?: number;
   selection?: LayoutSelection;
@@ -33,11 +36,15 @@ export type WindowedGridProps<T> = {
   testID?: string;
 };
 
-function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop = 0, paddingBottom = 0, stickyOffset = 0, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const theme = useTheme();
   const columnGap = gap ?? (theme.isTV ? 28 : 12), verticalGap = rowGap ?? (theme.isTV ? 36 : 22);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
   const [viewport, setViewport] = useState({width: 0, height: 0});
+  const [headerHeight, setHeaderHeight] = useState(0), [toolbarHeight, setToolbarHeight] = useState(0);
+  const leadingHeight = (header ? headerHeight : 0) + (stickyHeader ? toolbarHeight : 0);
+  const paddingTop = contentPaddingTop + leadingHeight;
+  const stickyOffset = contentStickyOffset + (stickyHeader ? toolbarHeight : 0);
   const [scroll, setScroll] = useState(0), [focused, setFocused] = useState<number>();
   const anchor = useFocusAnchor(false, focused !== undefined);
   const snapshot = useSyncExternalStore(collection.subscribe, collection.getSnapshot, collection.getSnapshot);
@@ -77,7 +84,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
     const index = collection.indexOfLetter(key);
     if (index !== undefined) moveToIndex(index);
   }}), [collection, moveToIndex, moveToOffset]);
-  const initialOffset = useMemo(() => ({x: 0, y: Math.max(0, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset)}), [columns, initialIndex, paddingTop, stickyOffset, stride]);
+  const initialOffset = useMemo(() => ({x: 0, y: initialIndex === 0 && leadingHeight > 0 ? 0 : Math.max(0, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset)}), [columns, initialIndex, leadingHeight, paddingTop, stickyOffset, stride]);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
@@ -91,9 +98,12 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   // Keep only the actually focused cell alive during an interrupted row scroll.
   if (theme.isTV && focused !== undefined && focused < total && !indices.includes(focused)) indices.push(focused);
   return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={style} contentOffset={initialOffset}
+    stickyHeaderIndices={stickyHeader ? [header ? 1 : 0] : undefined}
     onLayout={event => setViewport(event.nativeEvent.layout)} onScroll={onScroll} scrollEventThrottle={16}
     onScrollBeginDrag={anchor.stop} onTouchStart={anchor.stop} scrollAnimationEnabled={false} removeClippedSubviews={false}>
-    <View style={{height, position: 'relative'}}>
+    {header && <View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>{header}</View>}
+    {stickyHeader && <View onLayout={event => setToolbarHeight(event.nativeEvent.layout.height)}>{stickyHeader}</View>}
+    <View style={{height: Math.max(0, height - leadingHeight), position: 'relative'}}>
       {indices.map(index => {
         const slot = collection.slotAt(index), id = slot.kind === 'item' ? getKey(slot.item) : slot.key;
         const focus = () => {
@@ -101,7 +111,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
           anchor.anchor(paddingTop + Math.floor(index / columns) * stride, itemHeight, viewport.height, height, stickyOffset + (theme.isTV ? 24 : 0), theme.isTV ? 24 : 0);
           if (slot.kind === 'item') onItemFocus?.(slot.item, index);
         };
-        return <View key={id} testID={testID ? `${testID}-cell-${id}` : undefined} style={{position: 'absolute', top: paddingTop + Math.floor(index / columns) * stride, left: leading + index % columns * (itemWidth + columnGap), width: itemWidth, height: itemHeight}}>
+        return <View key={id} testID={testID ? `${testID}-cell-${id}` : undefined} style={{position: 'absolute', top: contentPaddingTop + Math.floor(index / columns) * stride, left: leading + index % columns * (itemWidth + columnGap), width: itemWidth, height: itemHeight}}>
           {slot.kind === 'item' ? renderItem(slot.item, {index, id, selection: itemSelection(selection, id), onFocus: focus, onBlur: () => setFocused(current => current === index ? undefined : current)}) : renderPlaceholder(index)}
         </View>;
       })}
