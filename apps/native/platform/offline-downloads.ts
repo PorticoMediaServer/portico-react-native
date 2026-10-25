@@ -91,6 +91,13 @@ export type OfflineEntryFacts = Readonly<{
   /** Actual cached bundle facts, never a resolution inferred from a quality ID. */
   media?: Readonly<{container?:string;videoCodec?:string;audioCodec?:string;width?:number;height?:number}>;
 }>;
+/** Display-only facts of a downloaded publication. The format comes from the signed
+ * receipt; the position is this viewer's private Reading record. Neither grants a read. */
+export type OfflineReadingFacts = Readonly<{
+  format: PublicationBinding['format'];
+  pageCount?: number;
+  location?: ReadingLocation;
+}>;
 export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical regular-file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). Symlinks contribute no logical target bytes. */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories and symlinks' own reported allocation, counted once per inode. Link targets are never traversed. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; error?: string}>;
 export type Viewer = Readonly<{authority: string; accountId: string; profileId: string; serverId: string}>;
 type Api = {baseUrl: string; mediaUrl(path: string): string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
@@ -1003,6 +1010,44 @@ export class OfflineDownloads {
     const current = this.localRead(entry), live = current();
     if (!nativePublicationReadsAvailable() || this.playabilityReason(live)) throw new Error('reading_unavailable');
     return this.publicationBinding(live.receipt);
+  }
+  /** Display facts for a downloaded publication under the same viewer, receipt and
+   * lifetime guards as opening it. The signed descriptor may contribute its real page
+   * total; a missing total stays absent, and no format is guessed from a title. */
+  async readingFacts(entry: OfflineEntry): Promise<OfflineReadingFacts> {
+    const read = this.localRead(entry), owner = this.ownerKey(), live = read();
+    if (!native || !owner || !nativePublicationReadsAvailable() || this.playabilityReason(live)) throw new Error('reading_unavailable');
+    const binding = this.publicationBinding(live.receipt), receipt = live.receipt!;
+    let pageCount: number | undefined;
+    try {
+      const raw = await native.readExtra(entry.id, 'publication.json'), bytes = publicationUTF8(raw);
+      const digest = Array.from(await nativeRouteCrypto.sha256(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
+      if (digest === binding.documentSha256) {
+        const doc: unknown = JSON.parse(raw);
+        if (object(doc) && doc.format === binding.format) {
+          if (binding.format === 'cbz' && Array.isArray(doc.pageNames) && safeInteger(doc.pageNames.length, 1) && doc.pageNames.length <= 4096) pageCount = doc.pageNames.length;
+          else if (binding.format === 'pdf' && object(doc.metadata)) {
+            const count = doc.metadata.pageCount;
+            if (safeInteger(count, 1) && count <= 4096) pageCount = count;
+          }
+        }
+      }
+    } catch { /* An older or absent descriptor keeps the real format and position; the total stays omitted. */ }
+    // The owner/generation/artifact guard covers a replaced entry; the receipt must also
+    // still be this viewer's usable lifetime for the exact original publication. Only
+    // then may the private record after the awaits supply a place.
+    const final = read();
+    if (this.playabilityReason(final)) throw new Error('reading_unavailable');
+    const finalReceipt = final.receipt!, finalBinding = this.publicationBinding(finalReceipt);
+    if (finalReceipt.claims.preparationId !== receipt.claims.preparationId
+      || finalReceipt.claims.artifact.sha256 !== receipt.claims.artifact.sha256 || finalReceipt.claims.artifact.bytes !== receipt.claims.artifact.bytes
+      || finalBinding.sourceId !== binding.sourceId || finalBinding.revision !== binding.revision || finalBinding.documentSha256 !== binding.documentSha256 || finalBinding.format !== binding.format) throw new Error('reading_unavailable');
+    const record = this.stored.reading[owner]?.[entry.id];
+    const matches = !!record && record.itemId === final.itemId && record.sourceId === finalBinding.sourceId && record.revision === finalBinding.revision
+      && record.documentSha256 === finalBinding.documentSha256 && record.artifactSha256 === finalReceipt.claims.artifact.sha256 && record.artifactBytes === finalReceipt.claims.artifact.bytes;
+    const location = matches ? record!.progress.progress?.location : undefined;
+    return Object.freeze({format: finalBinding.format, ...(pageCount === undefined ? {} : {pageCount}),
+      ...(location && location.format === finalBinding.format ? {location: Object.freeze({...location})} : {})});
   }
   publicationLease(entry: OfflineEntry, scope: Readonly<{signal: AbortSignal; current: () => boolean}>): NativeOfflinePublicationLease {
     const read = this.localRead(entry), owner = this.ownerKey(), initial = read();

@@ -15,6 +15,7 @@ import {type NativeOfflineDownloadsDevice, type OfflineEntry, type OfflineSettin
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from './presentation';
 import {useDownloadArtwork} from './useDownloadArtwork';
+import {useReadingFacts} from './useReadingFacts';
 
 const t = defaultI18n.t;
 const noRequests = (): readonly TrackedDownloadRequest[] => Object.freeze([]);
@@ -243,7 +244,8 @@ function DownloadMenuContext({entry, copy}: {entry: OfflineEntry; copy: NativeDo
 
 function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry}: {entry: OfflineEntry; device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; separator: boolean; menuOpen: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay?: () => void; onRetry: () => void}) {
   const theme = useTheme(), blocked = entry.state === 'ready' ? device.playabilityReason(entry) : null, opener = useRef<View>(null);
-  const facts = useDownloadArtwork(device, entry), text = downloadRowText(entry, facts, blocked, copy, runtime.text);
+  const facts = useDownloadArtwork(device, entry), reading = useReadingFacts(device, entry, entry.state === 'ready' && !blocked);
+  const text = downloadRowText(entry, facts, blocked, copy, runtime.text, reading);
   const menu = () => onMenu(opener);
   const playable = entry.state === 'ready' && !blocked, progress = downloadTransferProgress(entry);
   const backdrop = entry.info?.kind === 'episode' ? facts?.backdropUrl : undefined;

@@ -48,6 +48,7 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     playabilityReason: entry => {assertBorrowed(); return source.playabilityReason(entry);},
     note: entry => {assertBorrowed(); return source.note(entry);},
     ...(source.publicationSource ? {publicationSource: (entry: OfflineEntry) => {assertBorrowed(); return source.publicationSource!(entry);}} : {}),
+    ...(source.readingFacts ? {readingFacts: async (entry: OfflineEntry) => {assertBorrowed(); const facts = await source.readingFacts!(entry); assertBorrowed(); return facts;}} : {}),
     displayFacts: async entry => {assertBorrowed(); const facts = await source.displayFacts(entry); assertBorrowed(); return facts;},
     localMedia: async entry => {assertBorrowed(); const media = await source.localMedia(entry); assertBorrowed(); return media;},
     ...(openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await openOffline(entry);}} : {}),
@@ -114,6 +115,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
   const guarded: NativeOfflineDownloadsDevice = {
     ...adapter,
     ...(adapter.publicationSource ? {publicationSource: (entry: OfflineEntry) => {assertCurrent(); return adapter.publicationSource!(entry);}} : {}),
+    ...(adapter.readingFacts ? {readingFacts: async (entry: OfflineEntry) => {assertCurrent(); const facts = await adapter.readingFacts!(entry); assertCurrent(); return facts;}} : {}),
     getSnapshot: () => {assertCurrent(); return adapter.getSnapshot();},
     subscribe: listener => {assertCurrent(); return adapter.subscribe(() => {if (current()) listener();});},
     open,

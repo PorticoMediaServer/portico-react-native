@@ -2,15 +2,16 @@ import {offlineDownloads, offlineOwnerKey, type OfflineDownloads, type OfflineEn
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 
 export {groupOfflineEntries} from '../../platform/offline-downloads';
-export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts} from '../../platform/offline-downloads';
+export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts, OfflineReadingFacts} from '../../platform/offline-downloads';
 
 /** The shell alone binds the current viewer/server through adopt/connect/disconnect. */
 export {offlineDownloads};
 export type {OfflineDownloads};
 
-type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource'>>;
+type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource' | 'readingFacts'>>;
 export type NativeOfflineDownloadsAdapter = Readonly<{
   publicationSource?: OfflineDownloads['publicationSource'];
+  readingFacts?: OfflineDownloads['readingFacts'];
   getSnapshot: DeviceDownloads['getSnapshot'];
   subscribe: DeviceDownloads['subscribe'];
   open: DeviceDownloads['open'];
@@ -45,6 +46,9 @@ export function createNativeOfflineDownloadsAdapter(
   };
   return Object.freeze({
     ...(device.publicationSource ? {publicationSource: (entry: OfflineEntry) => device.publicationSource!(entry)} : {}),
+    ...(device.readingFacts ? {readingFacts: async (entry: OfflineEntry) => {
+      const facts = await device.readingFacts!(current(entry)); current(entry); return facts;
+    }} : {}),
     getSnapshot: device.getSnapshot,
     subscribe: device.subscribe,
     open: () => device.open(),

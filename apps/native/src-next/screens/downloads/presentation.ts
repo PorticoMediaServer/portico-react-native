@@ -3,7 +3,7 @@ import {episodeLabel} from '../../../../../packages/client-core/src/presentation
 import {fileDisplayResolutionPart} from '../../../../../packages/client-core/src/presentation/kit-model/technical';
 import type {TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
-import {groupOfflineEntries, type OfflineEntry, type OfflineEntryFacts, type OfflinePlayabilityReason, type OfflineSnapshot} from '../../platform/offline-downloads';
+import {groupOfflineEntries, type OfflineEntry, type OfflineEntryFacts, type OfflinePlayabilityReason, type OfflineReadingFacts, type OfflineSnapshot} from '../../platform/offline-downloads';
 
 /** These are catalogue identities, never local English fallbacks. */
 export type NativeDownloadsCopy = Readonly<{
@@ -62,17 +62,34 @@ export function downloadTransferProgress(entry: OfflineEntry): number | undefine
 
 /** Cached dimensions describe the actual file. Quality identifiers are never parsed
  * as dimensions, bookmarks never become completion, and legacy subtitle prose is unused. */
-export function downloadRowText(entry: OfflineEntry, facts: OfflineEntryFacts | undefined, blocked: OfflinePlayabilityReason | null, copy: NativeDownloadsCopy, env: TextEnvironment) {
+export function downloadRowText(entry: OfflineEntry, facts: OfflineEntryFacts | undefined, blocked: OfflinePlayabilityReason | null, copy: NativeDownloadsCopy, env: TextEnvironment,
+  reading?: OfflineReadingFacts) {
   const metadata: string[] = [];
   if (entry.info?.kind === 'episode') {
     const label = episodeLabel({mode: 'seasonal', season: entry.info.groupNumber ?? undefined, episode: entry.info.number ?? undefined}, 'ordinary', env);
     if (label) metadata.push(label.text);
   }
   if (entry.state === 'ready' && !blocked && !entry.waiting && entry.onServer) {
-    const quality = entry.quality === originalQuality ? env.t('next.kit.quality.original')
-      : fileDisplayResolutionPart(facts?.media?.width, facts?.media?.height, env.t)?.text;
-    if (quality) metadata.push(quality);
-    if (Number.isFinite(entry.bytes) && entry.bytes > 0) metadata.push(defaultI18n.bytes(entry.bytes));
+    if (reading) {
+      // The signed binding names the format; the private Reading record names the
+      // place. A missing page total is omitted rather than inferred.
+      metadata.push(reading.format.toUpperCase());
+      if (Number.isFinite(entry.bytes) && entry.bytes > 0) metadata.push(defaultI18n.bytes(entry.bytes));
+      const location = reading.location;
+      if (location && location.format === reading.format) {
+        if (location.format === 'epub') metadata.push(defaultI18n.t('downloads.percent', {percent: Math.round(location.progression * 100)}));
+        else {
+          const page = location.pageIndex + 1;
+          if (reading.pageCount === undefined) metadata.push(defaultI18n.t('next.reader.pageLabel', {page}));
+          else if (page <= reading.pageCount) metadata.push(defaultI18n.t('next.reader.pageOf', {page, count: reading.pageCount}));
+        }
+      }
+    } else {
+      const quality = entry.quality === originalQuality ? env.t('next.kit.quality.original')
+        : fileDisplayResolutionPart(facts?.media?.width, facts?.media?.height, env.t)?.text;
+      if (quality) metadata.push(quality);
+      if (Number.isFinite(entry.bytes) && entry.bytes > 0) metadata.push(defaultI18n.bytes(entry.bytes));
+    }
   }
   const blockedKeys = {sign_in: 'downloads.offline.signIn', not_finished: 'downloads.offline.notFinished', needs_setup: 'downloads.offline.needsSetup',
     needs_check_in: copy.needsCheckIn, other_profile: 'downloads.offline.otherProfile'} as const;
