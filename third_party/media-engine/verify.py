@@ -2,7 +2,6 @@
 """Checks a finished media engine build. The build scripts run it last; run it again any time:
 
     python3 verify.py android [--out DIR] [--abis "arm64-v8a ..."]
-    python3 verify.py apple   [--out DIR]
 
 What it checks, for every library of every architecture:
 
@@ -13,24 +12,22 @@ What it checks, for every library of every architecture:
   * No forbidden library is linked or embedded: GnuTLS, Nettle, GMP, mbedTLS, x264, x265,
     libbluray, libsmbclient, fdk-aac (dependency names, symbol names and tell-tale strings).
   * Each component is its own dynamic library: exactly the expected libraries exist, each one
-    names itself correctly (Android SONAME / Apple install name), FFmpeg and OpenSSL are not
+    names itself correctly (Android SONAME), FFmpeg and OpenSSL are not
     copied into libmpv or each other, and every dependency is either one of ours or an allowed
     system library.
-  * Android: plain SONAMEs (no .so.N), 16 KB page alignment, stripped. Apple: @rpath install
-    names, minimum OS versions, framework Info.plist and privacy manifest.
+  * Plain SONAMEs (no .so.N), 16 KB page alignment, stripped.
   * The decoders, demuxers, parsers, protocols, filters and hardware decoders the app relies on
     are present.
   * The dependency graph matches the recorded manifest (manifest/<platform>.json).
   * The notices and the corresponding source bundle exist.
   * No library carries the build machine's folders: the work directory, the home folder, or any
-    /home/ or /Users/ path (file names in asserts, configuration strings, run paths). MoltenVK,
-    Khronos's own build, is checked only for this machine's folders.
+    /home/ or /Users/ path (file names in asserts, configuration strings, run paths).
 
 Exit status 0 when everything passes, 1 otherwise. --write-manifest also writes
 out/<platform>/manifest.json (sizes and SHA-256 of every file). --update-expected rewrites
 manifest/<platform>.json from this build; use it only after reviewing why it changed.
 
-Pure Python 3.8+: ELF and Mach-O files are read directly, no other tools are needed.
+Pure Python 3.8+: ELF files are read directly, no other tools are needed.
 """
 from __future__ import annotations
 
@@ -39,7 +36,6 @@ import hashlib
 import json
 import os
 import pathlib
-import plistlib
 import re
 import struct
 import sys
@@ -50,7 +46,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 # ---------------------------------------------------------------------------------------------
 # What a build must contain.
 
-# library stem -> component (Android file lib<stem>.so; Apple framework Lib<stem> unless noted)
+# library stem -> component (Android file lib<stem>.so)
 LIBRARIES = {
     "avcodec": "ffmpeg", "avformat": "ffmpeg", "avutil": "ffmpeg", "avfilter": "ffmpeg",
     "swresample": "ffmpeg", "swscale": "ffmpeg",
@@ -60,7 +56,6 @@ LIBRARIES = {
     "lcms2": "lcms2", "dovi": "libdovi", "uchardet": "uchardet",
 }
 ANDROID_ONLY = {"iconv": "libiconv"}
-APPLE_ONLY = {"MoltenVK": "moltenvk"}  # framework name as is
 
 FFMPEG_LIBS = ["avcodec", "avformat", "avutil", "avfilter", "swresample", "swscale"]
 
@@ -91,8 +86,6 @@ REQUIRED = {
 REQUIRED_PLATFORM = {
     "android": {"decoder": ["h264_mediacodec", "hevc_mediacodec", "vp9_mediacodec", "av1_mediacodec",
                             "mpeg2_mediacodec", "vp8_mediacodec", "mpeg4_mediacodec"]},
-    "apple": {"hwaccel": ["h264_videotoolbox", "hevc_videotoolbox", "vp9_videotoolbox",
-                          "av1_videotoolbox", "mpeg2_videotoolbox"]},
 }
 # Components FFmpeg must never contain, whatever else changes.
 FORBIDDEN_FFMPEG_CONFIG = ["--enable-gpl", "--enable-version3", "--enable-nonfree", "--enable-gnutls",
@@ -116,12 +109,6 @@ FORBIDDEN = [
 
 ANDROID_SYSTEM = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libEGL.so",
                   "libGLESv2.so", "libGLESv3.so", "libz.so", "libc++_shared.so", "libmediandk.so"}
-APPLE_SYSTEM = re.compile(r"^(/usr/lib/(libSystem\.B|libc\+\+\.1|libz\.1|libiconv\.2|libobjc\.A|libresolv\.9)\.dylib"
-                          r"|/System/Library/Frameworks/([A-Za-z0-9]+)\.framework/(Versions/A/)?\3)$")
-APPLE_FRAMEWORKS_ALLOWED = {"Foundation", "CoreFoundation", "CoreVideo", "CoreMedia", "VideoToolbox",
-                            "AudioToolbox", "AVFoundation", "CoreText", "CoreGraphics", "QuartzCore",
-                            "Metal", "IOSurface", "UIKit", "Security", "IOKit", "CoreAudio"}
-
 # ---------------------------------------------------------------------------------------------
 # ELF
 
@@ -207,79 +194,6 @@ class Elf:
                 bind = st_info >> 4
                 if bind in (1, 2):  # GLOBAL, WEAK
                     self.symbols.append((name, st_shndx != 0))
-
-
-# ---------------------------------------------------------------------------------------------
-# Mach-O
-
-LC_REQ_DYLD = 0x80000000
-LC_ID_DYLIB, LC_LOAD_DYLIB, LC_LOAD_WEAK_DYLIB = 0xD, 0xC, 0x18 | LC_REQ_DYLD
-LC_REEXPORT_DYLIB, LC_LOAD_UPWARD_DYLIB = 0x1F | LC_REQ_DYLD, 0x23 | LC_REQ_DYLD
-LC_SYMTAB, LC_BUILD_VERSION, LC_RPATH = 0x2, 0x32, 0x1C | LC_REQ_DYLD
-LC_VERSION_MIN_IPHONEOS, LC_VERSION_MIN_TVOS = 0x25, 0x2F
-PLATFORMS = {2: "ios", 3: "tvos", 7: "ios-simulator", 8: "tvos-simulator", 1: "macos", 6: "maccatalyst"}
-CPU = {0x0100000C: "arm64", 0x01000007: "x86_64"}
-
-
-class MachO:
-    """One architecture slice."""
-
-    def __init__(self, data: bytes, offset: int, size: int):
-        magic = struct.unpack_from("<I", data, offset)[0]
-        if magic != 0xFEEDFACF:
-            raise ValueError("not a 64-bit little-endian Mach-O slice")
-        _, cputype, _, filetype, ncmds, _, _, _ = struct.unpack_from("<IiiIIIII", data, offset)
-        self.arch = CPU.get(cputype & 0xFFFFFFFF, hex(cputype))
-        self.filetype = filetype
-        self.id, self.dylibs, self.rpaths = None, [], []
-        self.platform, self.minos = None, None
-        self.symbols = []
-        off = offset + 32
-        for _ in range(ncmds):
-            cmd, cmdsize = struct.unpack_from("<II", data, off)
-            if cmd in (LC_ID_DYLIB, LC_LOAD_DYLIB, LC_LOAD_WEAK_DYLIB, LC_REEXPORT_DYLIB, LC_LOAD_UPWARD_DYLIB):
-                name_off = struct.unpack_from("<I", data, off + 8)[0]
-                name = data[off + name_off:off + cmdsize].split(b"\0", 1)[0].decode()
-                (setattr(self, "id", name) if cmd == LC_ID_DYLIB else self.dylibs.append(name))
-            elif cmd == LC_RPATH:
-                p = struct.unpack_from("<I", data, off + 8)[0]
-                self.rpaths.append(data[off + p:off + cmdsize].split(b"\0", 1)[0].decode())
-            elif cmd == LC_BUILD_VERSION:
-                plat, minos = struct.unpack_from("<II", data, off + 8)
-                self.platform, self.minos = PLATFORMS.get(plat, str(plat)), _ver(minos)
-            elif cmd in (LC_VERSION_MIN_IPHONEOS, LC_VERSION_MIN_TVOS):
-                self.platform = "ios" if cmd == LC_VERSION_MIN_IPHONEOS else "tvos"
-                self.minos = _ver(struct.unpack_from("<I", data, off + 8)[0])
-            elif cmd == LC_SYMTAB:
-                symoff, nsyms, stroff, _ = struct.unpack_from("<IIII", data, off + 8)
-                for i in range(nsyms):
-                    n_strx, n_type, _, _, _ = struct.unpack_from("<IBBHQ", data, offset + symoff + i * 16)
-                    if not n_type & 0x01 or n_type & 0xE0:  # external, not a debugging entry
-                        continue
-                    start = offset + stroff + n_strx
-                    name = data[start:data.index(b"\0", start)].decode(errors="replace")
-                    self.symbols.append((name, (n_type & 0x0E) != 0))
-            off += cmdsize
-
-
-def _ver(v: int) -> str:
-    return f"{v >> 16}.{(v >> 8) & 0xFF}" + (f".{v & 0xFF}" if v & 0xFF else "")
-
-
-def macho_slices(path: pathlib.Path) -> list:
-    data = path.read_bytes()
-    magic = struct.unpack_from(">I", data, 0)[0]
-    if magic in (0xCAFEBABE, 0xCAFEBABF):
-        count = struct.unpack_from(">I", data, 4)[0]
-        slices, wide = [], magic == 0xCAFEBABF
-        for i in range(count):
-            if wide:
-                _, _, off, size, _, _ = struct.unpack_from(">iiQQII", data, 8 + i * 32)
-            else:
-                _, _, off, size, _ = struct.unpack_from(">iiIII", data, 8 + i * 20)
-            slices.append(MachO(data, off, size))
-        return slices
-    return [MachO(data, 0, len(data))]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -409,9 +323,9 @@ def _string_around(blob: bytes, at: int) -> str:
     return text if len(text) <= 160 else text[:157] + "..."
 
 
-def check_paths(r: Report, where: str, name: str, blob: bytes, needles: tuple, prebuilt: bool = False):
+def check_paths(r: Report, where: str, name: str, blob: bytes, needles: tuple):
     mine, anyone = needles
-    for needle in mine + ([] if prebuilt else anyone):
+    for needle in mine + anyone:
         at = blob.find(needle)
         r.check(at < 0, f"{where}: {name} contains the build folder path {needle.decode(errors='replace')!r} "
                         f"(in {_string_around(blob, at)!r})" if at >= 0 else "")
@@ -480,82 +394,6 @@ def verify_android(args, r: Report) -> dict:
     return inventory
 
 
-def verify_apple(args, r: Report) -> dict:
-    root = args.out / "apple" / "xcframeworks"
-    names = {f"Lib{s}" for s in LIBRARIES} | set(APPLE_ONLY)
-    found = {p.stem for p in root.glob("*.xcframework")}
-    r.check(found == names, f"apple: xcframeworks differ (missing {sorted(names - found)}, unexpected {sorted(found - names)})")
-    targets = json.loads((HERE / "sources.lock.json").read_text())["tools"]["apple-deployment"]
-    # Architectures each slice must have at least (MoltenVK's own frameworks carry more: arm64e
-    # on tvOS devices, x86_64 in the tvOS simulator, which Rust and so libdovi do not support).
-    needles = path_needles(args.work)
-    wanted_slices = {"ios": {"arm64"}, "ios-simulator": {"arm64", "x86_64"}, "tvos": {"arm64"}, "tvos-simulator": {"arm64"}}
-    inventory = {}
-    for xc in sorted(root.glob("*.xcframework")):
-        name = xc.stem
-        info = plistlib.loads((xc / "Info.plist").read_bytes())
-        slices = {}
-        for lib in info.get("AvailableLibraries", []):
-            plat = lib["SupportedPlatform"] + ("-simulator" if lib.get("SupportedPlatformVariant") == "simulator" else "")
-            if plat.startswith(("macos", "xros")):
-                continue
-            slices[plat] = lib
-        got = {p: set(l["SupportedArchitectures"]) for p, l in slices.items()}
-        r.check(set(got) == set(wanted_slices) and all(wanted_slices[p] <= got[p] for p in got),
-                f"apple: {name} slices are {sorted((p, sorted(a)) for p, a in got.items())}, expected at least {sorted((p, sorted(a)) for p, a in wanted_slices.items())}")
-        for plat, lib in slices.items():
-            where = f"apple/{plat}"
-            fw = xc / lib["LibraryIdentifier"] / lib["LibraryPath"]
-            binary = fw / name
-            if not r.check(binary.is_file(), f"{where}: {name}.framework has no binary"):
-                continue
-            plist = plistlib.loads((fw / "Info.plist").read_bytes())
-            os_name = plat.split("-")[0]
-            minimum = targets[os_name]
-            r.check(plist.get("CFBundleExecutable") == name, f"{where}: {name} Info.plist names executable {plist.get('CFBundleExecutable')!r}")
-            r.check(bool(plist.get("CFBundleIdentifier")), f"{where}: {name} Info.plist has no bundle identifier")
-            r.check(plist.get("CFBundlePackageType") == "FMWK", f"{where}: {name} Info.plist is not a framework's")
-            r.check(_vtuple(plist.get("MinimumOSVersion", "99")) <= _vtuple(minimum),
-                    f"{where}: {name} needs OS {plist.get('MinimumOSVersion')}, the app supports {minimum}")
-            r.check((fw / "PrivacyInfo.xcprivacy").is_file(), f"{where}: {name} has no privacy manifest")
-            blob = binary.read_bytes()
-            check_paths(r, where, name, blob, needles, prebuilt=name in APPLE_ONLY)
-            for sl in macho_slices(binary):
-                w = f"{where}/{sl.arch}"
-                r.check(sl.id == f"@rpath/{name}.framework/{name}", f"{w}: {name} install name is {sl.id!r}")
-                r.check(sl.platform == plat, f"{w}: {name} is built for {sl.platform}, not {plat}")
-                r.check(sl.minos is not None and _vtuple(sl.minos) <= _vtuple(minimum), f"{w}: {name} needs OS {sl.minos}, the app supports {minimum}")
-                ours = sorted(d.split("/")[-1] for d in sl.dylibs if d.startswith("@rpath/") and d.split("/")[-1] in names)
-                other = [d for d in sl.dylibs if not d.startswith("@rpath/")]
-                bad = [d for d in other if not APPLE_SYSTEM.match(d)
-                       or ("/System/Library/Frameworks/" in d and d.split("/")[4].split(".")[0] not in APPLE_FRAMEWORKS_ALLOWED)]
-                bad += [d for d in sl.dylibs if d.startswith("@rpath/") and d.split("/")[-1] not in names]
-                r.check(not bad, f"{w}: {name} depends on {', '.join(bad)}")
-                check_forbidden(r, w, name, sl.dylibs, sl.symbols, blob)
-                stem = name[3:] if name.startswith("Lib") else None
-                if stem in OWN_SYMBOLS:
-                    check_own_symbols(r, w, stem, sl.symbols)
-                inventory.setdefault(plat, {}).setdefault(name, {"needs": ours, "system": sorted(other)})
-            inventory[plat][name].update(size=binary.stat().st_size, sha256=hashlib.sha256(blob).hexdigest())
-            meta = args.out / "apple" / "meta" / plat
-            if name == "Libavutil":
-                libs = {s: (xc.parent / f"Lib{s}.xcframework" / lib["LibraryIdentifier"] / f"Lib{s}.framework" / f"Lib{s}").read_bytes()
-                        for s in FFMPEG_LIBS if (xc.parent / f"Lib{s}.xcframework" / lib["LibraryIdentifier"] / f"Lib{s}.framework" / f"Lib{s}").is_file()}
-                check_ffmpeg_meta(r, meta, "apple", where, libs)
-            if name == "Libmpv":
-                check_mpv_meta(r, meta, where, blob)
-                r.check((fw / "Modules" / "module.modulemap").is_file(), f"{where}: Libmpv has no module map (import Libmpv would fail)")
-                mpv_needs = set(inventory[plat]["Libmpv"]["needs"])
-                for dep in ("Libavcodec", "Libavformat", "Libavutil", "Libavfilter", "Libswresample", "Libswscale",
-                            "Libass", "Libplacebo", "MoltenVK"):
-                    r.check(dep in mpv_needs, f"{where}: Libmpv does not load {dep} as a separate framework")
-    return inventory
-
-
-def _vtuple(v: str):
-    return tuple(int(x) for x in str(v).split("."))
-
-
 def check_notices(r: Report, out: pathlib.Path, platform: str):
     lock = json.loads((HERE / "sources.lock.json").read_text())
     notices = out / platform / "notices" / "THIRD-PARTY-NOTICES.txt"
@@ -573,7 +411,7 @@ def check_notices(r: Report, out: pathlib.Path, platform: str):
                 r.check(entry["file"] in members, f"{platform}: the source bundle lacks {entry['file']}")
                 for sub in entry.get("subsources", {}).values():
                     r.check(sub["file"] in members, f"{platform}: the source bundle lacks {sub['file']}")
-        # Apple now ships its independent recipe; this source bundle rebuilds this platform.
+        # Require every input of the Android corresponding-source recipe.
         for needed in ("libdovi-vendored-crates.tar", "sources.lock.json", f"build-{platform}.sh", "common.sh"):
             r.check(needed in members, f"{platform}: the source bundle lacks {needed}")
         patches = sorted(p.name for p in (HERE / "patches").rglob("*.patch"))
@@ -605,7 +443,7 @@ def compare_manifest(r: Report, platform: str, inventory: dict, update: bool):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("platform", choices=["android", "apple"])
+    parser.add_argument("platform", choices=["android"])
     parser.add_argument("--out", type=pathlib.Path, default=HERE / "out")
     parser.add_argument("--abis", default="")
     parser.add_argument("--work", type=pathlib.Path,
@@ -616,7 +454,7 @@ def main() -> int:
     parser.add_argument("--update-expected", action="store_true")
     args = parser.parse_args()
     r = Report()
-    inventory = verify_android(args, r) if args.platform == "android" else verify_apple(args, r)
+    inventory = verify_android(args, r)
     check_notices(r, args.out, args.platform)
     compare_manifest(r, args.platform, inventory, args.update_expected)
     if args.write_manifest:
