@@ -1129,9 +1129,18 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       && opening.owner.live && providerOpeningRef.current === opening && opening.transaction === tx
       && account.current === opening.source && registerDraftRev.current === revision;
     const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
-    return layout(t('accounts.signIn.portico'), undefined, fields(
+    // The drawn first-time provider step names itself and the provider it is continuing.
+    const providerName = tx?.provider === 'apple' ? t('accounts.provider.apple') : tx?.provider === 'google' ? t('accounts.provider.google') : undefined;
+    const phoneStep = !!tx?.needsUsername && !theme.isTV;
+    const heading = phoneStep ? t('auth.chooseUsername') : t('accounts.signIn.portico');
+    const lede = phoneStep ? t('services.provider.lastThing') : undefined;
+    const continuing = tx?.needsUsername && providerName && !theme.isTV
+      ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('services.provider.heading', {provider: providerName})}</Text> : undefined;
+    return layout(heading, lede, fields(
+      continuing,
       tx?.needsUsername && field(t('auth.username'), username, next => {setProviderUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
-        !theme.isTV && providerUsernameUnavailable ? t('web.signIn.error.accountTaken') : undefined),
+        !theme.isTV && providerUsernameUnavailable ? t('web.signIn.error.accountTaken') : undefined,
+        theme.isTV ? undefined : t('services.provider.usernameHelp')),
       tx?.needsUsername && (theme.isTV ? field(t('auth.yourName'), name, edit(setName))
         : field(`${t('auth.yourName')} · ${t('field.optional')}`, name, edit(setName), false, undefined, undefined, undefined, t('services.signup.sameUsername'))),
       tx?.mfaRequired && field(t('auth.verificationCode'), code, edit(setCode)), !tx?.contactVerified && field(t('auth.email'), email, edit(setEmail))),
