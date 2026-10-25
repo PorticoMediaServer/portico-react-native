@@ -140,6 +140,8 @@ preBuild.dependsOn(porticoReaderAssets)
 
 
 dependencies {
+    // QR-only on-device camera decoding; no external scanner app or model download.
+    implementation("com.google.zxing:core:3.5.3")
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
