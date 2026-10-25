@@ -47,7 +47,8 @@ export type PlayOnSnapshot = Readonly<{
 }>;
 
 type Options = Readonly<{
-  api: Readonly<{request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
+  api: Readonly<{request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>;
+    requestRaw?(path: string, method: string, options?: Readonly<{headers?: Readonly<Record<string, string>>; body?: unknown; signal?: AbortSignal}>): Promise<{status: number; headers: Record<string, string>; body?: unknown}>}>;
   session: () => LocalSession | undefined;
   deviceName: () => string;
   playback: () => NativePlaybackAdapter | undefined;
@@ -119,7 +120,8 @@ export class NativePlayOn {
     const session = this.options.session();
     if (!this.controller && session?.deviceId) {
       const controller = new HandoffController({
-        api: {request: (path, method, body, signal) => this.request(path, method, body, signal)},
+        api: {request: (path, method, body, signal) => this.request(path, method, body, signal),
+          ...(this.options.api.requestRaw ? {requestRaw: (path, method, options) => this.requestRaw(path, method, options)} : {})},
         device: {deviceId: session.deviceId, displayName: this.options.deviceName()},
         requestId: () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`,
       });
@@ -149,6 +151,20 @@ export class NativePlayOn {
       && sameAuthority(this.options.playback()?.getSnapshot().authority, authority);
     if (!same()) throw cancelled();
     const value = await this.options.api.request<T>(path, method, body, signal);
+    if (!same()) throw cancelled();
+    return value;
+  }
+
+  /** The session-control transport (SessionsClient builds on requestRaw): the same
+   * captured identity guard, so a pause/seek from an old attempt cannot reach a new one. */
+  private async requestRaw(path: string, method: string, options?: Readonly<{headers?: Readonly<Record<string, string>>; body?: unknown; signal?: AbortSignal}>)
+    : Promise<{status: number; headers: Record<string, string>; body?: unknown}> {
+    const attempt = this.attempt, connection = this.connection, session = this.options.session();
+    const authority = this.options.playback()?.getSnapshot().authority;
+    const same = () => this.bound(attempt, connection) && this.options.session() === session
+      && sameAuthority(this.options.playback()?.getSnapshot().authority, authority);
+    if (!same() || !this.options.api.requestRaw) throw cancelled();
+    const value = await this.options.api.requestRaw(path, method, options);
     if (!same()) throw cancelled();
     return value;
   }
@@ -220,7 +236,7 @@ export class NativePlayOn {
     if (this.polling || !controller || !sessionId || !this.bound(attempt, connection, sessionId)) return;
     this.polling = true;
     try {
-      const session = await controller.refreshRemote();
+      await controller.refreshRemote();
       if (!this.bound(attempt, connection, sessionId)) return;
       const page = await playbackControlsService(<T,>(path: string, method?: string, body?: unknown) => this.options.api.request<T>(path, method, body)).remote();
       if (!this.bound(attempt, connection, sessionId)) return;
@@ -231,7 +247,8 @@ export class NativePlayOn {
         if (current) this.publish({remote: {...current, allows: NONE}});
         return;
       }
-      const stopped = !session || report.state === 'ended';
+      // An unavailable read is not an ended session: only its own report can say ended.
+      const stopped = report.state === 'ended';
       const allows = {pause: report.actions.includes('pause'), resume: report.actions.includes('resume'),
         seek: report.actions.includes('seek'), stop: report.actions.includes('stop')};
       this.publish({remote: {...current, positionSeconds: Math.max(0, report.positionMs / 1000),
