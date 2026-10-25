@@ -13,6 +13,7 @@ function modules(state: {
   return {
     react: {...React, default: React},
     'react-native': {View: 'View'},
+    '../platform/invitation-links': {nativeInvitationLinks: {getSnapshot: () => undefined, subscribe: () => () => {}, acquire: () => () => {}}},
     '../platform/installation': {beginNativeInstallation: (signal?: AbortSignal) => {
       let disposed = false;
       return {current: () => !disposed && !signal?.aborted, dispose: () => {disposed = true;}};

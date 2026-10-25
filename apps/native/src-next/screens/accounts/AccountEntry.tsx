@@ -35,6 +35,7 @@ import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneNoServers} from './PhoneNoServers';
 import type {AccountDownloadsEntry} from './downloads-entry-model';
+import type {NativeInvitationLink} from '../../platform/invitation-links';
 import {PhoneAccountWorkspace} from './PhoneAccountWorkspace';
 import {NativeAccountWorkspace} from '../../platform/account-workspace';
 import {TVNoServers} from './TVNoServers';
@@ -59,7 +60,7 @@ const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
-export function AccountEntry({downloads, onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {downloads?: AccountDownloadsEntry; onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
+export function AccountEntry({downloads, incomingInvitation, onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {downloads?: AccountDownloadsEntry; incomingInvitation?: NativeInvitationLink; onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
   const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
@@ -97,7 +98,7 @@ export function AccountEntry({downloads, onBack, onComplete, onSetupComplete, on
     | {kind: 'portico'; controller: Awaited<ReturnType<NativeServerSignIn['preparePorticoInvitation']>>});
   const invitationOpening = useRef<InvitationOpening | undefined>(undefined);
   type InvitationSwitch = {entry: NativeInvitationEntry; active: boolean; scope?: Readonly<{accountId: string; familyId: string}>; username?: string};
-  const invitationEntryOpening = useRef<{active: boolean; returnAddress?: string} | undefined>(undefined);
+  const invitationEntryOpening = useRef<{active: boolean; returnAddress?: string; external?: NativeInvitationLink} | undefined>(undefined);
   const retireInvitationEntry = () => {if (invitationEntryOpening.current) invitationEntryOpening.current.active = false; invitationEntryOpening.current = undefined;};
   const invitationSwitch = useRef<InvitationSwitch | undefined>(undefined);
   const retireInvitationSwitch = () => {if (invitationSwitch.current) invitationSwitch.current.active = false; invitationSwitch.current = undefined;};
@@ -219,16 +220,34 @@ export function AccountEntry({downloads, onBack, onComplete, onSetupComplete, on
     };
     setStage('account-workspace');
   };
-  const openInvitationEntry = (returnAddress?: string) => {
-    if (!lifetime.current || busyRef.current || acting.current) return;
+  const openInvitationEntry = (returnAddress?: string, external?: NativeInvitationLink) => {
+    if (!lifetime.current || busyRef.current || acting.current || external && !external.current()) return;
+    const externalTarget = external ? NativeServerSignIn.parseInvitationEntry(external.raw, '') : undefined;
+    if (external && !externalTarget) return;
     retireInvitationEntry(); retireInvitationSwitch(); retireInvitation(); stopMemberMove(); cancelDirectory(); operation.current = undefined;
     account.current?.dispose(); account.current = undefined;
-    invitationIntent.current = undefined; invitationEntryOpening.current = {active: true, returnAddress};
-    setAddress(returnAddress ?? ''); setUsername(''); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setError(undefined);
+    invitationIntent.current = undefined; invitationEntryOpening.current = {active: true, returnAddress, external};
+    setAddress(externalTarget?.server ?? returnAddress ?? ''); setUsername(''); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setError(undefined);
     stageRef.current = 'invitation-entry'; setStage('invitation-entry');
   };
+  useLayoutEffect(() => {
+    if (!incomingInvitation || Platform.isTV || !incomingInvitation.current()) return;
+    openInvitationEntry(undefined, incomingInvitation);
+    const retire = () => {
+      // A replacement OS link invalidates the old consumer before React commits
+      // its successor, including requests already awaiting server responses.
+      lifetime.current = false; retireInvitationEntry(); retireInvitation();
+      operation.current?.dispose(); account.current?.dispose();
+    };
+    const off = incomingInvitation.onRetired(retire);
+    if (!incomingInvitation.current()) retire();
+    return () => {off(); retire();};
+  }, [incomingInvitation]);
   const back = () => {
     if (stage === 'invitation-entry') {
+      const external = invitationEntryOpening.current?.external;
+      if (external) {if (external.current()) onBack?.(); return;}
+
       const origin = invitationEntryOpening.current?.returnAddress; retireInvitationEntry(); invitationIntent.current = undefined;
       if (origin) {stageRef.current = 'address'; setStage('address'); void run(async () => {await inspect(origin);});} else reset(); return;
     }
@@ -836,28 +855,29 @@ export function AccountEntry({downloads, onBack, onComplete, onSetupComplete, on
     primaryAction={Platform.isTV ? undefined : action('check-code', t('action.continue'), () => confirmCode(), identityCode.replace(/-/g, '').length !== 12)}
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
   if (stage === 'invitation-entry') {
-    const ticket = invitationEntryOpening.current, parsed = NativeServerSignIn.parseShortInvitationEntry(code, address);
-    const current = () => !!ticket?.active && invitationEntryOpening.current === ticket && lifetime.current && stageRef.current === 'invitation-entry';
+    const ticket = invitationEntryOpening.current, external = ticket?.external;
+    const parsed = external ? external.current() ? NativeServerSignIn.parseInvitationEntry(external.raw, address) : undefined : NativeServerSignIn.parseShortInvitationEntry(code, address);
+    const current = () => !!ticket?.active && invitationEntryOpening.current === ticket && lifetime.current && stageRef.current === 'invitation-entry' && (!external || external.current());
     const change = (set: (value: string) => void, format = false) => (value: string) => {
-      if (!current() || busyRef.current) return;
+      if (!current() || busyRef.current || external) return;
       ticket!.active = false; invitationEntryOpening.current = {active: true, returnAddress: ticket!.returnAddress};
       set(format ? NativeServerSignIn.formatInvitationCode(value) : value); setError(undefined);
     };
     const submit = () => {if (!current() || busyRef.current || !parsed) return;
       ticket!.active = false; const intent = Object.freeze({...parsed, publicPreview: true}); invitationIntent.current = intent;
       void run(async () => {try {await inspect(intent.server);} catch (failure) {
-        if (lifetime.current && invitationIntent.current === intent && stageRef.current === 'invitation-entry') invitationEntryOpening.current = {active: true, returnAddress: ticket!.returnAddress};
+        if (lifetime.current && invitationIntent.current === intent && stageRef.current === 'invitation-entry') invitationEntryOpening.current = {active: true, returnAddress: ticket!.returnAddress, external};
         throw failure;
       }});
     };
     const rootStatus = NativeServerSignIn.invitationUnavailable(error)
       ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{t('web.directJoin.entryUnavailable')}</Text> : status;
-    return <StateLayout testID="accounts-invitation-entry" title={t('web.directJoin.title')} body={t('web.directJoin.entryBody')}
+    return <StateLayout testID="accounts-invitation-entry" title={t('web.directJoin.title')} body={external ? undefined : t('web.directJoin.entryBody')}
       kicker={<Image source={require('../../../assets/wordmark.png')} accessibilityLabel={t('accounts.brand')} resizeMode="contain" style={{width: 74, height: 17}}/>}
       beforeActions={<View style={{alignSelf: 'stretch', gap: 14, marginBottom: 18}}>{rootStatus}
-        <TextField label={t('accounts.signIn.address')} value={address} onChangeText={change(setAddress)} autoCapitalize="none" autoCorrect={false} editable={!busy}/>
-        <TextField label={t('web.directJoin.code')} placeholder={t('web.directJoin.codePlaceholder')} value={code} onChangeText={change(setCode, true)}
-          autoCapitalize="characters" autoCorrect={false} autoComplete="off" editable={!busy} onSubmitEditing={submit}/>
+        <TextField label={t('accounts.signIn.address')} value={address} onChangeText={change(setAddress)} autoCapitalize="none" autoCorrect={false} editable={!busy && !external}/>
+        {!external && <TextField label={t('web.directJoin.code')} placeholder={t('web.directJoin.codePlaceholder')} value={code} onChangeText={change(setCode, true)}
+          autoCapitalize="characters" autoCorrect={false} autoComplete="off" editable={!busy} onSubmitEditing={submit}/>}
       </View>} primaryAction={{id: 'preview-invitation-entry', label: t('action.continue'), disabled: busy || !parsed, loading: busy, onPress: submit}}
       secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: () => {if (current()) back();}}}/>;
   }

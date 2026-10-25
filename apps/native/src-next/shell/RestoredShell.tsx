@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useRef, useState} from 'react';
+import React, {useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {HomeSkeleton, StateView} from '../kit/states';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
 import {createNativeShellBindings} from './assembly';
@@ -13,6 +13,7 @@ import {NativeSignInEnded} from '../platform/sign-in-ended';
 import {NativeIdentityFailure} from '../platform/identity-failure';
 import {PhoneFirstLibrary} from '../screens/accounts/PhoneFirstLibrary';
 import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
+import {nativeInvitationLinks, type NativeInvitationLink} from '../platform/invitation-links';
 import {beginNativeInstallation} from '../platform/installation';
 import {createRememberedDownloadsOpening, type RememberedDownloadsOpening} from './remembered-downloads-opening';
 import {RememberedDownloadsScreen, RememberedDownloadsShortcut} from '../screens/downloads/RememberedDownloadsScreen';
@@ -23,6 +24,8 @@ type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: Re
 
 /** Restore only the captured canonical server selection; current account entry owns sign-in. */
 export function RestoredShell() {
+  const incoming = useSyncExternalStore(nativeInvitationLinks.subscribe, nativeInvitationLinks.getSnapshot, nativeInvitationLinks.getSnapshot);
+  useLayoutEffect(() => nativeInvitationLinks.acquire(), []);
   const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'}), [elapsed, setElapsed] = useState(0);
   const [firstLibrary, setFirstLibrary] = useState<string>();
   const [showAccounts, setShowAccounts] = useState(false), [retained, setRetained] = useState(false);
@@ -30,7 +33,7 @@ export function RestoredShell() {
   type DownloadView = {source: RememberedDownloadsOpening; serial: number};
   const [downloadView, setDownloadView] = useState<DownloadView>();
   const viewOwner = useRef<DownloadView | undefined>(undefined), viewSerial = useRef(0);
-  type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; current?: () => boolean; retire?: () => void; restart?: () => void};
+  type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; retire?: () => void; restart?: () => void};
   const root = useRef<RootOpening | undefined>(undefined);
   if (root.current && root.current.attempt !== attempt) root.current.retire?.();
   useLayoutEffect(() => {
@@ -81,7 +84,10 @@ export function RestoredShell() {
         ticket.source = source; setDownloads(previous => rootCurrent() && ticket.source === source ? source : previous);
       }, () => { /* Offline is optional; the original restore refusal remains visible. */ });
     };
-    let selection: string | undefined, reads = 0, fenced = false, restored = false;
+    let selection: string | undefined, reads = 0, fenced = false, settledFence = false, restored = false;
+    ticket.finishInput = () => {
+      if (rootCurrent() && fenced && settledFence && !owned && !ticket.input?.current()) restart();
+    };
     const checkSelection = async () => {
       if (!rootCurrent()) return;
       const read = ++reads;
@@ -102,12 +108,20 @@ export function RestoredShell() {
     // A ready shell refreshes when a publication settles. While an entry is publishing
     // (no owned runtime yet) the entry's own onComplete starts the restore, so a settled
     // bump here would abort the entry mid-publication and can leave the shell empty.
-    const unsettled = nativeAccounts.onSettled(() => {if (rootCurrent() && (owned || fenced)) restart();});
+    const unsettled = nativeAccounts.onSettled(() => {
+      if (!rootCurrent()) return;
+      if (fenced) settledFence = true;
+      // A link opened over the ready shell owns its existing invitation/auth
+      // continuation until explicit completion or cancellation, just like an
+      // entry mounted without a shell. Do not unmount it mid-publication.
+      if (ticket.input?.current()) return;
+      if (owned || fenced) restart();
+    });
     // A fence retires the running shell runtime. With no runtime there is nothing to
     // abandon: the entry that is publishing stays mounted and reports completion itself.
     const unfence = nativeAccounts.onFence(() => {
       if (!rootCurrent() || !owned) return;
-      fenced = true; const previous = owned; owned = undefined; previous.dispose();
+      fenced = true; settledFence = false; const previous = owned; owned = undefined; previous.dispose();
       // Keep the original root waiting for the existing settled publication;
       // never start a replacement restore in the middle of account publication.
       if (rootCurrent()) publishState({phase: 'loading'});
@@ -134,6 +148,10 @@ export function RestoredShell() {
   const setupComplete = (serverId: string) => {if (renderedCurrent()) setFirstLibrary(previous => renderedCurrent() ? serverId : previous);};
   const chooseAccounts = () => {if (renderedCurrent()) setShowAccounts(previous => renderedCurrent() ? true : previous);};
   if (renderedRoot && !renderedCurrent()) return <HomeSkeleton elapsedMs={elapsed} visible/>;
+  if (renderedRoot) renderedRoot.input = incoming?.current() ? incoming : undefined;
+  if (incoming?.current()) return <AccountEntry key={'incoming-invitation:' + incoming.id} incomingInvitation={incoming} onSetupComplete={setupComplete}
+    onBack={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); renderedRoot?.finishInput?.();}}
+    onComplete={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); complete();}}/>;
   const remembered = downloads && root.current?.active && root.current.attempt === attempt && downloads.current() ? downloads : undefined;
   const opened = downloadView;
   if (opened && remembered === opened.source && viewOwner.current === opened) return <RememberedDownloadsScreen key={opened.serial} source={opened.source} onBack={() => {
