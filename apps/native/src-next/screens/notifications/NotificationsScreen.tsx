@@ -73,6 +73,15 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
     };
   }, [adminService, context, profileService, retirement, route]);
 
+  // The captured route/revision/authority and the lease's own live flag, without the
+  // retirement check. Only the retirement fallback's Back uses this; it must still be
+  // unable to navigate once this exact layout is gone or replaced.
+  const routeLive = () => !!lease && lease.live.value
+    && sameAuthority(lease.authority, context.authority())
+    && context.navigation.getSnapshot().revision === lease.revision
+    && context.navigation.getSnapshot().route === lease.route;
+  const current = () => !!lease && routeLive() && lease.retirement.getSnapshot() === undefined;
+
   useEffect(() => {
     if (!lease || retired) return;
     void lease.profile.load('profile', view);
@@ -81,14 +90,17 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
     if (!lease || retired || context.account.account.role !== 'owner') return;
     void lease.admin.load('account-admin', view);
   }, [context, lease, retired]);
+  useEffect(() => {
+    if (!lease || retired) return;
+    const refresh = () => {
+      if (!current()) return;
+      void lease.profile.load('profile', view);
+      if (context.account.account.role === 'owner') void lease.admin.load('account-admin', view);
+    };
+    const offs = [context.events.on('notification.changed', refresh), context.events.onResync(refresh)];
+    return () => {for (const off of offs) off();};
+  }, [context, lease, retired, view]);
 
-  // The captured route/revision/authority and the lease's own live flag, without the
-  // retirement check. Only the retirement fallback's Back uses this; it must still be
-  // unable to navigate once this exact layout is gone or replaced.
-  const routeLive = () => !!lease && lease.live.value
-    && sameAuthority(lease.authority, context.authority())
-    && context.navigation.getSnapshot().revision === lease.revision
-    && context.navigation.getSnapshot().route === lease.route;
   if (retired) return <View testID="native-notifications-retired" style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 14}}>
     <StateView icon="i-warn" title={t('notifications.error.load')} primaryAction={{id: 'back', label: t('action.back'), onPress: () => {if (routeLive()) context.navigation.back(context.authority());}}}/>
   </View>;
@@ -96,7 +108,6 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
 
   const hasLiveTV = runtime.getSnapshot().hasLiveTV;
   const adminRequested = context.account.account.role === 'owner';
-  const current = () => routeLive() && lease.retirement.getSnapshot() === undefined;
   const viewLive = (service: InboxService, viewAt: InboxView) => current()
     && (service === lease.profile || service === lease.admin)
     && service.getSnapshot().view === viewAt;
