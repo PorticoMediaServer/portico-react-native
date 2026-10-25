@@ -44,6 +44,7 @@ export class NativePlaybackCoordinator {
   private commandRevision = 0;
   private factSequence = 0;
   private lastSemantic = '';
+  private matchFrameRate?: 'auto' | 'off';
   private barrier = 0;
   private rate = 1;
   private audio: unknown = null;
@@ -129,6 +130,10 @@ export class NativePlaybackCoordinator {
     // distinguish progress/end/error emitted by the superseded AVPlayerItem.
     this.barrier=this.commandRevision+1;
     this.schedule();
+  }
+  setDisplayMatching(value: 'auto' | 'off' | undefined) {
+    if (this.matchFrameRate === value) return;
+    this.matchFrameRate = value; this.schedule();
   }
   setOptions(rate: number, audio: unknown, subtitles: unknown = null) {
     this.rate = rate;
@@ -247,6 +252,7 @@ export class NativePlaybackCoordinator {
     if(!this.routeSource)return;
     const semantic = {
       binding,
+      ...(this.matchFrameRate ? {matchFrameRate: this.matchFrameRate} : {}),
       listeningOwner:listening?.owner??null,
       source: this.routeSource,
       connectionState:this.connected()?'ready':'verifying',

@@ -157,6 +157,7 @@ internal class PorticoMpvController(private val context: Context) {
   private var outputChangedAt = 0L
   private var pictureRetried = false
   private var frameRateVoted = false
+  private var votedFrameSurface: Surface? = null
   private var frameRateClear: Runnable? = null
   private var displayWait = 0
   /** The first frame is ready but no view has lent its surface yet: readiness waits for it (television). */
@@ -277,6 +278,7 @@ internal class PorticoMpvController(private val context: Context) {
   fun accept(value: Map<String, Any?>?): String? {
     if (invalidated) return "Playback controller is closed."
     val command = value ?: return "Invalid playback binding."
+    if (command["matchFrameRate"] != null && command["matchFrameRate"] != "auto" && command["matchFrameRate"] != "off") return "Invalid display matching choice."
     val binding = PorticoMpvSupport.map(command["binding"]) ?: return "Invalid playback binding."
     val lease = this.lease
     if (lease == null || binding["lease"] != lease) return "Playback lease is no longer active."
@@ -384,6 +386,7 @@ internal class PorticoMpvController(private val context: Context) {
       }
     }
     command = next
+    clearDisabledFrameRate()
     linear = if (next["timelineOriginMs"] != null) PorticoMpvLinearClock.parse(next["linearClock"]) else null
     val wasPaused = desiredPaused
     desiredPaused = PorticoMpvSupport.boolean(next["paused"]) ?: true
@@ -1720,23 +1723,29 @@ internal class PorticoMpvController(private val context: Context) {
   }
 
   /** Tells the system the title's frame rate for this surface. False when the surface would not take it. */
-  private fun clearDisabledFrameRate(target: Surface?) {
-    if (command?.get("matchFrameRate") != "off" || !frameRateVoted || target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return
+  private fun clearDisabledFrameRate() {
+    if (command?.get("matchFrameRate") != "off") return
+    val target = votedFrameSurface
     frameRateClear?.let { main.removeCallbacks(it) }
     frameRateClear = null
+    if (target == null || !target.isValid || Build.VERSION.SDK_INT < 30) {votedFrameSurface = null; frameRateVoted = false; return}
     try {
       target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
       frameRateVoted = false
+      votedFrameSurface = null
     } catch (_: Exception) {}
   }
 
   private fun voteFrameRate(target: Surface, fps: Float): Boolean {
-    clearDisabledFrameRate(target)
+    clearDisabledFrameRate()
     if (Build.VERSION.SDK_INT < 30 || command?.get("matchFrameRate") == "off") return false
     return try {
+      val previous = votedFrameSurface
+      if (previous != null && previous !== target && previous.isValid) previous.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
       if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
       else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
       frameRateVoted = true
+      votedFrameSurface = target
       true
     } catch (_: Exception) {
       false
@@ -1758,7 +1767,7 @@ internal class PorticoMpvController(private val context: Context) {
    */
   private fun matchDisplay(deadline: Long = SystemClock.elapsedRealtime() + 10_000, done: () -> Unit) {
     val target = surface
-    clearDisabledFrameRate(target)
+    clearDisabledFrameRate()
     val fps = if (command?.get("matchFrameRate") == "off") null else frameRate()
     if (((Build.VERSION.SDK_INT >= 30 && fps != null) || directOutput) && PorticoMpvDevice.isTelevision && (target == null || !target.isValid) && !backgroundHold) {
       // Even a very fast load waits for its view before the television is asked to switch, so
@@ -1835,11 +1844,12 @@ internal class PorticoMpvController(private val context: Context) {
   /** The display goes back to its own rate a moment after playback is left, not between two episodes. */
   private fun scheduleFrameRateClear() {
     frameRateClear?.let { main.removeCallbacks(it) }
-    val target = surface
+    val target = votedFrameSurface
     val work = Runnable {
       frameRateClear = null
-      if (lease != null || !frameRateVoted || target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return@Runnable
+      if (lease != null || target !== votedFrameSurface || target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return@Runnable
       frameRateVoted = false
+      votedFrameSurface = null
       try { target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) } catch (_: Exception) {}
     }
     frameRateClear = work

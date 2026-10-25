@@ -81,6 +81,7 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
 
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */
 export type NativePlaybackRuntimeOptions = Readonly<{
+  androidDisplayMatching?: true;
   api: HttpLocalApi;
   authority: () => PlaybackAuthority;
   session: () => LocalSession | undefined;

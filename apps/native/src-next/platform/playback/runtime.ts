@@ -964,6 +964,7 @@ export class NativePlaybackRuntime {
   private applyOptions(): void {
     if (this.retired) return;
     const state = this.playback.getSnapshot(), fence = this.fence(), settings = this.o.settings();
+    this.coordinator.setDisplayMatching(this.o.androidDisplayMatching ? settings.matchFrameRate ?? 'auto' : undefined);
     if (!state.session || !fence) { this.clearForcedImage(); this.coordinator.setOptions(1, null, null); return; }
     if (fence.kind === 'channel') {
       this.clearForcedImage();
