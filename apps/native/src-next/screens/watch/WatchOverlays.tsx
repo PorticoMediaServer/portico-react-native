@@ -3,6 +3,7 @@ import {Modal, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {deletionAllowed} from '../../../../../packages/client-core/src/administration';
 import {mergeExplanation} from '../../../../../packages/client-core/src/title-identity';
+import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {shellLayout} from '../../shell/model';
 import {Button, TextField} from '../../kit/controls';
@@ -138,7 +139,10 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
         {entry.year === undefined ? null : <Text style={contextStyle(600, theme.colors.textTertiary)}>{defaultI18n.number(entry.year, {useGrouping: false})}</Text>}
       </View>
       : undefined;
+  // playback-info.html frame 17 draws the film's runtime under the title at 22/1.45.
   return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef} context={context}
+    description={tv && entry.kind === 'movie' && entry.duration ? durationText(entry.duration, t) : undefined}
+    descriptionTextStyle={tv ? {fontSize: 22, lineHeight: 31.9} : undefined}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}
     onOpenChange={open => {if (!open) presenters.closeMenu(value);}}/>;
 }
