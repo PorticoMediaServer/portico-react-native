@@ -31,9 +31,9 @@ type NativeSurfaceProps = ViewProps & {lease: string; surfaceActive?: boolean};
 const views: Partial<Record<EngineKind, HostComponent<NativeSurfaceProps>>> = {};
 function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
 function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
-function transport(module: EngineModule, event: string, displaySettings: () => 'auto' | 'off'): NativePlaybackTransport {
+function transport(module: EngineModule, event: string): NativePlaybackTransport {
   const emitter = new NativeEventEmitter(module as never);
-  return {acquire: owner => module.acquire(owner), command: value => module.command(Platform.OS === 'android' ? {...value, matchFrameRate: displaySettings()} : value), release: lease => module.release(lease),
+  return {acquire: owner => module.acquire(owner), command: value => module.command(value), release: lease => module.release(lease),
     subscribe: listener => { const subscription = emitter.addListener(event, listener); return () => subscription.remove(); }};
 }
 export type NativePlaybackFactoryOptions = Omit<NativePlaybackRuntimeOptions, 'transport' | 'engines' | 'engineFeatures' | 'nativeListening' | 'requestId' | 'capabilitiesReady' | 'disposeCapabilities' | 'timers'> & Readonly<{appVersion: string}>;
@@ -47,7 +47,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const mpvAvailable = !!mpv && moduleConstants(mpv).available === true && viewAvailable(names.mpv.view);
   const nativeFeatures = parseEngineFeatures(moduleConstants(native).features);
   const mpvFeatures = mpvAvailable ? parseEngineFeatures(moduleConstants(mpv!).features) : undefined;
-  const nativeTransport = transport(native, names.native.fact, () => options.settings().matchFrameRate ?? 'auto'), mpvTransport = mpvAvailable ? transport(mpv!, names.mpv.fact, () => options.settings().matchFrameRate ?? 'auto') : undefined;
+  const nativeTransport = transport(native, names.native.fact), mpvTransport = mpvAvailable ? transport(mpv!, names.mpv.fact) : undefined;
   const viewer = options.session()?.viewer;
   if (!viewer || !['local', 'hosted'].includes(viewer.authority)) throw new Error('Invalid playback authority.');
   const initialAuthority = options.authority();
@@ -86,7 +86,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
   }) : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
       const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
