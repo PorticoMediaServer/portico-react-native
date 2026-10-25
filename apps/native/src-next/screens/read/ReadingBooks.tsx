@@ -134,9 +134,13 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   // tablet-read#1b draws the A-Z rail beside the Books grid, beside the docked
   // Filters too; it is shown while the server publishes letters for this sort.
   const alphabet = !!page?.positionIndex && page.total !== undefined && sort?.field === 'title' && sort.direction === 'asc';
-  const gap = 16, right = alphabet ? 52 : theme.gutter, room = Math.max(0, width - theme.gutter - right - pane);
-  const columns = Math.max(2, Math.min(5, Math.floor(room / 168)));
-  const cardWidth = Math.max(120, Math.floor((room - gap * (columns - 1)) / columns));
+  // The drawn grid: seven across with 20/30 gaps; the docked pane's own four-across
+  // drawing uses 14/22 and slightly narrower cards. Columns follow the real room and
+  // never force a card wider than it, so a small landscape pane cannot overflow.
+  const tight = pane > 0, gap = tight ? 14 : 20, rowGap = tight ? 22 : 30, minimum = tight ? 112 : 120;
+  const right = alphabet ? 52 : theme.gutter, room = Math.max(0, width - theme.gutter - right - pane);
+  const columns = Math.max(1, Math.min(7, Math.floor((room + gap) / (minimum + gap))));
+  const cardWidth = Math.max(1, Math.floor((room - gap * (columns - 1)) / columns));
   const cardHeight = cardWidth * 1.5 + 48;
   // Stable identity: the grid re-runs its range callback when this prop changes,
   // and an unchanged range must not publish a new object.
@@ -163,7 +167,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
           : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
           : <View style={{flex: 1}}>
             <WindowedGrid ref={grid} testID="reading-books-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={cardWidth} itemHeight={cardHeight}
-              gap={gap} rowGap={20} gutter={theme.gutter} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
+              gap={gap} rowGap={rowGap} gutter={theme.gutter} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
               onVisibleRange={changedRange}
               renderPlaceholder={() => <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
               renderItem={(entry: ContentEntry) => {
