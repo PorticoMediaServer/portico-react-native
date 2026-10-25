@@ -2,14 +2,14 @@ import type {CompositeId} from '../../../../packages/client-core/src/presentatio
 import {engineSettings, parseEngineSetting} from './playback/engine-choice';
 import type {NativeQueueStore} from './queue-storage';
 
-export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching' | 'lossNotices';
+export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching' | 'lossNotices' | 'receiveFromDevices';
 type Owner = Readonly<{current: () => boolean; subscribePreferences: (listener: () => void) => () => void}>;
 type Ports = Readonly<{storage: Pick<NativeQueueStore, 'change'>; readRecord: () => unknown; acceptRecord: (raw: unknown) => void}>;
 const sources = new WeakMap<Owner, NativeDeviceSettings>();
 const object = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw);
 const ended = () => Object.assign(new Error('native_device_settings_retired'), {name: 'AbortError'});
 export function nativeDeviceSettingSupported(id: string): id is NativePlaybackDeviceSetting {
-  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'tvHdr' || id === 'tvSurround' || id === 'music.sampleRateMatching' || id === 'lossNotices';
+  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'tvHdr' || id === 'tvSurround' || id === 'music.sampleRateMatching' || id === 'lossNotices' || id === 'receiveFromDevices';
 }
 
 /** The installation fields consumed by the actual playback runtime. The
@@ -28,7 +28,7 @@ export class NativeDeviceSettings {
     // The TV output choices are tri-state: an absent key means the viewer has
     // never overridden what the TV reports, which is not the same as Off.
     if (id === 'tvHdr' || id === 'tvSurround') return typeof record[id] === 'boolean' ? record[id] as boolean : undefined;
-    return id === 'lossNotices' ? record[id] !== false : record[id] === true;
+    return (id === 'lossNotices' || id === 'receiveFromDevices') ? record[id] !== false : record[id] === true;
   };
   subscribe = (listener: () => void): (() => void) => {
     this.assert(); return this.owner.subscribePreferences(() => {if (this.owner.current()) listener();});
