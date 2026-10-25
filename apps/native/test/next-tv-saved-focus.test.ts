@@ -29,11 +29,14 @@ test('TV Saved tabs have a mounted content target and return edges for every non
       '../../saved/SavedTVTabs': {SavedTVTabs: 'SavedTVTabs'},
       '../../saved/SavedTVDirectory': {SavedTVDirectory: 'SavedTVDirectory'},
     });
-    const snapshot = {phase: 'ready', entries: [], resources: []};
+    const snapshot = {phase: 'ready', entries: [], resources: [],
+      posters: {sections: [{entries: [{id: 'movie/1', kind: 'movie', title: 'Movie'}]}]},
+      squares: {sections: [{entries: [{id: 'song/1', kind: 'song', title: 'Song'}]}]},
+    };
     const props = {
       controller: {subscribe: () => () => {}, getSnapshot: () => snapshot},
       activation: {subscribe: () => () => {}, getSnapshot: () => ({visible})},
-      runtime: {reportError: () => {}, text: {}}, actions: {}, authority: {}, initialTab: tab,
+      runtime: {reportError: () => {}, text: {}, artwork: () => undefined}, actions: {}, authority: {}, initialTab: tab,
       openSaved: () => {}, openEntry: () => {}, browseHome: () => {},
     };
     const render = () => nodes(host.render(() => TVSavedScreen(props as any)));
