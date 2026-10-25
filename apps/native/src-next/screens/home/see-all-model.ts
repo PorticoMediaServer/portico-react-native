@@ -1,5 +1,6 @@
-/** Frame collections#46/#44: Unwatched, In progress and Favorites are the drawn quick
- * toggles on See all. My List stays inside Filters, as the same frame draws it. */
+/** collections#46 draws Favorites on phone; #48 keeps only playback-state toggles on TV.
+ * My List stays inside Filters on both platforms. */
 export const homeSeeAllQuickIds = ['unwatched', 'in-progress', 'favorites'] as const;
 
-export const homeSeeAllQuickOrder = (id: string): boolean => (homeSeeAllQuickIds as readonly string[]).includes(id);
+export const homeSeeAllQuickOrder = (id: string, isTV = false): boolean =>
+  (homeSeeAllQuickIds as readonly string[]).includes(id) && (!isTV || id !== 'favorites');

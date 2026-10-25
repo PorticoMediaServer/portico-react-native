@@ -78,7 +78,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
         <Chip selected={!state.selectedKind} onPress={() => controller.selectKind(undefined)} count={state.counts.find(value => value.id === 'all')?.total}>{t('search.chip.all')}</Chip>
         {controller.kinds.map(kind => <Chip key={kind.id} selected={state.selectedKind === kind.id} onPress={() => controller.selectKind(kind.id)} count={state.counts.find(value => value.id === kind.id)?.total}>{kindLabel(kind.id)}</Chip>)}
         <View style={{width: 1, height: tv ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-        {model.quick.filter(quick => homeSeeAllQuickOrder(quick.id)).map(quick => <QuickToggle key={quick.id} checked={quick.active} onCheckedChange={checked => {
+        {model.quick.filter(quick => homeSeeAllQuickOrder(quick.id, tv)).map(quick => <QuickToggle key={quick.id} checked={quick.active} onCheckedChange={checked => {
           const remaining = state.filters.filter(node => JSON.stringify(node) !== JSON.stringify(quick.query)); controller.setFilters(checked ? [...remaining, quick.query] : remaining);
         }}>{quick.label?.text ?? homeBrowseLabel(quick, labels)}</QuickToggle>)}
         {!tv && <View style={{marginLeft: 'auto'}}><ViewToggle value={view} onValueChange={setView}/></View>}
