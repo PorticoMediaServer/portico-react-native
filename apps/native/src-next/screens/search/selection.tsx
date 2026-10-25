@@ -32,6 +32,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: SearchEntry; group: SearchGroup}>();
   let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false;
   let pending: AbortController | undefined, batchGeneration = 0;
+  let stopPlayback: (() => void) | undefined;
   let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, stopPersonal: (() => void) | undefined;
   let personalController: AbortController | undefined, personalCurrent: (() => boolean) | undefined;
   const closePersonal = () => {personalController?.abort(); personalController = undefined; stopPersonal?.(); stopPersonal = undefined; personal?.dispose(); personal = undefined; personalCurrent = undefined;};
@@ -45,6 +46,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   };
   const reset = () => {
     batchGeneration++; closePersonal();
+    stopPlayback?.(); stopPlayback = undefined;
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
     model?.dispose(); model = undefined; windows.clear(); token = ''; emit();
   };
@@ -80,6 +82,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
       && keyFor(source.getSnapshot().search) === captured && context.navigation.getSnapshot().revision === route && contains(group, entry);
     try {
+      observePlayback();
       const port = context.playback.cataloguePlayback?.();
       const item = await readCatalogueSelectionItem({api: context.api, scope: authority.scope, requestId: feedback.requestId,
         signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl(), myList: true, favorite: true, watched: true});
@@ -177,15 +180,20 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     try {await personal.service.retry();}
     catch (error) {if (personalCurrent?.()) feedback.reportError(error, 'search');}
   };
-  let lastQueueControl = queueControl();
+  let lastQueueControl: boolean | undefined;
   const queueChanged = () => {
     const next = queueControl();
     if (next === lastQueueControl) return;
     lastQueueControl = next;
     pending?.abort(); emit();
   };
+  const observePlayback = () => {
+    if (stopPlayback) return;
+    lastQueueControl = queueControl();
+    stopPlayback = context.playback.subscribe(queueChanged);
+  };
   const off = [source.subscribe(reconcile), activation.subscribe(reconcile), context.subscribeAuthority(reconcile),
-    context.navigation.subscribe(() => {batchGeneration++; pending?.abort(); reconcile();}), context.playback.subscribe(queueChanged)];
+    context.navigation.subscribe(() => {batchGeneration++; pending?.abort(); reconcile();})];
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), personal: () => personal?.service.getSnapshot(), busy: () => !!pending || !!personal?.service.getSnapshot().busy, queueControl,

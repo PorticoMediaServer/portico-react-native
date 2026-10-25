@@ -76,7 +76,7 @@ async function setup() {
     subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
     preferences: () => tvPreferences(true), subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
     get home() {return unavailable();}, get events() {return unavailable();}, get appVersion() {return unavailable();}, get serverName() {return unavailable();},
-    playback: {getSnapshot: () => ({session: undefined}), subscribe: () => () => {}} as NativeShellBootstrapContext['playback'], get watch() {return unavailable();}, get account() {return unavailable();}, libraries: () => [],
+    get playback() {return unavailable();}, get watch() {return unavailable();}, get account() {return unavailable();}, libraries: () => [],
   };
   const {createNativeSearchController} = await screenModule(new URL('../src-next/screens/search/controller.ts', import.meta.url), {
     react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, './navigation': navigationPorts, './model': {NativeSearchDestination},
