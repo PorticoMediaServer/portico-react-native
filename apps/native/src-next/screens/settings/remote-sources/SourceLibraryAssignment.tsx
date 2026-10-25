@@ -14,14 +14,18 @@ type Props = {controller: NativeRemoteSourcesController; source: RemoteSource; f
   t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void};
 
 export function SourceLibraryAssignment(props: Props) {
-  const current = useAttempt(props.isCurrent), [service, setService] = useState<LibraryManagementService>();
+  const current = useAttempt(props.isCurrent), [service, setService] = useState<LibraryManagementService>(), [error, setError] = useState<string>();
   useEffect(() => {
-    const owned = props.controller.libraryAssignment(current); setService(owned); void owned.loadLibraries();
-    return () => owned.dispose();
+    if (!current()) return;
+    try {
+      const owned = props.controller.libraryAssignment(current); setService(owned); void owned.loadLibraries();
+      return () => owned.dispose();
+    } catch (problem) {if (current()) setError(remoteSourceError(props.t, problem));}
     // One service for this mounted assignment attempt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.controller]);
-  return service ? <Assignment {...props} service={service} isCurrent={current}/> : null;
+  return service ? <Assignment {...props} service={service} isCurrent={current}/>
+    : <Page title={props.t('next.remoteSources.attachTo')} t={props.t} busy={false} onCancel={props.onCancel} footer={null}><Problem message={error}/></Page>;
 }
 
 function Assignment({controller, source, folders, service, t, isCurrent, onCancel}: Props & {service: LibraryManagementService}) {
