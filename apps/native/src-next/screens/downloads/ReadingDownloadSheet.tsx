@@ -9,6 +9,7 @@ import {nativeRouteCrypto} from '../../platform/server-connections';
 import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
+import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
 import {createNativeDownloadsDevice} from './device';
 import {getNativeDownloadSnapshot, closeNativeDownload, type NativeDownloadRequest} from './request';
@@ -26,7 +27,7 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   const family = useMemo<Family>(() => ({retired: false}), [context, request]);
   const rendered = useRef(family);
   if (rendered.current !== family) {rendered.current.retired = true; rendered.current.active?.retire(); rendered.current = family;}
-  const [state, setState] = useState<State>({}), [retry, setRetry] = useState(0);
+  const [state, setState] = useState<State>({}), [retry, setRetry] = useState(0), [selected, setSelected] = useState<string>();
   useLayoutEffect(() => {
     const itemId = request.itemId;
     if (!itemId || !nativePublicationReadsAvailable()) return;
@@ -87,24 +88,54 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   };
   const shown: State = state.opening?.current() ? state : {};
   const blocked = shown.policy && !shown.policy.policy.allowDownloads;
+  // tablet-read12b: the same versions and real preparation, chosen before the one
+  // primary action. A side panel keeps the book visible on handheld tablets; the
+  // phone keeps its sheet. No recommended flag is published, so the first version
+  // the server lists as available is selected rather than claiming a recommendation.
+  const versions = shown.versions?.filter(value => value.format === 'epub' || value.format === 'pdf' || value.format === 'cbz') ?? [];
+  const opened = shown.opening;
+  const ready = (version: Version) => {
+    // A retained event must retire with its exact opening before touching the
+    // borrowed device; a stale opening's lease is already released.
+    if (!opened || !opened.current()) return false;
+    const policy = version.policy;
+    return !!policy && version.inventoryAvailable && policy.policy.allowDownloads && policy.source.available
+      && policy.options.some(value => value.quality === 'original' && value.available) && version.size > 0 && !shown.busy
+      && version.size <= opened.lease.device.getSnapshot().freeBytes
+      && (policy.storage.remainingBytes === undefined || policy.storage.remainingBytes === null || version.size <= policy.storage.remainingBytes);
+  };
+  // An explicit honest choice stays chosen even if it becomes unavailable; the
+  // primary action then disables instead of silently switching the format.
+  const selectedVersion = versions.find(value => value.sourceId === selected) ?? versions.find(ready) ?? versions[0];
+  const opening = shown.opening, freeBytes = opening?.lease.device.getSnapshot().freeBytes;
   return <BottomSheet open testID="native-reading-download-sheet" title={t('action.download')} description={request.title} fitContent
+    width={theme.platform === 'phone' ? undefined : 360}
     onOpenChange={open => {if (!open) close(shown.opening);}}>
     <View style={{gap: 12}}>
       {!shown.versions && shown.error === undefined && nativePublicationReadsAvailable() && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
-      {(!nativePublicationReadsAvailable() || shown.versions && !shown.versions.some(value => value.format === 'epub' || value.format === 'pdf' || value.format === 'cbz')) && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}/>}
+      {(!nativePublicationReadsAvailable() || shown.versions && !versions.length) && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}/>}
       {blocked && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{downloadReasonMessage(shown.policy!.policy.reason) || t('downloads.offForProfile')}</Text>}
       {shown.error !== undefined && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
         primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (shown.opening?.current() && !shown.opening.pending) setRetry(value => value + 1);}}}/>}
-      {shown.versions?.filter(value => value.format === 'epub' || value.format === 'pdf' || value.format === 'cbz').map(version => {
-        const opening = shown.opening, policy = version.policy;
-        const available = !!opening && !!policy && version.inventoryAvailable && policy.policy.allowDownloads && policy.source.available && policy.options.some(value => value.quality === 'original' && value.available) && version.size > 0 && !shown.busy && version.size <= opening.lease.device.getSnapshot().freeBytes && (policy.storage.remainingBytes === undefined || policy.storage.remainingBytes === null || version.size <= policy.storage.remainingBytes);
+      {versions.map(version => {
+        const available = ready(version), selectedVersionId = selectedVersion?.sourceId === version.sourceId;
         return <Focusable key={version.sourceId} testID={`reading-download-${version.sourceId}`} accessibilityRole="button" disabled={!available} focusKind="row" focusRadius={12}
-          onPress={() => {if (opening && policy) void choose(opening, version);}}
-          style={{minHeight: 64, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: available ? 1 : .5, backgroundColor: theme.colors.raised}}>
+          accessibilityState={{selected: selectedVersionId}}
+          onPress={() => {if (available) setSelected(version.sourceId);}}
+          style={{minHeight: 64, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: available ? 1 : .5,
+            backgroundColor: theme.colors.raised, borderWidth: selectedVersionId ? 1 : 0, borderColor: theme.colors.accent}}>
           <View><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{version.format.toUpperCase()}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></View>
-          <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(shown.busy === version.sourceId ? 'downloads.adding' : 'action.download')}</Text>
+          {selectedVersionId && <Icon name="i-check" size={20} color={theme.colors.text}/>}
         </Focusable>;
       })}
+      {freeBytes !== undefined && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(theme.platform === 'phone' ? 'next.saved.phone.free' : 'downloads.freeOnDevice', {size: downloadBytes(freeBytes)})}</Text>}
+      {!!selectedVersion && <Focusable testID="reading-download-primary" accessibilityRole="button" disabled={!ready(selectedVersion) || !!shown.busy}
+        onPress={() => {if (opened && ready(selectedVersion)) void choose(opened, selectedVersion);}}
+        style={{minHeight: 50, borderRadius: 12, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+          backgroundColor: ready(selectedVersion) && !shown.busy ? theme.colors.text : theme.colors.raisedBright, opacity: ready(selectedVersion) && !shown.busy ? 1 : .55}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.ink}]}>{t(shown.busy ? 'downloads.adding' : 'action.download')}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.ink}]}>{downloadBytes(selectedVersion.size)}</Text>
+      </Focusable>}
     </View>
   </BottomSheet>;
 }
