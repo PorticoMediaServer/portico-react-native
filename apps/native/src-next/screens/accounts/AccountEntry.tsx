@@ -550,7 +550,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   if (stage === 'address') {
     const ticket = nearbySource.current;
     const current = () => !!ticket?.active && nearbySource.current === ticket && lifetime.current && stageRef.current === 'address';
-    return layout(t('accounts.signIn.local'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), () => inspect(), !address.trim()),
+    return layout(t('accounts.signIn.local'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), async () => {await inspect();}, !address.trim()),
       <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
         {nearbyStatus === 'loading' && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
@@ -558,7 +558,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         {nearbyStatus === 'ready' && nearby.length === 0 && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('connection.discovery.empty')}</Text>}
         {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {
           if (!current() || busyRef.current) return;
-          setAddress(value.origin); void run(() => inspect(value.origin));
+          setAddress(value.origin); void run(async () => {await inspect(value.origin);});
         }}>{value.server.name}{value.server.setupRequired ? ' · ' + t('accounts.setup.confirmAction') : ''}</Button>
           <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}
         {nearbyStatus !== 'loading' && <Button variant="text" disabled={busy} onPress={() => {
