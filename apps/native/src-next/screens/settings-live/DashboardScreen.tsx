@@ -45,8 +45,8 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
   return <Screen style={theme.isTV ? {paddingTop: 56} : undefined}>
     <ServerBand viewerRole={role} audience="administrators"/>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
-      <TVServerPageMenu role={role} page="dashboard" serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
-        onSelect={page => {if (page !== 'dashboard') ports.context.navigation.open({kind: 'server-settings', page}, controller.lifetime.authority);}}/>
+      {theme.isTV && <TVServerPageMenu role={role} page="dashboard" serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
+        onSelect={page => {if (page !== 'dashboard') ports.context.navigation.open({kind: 'server-settings', page}, controller.lifetime.authority);}}/>}
       <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 80}} style={{flex: 1}}>
         {!theme.isTV && <Button variant="text" size="small" icon="i-left" onPress={() => ports.context.navigation.back(controller.lifetime.authority)}>{t('action.back')}</Button>}
         <View style={theme.isTV ? {height: 60, overflow: 'hidden'} : undefined}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience="administrators" facts={theme.isTV ? [] : facts}/></View>
