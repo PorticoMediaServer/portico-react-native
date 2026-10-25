@@ -9,6 +9,7 @@ import {Button, Chip, Focusable} from '../../../kit/controls';
 import {PosterCard, SquareCard} from '../../../kit/cards';
 import {Dialog, Menu} from '../../../kit/overlays';
 import {StateView} from '../../../kit/states';
+import {FocusRegion} from '../../../kit/focus';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
@@ -116,6 +117,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false);
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
+  const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const run = useCallback((work: Promise<unknown>) => {void work.catch(runtime.reportError);}, [runtime]);
   const started = useRef(false);
   useEffect(() => {if (started.current) return; started.current = true; run(controller.select(tab, {sort, filter, period})); run(controller.summary());}, [controller, filter, period, run, sort, tab]);
@@ -165,7 +167,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
           enabled regionId={ids.savedGrid} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
-      </View> : <>
+      </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 200, paddingTop: 24}}>
         {tab !== 'history' ? <>
           <Button ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
@@ -182,7 +184,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
       <View style={{paddingHorizontal: 200, paddingTop: 38, minHeight: 520}}>{body}</View>
-      </>}
+      </FocusRegion>}
     </ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
