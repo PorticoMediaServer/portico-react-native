@@ -126,17 +126,17 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     {discoveryState.phase === 'error' ? retry : null}
     {discoveryState.phase === 'loading' && !discoveryState.continueItems.length && !discoveryState.recent.length ? loading : null}
     {discoveryState.continueItems.length ? <DiscoveryRow first title={defaultI18n.t('next.cards.read')}>
-      {discoveryState.continueItems.map(row => <ReadResumeCard key={row.item.id} testID={`reading-continue-${row.item.id}`} width={tablet ? 360 : 296}
+      {discoveryState.continueItems.map(row => <ReadResumeCard key={row.item.id} testID={`reading-continue-${row.item.id}`} width={tablet ? 392 : 296} height={tablet ? 176 : 150}
         title={row.item.title} caption={authorPart(row.item)} detail={row.progress.location.section ? [{id: 'section', text: row.progress.location.section, role: 'context'}] : []}
         progress={Math.min(0.999, Math.max(0, row.progress.location.progression))} palette={tint(row.item.title)}
-        artworkFallback={<View accessible={false} importantForAccessibility="no-hide-descendants">{cover(row.item, 81, 122)}</View>}
+        artworkFallback={<View accessible={false} importantForAccessibility="no-hide-descendants">{cover(row.item, tablet ? 99 : 81, tablet ? 148 : 122)}</View>}
         onNavigate={() => openDiscover(row.item)}/>)}
     </DiscoveryRow> : null}
     {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
-      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 172 : 116} onOpen={openDiscover} onDownload={offerDownload}/>)}
+      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDownload}/>)}
     </DiscoveryRow> : null}
     {discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')} sub={defaultI18n.t('next.reader.underThreeHours')}>
-      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 172 : 116} onOpen={openDiscover} onDownload={offerDownload}
+      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDownload}
         detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
   </ScrollView>;
@@ -205,14 +205,16 @@ function DiscoveryRow({title, sub, first = false, onSeeAll, children}: {title: s
       </Focusable> : null}
     </View>
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{gap: 16, paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 14}}>{children}</ScrollView>
+      contentContainerStyle={{gap: theme.platform === 'phone' ? 16 : 14, paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 14}}>{children}</ScrollView>
   </View>;
 }
 
-/** One sparse-metadata cover: the drawn 116-wide 3:4 art with the title and
- * author under it, using the catalogue's canonical generated cover. */
+/** One sparse-metadata cover: the drawn portrait art with the title and author
+ * under it, using the catalogue's canonical generated cover. Books and comics
+ * are drawn 2:3; a magazine or newspaper issue is drawn 3:4. */
 function DiscoveryCoverCard({item, width, detail, onOpen, onDownload}: {item: ReadingItem; width: number; detail?: string; onDownload?: (item: ReadingItem) => void; onOpen: (item: ReadingItem) => void}) {
-  const theme = useTheme(), height = width * 4 / 3;
+  const theme = useTheme(), periodical = item.publicationType?.value === 'magazine' || item.publicationType?.value === 'newspaper';
+  const height = periodical ? width * 4 / 3 : width * 3 / 2;
   return <Focusable testID={`reading-item-${item.id}`} accessibilityRole="button" accessibilityLabel={detail ? `${item.title}. ${detail}` : item.title} focusKind="row"
     onPress={() => onOpen(item)} onLongPressAction={onDownload && nativePublicationReadsAvailable() ? () => onDownload(item) : undefined} style={{width}}>
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden'}}>{cover(item, width, height)}</View>
