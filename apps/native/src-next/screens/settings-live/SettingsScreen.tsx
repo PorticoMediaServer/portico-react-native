@@ -110,10 +110,10 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     const code = awayLimit && typeof awayLimit.effective === 'string' ? awayLimit.effective : undefined;
     if (!code) return undefined;
     const page = settingsSpec.find(value => value.id === 'quality' && value.scope === 'account');
-    const row = page?.sections.flatMap(section => section.rows).find(value => value.id === 'quality.remote');
+    const row = page?.groups?.flatMap(group => group.rows).find(value => value.id === 'quality.remote');
     const control = row && 'control' in row ? row.control : undefined;
-    const choice = control && control.type === 'choice' ? control.choices.find(value => String(value.value) === code) : undefined;
-    return choice ? t(choice.label, choice.labelValues) : undefined;
+    const choice = control && (control.type === 'select' || control.type === 'segmented') ? control.options?.find(value => String(value.value) === code) : undefined;
+    return choice ? t(choice.label) : undefined;
   }, [awayLimit, t]);
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
   const serverPages = useMemo(() => {
@@ -231,16 +231,16 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && matches.length > 0 && <Text testID="settings-search-count" style={[shellType(20, 600), {color: theme.colors.textTertiary, marginBottom: 18}]}>{t('next.shell.tvSettingsMatchCount', {count: matches.length})}</Text>}
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
-            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
+            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
             <Text testID="settings-search-help" style={[shellType(18, 400), {color: theme.colors.textTertiary, marginTop: 24}]}>{t('next.shell.tvSettingsSearchHelp')}</Text>
-          </> : <SettingsPageBody page={page} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={rows} column={column}/>}
+          </> : <SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} page={page} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={rows} column={column}/>}
         </ScrollView>}
       </View>}
     </View>
   </Screen>;
 }
 
-function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
+function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming}: {reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
   // The public browser handoff does not grant native password/two-step editing.
@@ -349,7 +349,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}
       {section.id === 'limits' && awayLimitLabel ? <>
         <SettingsRow testID="settings-away-limit" label={t('next.settingsSpec.account.quality.groups.0.rows.3.label')} description={t('next.settingsSpec.account.quality.groups.0.rows.3.help')} value={awayLimitLabel}/>
-        <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={() => choose('streaming')}/>
+        <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>
       </> : null}</View>
     </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <NativeLossNoticesRow context={ports.context} runtime={runtime}/>}
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
