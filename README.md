@@ -93,6 +93,10 @@ codesign -d --entitlements :- <Portico.app>
 phones, tablets, and Android TV. The `firetv` flavor builds the same app for
 Fire OS without Google services. Use Android Studio or Gradle from that folder.
 
+## Support and warranty
+
+Portico is provided **"AS IS", without warranty**, to the extent permitted by applicable law. Support is voluntary and not guaranteed, including responses, fixes, maintenance, and updates. See [SUPPORT.md](SUPPORT.md) and [LICENSE](LICENSE) for details.
+
 ## Feedback and contributions
 
 Bug reports and product feedback are welcome through [GitHub Issues](https://github.com/PorticoMediaServer/portico-react-native/issues). Portico does not accept external code contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).
