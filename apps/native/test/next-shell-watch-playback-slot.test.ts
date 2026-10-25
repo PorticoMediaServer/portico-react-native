@@ -7,6 +7,7 @@ import {nativeEqualizer} from '../src-next/platform/playback/equalizer.ts';
 import * as audioEffects from '../../../packages/client-core/src/audio-effects';
 import * as i18n from '../../../packages/i18n/src';
 import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
+import {nativeShellBackTransition} from '../src-next/shell/playback.ts';
 import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
@@ -71,7 +72,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../screens/destinations/music/MusicSignal': musicSignal,
     '../screens/destinations/music/signal-facts': signalFacts,
     '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': audioEffects,
-    './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout,
+    './model': {sameAuthority}, './playback': {nativeShellBackTransition}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout,
   });
   let runtime: any = {text: {}, reportError: (error: unknown) => {throw error;}, artwork: () => undefined, ambient: () => undefined, watch: withWatch ? canonical ?? outlet.source : undefined};
   const host = createHookHost(() => {tree = NativePlaybackLayer({adapter, runtime, authority}); if (tree) tree.props.ref.current = node;});
