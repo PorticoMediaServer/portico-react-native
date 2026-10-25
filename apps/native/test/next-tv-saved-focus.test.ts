@@ -7,8 +7,8 @@ function nodes(node: any): any[] {
   return node?.props ? [node, ...nodes(node.props.children)] : [];
 }
 
-test('TV Saved tabs have a mounted content target and return edges for every non-directory tab', async () => {
-  for (const tab of ['watchlist', 'favorites', 'history']) {
+test('TV Saved tabs have a mounted content target and return edges for every tab', async () => {
+  for (const tab of ['watchlist', 'favorites', 'history', 'playlists', 'collections', 'views']) {
     const host = hooks();
     let visible = true;
     const ids = {savedTabs: 'tabs', savedGrid: 'grid', rail: 'rail'};
@@ -34,14 +34,22 @@ test('TV Saved tabs have a mounted content target and return edges for every non
       squares: {sections: [{entries: [{id: 'song/1', kind: 'song', title: 'Song'}]}]},
     };
     const props = {
-      controller: {subscribe: () => () => {}, getSnapshot: () => snapshot},
+      controller: {subscribe: () => () => {}, getSnapshot: () => snapshot, source: () => ({})},
       activation: {subscribe: () => () => {}, getSnapshot: () => ({visible})},
-      runtime: {reportError: () => {}, text: {}, artwork: () => undefined}, actions: {isMenuOpen: () => false}, authority: {}, initialTab: tab,
+      runtime: {reportError: () => {}, text: {}, artwork: () => undefined, getSnapshot: () => ({libraries: []})}, actions: {isMenuOpen: () => false}, authority: {}, initialTab: tab,
       openSaved: () => {}, openEntry: () => {}, browseHome: () => {},
     };
     const render = () => nodes(host.render(() => TVSavedScreen(props as any)));
     const mounted = render();
     const tabs = mounted.find(node => node.type === 'SavedTVTabs');
+    const directory = mounted.find(node => node.type === 'SavedTVDirectory');
+    if (directory) {
+      assert.equal(tabs.props.contentRegionId, directory.props.regionId);
+      assert.equal(directory.props.enabled, true);
+      visible = false;
+      assert.equal(render().find(node => node.type === 'SavedTVDirectory').props.enabled, false);
+      continue;
+    }
     const region = mounted.find(node => node.type === 'FocusRegion');
     assert.equal(tabs.props.contentRegionId, region.props.id, tab);
     assert.deepEqual(region.props.edges, {up: ids.savedTabs, left: ids.rail});

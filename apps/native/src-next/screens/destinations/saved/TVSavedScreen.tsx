@@ -165,7 +165,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       </View>
       {directoryView ? <View style={{height: 860, paddingTop: 12}}>
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
-          enabled regionId={ids.savedGrid} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
+          enabled={active.visible} regionId={ids.savedGrid} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
       </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 200, paddingTop: 24}}>
