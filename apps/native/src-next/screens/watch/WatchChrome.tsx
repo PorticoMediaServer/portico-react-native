@@ -179,8 +179,9 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     <View style={{position: 'absolute', inset: 0, backgroundColor: '#04090d80'}}/>
   </View>;
   const big = theme.isTV ? 88 : compact ? 58 : 74, small = theme.isTV ? 64 : compact ? 46 : 58;
-  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
-    focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: primary ? big : small, height: primary ? big : small, borderRadius: (primary ? big : small) / 2}} iconSize={primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
+  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
+    focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
+    iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
   const skip = (forward: boolean) => <Focusable focusId={forward ? 'watch-skip-forward' : 'watch-skip-back'} testID={forward ? 'watch-skip-forward' : 'watch-skip-back'} focusable={visible} disabled={!visible || !source.capabilities.seek} accessibilityRole="button"
     accessibilityLabel={t(forward ? 'player.skipForwardSeconds' : 'player.skipBackSeconds', {seconds: forward ? props.skipForwardSeconds : props.skipBackSeconds})}
     onPress={() => act(expected => playback.skip(expected, forward ? props.skipForwardSeconds : -props.skipBackSeconds))}
@@ -212,14 +213,14 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const hint = (index: number, cap: React.ReactNode, text: string) => <View key={text} style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginLeft: index ? 26 : 0}}>{cap}
     <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 20, fontWeight: '600', color: theme.colors.textTertiary}}>{text}</Text></View>;
   const transport = <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 20 : compact ? 12 : 38}}>
-    {queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous)}
+    {queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, theme.isTV || compact ? undefined : 46)}
     {skip(false)}
     <Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
       accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={theme.isTV && visible}
       focusable={visible} disabled={!visible || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
       style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : 28}/>
     {skip(true)}
-    {queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next)}
+    {queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, theme.isTV || compact ? undefined : 46)}
   </View>;
   // tv-player 3 / phone-player 2: the same prompt, notice and offer on a phone,
   // where the controls may be down and the note's line rides its bottom edge.
