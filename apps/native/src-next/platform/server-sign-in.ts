@@ -20,6 +20,7 @@ import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
 import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
+import {requestOwnerResetFile, verifyOwnerResetFile} from '../../../../packages/client-core/src/account-reset';
 import {createNativeSetupClaim} from './setup-claim';
 import {nativeSetupDraft} from './setup-draft';
 import type {HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
@@ -51,6 +52,8 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
+  private ownerResetReady = false;
+  private ownerResetGrant?: Extract<DirectSignIn, {kind: 'signed-in'}>;
   private hostedSetup?: ReturnType<typeof createNativeSetupClaim>;
   private hostedLease?: () => boolean;
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
@@ -206,6 +209,69 @@ export class NativeServerSignIn {
         return accepted;
       } catch (error) {await this.retire(result.session); throw error;}
       } catch (error) {await completed.release(); throw error;}
+    });
+  }
+  prepareOwnerReset() {
+    return this.run(async () => {
+      const server = this.server, origin = this.probe.getSnapshot().origin;
+      if (!server || server.setupRequired || server.signIn !== 'portico' || !origin || this.api) throw mismatch();
+      const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
+      if (pin.serverId !== server.id) throw mismatch();
+      assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
+      const captured = await this.owner.admission('local'); this.assertCurrent();
+      const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
+      this.api = connected.api; this.assertCurrent();
+      this.server = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'portico', signal: this.controller.signal, isCurrent: this.current});
+      this.assertCurrent(); if (this.server.setupRequired) throw mismatch();
+      this.admission = {signIn: 'portico', resetFileOwner: true, expectedRevision: captured.expectedRevision};
+      this.ownerResetReady = true;
+    });
+  }
+  requestOwnerReset() {
+    return this.run(async () => {
+      if (!this.ownerResetReady || !this.api || this.ownerResetGrant) throw mismatch();
+      const location = await requestOwnerResetFile(this.api, undefined, this.controller.signal); this.assertCurrent(); return location;
+    });
+  }
+  verifyOwnerReset(code: string) {
+    return this.run(async () => {
+      const api = this.api, server = this.server, routes = api?.getRouteConnection();
+      if (!this.ownerResetReady || !api || !server || !routes || this.ownerResetGrant) throw mismatch();
+      const original = {origin: api.baseUrl, routes, pin: {...routes.pin}};
+      const before = await nativeAppSessions.read(); this.assertCurrent();
+      const result = await verifyOwnerResetFile(api, code, false, this.controller.signal);
+      if (result.kind !== 'signed-in' || !result.resetFileOwnerSession || result.passwordChangeRequired || result.accountScoped
+        || result.session.refreshToken || result.session.viewer.serverId !== server.id || result.session.viewer.role !== 'owner'
+        || result.session.installationId !== this.installation?.installationId || Date.parse(result.session.expiresAt) <= Date.now()
+        || result.session.serverIdentity?.publicKey !== original.pin.publicKey || result.session.serverIdentity.fingerprint !== original.pin.fingerprint
+        || result.snapshot.account.role !== 'owner' || result.snapshot.account.disabled || !result.snapshot.capabilities.manageServer
+        || result.snapshot.account.primaryProfileId !== result.session.viewer.profileId
+        || before.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) throw mismatch();
+      let handed = false;
+      try {
+        const current = await nativeAppSessions.read();
+        if (current.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) throw mismatch();
+        this.setupIssuers.set(result.session.sessionFamilyId, original); this.issued.set(result.session.sessionFamilyId, result.session); handed = true;
+        this.assertCurrent(); this.ownerResetGrant = result;
+      } catch (error) {
+        if (handed) await this.retire(result.session);
+        else {
+          // Cleanup belongs to this original issuer only. A concurrent retained
+          // family is never revoked, even when this opening was cancelled.
+          const current = await nativeAppSessions.read();
+          if (!current.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) {
+            const cleanup = new HttpLocalApi(original.origin, result.session.accessToken, nativeNetworkFetch); cleanup.useRoutes(original.routes); await cleanup.logout();
+          }
+        }
+        throw error;
+      }
+    });
+  }
+  acceptOwnerReset() {
+    return this.run(async () => {
+      const grant = this.ownerResetGrant;
+      if (!grant || !this.ownerResetReady) throw mismatch();
+      this.ownerResetGrant = undefined; return this.consume(grant);
     });
   }
   inspectLocalIdentity(): Promise<ServerPin> {
@@ -590,6 +656,6 @@ export class NativeServerSignIn {
     this.probe.dispose(); this.unfence();
     const routes = this.api?.getRouteConnection();
     void Promise.resolve(this.running).catch(() => {}).then(() => Promise.allSettled([...this.issued.values()].map(session => this.retire(session)))).finally(() => routes?.dispose());
-    this.account = undefined; this.snapshot = undefined; this.challenge = undefined;
+    this.ownerResetGrant = undefined; this.account = undefined; this.snapshot = undefined; this.challenge = undefined;
   }
 }
