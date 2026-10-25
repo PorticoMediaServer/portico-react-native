@@ -153,6 +153,7 @@ export class NativeSetupClaim {
       await this.current(pending, operation);
       const beforeURL = pending, withURL = {...pending, approvalURL: url};
       await this.ports.journal.change(old => {if (!operation.current() || !same(old, beforeURL)) throw cancelled(); return withURL;});
+      await this.current(withURL, operation);
       return url;
     } finally {this.busy = false;}
   }
