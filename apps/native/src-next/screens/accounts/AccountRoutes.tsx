@@ -88,7 +88,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   const [addOpen, setAddOpen] = useState(false), [addName, setAddName] = useState('');
   const [actionBusy, setActionBusy] = useState(false), [problem, setProblem] = useState(''), [notice, setNotice] = useState('');
   const [lease, setLease] = useState<ProfileLease>();
-  const activeTicket = useRef<AbortController>();
+  const activeTicket = useRef<AbortController | undefined>(undefined);
   const selection = useRef<ReturnType<typeof nativeProfileSelection> | undefined>(undefined), alive = useRef(true), starting = useRef(false);
   useLayoutEffect(() => {
     const session = context.session(), lifetime = new NativeScreenLifetime(context), live = {value: true};
@@ -137,7 +137,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   const scopedIdentity = (ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket), profileAvatarUpload(scopedRaw(ticket)));
   const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller}), profileAvatarUpload(scopedRaw({lease: lease!, controller}))), [context, lease]);
   const [avatars, setAvatars] = useState<readonly ProfileAvatar[]>([]);
-  const avatarsLease = useRef<ProfileLease>();
+  const avatarsLease = useRef<ProfileLease | undefined>(undefined);
   useEffect(() => {
     if (!lease || !lease.current()) {avatarsLease.current = undefined; setAvatars([]); return;}
     const controller = new AbortController(), identity = scopedIdentity({lease, controller});
@@ -339,7 +339,7 @@ type ProfileLimitsOwner = {
 function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
   const theme = useTheme();
   const [owner, setOwner] = useState<ProfileLimitsOwner>();
-  const ownerRef = useRef<ProfileLimitsOwner>();
+  const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
   const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
   const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profile.id
