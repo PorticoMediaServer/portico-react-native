@@ -14,6 +14,7 @@ import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
 import {ConnectionEditor, DisconnectEditor, ReadingEditor, Page, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
 
+import {SourceStatusPanel} from './SourceStatusPanel';
 import {AccountConfigEditor} from './AccountConfigEditor';
 import {ImportedSourceEditor} from './ImportedSourceEditor';
 
@@ -79,6 +80,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     {needsReceipt && <Button disabled={state.busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>}
     {(state.error || error) && <StateView title={error ?? remoteSourceError(t, {code: state.errorCode})} tone="error"/>}
     {selected ? <>
+      <SourceStatusPanel key={`${selected.id}:${selected.generation}`} controller={controller} source={selected} isCurrent={isCurrent} t={t}/>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), selected)}</Text>
       {!!selected.origin && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{selected.origin}</Text>}
       <Button variant="text" onPress={close}>{t('next.remoteSources.back')}</Button>

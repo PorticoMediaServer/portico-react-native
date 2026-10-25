@@ -101,6 +101,15 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     finally {if (!this.allowed()) this.dispose();}
   }
 
+  async sourceStatus(source: RemoteSource, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.readStatus(source.id, guard);
+    this.assertAllowed();
+    if (!guard() || result.generation !== String(source.generation)) throw screenScopeEnded();
+    return result;
+  }
+
   async importedFacts(guard: () => boolean) {
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
