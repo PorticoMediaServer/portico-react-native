@@ -27,7 +27,16 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const windowFrame = useMemo(() => ({x: 0, y: 0, width, height}), [width, height]);
   const currentWindow = useRef(window), currentWatch = useRef(watch); currentWindow.current = window; currentWatch.current = watch;
   const local = snapshot.dock.local, docked = !!local && !local.expanded;
-  const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
+  const fence = snapshot.fence;
+  const [dockMeasurement, setDockMeasurement] = useState<Readonly<{fence: PlaybackFence; bounds: NativeShellBounds}>>();
+  // A docked picture is only real at a slot measured for THIS fence. An old
+  // slot or the full-window fallback must never stand in for current geometry.
+  const dockSlot = dockMeasurement && fence && sameFence(dockMeasurement.fence, fence) ? dockMeasurement.bounds : undefined;
+  // Only the current occupant's own video/live item has a picture. Audio and an
+  // empty dock keep the SAME mounted Surface, ref and owner (unmounting disposes
+  // the runtime), but they have no picture to paint, measure, produce or drag.
+  const pictureFence = fence && local && sameFence(local.fence, fence) && (local.kind === 'video' || local.kind === 'live')
+    && (!docked || dockSlot !== undefined) ? fence : undefined;
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
   const watchRevision = useRef(0), lastExpandedFrame = useRef<NativeShellBounds | undefined>(undefined);
   const [expandedMeasurement, setExpandedMeasurement] = useState<Readonly<{reader: NativeWatchReader; slot: NativeExpandedVideoSlot; host: View; bounds: NativeShellBounds}>>();
@@ -116,7 +125,9 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       if (!alive.current || dockX.value !== 0 || dockFade.value !== 1 || host.current !== node || revision !== slotRevision.current || !sameAuthority(current.authority, authority)
         || !sameFence(current.fence, source) || !Number.isFinite(x) || !Number.isFinite(y)) return;
       const next = {...bounds, x: bounds.x - x, y: bounds.y - y};
-      setDockBounds(previous => previous && Object.keys(next).every(key => previous[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds]) ? previous : next);
+      setDockMeasurement(previous => previous && sameFence(previous.fence, source)
+        && Object.keys(next).every(key => previous.bounds[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds])
+        ? previous : {fence: source, bounds: next});
     });
   }, [adapter, authority, dockX, dockFade]);
   const measureExpandedSlot = useCallback(() => {
@@ -137,7 +148,6 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? dockFade.value : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;
-  const fence = snapshot.fence;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
   const imageSettled = (state: 'ready' | 'failed') => {
     const current = adapter.getSnapshot();
@@ -149,12 +159,12 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, capabilities: snapshot.capabilities} : undefined;
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
-      <PlayerMorph controller={morph} fence={fence} docked={docked} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
-        onPresentationChange={onPresentationChange} prepareLayout={prepareLayout} retainedSnapshot={image ? {fence: image.fence, ready: imageState?.image === image && imageState.state === 'ready',
+      <PlayerMorph controller={morph} fence={pictureFence} docked={docked} fullFrame={fullFrame} dockFrame={dockSlot ?? fullFrame}
+        onPresentationChange={onPresentationChange} prepareLayout={prepareLayout} retainedSnapshot={pictureFence && image ? {fence: image.fence, ready: imageState?.image === image && imageState.state === 'ready',
           failed: imageState?.image === image && imageState.state === 'failed', image: <Image source={{uri: image.image.uri}} onLoad={() => imageSettled('ready')} onError={() => imageSettled('failed')} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
-        {context => <Surface dockBounds={dockBounds ? context.bounds : undefined} expandedBounds={expandedReady ? context.bounds : undefined} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={context.surfaceActive}/>}
+        {context => <Surface dockBounds={pictureFence && dockSlot ? context.bounds : undefined} expandedBounds={pictureFence && expandedReady ? context.bounds : undefined} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={!!pictureFence && context.surfaceActive}/>}
       </PlayerMorph>
-      {fence && local?.expanded && !theme.isTV && expandedReady && <GestureDetector gesture={morph.gesture}>
+      {pictureFence && local?.expanded && !theme.isTV && expandedReady && <GestureDetector gesture={morph.gesture}>
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={watch ? {position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height} : {position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>

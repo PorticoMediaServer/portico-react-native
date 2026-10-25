@@ -545,3 +545,69 @@ test('a standalone morph consumer keeps local bar movement without a hosted pict
     assert.equal(chrome.transform[0].translateX, 300);
   } finally {r.close();}
 });
+const picturePropsOf = (r: any) => elements(r.tree).find(node => node.type?.name === 'PlayerMorph').props;
+const surfaceIn = (r: any) => elements(r.pictureTree).find(node => node.type === r.Surface);
+test('audio playback paints no picture or full-window gesture while the same mounted Surface stays present', async () => {
+  for (const docked of [true, false]) {
+    const r = await rig({docked, kind: 'music'});
+    try {
+      await r.render();
+      const props = picturePropsOf(r);
+      assert.equal(props.fence, undefined, `docked=${docked}: audio has no picture fence`);
+      const surface = surfaceIn(r);
+      assert.ok(surface, 'the one Surface stays mounted for video↔audio');
+      assert.strictEqual(surface.type, r.Surface);
+      assert.equal(surface.props.dockBounds, undefined, 'audio never receives measured picture bounds');
+      assert.equal(surface.props.expandedBounds, undefined);
+      assert.equal(surface.props.surfaceActive, false, 'audio never receives a producer composition');
+      assert.ok(!elements(r.tree).some(node => node.type === 'GestureDetector'), 'audio never owns the full-window picture drag');
+    } finally {r.close();}
+  }
+});
+test('video → audio → video keeps one Surface and paints only the current video at its measured slot', async () => {
+  const r = await rig({docked: true, kind: 'video', reduced: true});
+  try {
+    await r.render();
+    assert.equal(picturePropsOf(r).fence, undefined, 'an unmeasured dock never falls back to a full-window picture');
+    assert.equal(surfaceIn(r).props.dockBounds, undefined);
+    await r.layout();
+    assert.ok(sameFence(picturePropsOf(r).fence, fence));
+    assert.deepEqual(picturePropsOf(r).dockFrame, {x: 24, y: 700, width: 80, height: 45});
+    assert.ok(surfaceIn(r).props.dockBounds, 'docked video paints inside its measured slot');
+    r.dock.start({fence: {...fence, itemId: 'song', entryId: 'song'}, kind: 'music', queue: null, positionSeconds: 0, playing: true, expanded: false});
+    await r.render();
+    assert.equal(r.dock.getSnapshot().local?.kind, 'music');
+    assert.equal(picturePropsOf(r).fence, undefined, 'audio has no picture even with a previous real dock slot');
+    assert.strictEqual(surfaceIn(r).type, r.Surface);
+    assert.equal(surfaceIn(r).props.dockBounds, undefined);
+    assert.equal(surfaceIn(r).props.surfaceActive, false);
+    r.dock.start({...initial, expanded: false});
+    await r.render();
+    assert.ok(sameFence(picturePropsOf(r).fence, fence), 'the returning video paints again');
+    assert.strictEqual(surfaceIn(r).type, r.Surface, 'one Surface component throughout');
+    assert.deepEqual(picturePropsOf(r).dockFrame, {x: 24, y: 700, width: 80, height: 45}, 'the returning video reuses its current fence slot');
+  } finally {r.close();}
+});
+test('docked video needs a current-fence measured slot, and expansion only ever uses the current video', async () => {
+  const r = await rig({docked: true, kind: 'video', reduced: true});
+  try {
+    assert.equal(picturePropsOf(r).fence, undefined);
+    await r.layout();
+    assert.ok(sameFence(picturePropsOf(r).fence, fence));
+    r.dock.expand(fence);
+    await r.render();
+    assert.ok(sameFence(picturePropsOf(r).fence, fence), 'expanded video keeps its current picture');
+    assert.ok(elements(r.tree).some(node => node.type === 'GestureDetector'), 'expanded video keeps the real full-window gesture');
+    const replacement = {...initial, fence: {...fence, sourceId: 'replacement', generation: 2}, expanded: false};
+    r.dock.start(replacement);
+    await r.render();
+    const current = r.dock.getSnapshot().local!;
+    assert.ok(!sameFence(current.fence, fence));
+    if (picturePropsOf(r).fence !== undefined) {
+      assert.ok(sameFence(picturePropsOf(r).fence, current.fence), 'a picture is fenced to the source that measured it');
+      assert.notDeepEqual(picturePropsOf(r).dockFrame, undefined);
+    }
+    await r.layout();
+    assert.ok(sameFence(picturePropsOf(r).fence, current.fence), 'the replacement measures its own dock slot');
+  } finally {r.close();}
+});
