@@ -347,6 +347,7 @@ export class NativePlaybackRuntime {
     this.channelControl?.close(); this.channelControl = undefined;
     this.channelCleanup?.(); this.channelCleanup = undefined;
     this.channel = undefined;
+    this.channelGuide = undefined;
     this.transitionEpoch = undefined; this.preparing = false;
     this.expandAtStart = undefined;
     return epoch;
@@ -508,10 +509,9 @@ export class NativePlaybackRuntime {
         epoch = this.beginOperation(scoped.signal);dispatching = true;
         await this.queue.cancel();if (!current()) return;
       }
-      this.channelGuide = origin ? Object.freeze({row: origin.row, options: Object.freeze({...origin.options})}) : undefined;
       this.rememberCurrent(); this.channel = undefined; this.expanded = true;
       await this.openChannel({kind: source.provenance, sourceId: source.id, channelId: input.channelId, generation: source.generation}, epoch, scoped.signal, current, 'playing');
-      if (current()) this.changed();
+      if (current()) {this.channelGuide = origin ? Object.freeze({row: origin.row, options: Object.freeze({...origin.options})}) : undefined;this.changed();}
     } catch (error) {
       if (current()) {if (dispatching) {this.playback.leave(); this.changed();} throw error;}
     } finally {scoped.close();}
@@ -1185,7 +1185,8 @@ export class NativePlaybackRuntime {
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
       ...(fence?.kind === 'channel' && this.channelGuide && legacyChannel(this.channelGuide.row)?.id === fence.channelId
-        && legacyChannel(this.channelGuide.row)?.sourceId === fence.sourceId && legacyChannel(this.channelGuide.row)?.generation === fence.channelGeneration ? {channelGuide: this.channelGuide} : {}),
+        && legacyChannel(this.channelGuide.row)?.sourceId === fence.sourceId && legacyChannel(this.channelGuide.row)?.provenance === fence.channelKind
+        && legacyChannel(this.channelGuide.row)?.generation === fence.channelGeneration ? {channelGuide: this.channelGuide} : {}),
       startFailure: this.startFailure, capacityWait: this.capacityWait,
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,

@@ -161,7 +161,7 @@ export class NativeTVLiveGuide {
       if (!current()) return;
       this.context.navigation.replaceChannel(opening.route, {kind: 'channel', sourceId: raw.sourceId, channelId: raw.id,
         guide: Object.freeze({row: target, options: opening.origin.options}), tune: {fence: opening.fence, sourceGeneration: raw.generation}}, opening.authority);
-    } catch (error) {if (current()) {this.publish({...this.state, error});throw error;}}
+    } catch (error) {if (current()) this.publish({...this.state, error});}
     finally {
       opening.controller.signal.removeEventListener('abort', stop);
       if (this.command === command) {this.command = undefined;opening.busy = false;if (this.current(opening)) this.publish({...this.state, busy: false});}
