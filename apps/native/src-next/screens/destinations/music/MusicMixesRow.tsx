@@ -1,11 +1,11 @@
-import React, {useEffect, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Artwork} from '../../../kit/artwork';
 import {Focusable} from '../../../kit/controls';
 import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
-import type {NativeMusicMixRow, NativeMusicMixesPort} from './mixes';
+import type {NativeMusicMixRow, NativeMusicMixesCaller, NativeMusicMixesPort} from './mixes';
 
 const t = defaultI18n.t;
 
@@ -39,14 +39,27 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
 }
 
 /** Mixes for you: the server's own profile row, absent until it has something real to draw. */
-export function MusicMixesRow({port, artwork, reportError, title = t('music.mixesForYou'), onOpen, marginHorizontal}: {
+export function MusicMixesRow({port, artwork, reportError, title = t('music.mixesForYou'), onOpen, marginHorizontal, active = true}: {
   port: NativeMusicMixesPort; artwork: (path: string | undefined) => React.ComponentProps<typeof Artwork>['source'];
-  reportError: (error: unknown) => void; title?: string; onOpen?: () => void; marginHorizontal?: number;
+  reportError: (error: unknown) => void; title?: string; onOpen?: () => void; marginHorizontal?: number; active?: boolean;
 }) {
   const theme = useTheme(), snapshot = useSyncExternalStore(port.subscribe, port.getSnapshot);
+  const revision = useSyncExternalStore(port.subscribeRevision, port.getRevision);
+  const [caller, setCaller] = useState<NativeMusicMixesCaller | null>(null);
+  // The row holds the route and revision that committed it. A push or Back renews the lease,
+  // and while the route is not Home or Discover no lease exists, so a retained hidden card
+  // can never borrow the new route's caller.
+  useLayoutEffect(() => {
+    const captured = active ? port.captureCaller() : undefined;
+    setCaller(captured ?? null);
+    return () => {captured?.dispose();};
+  }, [port, revision, active]);
   useEffect(() => {if (snapshot.phase === 'idle') void port.load().catch(() => {});}, [port, snapshot.phase]);
   if (snapshot.phase !== 'ready' || !snapshot.rows.length) return null;
-  const play = (row: NativeMusicMixRow) => {void port.play(row).catch(error => reportError(error));};
+  const play = (row: NativeMusicMixRow) => {
+    if (!caller) return;
+    void port.play(row, caller.lifetime).catch(error => reportError(error));
+  };
   return <View testID="music-mixes-row" style={{marginTop: theme.isTV ? 30 : theme.layoutMode === 'phone' ? 28 : 26}}>
     {onOpen ? <Focusable focusId="music-mixes-open" testID="music-mixes-open" accessibilityRole="button" accessibilityLabel={title} onPress={onOpen}
       style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12}}>
