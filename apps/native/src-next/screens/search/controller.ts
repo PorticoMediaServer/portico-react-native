@@ -15,8 +15,18 @@ export function createNativeSearchController(context: NativeShellBootstrapContex
   let disposed = false, remember = nativeSearchRememberHistory(context);
   const current = () => !disposed && lifetime.current() && retained();
   const visible = () => current() && context.navigation.getSnapshot().route === target;
+  // The route's own query is copied once into the draft; later edits never write back to it.
   const source = new NativeSearchDestination({api: context.api, scope: lifetime.scope, current,
+    initialQuery: target.destination.query,
     rememberHistory: () => nativeSearchRememberHistory(context), reportError: error => {if (current()) common.reportError(error, 'search');}});
+  let seeded = false;
+  const seed = () => {
+    if (seeded || !visible()) return;
+    const state = source.getSnapshot();
+    seeded = true;
+    if (!state.text.trim() || state.problem || state.search.phase !== 'idle') return;
+    void source.commit().catch(error => {if (current()) common.reportError(error, 'search');});
+  };
   const listeners = new Set<() => void>(), cleanups: (() => void)[] = [];
   let previous: ReturnType<typeof context.navigation.getSnapshot> | undefined, previousCurrent: boolean | undefined;
   let snapshot: ReturnType<NativeDestinationActivationPort['getSnapshot']>;
@@ -49,5 +59,5 @@ export function createNativeSearchController(context: NativeShellBootstrapContex
     void source.refreshHistory();
   }));
   if (!visible()) source.pause();
-  return Object.freeze({source, activation, load: () => visible() ? source.refreshHistory() : Promise.resolve(), dispose});
+  return Object.freeze({source, activation, load: () => visible() ? source.refreshHistory() : Promise.resolve(), seed, dispose});
 }

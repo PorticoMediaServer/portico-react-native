@@ -38,6 +38,8 @@ export type NativeTitleScreenProps = Readonly<{
   aboutLabel: string;
   /** The saved server display for a named gone-title state; never a synthesized name. */
   serverName?: string;
+  /** One ordinary Search route seeded with the captured title; absent when no producer exists. */
+  search?: (query: string) => void;
   /** A real native download action, absent on a server/device where it is not offered. */
   download?: (entry: ContentEntry) => void;
   /** A registered person route, where the shell has one. */
@@ -152,7 +154,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       return <View style={{flex: 1}}>
         <StateLayout testID="watch-title-removed" icon="i-not" contentTop={250} backdropHeight={420}
           title={t('next.states.removed', {title: captured, server: props.serverName})}
-          body={t('next.states.removedBody')}/>
+          body={t('next.states.removedBody')}
+          primaryAction={props.search ? {id: 'search', label: t('next.states.searchTitle', {title: captured}), icon: 'i-search', onPress: () => props.search?.(captured)} : undefined}/>
         {header}
       </View>;
     }

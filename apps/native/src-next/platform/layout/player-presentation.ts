@@ -85,29 +85,20 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
     return {...common, mode: 'watch', surface, picture: surface, controls: panelOpen ? undefined : surface,
       content: sheet, ...(panelOpen ? {panel: sheet} : {})};
   }
-  if (panelOpen && fold?.orientation === 'vertical') {
-    // Q7: the right page exactly, so the divider is the crease; a flat crease does
-    // not split the unpanelled player. The picture keeps playing on the left page.
-    const page = rect(0, 0, fold.bounds.left, height);
-    return {...common, mode: 'full-window', surface: page, picture: letterboxPlayerPicture(page), hideStatusBar: true, controlsHidden: true,
-      panel: rect(fold.bounds.right, 0, width - fold.bounds.right, height)};
-  }
-  if (panelOpen && width < 900) {
-    // phone-player3: the panel floats 52 in from the right edge, 12 top and bottom,
-    // over the picture that keeps playing across the whole window. It is not a
-    // column: the surface is never re-cropped to the panel's left.
-    const panelWidth = Math.min(356, Math.max(0, width - 52));
-    return {...common, mode: 'full-window', surface: whole, picture: letterboxPlayerPicture(whole), hideStatusBar: true, controlsHidden: true,
-      panel: rect(width - 52 - panelWidth, 12, panelWidth, Math.max(0, height - 24))};
-  }
+  let surface = whole, panel: PlayerRect | undefined;
   if (panelOpen) {
-    // Q7/tablet-play2: the unhinged full-window panel is380pt, the picture beside it.
-    if (width <= 380) return;
-    const surface = rect(0, 0, width - 380, height);
-    return {...common, mode: 'full-window', surface, picture: letterboxPlayerPicture(surface), hideStatusBar: true, controlsHidden: true,
-      panel: rect(width - 380, 0, 380, height)};
+    if (fold?.orientation === 'vertical') {
+      // Q7: the right page exactly; a flat crease does not split the unpanelled player.
+      surface = rect(0, 0, fold.bounds.left, height);
+      panel = rect(fold.bounds.right, 0, width - fold.bounds.right, height);
+    } else {
+      // Q7/tablet-play2: the unhinged full-window panel is380pt.
+      if (width <= 380) return;
+      surface = rect(0, 0, width - 380, height); panel = rect(width - 380, 0, 380, height);
+    }
   }
-  return {...common, mode: 'full-window', surface: whole, picture: letterboxPlayerPicture(whole), controls: whole, hideStatusBar: true};
+  return {...common, mode: 'full-window', surface, picture: letterboxPlayerPicture(surface), controls: panelOpen ? undefined : surface,
+    panel, hideStatusBar: true, controlsHidden: panelOpen};
 }
 
 function geometryKey(input: PlayerPresentationInput): string {

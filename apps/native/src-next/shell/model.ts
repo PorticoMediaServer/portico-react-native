@@ -5,8 +5,10 @@ import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../screens/read/pl
 export type ShellScope = Readonly<{serverId: string; accountId: string; profileId: string}>;
 export type ShellAuthority = ShellScope & Readonly<{epoch: string; viewerFence: string}>;
 export type ShellDestination = Readonly<
-  {kind: 'home' | 'search' | 'libraries' | 'live' | 'saved' | 'settings'} |
-  {kind: 'library'; libraryId: string}
+  | {kind: 'home' | 'libraries' | 'live' | 'saved' | 'settings'}
+  /** An optional initial query seeds one ordinary Search route; the screen owns later edits. */
+  | {kind: 'search'; query?: string}
+  | {kind: 'library'; libraryId: string}
 >;
 export type ShellTab = Readonly<{id: 'home' | 'search' | 'libraries' | 'live' | 'saved'; icon: IconName; message: 'web.shell.home' | 'web.shell.search' | 'pins.libraries' | 'search.chip.liveTV' | 'saved.title'}>;
 

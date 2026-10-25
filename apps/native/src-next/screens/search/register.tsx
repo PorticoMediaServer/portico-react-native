@@ -1,4 +1,4 @@
-import React, {useSyncExternalStore} from 'react';
+import React, {useEffect, useSyncExternalStore} from 'react';
 import {Platform, View} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -99,6 +99,9 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
 function SearchHost({entry, runtime}: {entry: Root; runtime: NativeShellRuntime}) {
   const active = useSyncExternalStore(entry.search.activation.subscribe, entry.search.activation.getSnapshot);
   useSyncExternalStore(entry.selection.subscribe, entry.selection.getSnapshot);
+  // The captured-route query starts the ordinary search only after the screen is actually
+  // visible; the controller seeds the draft, never a render-created request.
+  useEffect(() => {if (active.visible) entry.search.seed();}, [active.visible, entry]);
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: active.visible ? 'flex' : 'none'}}>
     <SearchScreen destination={entry.search.source} activation={entry.search.activation} explore={entry.explore} actions={entry.actions} selection={entry.selection} runtime={runtime}

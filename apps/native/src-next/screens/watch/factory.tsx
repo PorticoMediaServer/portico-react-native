@@ -83,7 +83,7 @@ export type NativeWatchFactoryPorts = Readonly<{
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination) => void;
   openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
-  title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate' | 'person' | 'owner' | 'openCollection' | 'serverName'> & Readonly<{
+  title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate' | 'person' | 'owner' | 'openCollection' | 'serverName' | 'search'> & Readonly<{
     myList?: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
     download?: NativeTitleScreenProps['download'];
     menu?: NativeTitleScreenProps['menu'];
@@ -248,12 +248,21 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {
       if (!alive() || route.kind !== 'title') return null;
-      const key = titleKey(route.entry);
+      const key = titleKey(route.entry), navigation = ports.navigation.getSnapshot();
       let controller = controllers.get(key);
       if (!controller) {
         controller = createTitleController(key, route.entry);
       }
-      return <NativeTitleScreen {...ports.title} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
+      // The search action keeps the title route and revision that committed it: a retained
+      // callback can never open Search on a later route or borrow a later authority.
+      const search: NativeTitleScreenProps['search'] = ports.title.search && navigation.route === route
+        ? query => {
+            const now = ports.navigation.getSnapshot();
+            if (!alive() || !sameAuthority(now.authority, ports.authority) || now.route !== route || now.revision !== navigation.revision) return;
+            ports.title.search!(query);
+          }
+        : undefined;
+      return <NativeTitleScreen {...ports.title} search={search} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
         back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {
           const owner = controller!;
           void menu(entry, () => {

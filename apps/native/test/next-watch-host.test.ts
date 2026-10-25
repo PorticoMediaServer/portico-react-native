@@ -90,8 +90,8 @@ test('panel state suppresses fold reveal, closing alone does not reveal, docked/
     await act(() => {});
     await act(() => {d.controls.open('audio', fence);});
     assert.equal(d.controls.getSnapshot().visible, false);
-    assert.equal(child(d.tree(), 'watch-panel-pane').props.style.width, 356);
-    assert.equal(d.tree().props.children[0].props.style.width, 890);
+    assert.equal(child(d.tree(), 'watch-panel-pane').props.style.width, 380);
+    assert.equal(d.tree().props.children[0].props.style.width, 510);
     await act(() => {window = {width: 1000, height: 626}; d.host.rerender();});
     assert.equal(d.reveals.length, 0);
     await act(() => {d.controls.closePanel(fence);});

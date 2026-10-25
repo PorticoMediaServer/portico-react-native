@@ -122,7 +122,10 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const selectTab = async (tab: ShellTab['id']) => {
     if (!current()) return;
     if (selectedTab(destination) === tab) {runtime.scrollToTop(destination); return;}
-    if (tab !== 'libraries') {navigate({kind: tab}); return;}
+    if (tab !== 'libraries') {
+      if (tab === 'search') navigate({kind: 'search'}); else navigate({kind: tab});
+      return;
+    }
     const mine = ++opening.current, from = runtime.getSnapshot().destination;
     const id = memoryReady ? remembered : await runtime.memory.read(snapshot.authority).catch(error => {runtime.reportError(error); return undefined;});
     if (!current() || mine !== opening.current || runtime.getSnapshot().contentVisible === false || !sameDestination(from, runtime.getSnapshot().destination)) return;
