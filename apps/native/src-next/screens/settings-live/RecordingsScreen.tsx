@@ -67,8 +67,8 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   // The presented menu or sheet, and the delete ask started from one of them. A
   // render-time change of controller, view, route or visibility retires the ask before
   // the new scope draws, so a hidden or retained destination cannot settle one.
-  const overlay = useRef<OverlayOpening>(), ask = useRef<DeleteAsk>();
-  const scope = useRef<Readonly<{controller: NativeRecordingsController; key: string}>>();
+  const overlay = useRef<OverlayOpening | undefined>(undefined), ask = useRef<DeleteAsk | undefined>(undefined);
+  const scope = useRef<Readonly<{controller: NativeRecordingsController; key: string}> | undefined>(undefined);
   const scopeKey = `${queryKey(query)}|${routeKey(route)}|${navigation.isCurrent()}|${runtime.getSnapshot().contentVisible === true}`;
   const previousScope = scope.current;
   if (previousScope && (previousScope.controller !== controller || previousScope.key !== scopeKey)) ask.current = undefined;
