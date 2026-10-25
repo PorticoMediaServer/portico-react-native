@@ -114,7 +114,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
       ...(!activeRecording(menu) && playableRecording(menu) ? [{id: 'keep', icon: 'i-bookmark' as const, label: t(menu.keep ? 'web.dvr.stopKeeping' : 'web.dvr.keep'), disabled: state.busy, onSelect: () => run(() => controller.keep(menu))}] : []),
       ...(activeRecording(menu) ? [{id: 'cancel', label: t('recordings.cancelAction'), disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : state.page?.deletionAvailable ? [{id: 'separator', separator: true as const}, {id: 'delete', icon: 'i-trash' as const, label: t('web.dvr.deleteRecording'), destructive: true, disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : []),
     ] : []}/>
-    {detail && <RecordingDetails recording={detail} controller={controller} runtime={runtime} onClose={() => setDetail(undefined)} opener={opener} onPlay={() => run(() => play(detail))} onRemove={() => run(() => askDelete(detail))} deletionAvailable={state.page?.deletionAvailable === true}/>}
+    {detail && <RecordingDetails key={`${detail.id}:${detail.revision}`} recording={detail} controller={controller} runtime={runtime} onClose={() => setDetail(open => open && open.id === detail.id && open.revision === detail.revision ? undefined : open)} opener={opener} onPlay={() => run(() => play(detail))} onRemove={() => run(() => askDelete(detail))} deletionAvailable={state.page?.deletionAvailable === true}/>}
     <Dialog open={confirm !== undefined} onOpenChange={value => {if (!value && !state.busy) setConfirm(undefined);}} title={confirm ? t(confirm.preview ? 'web.dvr.deleteTitle' : 'web.dvr.cancelTitle', {title: confirm.recording.programme.title}) : ''} description={confirm ? confirm.preview ? t(confirm.preview.activeReaders ? 'web.dvr.deleteBodyInUse' : confirm.preview.keep ? 'web.dvr.deleteBodyKept' : 'web.dvr.deleteBody', {size: defaultI18n.bytes(confirm.preview.bytes)}) : t('web.dvr.cancelBody') : undefined} width={theme.isTV ? 980 : undefined} initialFocusRef={cancel} returnFocusRef={opener} testID="recordings-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 16}}><Button testID="recordings-confirm-cancel" ref={cancel} variant="glass" disabled={state.busy} onPress={() => setConfirm(undefined)}>{t('web.dvr.keepIt')}</Button><Button testID="recordings-confirm-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} loading={state.busy} onPress={() => {if (!confirm) return; run(async () => {const result = confirm.preview ? await controller.remove(confirm.recording, confirm.preview) : await controller.cancel(confirm.recording); if (result && alive.current) setConfirm(undefined);});}}>{t(confirm?.preview ? 'web.dvr.deleteRecording' : 'recordings.cancelAction')}</Button></View>}>{state.error !== undefined ? <StateView testID="recordings-confirm-error" {...runtime.error(state.error, () => setConfirm(undefined))}/> : <View/>}</Dialog>
     {rule && <RuleEditor key={`${rule.id}:${rule.revision}`} rule={rule} controller={controller} runtime={runtime} opener={opener} onClose={() => setRule(current => current === rule ? undefined : current)}/>}
     {owner && <NewRuleSheet controller={owner} runtime={runtime} open={newRule} onOpenChange={setNewRule} onSaved={() => {setNewRule(false); void controller.load({view: 'rules'});}}/>}
@@ -153,15 +153,43 @@ function RecordingRow({recording, history, runtime, refNode, onOpen, onMenu}: {r
   </Focusable>;
 }
 
+/** One opening of the details sheet. The parent keys the sheet by its row and this
+ * opening retires itself as well, so either side alone stops a stale completion. */
+type RecordingOpening = {id: string; revision: number; controller: NativeRecordingsController; live: boolean};
+
 function RecordingDetails({recording, controller, runtime, opener, onClose, onPlay, onRemove, deletionAvailable}: {recording: Recording; controller: NativeRecordingsController; runtime: NativeShellRuntime; opener: React.RefObject<View | null>; onClose: () => void; onPlay: () => void; onRemove: () => void; deletionAvailable: boolean}) {
   const theme = useTheme(), t = defaultI18n.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-  const [detail, setDetail] = useState<RecordingDetail>(), [error, setError] = useState<unknown>();
-  const primary = useRef<View>(null), conflict = recording.state === 'conflicted';
-  useEffect(() => {let active = true; void controller.detail(recording.id).then(value => {if (active) setDetail(value);}, value => {if (active && controller.lifetime.current()) setError(value);}); return () => {active = false;};}, [recording.id, controller]);
-  return <Dialog open onOpenChange={value => {if (!value && !state.busy) onClose();}} title={conflict ? t('web.dvr.conflictTitle', {title: recording.programme.title}) : recording.programme.title} placement={theme.isTV || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : undefined} initialFocusRef={primary} returnFocusRef={opener} testID="recordings-details">
+  const conflict = recording.state === 'conflicted';
+  const primary = useRef<View>(null);
+  // Retire the previous opening during render, before the replacement draws, so a
+  // completion or a read that belongs to A can never act on B.
+  const opening = useRef<RecordingOpening | undefined>(undefined);
+  const previous = opening.current;
+  const opened: RecordingOpening = previous && previous.id === recording.id && previous.revision === recording.revision && previous.controller === controller
+    ? previous : {id: recording.id, revision: recording.revision, controller, live: true};
+  if (previous && previous !== opened) previous.live = false;
+  opening.current = opened;
+  // A layout effect retires the opening on unmount as well, before any later callback
+  // can land; a passive cleanup would leave it live through a replacement.
+  useLayoutEffect(() => {opened.live = true; return () => {opened.live = false;};}, [opened]);
+  // The read carries the opening it was made for, so A's state, capacity and overlaps
+  // are never drawn under B's title.
+  const [read, setRead] = useState<Readonly<{for: RecordingOpening; detail?: RecordingDetail; error?: unknown}>>();
+  useEffect(() => {
+    let active = true;
+    void controller.detail(recording.id).then(value => {
+      if (active && opened.live) setRead({for: opened, detail: value});
+    }, value => {
+      if (active && opened.live && controller.lifetime.current()) setRead({for: opened, error: value});
+    });
+    return () => {active = false;};
+  }, [opened, controller, recording.id]);
+  const current = read?.for === opened ? read : undefined;
+  const detail = current?.detail, error = current?.error;
+  return <Dialog open onOpenChange={value => {if (!value && !controller.getSnapshot().busy) onClose();}} title={conflict ? t('web.dvr.conflictTitle', {title: recording.programme.title}) : recording.programme.title} placement={theme.isTV || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : undefined} initialFocusRef={primary} returnFocusRef={opener} testID="recordings-details">
     <View style={{gap: 24}}>{error !== undefined && <StateView testID="recordings-details-error" {...runtime.error(error, onClose)}/>}{!detail && error === undefined && <StateView title={t('recordings.loading')}/>}
       {detail && <><ScreenText secondary>{t(stateLabels[detail.recording.state])}</ScreenText><ScreenText secondary>{t('guide.range', {start: defaultI18n.time(detail.recording.start), end: defaultI18n.time(detail.recording.end)})}</ScreenText>{reasonLabels[detail.recording.reason] && <ScreenText secondary>{t(reasonLabels[detail.recording.reason])}</ScreenText>}
-        {conflict && <><ScreenText secondary>{t(detail.capacity.known ? 'recordings.conflictBodyTuners' : 'recordings.conflictBody', {count: detail.capacity.effective})}</ScreenText>{detail.overlaps.map(value => <View key={value.id} style={{flexDirection: 'row', gap: 20, alignItems: 'center'}}><Icon name="i-rec" size={20}/><View style={{flex: 1}}><ScreenText>{value.title}</ScreenText></View><ScreenText secondary>{defaultI18n.time(value.start)}</ScreenText></View>)}<Button testID="recordings-conflict-record" ref={primary} disabled={state.busy || !mutableRecording(detail.recording) || detail.recording.options.priority >= 1000} loading={state.busy} onPress={() => {void controller.resolve(detail).then(result => {if (result) onClose();});}} icon="i-rec">{t('recordings.recordThis')}</Button><Button testID="recordings-conflict-skip" variant="glass" disabled={state.busy} onPress={() => {void controller.cancel(detail.recording).then(result => {if (result) onClose();});}}>{t('recordings.skipThis')}</Button></>}
+        {conflict && <><ScreenText secondary>{t(detail.capacity.known ? 'recordings.conflictBodyTuners' : 'recordings.conflictBody', {count: detail.capacity.effective})}</ScreenText>{detail.overlaps.map(value => <View key={value.id} style={{flexDirection: 'row', gap: 20, alignItems: 'center'}}><Icon name="i-rec" size={20}/><View style={{flex: 1}}><ScreenText>{value.title}</ScreenText></View><ScreenText secondary>{defaultI18n.time(value.start)}</ScreenText></View>)}<Button testID="recordings-conflict-record" ref={primary} disabled={state.busy || !mutableRecording(detail.recording) || detail.recording.options.priority >= 1000} loading={state.busy} onPress={() => {void controller.resolve(detail).then(result => {if (result && opened.live && controller.lifetime.current()) onClose();});}} icon="i-rec">{t('recordings.recordThis')}</Button><Button testID="recordings-conflict-skip" variant="glass" disabled={state.busy} onPress={() => {void controller.cancel(detail.recording).then(result => {if (result && opened.live && controller.lifetime.current()) onClose();});}}>{t('recordings.skipThis')}</Button></>}
         {!conflict && <>{playableRecording(detail.recording) && <Button testID="recordings-details-play" ref={primary} onPress={onPlay} icon="i-play">{t('action.play')}</Button>}{activeRecording(detail.recording) && <Button testID="recordings-details-cancel" ref={!playableRecording(detail.recording) ? primary : undefined} variant="glass" disabled={state.busy} onPress={onRemove}>{t('recordings.cancelAction')}</Button>}{deletionAvailable && !activeRecording(detail.recording) && <Button testID="recordings-details-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} onPress={onRemove}>{t('web.dvr.deleteRecording')}</Button>}</>}
       </>}
     </View>
