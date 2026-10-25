@@ -46,9 +46,11 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
   useEffect(() => {
     const retire = () => service.cancel();
     lifetime.signal.addEventListener('abort', retire, {once: true});
-    void service.loadLibraries();
+    // Libraries is the owner's page; an administrator's screen never asks the
+    // catalogue reader for it, and the reader would refuse that path anyway.
+    if (owner) void service.loadLibraries();
     return () => {lifetime.signal.removeEventListener('abort', retire); service.dispose(); lifetime.dispose();};
-  }, [service, lifetime]);
+  }, [owner, service, lifetime]);
   const address = useMemo(() => {
     if (page !== 'libraries' && page !== 'remote') return undefined;
     try {return publicTVHandoffAddress(new URL(page === 'libraries' ? '/settings/server-libraries' : '/settings/server-remote', ports.context.api.baseUrl).href);} catch {return undefined;}
