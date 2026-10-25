@@ -1,6 +1,10 @@
 /** Native controls copy; existing product actions reuse the shared catalogue. */
 export const controlsNativeMessages = {
   'next.controls.native.choose': 'Choose',
+  'next.controls.native.up': 'Up',
+  'next.controls.native.down': 'Down',
+  'next.controls.native.left': 'Left',
+  'next.controls.native.right': 'Right',
   'next.controls.native.galleryTitle': 'Controls',
   'next.controls.native.buttonsTitle': 'Buttons',
   'next.controls.native.resumeTitle': 'Resume',
