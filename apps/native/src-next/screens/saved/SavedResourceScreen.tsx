@@ -401,7 +401,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
         <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('next.saved.viewsHelp')}</Text>
       </View>
     </BottomSheet>
-    <SavedConfirmSheet open={deleting} title={t('web.saved.deleteTitle', {name: name ?? ''})}
+    <SavedConfirmSheet open={deleting} title={t('web.saved.deleteTitle', {name: name ?? ''})} destructive
       body={t(isPlaylist ? 'web.saved.deletePlaylistBody' : resource?.kind === 'view' ? 'web.saved.deleteViewBody' : 'web.saved.deleteCollectionBody')}
       action={t(isPlaylist ? 'web.saved.deletePlaylistAction' : resource?.kind === 'view' ? 'web.saved.deleteViewAction' : 'web.saved.deleteCollectionAction')}
       busy={busy} error={problem || undefined} testID="saved-delete" onClose={() => setDeleting(false)} onConfirm={confirmDelete}/>

@@ -24,7 +24,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   controller: NativeHomeCustomizeController; copy: NativeHomeCustomizeCopy; i18n: Pick<I18n, 't' | 'has'>;
   onClose: () => void; onAddView: () => void; testID: string; summary: (view: PersonalResource) => string | undefined;
   renderError?: (error: unknown, retry: () => void) => React.ReactNode;
-  views?: Readonly<{items: readonly PersonalResource[]; loading: boolean; error?: unknown; renderError: (error: unknown, retry: () => void) => React.ReactNode; retry: () => void}>;
+  views?: Readonly<{items: readonly PersonalResource[]; loading: boolean; error?: unknown; hasMore: boolean; loadMore: () => void; renderError: (error: unknown, retry: () => void) => React.ReactNode; retry: () => void}>;
 }) {
   const theme = useTheme(), registry = useFocusRegistry();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -146,11 +146,14 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     {state.pickedId && targetY !== undefined && <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, top: targetY - 3, height: 6, backgroundColor: theme.colors.accentStrong, borderRadius: 3}}/>}
     {!state.pickedId && <Button focusId="add-view" variant="text" icon="i-plus" disabled={state.pending || !!state.pickedId} onPress={() => {if (views) setChoosing(true); onAddView();}}>{copy.addView}</Button>}
   </ScrollView>;
-  const footer = choosing || state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={controller.keepEditing}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
+  const footer = choosing ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18}}>
+    {views?.hasMore ? <Button variant="text" disabled={views.loading} onPress={views.loadMore}>{i18n.t('action.showMore')}</Button> : <View/>}
+    <Button variant="glass" onPress={() => setChoosing(false)}>{i18n.t('action.cancel')}</Button>
+  </View> : state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={controller.keepEditing}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
     <Button focusId="reset" variant="glass" disabled={state.pending || !!state.pickedId} onPress={() => setReset(true)}>{i18n.t('action.resetToDefault')}</Button>
     <Button focusId="save" disabled={state.pending || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
-  const body = choosing && views ? views.loading ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} i18n={i18n} firstRef={firstView}
+  const body = choosing && views ? views.loading && !views.items.length ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} hasMore={views.hasMore} i18n={i18n} firstRef={firstView}
     onChoose={view => {if (!controller.addSavedView(view, theme.isTV)) return; if (theme.isTV) returning.current = true; setChoosing(false);}}/> : <>{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
     <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
   </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {void controller.save();})}{rows}</>;
@@ -172,12 +175,16 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   </>;
 }
 
-export function HomeSavedViewChoices({views, i18n, onChoose, firstRef, summary}: {views: readonly PersonalResource[]; summary: (view: PersonalResource) => string | undefined; firstRef?: React.RefObject<View | null>; i18n: Pick<I18n, 't'>; onChoose: (view: PersonalResource) => void}) {
+export function HomeSavedViewChoices({views, hasMore, i18n, onChoose, firstRef, summary}: {views: readonly PersonalResource[]; hasMore?: boolean; summary: (view: PersonalResource) => string | undefined; firstRef?: React.RefObject<View | null>; i18n: Pick<I18n, 't'>; onChoose: (view: PersonalResource) => void}) {
   const theme = useTheme();
   const eligible = views.filter(view => view.kind === 'view' && view.status === 'ready' && !view.onHome && view.actions.includes('pin'));
   return <ScrollView>{eligible.map((view, index) => {const detail = summary(view); return <Focusable ref={index === 0 ? firstRef : undefined} key={view.id} focusId={view.id} focusKind="row" onPress={() => onChoose(view)} style={{height: theme.isTV ? 92 : undefined, paddingVertical: theme.isTV ? 0 : 20, paddingHorizontal: theme.isTV ? 20 : 0, flexDirection: 'row', alignItems: 'center', gap: 18}}>
       <View style={{width: theme.isTV ? 52 : 36, height: theme.isTV ? 52 : 36, borderRadius: theme.isTV ? 13 : 9, alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.text}1A`}}><Icon name="i-filter" size={theme.isTV ? 28 : 20} color={theme.colors.textSecondary}/></View><View style={{flex: 1}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{view.name}</Text>
       {!!detail && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{detail}</Text>}</View>
-    </Focusable>;})}{!eligible.length && <View style={{paddingVertical: 24}}><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{i18n.t('home.customize.noViews')}</Text></View>}</ScrollView>;
+    </Focusable>;})}{!eligible.length && !hasMore && <View style={{paddingVertical: 30, alignItems: 'center', gap: 8}}>
+      <View style={{width: theme.isTV ? 52 : 44, height: theme.isTV ? 52 : 44, borderRadius: theme.isTV ? 14 : 11, alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.text}1A`}}><Icon name="i-filter" size={theme.isTV ? 26 : 20} color={theme.colors.textSecondary}/></View>
+      <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{i18n.t('next.home.noViewsTitle')}</Text>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary, textAlign: 'center'}]}>{i18n.t('next.home.noViewsBody')}</Text>
+    </View>}</ScrollView>;
 }
