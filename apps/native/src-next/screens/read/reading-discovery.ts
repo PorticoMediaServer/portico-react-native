@@ -1,7 +1,7 @@
 import {ReadingError, type LocalSession, type ReadingClient, type ReadingContinueItem, type ReadingItem} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
-import {openNativeRead} from './eligibility';
+import {openNativeReadBook} from './eligibility';
 
 export type NativeReadingDiscoveryState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -88,7 +88,7 @@ export class NativeReadingDiscovery {
     if (!this.current() || item.inventoryAvailable !== true) return false;
     const resident = this.state.continueItems.some(row => row.item.id === item.id) || this.state.recent.some(row => row.id === item.id);
     if (!resident) return false;
-    try {return await openNativeRead(this.context, {itemId: item.id, sourceId: item.sourceId}, this.life.signal);}
+    try {return await openNativeReadBook(this.context, {libraryId: this.libraryId, item}, this.life.signal);}
     catch (error) {
       const cancelledOpen = error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
       if (this.life.signal.aborted || !this.current() || cancelledOpen) return false;

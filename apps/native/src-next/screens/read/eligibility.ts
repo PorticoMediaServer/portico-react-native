@@ -1,5 +1,5 @@
 import type {ReadingHostContentsTarget} from '../../../../../packages/client-core/src/reading-host';
-import {ReadingError, type ReadingClient} from '../../../../../packages/client-core/src';
+import {ReadingError, type ReadingClient, type ReadingItem} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 export type NativeReadEligibility = Awaited<ReturnType<ReadingClient['versions']>>;
@@ -24,4 +24,27 @@ export async function openNativeRead(context: NativeReadNavigationContext, targe
     if (!current() || !eligibility?.versions.some(version => version.sourceId === target.sourceId && version.inventoryAvailable)) return false;
     return context.navigation.open(destination, context.authority());
   } finally {client.dispose();}
+}
+
+/** The phone's drawn book destination: a real Reading item's own page, not the
+ * generic title screen and not a second reader host. */
+export async function openNativeReadBook(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; item: ReadingItem}>, signal?: AbortSignal): Promise<boolean> {
+  const selected = context.session(), route = context.navigation.getSnapshot();
+  const destination: NativeShellRoute = {kind: 'read-book', libraryId: target.libraryId, item: target.item};
+  if (target.item.libraryId !== target.libraryId || signal?.aborted || !selected || !context.current() || !context.navigation.allows(destination)) return false;
+  const current = () => context.current() && context.session()?.sessionFamilyId === selected.sessionFamilyId && context.navigation.getSnapshot() === route;
+  const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
+  try {
+    const eligibility = await nativeReadEligibility(client, target.item.id, signal);
+    if (!current() || !eligibility?.versions.some(version => version.sourceId === target.item.sourceId && version.inventoryAvailable)) return false;
+    return context.navigation.open(destination, context.authority());
+  } finally {client.dispose();}
+}
+
+/** The series' signed membership id from the item projection, never a label hash. */
+export async function openNativeReadSeries(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; seriesId: string}>, signal?: AbortSignal): Promise<boolean> {
+  const selected = context.session(), route = context.navigation.getSnapshot();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(target.seriesId) || signal?.aborted || !selected || !context.current()) return false;
+  const destination: NativeShellRoute = {kind: 'read-series', libraryId: target.libraryId, seriesId: target.seriesId};
+  return context.navigation.allows(destination) && context.navigation.getSnapshot() === route ? context.navigation.open(destination, context.authority()) : false;
 }

@@ -2,6 +2,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeShellRoutes} from '../../shell/route-registry';
 import {nativeReadingSettingsPreferences, openNativeReadingSettings} from '../settings/ReadingSettingsRoute';
 import {createNativeReadRenderer} from './ReadRoute';
+import './read-destinations';
 
 /** Read and Settings borrow the authority's ONE confirmed preference source.
  * Importing this handheld-only module registers factories and starts no I/O. */

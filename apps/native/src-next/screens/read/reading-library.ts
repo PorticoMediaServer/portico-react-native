@@ -1,7 +1,7 @@
 import {ReadingError, type LocalSession, type ReadingClient, type ReadingItem} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
-import {openNativeRead} from './eligibility';
+import {openNativeReadBook} from './eligibility';
 
 export type NativeReadingLibraryState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -82,7 +82,7 @@ export class NativeReadingLibrary {
   /** Only a resident, inventory-available item opens; the Read door owns the route. */
   open = async (item: ReadingItem): Promise<boolean> => {
     if (!this.current() || item.inventoryAvailable !== true || !this.state.items.some(candidate => candidate.id === item.id)) return false;
-    try {return await openNativeRead(this.context, {itemId: item.id, sourceId: item.sourceId}, this.life.signal);}
+    try {return await openNativeReadBook(this.context, {libraryId: this.libraryId, item}, this.life.signal);}
     catch (error) {
       const cancelled = error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
       if (this.life.signal.aborted || !this.current() || cancelled) return false;

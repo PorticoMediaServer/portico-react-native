@@ -2,6 +2,7 @@ import type {ReadingHostContentsTarget} from '../../../../packages/client-core/s
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {SavedRoute} from '../../../../packages/client-core/src/saved';
+import type {ReadingItem} from '../../../../packages/client-core/src/reading';
 import {sameAuthority, type ShellAuthority, type ShellDestination} from './model';
 
 /** Descriptors are requests to the registered phase owner, never synthesized screen content. */
@@ -14,6 +15,8 @@ export type NativeShellRoute = Readonly<
   | {kind: 'audiobook'; entry: ContentEntry}
   | {kind: 'person'; personId: string}
   | {kind: 'read'; itemId: string; sourceId: string; contentsTarget?: ReadingHostContentsTarget}
+  | {kind: 'read-book'; libraryId: string; item: ReadingItem}
+  | {kind: 'read-series'; libraryId: string; seriesId: string}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
   | {kind: 'channel'; sourceId: string; channelId: string}
   | {kind: 'home-see-all'; destination: HomeSeeAll}
@@ -72,7 +75,9 @@ export function nativeDestinationActivation(navigation: NativeShellNavigation, d
 
 /** Highlight the title's actual authorized library while retaining its mounted origin for Back. */
 export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
-  const libraryId = snapshot.route.kind === 'title' || snapshot.route.kind === 'music' || snapshot.route.kind === 'book' || snapshot.route.kind === 'audiobook' ? snapshot.route.entry.libraryId : undefined;
+  const route = snapshot.route;
+  const libraryId = route.kind === 'title' || route.kind === 'music' || route.kind === 'book' || route.kind === 'audiobook' ? route.entry.libraryId
+    : route.kind === 'read-book' || route.kind === 'read-series' ? route.libraryId : undefined;
   return libraryId && libraries.some(library => library.id === libraryId) ? {kind: 'library', libraryId} : snapshot.destination;
 }
 
