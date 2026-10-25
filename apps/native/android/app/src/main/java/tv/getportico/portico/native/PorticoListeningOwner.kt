@@ -268,7 +268,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     lastSourceRate = 0
   }
 
-  /** The presentation's own decoded rate, when this item is known; 0 means unreported. */
+  /** The presentation's own decoded rate, when this item is known; 0 means unreported.
+   * NOTE: no caller wires this yet on this baseline, so `requestedSampleRate` is 0 too and
+   * must not be reported as a presentation-derived fact until a real caller exists. */
   fun recordSourceSampleRate(rate: Int, owner: String) {
     if (owner.isNotEmpty()) lastSourceRate = if (rate > 0) rate else 0
   }
