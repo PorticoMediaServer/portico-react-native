@@ -20,6 +20,7 @@ import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
 import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
+import {createNativeSetupClaim} from './setup-claim';
 import {nativeSetupDraft} from './setup-draft';
 import type {HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 
@@ -50,6 +51,7 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
+  private hostedSetup?: ReturnType<typeof createNativeSetupClaim>;
   private hostedLease?: () => boolean;
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
   private memberMove?: {dispose: () => void};
@@ -155,6 +157,55 @@ export class NativeServerSignIn {
         });
         return result;
       } catch (error) {await this.retire(issued); throw error;}
+    });
+  }
+  prepareHostedSetup(name: string) {
+    return this.run(async () => {
+      const api = this.api, server = this.server;
+      if (!api || !server?.setupRequired) throw mismatch();
+      const origin = new URL(api.baseUrl);
+      if (origin.origin !== api.baseUrl || (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && origin.hostname === 'localhost'))) throw mismatch();
+      const claim = this.hostedSetup ??= createNativeSetupClaim(api.baseUrl, server.id);
+      const existing = await claim.resumePrepared(); this.assertCurrent();
+      if (existing) return existing.url;
+      const store = nativeSetupDraft(server.id), saved = await store.read(); this.assertCurrent();
+      if (saved && saved.authMode !== 'hosted') throw mismatch();
+      const token = saved?.setupToken ?? (await startAppSetup(api, this.controller.signal)).setupToken; this.assertCurrent();
+      const pending = await initializeServer(api, store, {setupToken: token, name: name.trim(), authMode: 'hosted', interactive: true}, this.controller.signal);
+      this.assertCurrent(); if (!('claimRequired' in pending)) throw mismatch();
+      const url = await claim.prepare(api, hostedUrl); this.assertCurrent(); return url;
+    });
+  }
+  reviewHostedSetup(url: string, opening: {signal: AbortSignal; current: () => boolean; canApprove: () => boolean}) {
+    return this.run(async () => {
+      if (!this.hostedSetup) throw mismatch();
+      const review = await this.hostedSetup.accountApproval(url, opening); this.assertCurrent(); return review;
+    });
+  }
+  finishHostedSetup() {
+    return this.run(async () => {
+      const claim = this.hostedSetup;
+      if (!claim || !this.server) throw mismatch();
+      const completed = await claim.finishInstalled();
+      if (!completed) {this.assertCurrent(); return undefined;}
+      try {
+      const {api, result, admission, hosted, draft} = completed, routes = api.getRouteConnection();
+      const retained = await nativeAppSessions.read();
+      if (!routes || retained.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) throw mismatch();
+      this.api = api; this.admission = admission; this.hosted = hosted;
+      this.setupIssuers.set(result.session.sessionFamilyId, {origin: api.baseUrl, routes, pin: {...routes.pin}});
+      this.issued.set(result.session.sessionFamilyId, result.session); completed.accept();
+      try {
+        this.assertCurrent(); this.server = {...this.server, signIn: 'portico', setupRequired: false};
+        const accepted = await this.consume(result);
+        await nativeSetupDraft(result.snapshot.serverId).change(old => {
+          this.assertCurrent();
+          if (!old || old.requestId !== draft.requestId || old.setupToken !== draft.setupToken || old.authMode !== 'hosted') throw mismatch();
+          return undefined;
+        });
+        return accepted;
+      } catch (error) {await this.retire(result.session); throw error;}
+      } catch (error) {await completed.release(); throw error;}
     });
   }
   inspectLocalIdentity(): Promise<ServerPin> {
@@ -535,7 +586,7 @@ export class NativeServerSignIn {
   }
   private cancel() {
     if (this.controller.signal.aborted) return;
-    this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
+    this.hostedSetup?.dispose(); this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
     this.probe.dispose(); this.unfence();
     const routes = this.api?.getRouteConnection();
     void Promise.resolve(this.running).catch(() => {}).then(() => Promise.allSettled([...this.issued.values()].map(session => this.retire(session)))).finally(() => routes?.dispose());

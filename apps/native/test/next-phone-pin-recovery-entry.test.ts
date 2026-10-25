@@ -54,6 +54,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
     './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy,
+    './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;
@@ -165,6 +166,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
     './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy,
+    './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;

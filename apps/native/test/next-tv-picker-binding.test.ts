@@ -60,6 +60,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
     './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy,
+    './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;

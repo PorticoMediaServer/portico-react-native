@@ -31,6 +31,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'failed'})},
     '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy,
+    './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {accountCredentials: () => account}},
