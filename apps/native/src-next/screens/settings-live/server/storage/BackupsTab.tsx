@@ -67,9 +67,9 @@ export function BackupsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts;
     {running ? <View style={{marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: theme.colors.raised}}>
       <Text style={[shellType(14, 700), {color: theme.colors.text}]}>{t('web.maintenance.backingUp')}{fraction === undefined ? '' : ` ${Math.round(fraction * 100)}%`}</Text>
       <Text style={[shellType(12.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{running.phase}</Text>
-      <View style={{height: 6, borderRadius: 3, marginTop: 8, backgroundColor: theme.colors.line}}>
-        <View style={{height: 6, borderRadius: 3, width: `${Math.round((fraction ?? 0) * 100)}%`, backgroundColor: theme.colors.accentStrong}}/>
-      </View>
+      {fraction !== undefined && <View style={{height: 6, borderRadius: 3, marginTop: 8, backgroundColor: theme.colors.line}}>
+        <View style={{height: 6, borderRadius: 3, width: `${Math.round(fraction * 100)}%`, backgroundColor: theme.colors.accentStrong}}/>
+      </View>}
     </View> : null}
     <View style={{flexDirection: 'row', marginTop: 12}}>
       <Button size="compact" icon="i-refresh" loading={busy} disabled={Boolean(running)} onPress={backUpNow}>{t('web.maintenance.backUpNow')}</Button>
