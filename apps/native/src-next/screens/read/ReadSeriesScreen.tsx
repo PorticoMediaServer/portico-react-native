@@ -22,13 +22,13 @@ export function ReadSeriesScreen({controller, comic, runtime, onBack}: {
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   useEffect(() => {void controller.load().catch(() => {});}, [controller]);
-  const continued = state.continued?.item, first = continued ?? state.items[0];
+  const continuedRow = state.continued, continued = continuedRow?.item, first = continued ?? state.items[0];
   const title = first?.series?.name ?? t('library.tab.series');
   const authors = [...new Set([...(continued?.author ? [continued.author.value] : []), ...state.items.map(item => item.author?.value)])].filter((value): value is string => !!value);
   const exactCount = state.nextCursor === undefined && state.phase === 'ready' ? state.items.length : undefined;
   const cover = runtime.artwork(first?.coverUrl), tint = generatedCoverTint(title);
   const columns = 3, gap = 16, width = Math.max(96, (dimensions.width - theme.gutter * 2 - gap * (columns - 1)) / columns), height = width * 4 / 3;
-  const progression = state.continued && state.continued.item.id === continued?.id ? state.continued.progress.location.progression : undefined;
+  const progression = continuedRow && continuedRow.item.id === continued?.id ? continuedRow.progress.location.progression : undefined;
   return <View testID={`native-read-series-${title}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>
@@ -50,7 +50,7 @@ export function ReadSeriesScreen({controller, comic, runtime, onBack}: {
           </View>
         </View>
         <Button icon="i-book" onPress={() => {void controller.openNext().catch(runtime.reportError);}} style={{marginTop: 18, alignSelf: 'stretch'}}>
-          {t(state.continued ? 'next.cards.read' : 'next.reader.read')}
+          {t(continuedRow ? 'next.cards.read' : 'next.reader.read')}
         </Button>
         {progression !== undefined ? <View style={{height: 4, borderRadius: 2, marginTop: 10, backgroundColor: alpha(theme.colors.text, .18)}}>
           <View style={{width: `${Math.max(0, Math.min(1, progression)) * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>
@@ -65,8 +65,8 @@ export function ReadSeriesScreen({controller, comic, runtime, onBack}: {
             <View style={{width, height, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
               {runtime.artwork(item.coverUrl) ? <Artwork source={runtime.artwork(item.coverUrl)} width={width} height={height}/>
                 : <GeneratedCover title={item.title} author={item.author?.value} tint={generatedCoverTint(item.title)} glyph={initial(item.title)}/>}
-              {state.continued?.item.id === item.id ? <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, backgroundColor: alpha(theme.colors.text, .2)}}>
-                <View style={{width: `${Math.max(0, Math.min(1, state.continued.progress.location.progression)) * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
+              {continuedRow && continuedRow.item.id === item.id ? <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, backgroundColor: alpha(theme.colors.text, .2)}}>
+                <View style={{width: `${Math.max(0, Math.min(1, continuedRow.progress.location.progression)) * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
               </View> : null}
             </View>
             {item.series?.number !== undefined ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 600), {color: theme.colors.textTertiary, marginTop: 7}]}>
