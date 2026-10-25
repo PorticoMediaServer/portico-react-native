@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {BackHandler, Dimensions, Platform, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -25,6 +25,7 @@ import {Icon} from '../../kit/Icon';
 import {offlineDownloads, offlineOwnerKey} from '../../../platform/offline-downloads';
 import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
+import {createAccountDownloadsEntry, type AccountDownloadsEntry} from './downloads-entry';
 import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {PhoneServerChooser} from './PhoneServerChooser';
@@ -119,6 +120,22 @@ export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {co
   const [captured, setCaptured] = useState<{session: AppServerSession; name: string}>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
   const [preview, setPreview] = useState<Readonly<SetupPreview>>(), [consentKind, setConsentKind] = useState<'local' | 'portico'>(), [done, setDone] = useState('');
   const [removeDownloads, setRemoveDownloads] = useState(false);
+  const [addGeneration, setAddGeneration] = useState(0);
+  type AddOpening = {active: boolean; generation: number; context?: NativeShellBootstrapContext; downloads?: AccountDownloadsEntry};
+  const addOwner = useRef<AddOpening | undefined>(undefined), [committedAdd, setCommittedAdd] = useState<AddOpening>();
+  const panelRef = useRef(panel); panelRef.current = panel;
+  if (addOwner.current && (panel !== 'add' || addOwner.current.context !== context || addOwner.current.generation !== addGeneration)) addOwner.current.active = false;
+  useLayoutEffect(() => {
+    if (panel !== 'add') return;
+    const opening: AddOpening = {active: true, generation: addGeneration, context}; addOwner.current = opening;
+    if (context && !Platform.isTV) {try {opening.downloads = createAccountDownloadsEntry(context,
+      () => opening.active && addOwner.current === opening && panelRef.current === 'add');} catch {opening.downloads = undefined;}}
+    setCommittedAdd(opening);
+    return () => {opening.active = false; if (addOwner.current === opening) addOwner.current = undefined; opening.downloads?.dispose();};
+  }, [panel, context, addGeneration]);
+  const addCurrent = () => !!committedAdd?.active && addOwner.current === committedAdd && panelRef.current === 'add';
+  const retireAdd = () => {const opening = addOwner.current; addOwner.current = undefined; if (opening) {opening.active = false; opening.downloads?.dispose();}};
+  const openAdd = () => {if (panelRef.current !== 'servers') return; retireAdd(); setAddGeneration(value => value + 1); setPanel('add');};
   const approver = useRef<TVConsentApprover | undefined>(undefined), alive = useRef(true);
   useEffect(() => {alive.current = true; let read = 0;
     const update = () => {const owned = ++read; void nativeAccounts.snapshot().then(value => {if (alive.current && owned === read) setServers(value);}, failure => {if (alive.current) setError(failure);});};
@@ -128,7 +145,7 @@ export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {co
   const run = async (work: () => Promise<void>) => {if (busy || context && !context.current()) return; setBusy(true); setError(undefined);
     try {await work();} catch (failure) {if (alive.current) setError(failure);} finally {if (alive.current) setBusy(false);}
   };
-  const close = () => {approver.current?.dispose(); approver.current = undefined; setPreview(undefined); setCode(''); setError(undefined); setPanel('servers');};
+  const close = () => {retireAdd(); approver.current?.dispose(); approver.current = undefined; setPreview(undefined); setCode(''); setError(undefined); setPanel('servers');};
   const cancel = () => {if (panel === 'servers') onBack?.(); else close();};
   useEffect(() => {if (panel === 'add') return; const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
     if (busy) return true;
@@ -139,7 +156,7 @@ export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {co
   const errorView = error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 12}]}>{presentError(error, 'account').body}</Text> : null;
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-servers" title={title} body={body}
     beforeActions={<>{before}{errorView}</>} primaryAction={primary} secondaryAction={panel !== 'servers' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: cancel} : undefined}>{more}</StateLayout>;
-  if (panel === 'add') return <AccountEntry onSetupComplete={onSetupComplete} initialStage="address" onBack={close} onComplete={() => {close(); onComplete?.();}}/>;
+  if (panel === 'add') return <AccountEntry key={addGeneration} downloads={addCurrent() ? committedAdd?.downloads : undefined} onSetupComplete={onSetupComplete} initialStage="address" onBack={() => {if (addCurrent()) close();}} onComplete={() => {if (addCurrent()) {close(); onComplete?.();}}}/>;
   if (panel === 'sign-out-account') return layout(t('accounts.signOut.portico'), undefined, undefined,
     action('sign-out-account', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope!); close(); onComplete?.();}));
   if (panel === 'consent-kind') return layout(t('settings.linkTV'), t('linkTV.enterCode'), <View style={{gap: 12, alignSelf: 'stretch', marginBottom: 20}}>
@@ -201,7 +218,7 @@ export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {co
       setCaptured({session: found, name: value.name}); setPanel('sign-out-server');
     });}}
     onRefresh={() => {void run(async () => {const value = await nativeAccounts.snapshot(); if (alive.current) setServers(value);});}}
-    onAdd={() => {void run(async () => setPanel('add'));}}
+    onAdd={() => {void run(async () => {openAdd();});}}
     footer={<View style={{alignSelf: 'stretch', gap: 8, marginTop: 10}}>
       <Button variant="text" disabled={busy} onPress={() => setPanel('consent-kind')}>{t('settings.linkTV')}</Button>
       {servers?.servers.some(value => value.signIn === 'portico') && <Button variant="text" disabled={busy} onPress={() => {void run(async () => {
@@ -220,7 +237,7 @@ export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {co
       setCaptured({session: found, name: value.name}); setPanel('sign-out-server');
     });}}
     onRefresh={() => {void run(async () => {const value = await nativeAccounts.snapshot(); if (alive.current) setServers(value);});}}
-    onAdd={() => {void run(async () => setPanel('add'));}}
+    onAdd={() => {void run(async () => {openAdd();});}}
     certificates={<TVTrustedCertificates context={context}/>}
     footer={<View style={{alignSelf: 'stretch', gap: 8, marginTop: 10}}>
     <Button variant="text" disabled={busy} onPress={() => setPanel('consent-kind')}>{t('settings.linkTV')}</Button>
