@@ -16,6 +16,7 @@ const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new
   '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
   '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},
   './ChannelRoute': {NativeWatchChannelRoute: 'Channel'},
+  './PlaybackInfoPanel': {NativePlaybackInfoPanel: 'PlaybackInfo'},
   './WatchPanels': {NativeWatchPanels: 'Panels'}, './panel-options': {NativeWatchPanelOptions: class {dispose() {optionsDisposed++;}}},
   './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {title: {render: () => 'title'}, watch: {
     render: (runtime: any) => ports.player.chrome(ports.playback.getSnapshot(), runtime), body: () => 'body', back: () => true,
