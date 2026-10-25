@@ -30,10 +30,10 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
-    '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
+    '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},
     '../../platform/server-connections': {browseNearby: async () => {events.push('discovery'); return [];}}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
-    '../../tv/auth': {}, './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false, directoryIdentityUnconfirmed: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
+    '../../tv/auth': {}, './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false, directoryIdentityUnconfirmed: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
   });
   const onStageChange = (...args: NativeAccountEntryStage[]) => {
     assert.equal(phase, 'layout'); assert.equal(args.length, 1, 'the observer receives only the stage, never fields or authority');

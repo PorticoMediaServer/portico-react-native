@@ -1,3 +1,5 @@
+import {decode} from '../../../../packages/contracts/src/runtime';
+import type {RouteRequest} from '../../../../packages/contracts/src/routes';
 import {ApiError, type LocalSession} from '../../../../packages/client-core/src';
 import {MemberAccountMoveClient, type MoveCodePreview, type MoveCollisionDetails, type MoveCredential} from '../../../../packages/client-core/src/account-move';
 import type {DirectSignIn, ProfileAPI} from '../../../../packages/client-core/src/profile-management';
@@ -186,7 +188,10 @@ export class NativeMemberAccountMove<Result> {
       const client = new MemberAccountMoveClient(this.ports.api, {serverId: this.ports.server.id,
         isCurrent: () => this.current(epoch, hosted), retireLateGrant: session => this.retireFresh(session)});
       try {
-        const result = await client.redeemPortico(proof.credential, identity, signal);
+        // Validate the optional certificate against the official request schema;
+        // the Hosted assertion transport intentionally exposes it as unknown.
+        const checked = decode('PostAuthMovePorticoRequest', {...proof.credential, porticoIdentity: identity}) as RouteRequest<'post_auth_move_portico'>;
+        const result = await client.redeemPortico(proof.credential, checked.porticoIdentity, signal);
         await this.adopt(result, epoch, hosted);
       } finally {client.dispose();}
     });
