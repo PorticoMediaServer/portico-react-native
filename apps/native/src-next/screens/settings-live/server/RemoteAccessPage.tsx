@@ -74,6 +74,8 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
             control={<Switch testID="remote-access-enabled-switch" checked={remote.enabled} onCheckedChange={value => forms.remote.set(current => ({...current, enabled: value}))}/>}/>
           <SettingsRow testID="remote-access-policy" label={t('web.connectivity.whoMaySignIn')}
             control={<Select testID="remote-access-policy-select" value={connectivity.remoteSignInPolicy} options={signInOptions} onValueChange={value => forms.connectivity.set(current => ({...current, remoteSignInPolicy: value as ConnectivityDraft['remoteSignInPolicy']}))}/>}/>
+          {remote.ipv6Open !== undefined ? <SettingsRow testID="remote-access-ipv6" label={t('web.network.ipv6')} description={t('web.network.ipv6Help')}
+            control={<Switch testID="remote-access-ipv6-switch" checked={remote.ipv6Open === true} onCheckedChange={value => forms.remote.set(current => ({...current, ipv6Open: value}))}/>}/> : null}
         </View>
         <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, marginTop: 22, marginBottom: 8}]}>{t('settings.server.homeNetwork')}</Text>
         <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
