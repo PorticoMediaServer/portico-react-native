@@ -653,8 +653,8 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     if (failure === 'expired') return <StateLayout testID="accounts-invitation-expired" icon="i-warn" title={t('accounts.invitation.expiredTitle')} body={t('accounts.invitation.expiredBody')}
       primaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
     if (stage === 'invitation-code') return <StateLayout testID="accounts-invitation-code" title={t('web.directJoin.title')}
-      body={t('services.start.whereBody')} beforeActions={<>{status}<TextField label={t('web.directJoin.code')} value={code}
-        onChangeText={change(setCode)} autoCapitalize="characters" autoCorrect={false} autoComplete="off" editable={!busy}/></>}
+      body={t('services.start.joinBody')} beforeActions={<>{status}<TextField label={t('services.start.invitation')} value={code}
+        onChangeText={change(setCode)} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/></>}
       primaryAction={{id: 'preview-invitation', label: t('action.continue'), disabled: busy || !code.trim(), loading: busy, onPress: () => {
         if (!current()) return; void run(async () => {
           if (!current()) return; const value = await ticket!.controller.preview(code);

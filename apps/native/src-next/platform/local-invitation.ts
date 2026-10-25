@@ -2,9 +2,11 @@ import {ApiError} from '../../../../packages/client-core/src';
 import {PeopleInvitationsClient, type PublicInvitation} from '../../../../packages/client-core/src/direct-account';
 import type {ProfileAPI} from '../../../../packages/client-core/src/profile-management';
 import {parseShortInvitationCode} from '../../../../packages/client-core/src/short-invitation-code';
+import {parseJoinLink} from '../../../../packages/client-core/src/join-link';
 import {passwordStrength} from '../../../../packages/client-core/src/password-strength';
 
-type Ports<T> = {api: ProfileAPI; current: () => boolean; signIn: (username: string, password: string) => Promise<T>};
+type Capability = Readonly<{code: string} | {shortCode: string}>;
+type Ports<T> = {api: ProfileAPI; origin: string; serverId: string; current: () => boolean; signIn: (username: string, password: string) => Promise<T>};
 class InvitationExpired extends Error {}
 const cancelled = () => Object.assign(new Error('invitation_retired'), {name: 'AbortError'});
 
@@ -13,7 +15,7 @@ export class NativeLocalInvitation<T> {
   private readonly ports: Ports<T>;
   private readonly abort = new AbortController();
   private readonly client: PeopleInvitationsClient;
-  private invitation?: {shortCode: string; preview: PublicInvitation};
+  private invitation?: {capability: Capability; preview: PublicInvitation};
   private accepted?: {preview: PublicInvitation; username: string};
   private busy = false;
   constructor(ports: Ports<T>) {
@@ -28,14 +30,16 @@ export class NativeLocalInvitation<T> {
   private assertCurrent() {if (!this.current() || !this.ports.current()) throw cancelled();}
   async preview(raw: string): Promise<PublicInvitation> {
     this.assertCurrent(); if (this.busy || this.accepted) throw cancelled();
-    const shortCode = parseShortInvitationCode(raw.trim());
-    if (!shortCode) throw Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'});
+    const input = raw.trim(), shortCode = parseShortInvitationCode(input), link = shortCode ? undefined : parseJoinLink(input);
+    if (!shortCode && (!link || link.server !== this.ports.origin || link.id !== undefined && link.id !== this.ports.serverId))
+      throw Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'});
+    const capability: Capability = shortCode ? {shortCode} : {code: link!.code};
     this.busy = true; this.invitation = undefined;
     try {
-      const preview = await this.client.previewShort(shortCode, this.abort.signal); this.assertCurrent();
+      const preview = 'shortCode' in capability ? await this.client.previewShort(capability.shortCode, this.abort.signal) : await this.client.preview(capability.code, this.abort.signal); this.assertCurrent();
       if (preview.signInMethod !== 'local') throw cancelled();
       if (Date.parse(preview.expiresAt) <= Date.now()) throw new InvitationExpired();
-      this.invitation = {shortCode, preview}; return preview;
+      this.invitation = {capability, preview}; return preview;
     } finally {this.busy = false;}
   }
   async join(preview: PublicInvitation, username: string, password: string, name: string): Promise<T> {
@@ -48,7 +52,7 @@ export class NativeLocalInvitation<T> {
     this.busy = true;
     try {
       if (!this.accepted) {
-        await this.client.acceptLocal({shortCode: invitation!.shortCode, username: user, password, ...(label ? {name: label} : {})}, this.abort.signal);
+        await this.client.acceptLocal({...invitation!.capability, username: user, password, ...(label ? {name: label} : {})}, this.abort.signal);
         this.assertCurrent(); this.accepted = {preview, username: user}; this.invitation = undefined;
       }
       this.assertCurrent();
