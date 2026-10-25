@@ -13,9 +13,10 @@ import {NativeSearchExplore} from './explore';
 import {SearchScreen} from './SearchScreen';
 import {GenreBrowseScreen} from './GenreBrowseScreen';
 import {AllGenresScreen} from './AllGenresScreen';
+import {createNativeSearchSelection} from './selection';
 
 type Root = Readonly<{route: NativeShellRoute; key: number; search: ReturnType<typeof createNativeSearchController>;
-  explore: NativeSearchExplore; actions: ReturnType<typeof createNativeSearchActions>}>;
+  explore: NativeSearchExplore; selection: ReturnType<typeof createNativeSearchSelection>; actions: ReturnType<typeof createNativeSearchActions>}>;
 type GenreRoute = Extract<NativeShellRoute, {kind: 'search-genre'}>;
 type Genre = Readonly<{route: GenreRoute; key: number; controller: ReturnType<typeof createNativeSearchGenreController>; actions: ReturnType<typeof createNativeEntryActions>}>;
 type AllRoute = Extract<NativeShellRoute, {kind: 'search-genres'}>;
@@ -32,7 +33,7 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
   const current = () => !disposed && lifetime.current();
   const retained = (route: NativeShellRoute) => current() && (context.navigation.getSnapshot().route === route || context.navigation.retainedRoutes().includes(route));
   const visible = (route: NativeShellRoute) => retained(route) && context.navigation.getSnapshot().route === route;
-  const closeRoot = (entry: Root) => {entry.actions.dispose(); entry.search.dispose(); entry.explore.dispose();};
+  const closeRoot = (entry: Root) => {entry.selection.dispose(); entry.actions.dispose(); entry.search.dispose(); entry.explore.dispose();};
   const closeGenre = (entry: Genre) => {entry.actions.dispose(); entry.controller.dispose();};
   const reconcile = () => {
     const routes = current() ? [...context.navigation.retainedRoutes(), context.navigation.getSnapshot().route] : [];
@@ -48,7 +49,7 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
         const showing = context.navigation.getSnapshot().route;
         if (visible(route) || showing.kind === 'search-genres' && all.get(showing)?.explore === explore && visible(showing)) openNativeSearchGenre(context, genre);
       }});
-      roots.set(route, {route, key: ++sequence, search, explore, actions: createNativeSearchActions(context, search.source, search.activation)});
+      roots.set(route, {route, key: ++sequence, search, explore, selection: createNativeSearchSelection(context, search.source, search.activation), actions: createNativeSearchActions(context, search.source, search.activation)});
     }
     for (const route of routes) {
       if (route.kind === 'search-genre' && !genres.has(route)) {
@@ -96,9 +97,10 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
 }
 function SearchHost({entry, runtime}: {entry: Root; runtime: NativeShellRuntime}) {
   const active = useSyncExternalStore(entry.search.activation.subscribe, entry.search.activation.getSnapshot);
+  useSyncExternalStore(entry.selection.subscribe, entry.selection.getSnapshot);
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: active.visible ? 'flex' : 'none'}}>
-    <SearchScreen destination={entry.search.source} activation={entry.search.activation} explore={entry.explore} actions={entry.actions} runtime={runtime}
+    <SearchScreen destination={entry.search.source} activation={entry.search.activation} explore={entry.explore} actions={entry.actions} selection={entry.selection} runtime={runtime}
       tvCopy={{preferToTalk: 'next.search.preferToTalk', voiceHint: 'next.search.remoteMicrophoneHelp'}}/>
   </View>;
 }

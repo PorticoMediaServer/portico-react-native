@@ -25,7 +25,7 @@ export type NativeSearchExplorePort = Readonly<{
 export type NativeSearchSelectionPort = Readonly<{
   /** The producer's exact scope/query/revision and IDs, with bounded mounted windows. */
   register: (snapshot: SearchSnapshot, groups: readonly SearchGroupResult[]) => () => void;
-  item: (group: SearchGroup, entry: SearchEntry) => CardSelection;
+  item: (group: SearchGroup, entry: SearchEntry) => CardSelection | undefined;
   render: () => ReactNode;
 }>;
 export type NativeSearchActions = Readonly<{
