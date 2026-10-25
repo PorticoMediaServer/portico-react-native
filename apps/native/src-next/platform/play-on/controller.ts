@@ -2,6 +2,7 @@ import {playbackControlsService} from '../../../../../packages/client-core/src/p
 import {HandoffController, type HandoffPhase, type HandoffSnapshot, type Receiver} from '../../../../../packages/client-core/src/remote-playback';
 import type {LocalSession} from '../../../../../packages/client-core/src/index';
 import {sameFence, type DockPlayback, type PlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
+import {routePath} from '../../../../../packages/contracts/src/routes';
 import type {NativePlaybackAdapter} from '../playback/types';
 
 /** Play on, natively: the Portico devices this profile may send to, the handoff that
@@ -156,6 +157,18 @@ export class NativePlayOn {
   /** A request from the attempt that started it: the identity captured at send is checked
    * before and after every call, so a replaced authority/session cannot continue one. */
   private async request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+    // The receiver directory is a read of who exists, not a handoff: it answers before
+    // any send exists, so it is guarded by the current session and authority captured at
+    // this request. Every actual handoff call below still requires the immutable lease.
+    if (method === undefined && path === routePath('social_get_v1_receivers')) {
+      const session = this.options.session(), authority = this.options.playback()?.getSnapshot().authority;
+      const same = () => this.options.current() && !!session && this.options.session() === session
+        && sameAuthority(this.options.playback()?.getSnapshot().authority, authority);
+      if (!same()) throw cancelled();
+      const value = await this.options.api.request<T>(path, method, body, signal);
+      if (!same()) throw cancelled();
+      return value;
+    }
     const attempt = this.attempt, connection = this.connection, lease = this.lease;
     const same = () => this.bound(attempt, connection) && !!lease && this.options.session() === lease.session
       && sameAuthority(this.options.playback()?.getSnapshot().authority, lease.authority)
