@@ -70,6 +70,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
+  const invitationIntent = useRef<ReturnType<typeof NativeServerSignIn.parseInvitationLink> | undefined>(undefined);
   const endedTarget = useRef<Readonly<{serverId: string; fingerprint: string}> | undefined>(undefined);
   const identityOrigin = useRef<string | undefined>(undefined);
   const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [retryIn, setRetryIn] = useState(20), [appActive, setAppActive] = useState(AppState.currentState === 'active'), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
@@ -155,12 +156,12 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
-    if (stage === 'invitation-code' || stage === 'invitation-local') {retireInvitation(); cancelDirectory(); setPassword(''); setCode(''); setAddress(''); stageRef.current = 'address'; setStage('address'); return;}
+    if (stage === 'invitation-code' || stage === 'invitation-local') {invitationIntent.current = undefined; retireInvitation(); cancelDirectory(); setPassword(''); setCode(''); setAddress(''); stageRef.current = 'address'; setStage('address'); return;}
     if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {reset(); setCode(''); setResetLocation(undefined); setStage('address'); return;}
     if (stage === 'setup-review') {retireSetupReview(); setError(undefined); setStage('setup-choice'); return;}
     if (stage === 'setup-local') {setPassword(''); setSetupPasswordConfirm(''); setError(undefined); setStage('setup-choice'); return;}
@@ -333,8 +334,8 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     if (lifetime.current) {setPassword(''); setCode(''); setStage('forgot-sent');}
   };
   const inspect = async (origin = address) => {
-    const resetIntent = ownerResetIntent.current;
-    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current});
+    const resetIntent = ownerResetIntent.current, invite = invitationIntent.current;
+    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current, expectedInvitation: invite ? {origin: invite.server, serverId: invite.id} : undefined});
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
@@ -361,6 +362,15 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       return;
     }
     await next.confirmLocal(await next.inspectLocalIdentity());
+    if (invite) {
+      if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite) return;
+      const controller = next.createLocalInvitation(), ticket = {source: next, controller, active: true}; invitationOpening.current = ticket;
+      stageRef.current = 'invitation-code'; setStage('invitation-code');
+      const preview = await controller.preview('portico://join#code=' + encodeURIComponent(invite.code) + '&server=' + encodeURIComponent(invite.server) + (invite.id ? '&id=' + encodeURIComponent(invite.id) : ''));
+      if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite || invitationOpening.current !== ticket || !ticket.active) return;
+      invitationIntent.current = undefined; setInvitationPreview(preview); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setUsername(''); setName('');
+      stageRef.current = 'invitation-local'; setStage('invitation-local'); return;
+    }
     if (lifetime.current) {setServer(next.serverDescriptor()); if (Platform.isTV) await startTV('local'); else setStage('local');}
     return next;
   };
@@ -658,7 +668,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       primaryAction={{id: 'preview-invitation', label: t('action.continue'), disabled: busy || !code.trim(), loading: busy, onPress: () => {
         if (!current()) return; void run(async () => {
           if (!current()) return; const value = await ticket!.controller.preview(code);
-          if (!current()) return; setInvitationPreview(value); setCode(''); stageRef.current = 'invitation-local'; setStage('invitation-local');
+          if (!current()) return; invitationIntent.current = undefined; setInvitationPreview(value); setCode(''); stageRef.current = 'invitation-local'; setStage('invitation-local');
         });
       }}} secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
     if (!preview) return null;
@@ -786,6 +796,13 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope?.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
     return <PhoneNoServers busy={busy} error={status} onBack={() => {if (current()) back();}}
+      onJoin={raw => {
+        if (!current() || busyRef.current || acting.current) return;
+        const link = NativeServerSignIn.parseInvitationLink(raw.trim());
+        if (!link) {setError(Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'})); return;}
+        cancelDirectory(); invitationIntent.current = Object.freeze({...link}); setPassword(''); setCode(''); setAddress(link.server);
+        stageRef.current = 'address'; setStage('address'); void run(() => inspect(link.server));
+      }}
       onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
       onRefresh={() => {if (current()) void run(directory);}}
       onShare={() => {if (!current() || busyRef.current) return; void run(async () => {
