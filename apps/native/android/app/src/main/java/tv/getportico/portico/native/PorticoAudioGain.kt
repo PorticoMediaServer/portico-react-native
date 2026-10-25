@@ -150,17 +150,29 @@ internal class PorticoMusicPipeline(
   private val preferredSampleRate: () -> Int = { 0 },
 ) {
   private val queue = PorticoGainQueue(gain)
-  private val stage = PorticoRateStage()
+  private var stage = PorticoRateStage()
+  /** A stage whose remaining frames are still owed to the delegate, in its own format. */
+  private var draining: PorticoRateStage? = null
+  /** The delegate format that must not be applied until [draining] has been delivered. */
+  private var deferred: Format? = null
   private var sourceEncoding = C.ENCODING_PCM_16BIT
   private var targetEncoding = C.ENCODING_PCM_16BIT
   private var channels = 0
   private var sampleRate = 0
 
-  /** What the delegate must be configured with: the format the gain actually produces. */
+  /**
+   * What the delegate must be configured with for [format]. media3 may call this without a flush —
+   * `DefaultAudioSink` keeps the old configuration live and queues the new one — so the previous
+   * stream may still owe frames here. Those are never discarded into another format: this returns
+   * the new format and keeps [draining] alive, and the sink delivers them under the old
+   * configuration before applying it ([drain], [deferredFormat], [drained]).
+   *
+   * A stage continues only when the newly computed target and the source format are exactly the
+   * ones it already holds, which is the genuine contiguous case; any differing target or format is
+   * drained first.
+   */
   fun configure(format: Format): Format {
-    // A pending gain buffer belongs to the previous stream; configure must not discard it. media3
-    // does not necessarily flush first — DefaultAudioSink queues the new format as
-    // pendingConfiguration while output still exists — so the caller must have drained it.
+    // A pending gain buffer belongs to the previous stream; configure must not discard it.
     check(!queue.hasPending()) { "configure while a buffer is still pending" }
     val source = if (format.pcmEncoding != Format.NO_VALUE) format.pcmEncoding else C.ENCODING_PCM_16BIT
     // Only the four paths this stage converts are accepted; anything else is refused before a
@@ -175,14 +187,58 @@ internal class PorticoMusicPipeline(
     // so changing that rate would make a stream trim the wrong duration. Until trimming is done in
     // the source domain ahead of this stage, a stream that declares either keeps its own rate.
     val declaresTrimming = format.encoderDelay > 0 || format.encoderPadding > 0
-    // The sink opens at the stage's chosen rate when it may change one. The routed device is not
-    // readable from the Media3 sink, so a Smart route decision stays unknown rather than assumed
-    // supportive; the stage also refuses to change rate under audio it is still holding.
-    val openRate = stage.configure(sampleRate, channels, targetEncoding, sampleRateMode(),
-        preferredSampleRate(), sampleRate, null, allowRateChange = !declaresTrimming)
+    // The desired rate is computed before anything is changed; the routed device is not readable
+    // from the media3 sink, so Smart stays unknown rather than assuming support.
+    val target = PorticoRateStage.target(sampleRate, sampleRateMode(), preferredSampleRate(),
+        sampleRate, null, allowRateChange = !declaresTrimming)
     val delegate = converted(format, sourceEncoding)
-    return if (openRate > 0 && openRate != sampleRate) delegate.buildUpon().setSampleRate(openRate).build() else delegate
+    val wanted = if (target > 0 && target != sampleRate) delegate.buildUpon().setSampleRate(target).build() else delegate
+
+    if (stage.hasUnfinishedAudio &&
+        stage.continuesWith(sampleRate, channels, targetEncoding, target)) {
+      // Same source format, same output rate, nothing flushed: continue the held frames and clock.
+      return wanted
+    }
+    if (stage.hasUnfinishedAudio) {
+      // Its frames belong to the format it was configured for; they are delivered before the new
+      // configuration is applied, never reinterpreted through it.
+      if (draining == null) draining = stage
+      deferred = wanted
+    } else if (draining != null) {
+      // An earlier drain is still owed; keep it and wait for this format as well.
+      deferred = wanted
+    }
+    stage = PorticoRateStage()
+    stage.configure(sampleRate, channels, targetEncoding, target)
+    return wanted
   }
+
+  /** True while a previous stream still owes frames before the delegate may be reconfigured. */
+  fun drainPending(): Boolean = deferred != null
+
+  /** The delegate format waiting for the drain, or null when there is nothing deferred. */
+  fun deferredFormat(): Format? = deferred
+
+  /**
+   * Deliver the draining stage's remaining frames in its own format. Returns false while the
+   * delegate cannot accept them, keeping the same piece (and its buffer identity) for the retry.
+   */
+  fun drain(deliver: (ByteBuffer, Long, Int) -> Boolean): Boolean {
+    val old = draining
+    if (old == null) return true
+    val piece = old.takeTail()
+    if (piece == null) {
+      draining = null
+      return true
+    }
+    if (!deliver(piece.buffer, piece.timeUs, piece.count)) return false
+    old.accepted(piece)
+    draining = null
+    return true
+  }
+
+  /** The sink applied the deferred format after a successful [drain]. */
+  fun drained() { deferred = null }
 
   fun handle(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int,
              deliver: (ByteBuffer, Long, Int) -> Boolean): Boolean {
@@ -218,12 +274,19 @@ internal class PorticoMusicPipeline(
   /** True once the tail has been accepted, so the delegate may be told the stream ended. */
   fun tailFinished(): Boolean = stage.tailAccepted
 
-  /** True while the wrapper holds output the delegate has not accepted yet. */
-  fun hasPendingOutput(): Boolean = stage.hasPendingOutput
+  /** True while the wrapper holds output the delegate has not accepted yet, including a previous
+   * stream's frames still owed after a configuration change. */
+  fun hasPendingOutput(): Boolean = stage.hasPendingOutput || draining != null
 
-  fun flush() { queue.clear(); gain.reset(); stage.flush() }
+  fun flush() {
+    queue.clear(); gain.reset(); stage.flush()
+    draining = null; deferred = null
+  }
 
-  fun reset() { queue.clear(); gain.reset(); stage.reset() }
+  fun reset() {
+    queue.clear(); gain.reset(); stage.reset()
+    draining = null; deferred = null
+  }
 
   private fun converted(format: Format, source: Int, target: Int = targetEncoding): Format =
       if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
@@ -241,28 +304,58 @@ internal class PorticoMusicSink(
   preferredSampleRate: () -> Int = { 0 },
 ) : ForwardingAudioSink(delegate) {
   private val pipeline = PorticoMusicPipeline(gain, route, { PorticoAudioSampleRate.mode }, preferredSampleRate)
+  /** Size and channel map of a configuration whose delegate switch is waiting on the drain. */
+  private var deferredSize = 0
+  private var deferredChannels: IntArray? = null
 
   override fun configure(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
-    super.configure(pipeline.configure(format), specifiedBufferSize, outputChannels)
+    val delegate = pipeline.configure(format)
+    if (pipeline.drainPending()) {
+      // The previous stream still owes frames in its own format. Keep the delegate on its old
+      // configuration and let the drain complete under backpressure before switching.
+      deferredSize = specifiedBufferSize
+      deferredChannels = outputChannels
+      return
+    }
+    super.configure(delegate, specifiedBufferSize, outputChannels)
   }
 
-  override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean =
-      pipeline.handle(buffer, presentationTimeUs, encodedAccessUnitCount) { outgoing, time, count ->
-        super.handleBuffer(outgoing, time, count)
-      }
+  /** One buffer to the real sink; kept as a method so the drain can pass it as a function. */
+  private fun deliverToDelegate(buffer: ByteBuffer, timeUs: Long, count: Int): Boolean =
+      super.handleBuffer(buffer, timeUs, count)
 
+  /** Deliver what the previous stream still owes, then apply the configuration waiting behind it. */
+  private fun settleDeferred(): Boolean {
+    val deferred = pipeline.deferredFormat() ?: return true
+    if (!pipeline.drain(::deliverToDelegate)) return false
+    super.configure(deferred, deferredSize, deferredChannels)
+    pipeline.drained()
+    return true
+  }
+
+  override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
+    if (!settleDeferred()) return false
+    return pipeline.handle(buffer, presentationTimeUs, encodedAccessUnitCount, ::deliverToDelegate)
+  }
 
   override fun flush() {
     super.flush()
+    val deferred = pipeline.deferredFormat()
+    val size = deferredSize
+    val channels = deferredChannels
     pipeline.flush()
+    // A flush is a seek: the owed frames are correctly discarded, but the stream media3 already
+    // announced still has to reach the delegate in its own format.
+    if (deferred != null) super.configure(deferred, size, channels)
   }
 
   override fun playToEndOfStream() {
+    if (!settleDeferred()) return
     // Deliver the resampler's retained tail. The delegate is only told the stream ended after it
     // accepts that tail; a refusal keeps the same piece (buffer, time, count) for the next call.
     val tail = pipeline.takeTail()
     if (tail != null) {
-      val accepted = super.handleBuffer(tail.buffer, tail.timeUs, tail.count)
+      val accepted = deliverToDelegate(tail.buffer, tail.timeUs, tail.count)
       pipeline.acceptedTail(tail, accepted)
       if (!accepted || !pipeline.tailFinished()) return
     }
@@ -275,10 +368,12 @@ internal class PorticoMusicSink(
   }
 
   /** The delegate reports ended once its output is torn down, which it may do while this wrapper
-   * still holds a refused tail. Only claim the end once nothing is retained. */
-  override fun isEnded(): Boolean = !pipeline.hasPendingOutput() && super.isEnded()
+   * still holds owed frames. Only claim the end once nothing is retained or deferred. */
+  override fun isEnded(): Boolean =
+      !pipeline.drainPending() && !pipeline.hasPendingOutput() && super.isEnded()
 
-  override fun hasPendingData(): Boolean = pipeline.hasPendingOutput() || super.hasPendingData()
+  override fun hasPendingData(): Boolean =
+      pipeline.drainPending() || pipeline.hasPendingOutput() || super.hasPendingData()
 
   override fun getFormatSupport(format: Format): Int {
     if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return AudioSink.SINK_FORMAT_UNSUPPORTED
