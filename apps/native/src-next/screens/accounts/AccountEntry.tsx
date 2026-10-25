@@ -1107,7 +1107,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     options?.password ? action('account-password', t('auth.signIn'), async () => {await account.current!.password(username, password); await directory();}, !username || !password) : undefined,
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 10}}>{options?.providers.filter(value => value.enabled && (NativeModules.PorticoAccountAuth.canOpenBrowser || value.id === 'apple' && value.native && value.nativeClientIds.includes(NativeModules.PorticoAccountAuth.bundleId) && NativeModules.PorticoAccountAuth.canSignInApple)).map(value => <Button key={value.id} variant="glass" disabled={busy} onPress={() => {void run(async () => {
       const tx = await account.current!.provider(value.id); setTransaction(tx);
-      if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {await account.current!.finishProvider(); await directory();} else setStage('provider');
+      if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {await account.current!.finishProvider(); await directory();} else {
+        // The name the provider gave is the drawn starting value; a typed name wins.
+        const suggested = tx.suggestedName;
+        if (suggested) setName(current => current || suggested);
+        setStage('provider');
+      }
     });}}>{t(value.id === 'google' ? 'auth.signInWithGoogle' : 'auth.signInWithApple')}</Button>)}
     {options?.registration && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('register');}}>{t('auth.createAccount')}</Button>}
     {options?.recovery !== false && <Button variant="text" disabled={busy} onPress={() => {setPassword(''); setStage('forgot');}}>{t('auth.forgotPassword')}</Button>}
@@ -1177,8 +1182,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const lede = phoneStep ? t('services.provider.lastThing') : undefined;
     const continuing = tx?.needsUsername && providerName && !theme.isTV
       ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('services.provider.heading', {provider: providerName})}</Text> : undefined;
+    // The address the provider chose to share; no relay label is claimed without a producer flag.
+    const sharedAddress = !theme.isTV && !!tx?.verifiedEmail && tx.needsUsername
+      ? <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{`${t('auth.email')}: ${tx.verifiedEmail}`}</Text> : undefined;
     return layout(heading, lede, fields(
       continuing,
+      sharedAddress,
       tx?.needsUsername && field(t('auth.username'), username, next => {setProviderUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
         !theme.isTV && providerUsernameUnavailable ? t('web.signIn.error.accountTaken') : undefined,
         theme.isTV ? undefined : t('services.provider.usernameHelp')),
