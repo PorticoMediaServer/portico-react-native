@@ -8,8 +8,8 @@ import {Button, TextField} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
 
 /** Empty directory only: discovery and invitation entry still prove their server. */
-export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin}: {
-  busy: boolean; error?: React.ReactNode; onFind: () => void; onRefresh: () => void;
+export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin, notice}: {
+  busy: boolean; error?: React.ReactNode; notice?: Readonly<{title: string; body: string}>; onFind: () => void; onRefresh: () => void;
   onJoin: (invitation: string, address: string) => void; onShare: () => void; onSignOut: () => void; onBack?: () => void;
 }) {
   const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
@@ -33,8 +33,8 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
       {onBack && <Button variant="text" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
       <View style={{gap: 12}}>
-        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{t('web.hostedAccount.noServers')}</Text>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.noneBody')}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{notice?.title ?? t('web.hostedAccount.noServers')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{notice?.body ?? t('web.chooser.noneBody')}</Text>
         {error}
       </View>
       <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
