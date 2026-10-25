@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {AppState, BackHandler, Linking, NativeModules, Platform, TVEventControl, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
@@ -144,7 +144,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     else TVEventControl.disableTVMenuKey();
     return () => TVEventControl.disableTVMenuKey();
   }, [stage, onBack]);
-  const consume = (result: Result) => {
+  const consume = useCallback((result: Result) => {
     if (!lifetime.current) return;
     if (result.kind === 'required-setup') {
       if (!Platform.isTV) throw Object.assign(new Error('native_required_account_setup'), {code: 'access_refused'});
@@ -157,13 +157,13 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     else if (result.kind === 'profiles') {setServer(operation.current!.serverDescriptor()); setProfiles(result.profiles); setStage('profiles');}
     else if (result.kind === 'challenge') {factorKind.current = 'local'; setCode(''); setRecovery(false); setStage('factor');}
     else onComplete();
-  };
+  }, [onComplete]);
   useEffect(() => {
     if (stage !== 'member-move' || !memberMove || moveSnapshot?.phase !== 'adopted'
       || moveSnapshot.result?.kind !== 'challenge' || memberOperation.current !== operation.current) return;
     const result = memberMove.takeAcceptedResult();
     if (result?.kind === 'challenge') {memberFactorOperation.current = operation.current; consume(result);}
-  }, [stage, memberMove, moveSnapshot]);
+  }, [stage, memberMove, moveSnapshot, consume]);
   const directory = async () => {
     const move = memberMoveRef.current;
     if (move && memberOperation.current === operation.current && move.getSnapshot().phase === 'portico') {
