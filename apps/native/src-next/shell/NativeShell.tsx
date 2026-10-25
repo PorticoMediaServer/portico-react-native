@@ -124,7 +124,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     const mine = ++opening.current, from = runtime.getSnapshot().destination;
     const id = memoryReady ? remembered : await runtime.memory.read(snapshot.authority).catch(error => {runtime.reportError(error); return undefined;});
     if (!current() || mine !== opening.current || runtime.getSnapshot().contentVisible === false || !sameDestination(from, runtime.getSnapshot().destination)) return;
-    navigate(librariesDestination(id, runtime.getSnapshot().libraries));
+    navigate(librariesDestination(id, runtime.getSnapshot().libraries, theme.isTV));
   };
   const expanded = useCallback((value: boolean) => {
     setRailExpanded(value);

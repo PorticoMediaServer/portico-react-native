@@ -42,9 +42,13 @@ export function libraryIcon(kind: string): IconName {
 }
 
 /** First use and a removed/unauthorized remembered id open the overview, even with one library. */
-export function librariesDestination(remembered: string | undefined, libraries: readonly Library[]): ShellDestination {
-  return remembered && libraries.some(library => library.id === remembered)
-    ? {kind: 'library', libraryId: remembered} : {kind: 'libraries'};
+/** phone-app 4d: the overview is the fallback for "no last library" only — the first time, or
+ * when the remembered one was removed. A remembered library that is still visible opens, and
+ * with a single visible library the tab opens straight into it instead of the overview. */
+export function librariesDestination(remembered: string | undefined, libraries: readonly Library[], isTV: boolean): ShellDestination {
+  const visible = visibleLibraries(libraries, isTV);
+  if (remembered && visible.some(library => library.id === remembered)) return {kind: 'library', libraryId: remembered};
+  return visible.length === 1 ? {kind: 'library', libraryId: visible[0].id} : {kind: 'libraries'};
 }
 
 export function selectedTab(destination: ShellDestination): ShellTab['id'] | undefined {
