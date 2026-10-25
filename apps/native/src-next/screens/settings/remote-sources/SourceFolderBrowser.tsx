@@ -4,6 +4,7 @@ import type {RemoteFolderPage, RemoteSource} from '../../../../../../packages/cl
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Switch} from '../../../kit/controls/Switch';
+import {Icon} from '../../../kit/Icon';
 import {useTheme} from '../../../kit/theme';
 import type {ChosenSourceFolder} from './SourceLibraryAssignment';
 import type {NativeRemoteSourcesController} from './controller';
@@ -38,19 +39,37 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const parent = page?.relative.split('/').slice(0, -1).join('/') ?? '';
+  const trail = (page?.relative ?? '').split('/').filter(Boolean);
   return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={<Button disabled={busy || !chosen.length} onPress={() => {if (!flight.current && current() && selectionRevision.current === renderedSelection && chosen.length) onChoose(chosen);}}>{t(chosen.length === 1 ? 'next.remoteSources.useOneFolder' : 'next.remoteSources.useFolders', {count: chosen.length})}</Button>}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
-    {page && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{page.path}</Text>}
+    <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.foldersOnlyHint')}</Text>
+    {page && <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6}}>
+      <Button variant="text" size="small" disabled={busy} onPress={() => {void read('');}}>{source.name}</Button>
+      {trail.map((part, index) => {
+        const prefix = trail.slice(0, index + 1).join('/');
+        return <View key={prefix} style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+          <Icon name="i-right" size={14} color={theme.colors.textTertiary}/>
+          <Button variant="text" size="small" disabled={busy || index === trail.length - 1} onPress={() => {void read(prefix);}}>{part}</Button>
+        </View>;
+      })}
+    </View>}
     {page && <Button variant="glass" disabled={busy} onPress={() => toggle({name: page.relative.split('/').pop() || source.name, path: page.path, relative: page.relative})}>{t(chosen.some(row => row.relative === page.relative) ? 'next.remoteSources.chosen' : 'next.remoteSources.chooseThisFolder')}</Button>}
-    {chosen.map(folder => <Button key={folder.relative} variant="text" disabled={busy} onPress={() => toggle(folder)}>{t('next.remoteSources.removeFolder', {name: folder.name})}</Button>)}
+    {!!chosen.length && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+      {chosen.map(folder => <Button key={folder.relative} variant="text" disabled={busy} onPress={() => toggle(folder)}>{t('next.remoteSources.removeFolder', {name: folder.name})}</Button>)}
+    </View>}
     <Switch checked={hidden} disabled={busy} onCheckedChange={value => {void read(page?.relative ?? '', value);}}>{t('next.remoteSources.showHiddenFolders')}</Switch>
     {!!page?.relative && <Button disabled={busy} variant="text" onPress={() => {void read(parent);}}>{t('next.remoteSources.upOneFolder')}</Button>}
     {busy && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.folderListing')}</Text>}
-    {page && !page.entries.length && !busy && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.noFoldersHere')}</Text>}
-    {page?.entries.map(folder => <View key={folder.relative} style={{gap: 4}}>
-      <Button disabled={busy} variant="glass" accessibilityLabel={t('next.remoteSources.openFolder', {name: folder.name})}
+    {page && !page.entries.length && !busy && <>
+      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.noFoldersHere')}</Text>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.noFoldersHereHelp')}</Text>
+    </>}
+    {page?.entries.map(folder => <View key={folder.relative} style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+      <Switch accessibilityLabel={t(chosen.some(row => row.relative === folder.relative) ? 'next.remoteSources.chosen' : 'next.remoteSources.chooseThisFolder')}
+        disabled={busy || chosen.length >= 64 && !chosen.some(row => row.relative === folder.relative)} checked={chosen.some(row => row.relative === folder.relative)} onCheckedChange={() => toggle(folder)}/>
+      <Button disabled={busy} variant="text" style={{flex: 1}} accessibilityLabel={t('next.remoteSources.openFolder', {name: folder.name})}
         onPress={() => {void read(folder.relative);}}>{folder.name}</Button>
-      <Switch disabled={busy || chosen.length >= 64 && !chosen.some(row => row.relative === folder.relative)} checked={chosen.some(row => row.relative === folder.relative)} onCheckedChange={() => toggle(folder)}>{folder.name}</Switch>
+      <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
     </View>)}
     {!!page?.nextCursor && page.entries.length < 500 && <Button variant="text" disabled={busy} onPress={() => {void read(page.relative, hidden, true);}}>{t('next.remoteSources.showMoreFolders')}</Button>}
     {(page?.truncated || !!page?.nextCursor && page.entries.length >= 500) && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.folderTruncated')}</Text>}
