@@ -19,6 +19,8 @@ import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type P
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
+import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
+import {nativeSetupDraft} from './setup-draft';
 import type {HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
@@ -46,6 +48,7 @@ export class NativeServerSignIn {
   private publishing = false;
   private disposeRequested = false;
   private readonly issued = new Map<string, LocalSession>();
+  private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
   private hostedLease?: () => boolean;
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
@@ -88,8 +91,70 @@ export class NativeServerSignIn {
         this.pendingIdentity = captured; return undefined;
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
-      if (!server || server.setupRequired) throw mismatch();
       this.server = server; return server;
+    });
+  }
+  /** Setup is admitted only after the same explicit first-contact proof as sign-in. */
+  prepareSetup() {
+    return this.run(async () => {
+      const server = this.server, origin = this.probe.getSnapshot().origin;
+      if (!server?.setupRequired || !origin || this.api) throw mismatch();
+      const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
+      if (pin.serverId !== server.id) throw mismatch();
+      assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
+      this.admission = await this.owner.admission('local'); this.assertCurrent();
+      const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
+      this.api = connected.api; this.assertCurrent();
+      const checked = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: server.signIn,
+        signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
+      if (!checked.setupRequired) throw mismatch();
+      this.server = checked; return checked;
+    });
+  }
+  setupLocal(name: string, username: string, password: string) {
+    return this.run(async () => {
+      const api = this.api, server = this.server;
+      if (!api || !server?.setupRequired || !this.admission) throw mismatch();
+      const store = nativeSetupDraft(server.id);
+      const saved = await store.read(); this.assertCurrent();
+      if (saved && saved.authMode !== 'local') throw mismatch();
+      const token = saved?.setupToken ?? (await startAppSetup(api, this.controller.signal)).setupToken; this.assertCurrent();
+      const retained = await nativeAppSessions.read(); this.assertCurrent();
+      const issued = await initializeServer(api, store, {setupToken: token, name: name.trim(), username: username.trim(), password,
+        authMode: 'local', interactive: true}, this.controller.signal);
+      // Pending Hosted claims are never sessions. Retain a fresh local grant for
+      // cancellation cleanup before any asynchronous snapshot or publication.
+      if ('claimRequired' in issued) throw mismatch();
+      const pin = api.getRouteConnection()?.pin;
+      if (!pin || issued.viewer.authority !== 'local' || issued.viewer.role !== 'owner' || issued.viewer.serverId !== server.id || Date.parse(issued.expiresAt) <= Date.now()
+        || issued.installationId !== this.installation?.installationId
+        || issued.serverIdentity?.publicKey !== pin.publicKey || issued.serverIdentity.fingerprint !== pin.fingerprint
+        || retained.servers.some(value => value.connection.session.sessionFamilyId === issued.sessionFamilyId)
+        || this.account?.sessionFamilyId === issued.sessionFamilyId) throw mismatch();
+      const nowStored = await nativeAppSessions.read();
+      if (nowStored.servers.some(value => value.connection.session.sessionFamilyId === issued.sessionFamilyId)) throw mismatch();
+      const routes = api.getRouteConnection();
+      if (!routes || routes.pin.serverId !== pin.serverId || routes.pin.publicKey !== pin.publicKey || routes.pin.fingerprint !== pin.fingerprint) throw mismatch();
+      this.setupIssuers.set(issued.sessionFamilyId, {origin: api.baseUrl, routes, pin: {...pin}});
+      this.issued.set(issued.sessionFamilyId, issued);
+      try {
+        const completed = await store.read();
+        this.assertCurrent(); api.setAccessToken(issued.accessToken);
+        const snapshot = parseDirectSnapshot(await api.request(routePath('get_direct_account'), 'GET', undefined, this.controller.signal),
+          {authority: 'local', serverId: server.id, accountId: issued.viewer.accountId}, true);
+        this.assertCurrent();
+        if (snapshot.account.role !== 'owner' || snapshot.account.disabled || !snapshot.capabilities.manageServer
+          || snapshot.account.primaryProfileId !== issued.viewer.profileId) throw mismatch();
+        this.server = {...server, name: name.trim(), signIn: 'local', setupRequired: false};
+        const result = await this.consume({kind: 'signed-in', session: issued, snapshot,
+          accountScoped: false, passwordChangeRequired: false});
+        await store.change(old => {
+          this.assertCurrent();
+          if (!completed || old?.requestId !== completed.requestId || old.setupToken !== completed.setupToken || old.authMode !== 'local') throw mismatch();
+          return undefined;
+        });
+        return result;
+      } catch (error) {await this.retire(issued); throw error;}
     });
   }
   inspectLocalIdentity(): Promise<ServerPin> {
@@ -435,7 +500,7 @@ export class NativeServerSignIn {
     this.publishing = true;
     try {
     const previous = await this.owner.remember(this.api, session, this.admission, this.hosted, this.current);
-    this.issued.delete(session.sessionFamilyId); this.complete = true;
+    this.issued.delete(session.sessionFamilyId); this.setupIssuers.delete(session.sessionFamilyId); this.complete = true;
     const temporary = this.account; this.account = undefined;
     const cleanup = await Promise.allSettled([this.owner.retireReplacedServerSession(previous), temporary ? this.retire(temporary) : Promise.resolve()]);
     if (cleanup.some(value => value.status === 'rejected')) throw Object.assign(new Error('native_session_revocation_pending'), {code: 'session_revocation_pending'});
@@ -443,6 +508,20 @@ export class NativeServerSignIn {
   }
   private async retire(session: LocalSession) {
     if (!this.issued.delete(session.sessionFamilyId) || !this.api) return;
+    const setup = this.setupIssuers.get(session.sessionFamilyId);
+    this.setupIssuers.delete(session.sessionFamilyId);
+    if (setup) {
+      // Initialization/resume may replay the same grant to another operation.
+      // A failed turn owns no cleanup of a family another turn has retained.
+      const stored = await nativeAppSessions.read();
+      if (stored.servers.some(value => value.connection.session.sessionFamilyId === session.sessionFamilyId)
+        || setup.routes.pin.serverId !== setup.pin.serverId || setup.routes.pin.publicKey !== setup.pin.publicKey
+        || setup.routes.pin.fingerprint !== setup.pin.fingerprint
+        || session.viewer.serverId !== setup.pin.serverId || session.serverIdentity?.publicKey !== setup.pin.publicKey
+        || session.serverIdentity.fingerprint !== setup.pin.fingerprint) return;
+      const cleanup = new HttpLocalApi(setup.origin, session.accessToken, nativeNetworkFetch);
+      cleanup.useRoutes(setup.routes); await cleanup.logout(); return;
+    }
     const retired = new HttpLocalApi(this.api.baseUrl, session.accessToken, nativeNetworkFetch);
     const routes = this.api.getRouteConnection(); if (routes) retired.useRoutes(routes);
     await retired.logout();
