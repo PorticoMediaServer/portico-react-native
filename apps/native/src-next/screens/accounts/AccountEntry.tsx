@@ -814,7 +814,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         const link = NativeServerSignIn.parseInvitationEntry(raw, origin);
         if (!link) {setError(Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'})); return;}
         cancelDirectory(); invitationIntent.current = Object.freeze({...link}); setPassword(''); setCode(''); setAddress(link.server);
-        stageRef.current = 'address'; setStage('address'); void run(() => inspect(link.server));
+        stageRef.current = 'address'; setStage('address'); void run(async () => {await inspect(link.server);});
       }}
       onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
       onRefresh={() => {if (current()) void run(directory);}}
