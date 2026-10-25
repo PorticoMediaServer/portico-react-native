@@ -91,7 +91,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
         onChangeText={value => {if (flight.current || !current()) return; invalidate(); setS3(previous => ({...previous, [key]: value,
           ...((key === 'endpoint' || key === 'accessKey') ? {secretKey: ''} : {})}));}}/>)}
     </> : form === 'drive' ? <>
-      <TextField label={t('next.remoteSources.driveKey')} description={t('next.remoteSources.driveKeyHelp')} value={drive.keyJson} multiline
+      <TextField label={t('next.remoteSources.driveKey')} value={drive.keyJson} multiline
         editable={editable} autoCapitalize="none" autoCorrect={false} textContentType="none"
         onChangeText={value => {if (flight.current || !current()) return; invalidate(); setDrive(previous => ({...previous, keyJson: value}));}}/>
       {driveResult?.ok && <>
