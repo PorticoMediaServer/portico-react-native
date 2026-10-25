@@ -28,6 +28,7 @@ async function fixture() {
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
     './use-tv-voice-search': {useTVVoiceSearch: () => ({start: undefined, busy: false})},
     './NativeSafeModeRow': safeMode,
+    './NativeDynamicRangeRow': {NativeDynamicRangeRow: 'NativeDynamicRangeRow', nativeDynamicRangeFocusId: 'settings-device-match-dynamic-range'},
     './NativeFrameRateRow': {NativeFrameRateRow: 'NativeFrameRateRow', nativeFrameRateFocusId: 'settings-device-match-frame-rate'},
     '../../platform/playback/passthrough-formats': {passthroughFormats},
     './NativePassthroughRow': {NativePassthroughRow: 'NativePassthroughRow', nativePassthroughFocusId: 'settings-device-audio-passthrough'},
