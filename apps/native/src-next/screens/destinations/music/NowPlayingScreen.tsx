@@ -81,6 +81,10 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
   // and revision this screen drew, so a queue that moved on refuses it.
   const drawnFence = playback.fence, drawnQueue = queue?.queue, lifetime = policyLifetime;
+  // What this run was started from is the queue's own segment for the current entry, never a
+  // label taken from whatever album the song happens to carry.
+  const currentEntry = drawnQueue?.entries.find(entry => entry.id === drawnQueue.currentEntryId);
+  const origin = currentEntry?.segmentId ? drawnQueue?.segments.find(segment => segment.id === currentEntry.segmentId && segment.label)?.label : undefined;
   const policyReady = !!drawnQueue && drawnFence.kind === 'queue' && !!lifetime && !!queuePolicy?.canApply(drawnFence);
   const shuffled = !!drawnQueue?.shuffle, repeat = drawnQueue?.repeat ?? 'off';
   const changePolicy = (intent: V1QueuePolicyIntent) => {
@@ -119,15 +123,12 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
   const cover = Math.max(160, Math.min(410, wide ? width - QUEUE_WIDTH - 120 : width - 96));
   const column = <View testID={`${testID}-column`} style={{flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 28, paddingTop: wide ? 36 : 20}}>
+    {origin ? <Text numberOfLines={1} style={[browseType(theme, 13, 600), {marginBottom: 14, textAlign: 'center', color: theme.colors.textSecondary}]}>{t('next.music.playingFrom', {source: origin})}</Text> : null}
     {p.artwork ? <Artwork source={p.artwork} width={cover} height={cover} style={{borderRadius: 14}}/> : null}
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
     {signal ? <MusicFocusRegion id={`${focus}.signal`} entry="music-signal-line" edges={{down: `${focus}.progress`}} style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></MusicFocusRegion> : null}
-    {notice && !theme.isTV ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
-      <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
-      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
-    </View> : null}
     {retry?.enabled ? <View style={{marginTop: 16}}><Button testID={`${testID}-retry`} variant="primary" icon="i-retry"
       onPress={() => retry.run(playback.fence)}>{t('next.states.tryAgain')}</Button></View> : null}
     <View style={{width: '100%', maxWidth: 520, marginTop: 24}}>
@@ -160,6 +161,10 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         accessibilityLabel={t(repeat === 'off' ? 'next.dock.repeatOff' : repeat === 'all' ? 'next.dock.repeatAll' : 'next.dock.repeatOne')}
         accessibilityState={{selected: repeat !== 'off'}} onPress={() => changePolicy({action: 'repeat', repeat: repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off'})}/> : null}
     </MusicFocusRegion>
+    {notice && !theme.isTV ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
+      <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
+      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
+    </View> : null}
     <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 26, marginBottom: 24}}>
       {!side && queue ? <Button testID={`${testID}-queue-toggle`} variant={sheet === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"
         accessibilityState={{expanded: sheet === 'queue'}} onPress={() => setSheet(open => open === 'queue' ? null : 'queue')}>{t('player.queue')}</Button> : null}
