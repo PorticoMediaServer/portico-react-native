@@ -235,6 +235,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     void controller.apply(scope, patch).catch(runtime.reportError);
   };
   if (showSafeMode) rowIds.unshift(nativeSafeModeFocusId);
+  if (pageSections.some(section => section.advanced)) rowIds.push('settings-advanced');
   const device = Platform.isTV ? Platform.OS === 'ios' ? 'device.noun.appleTV' : String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon' ? 'device.noun.fireTV' : 'device.noun.androidTV'
     : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
   return <><FocusRegion id={region} entry={rowIds[0]} order={rowIds} orientation="vertical" edges={{left: column}}>
