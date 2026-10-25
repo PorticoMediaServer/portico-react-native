@@ -92,8 +92,8 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
   useLayoutEffect(() => {
     if (!open) return;
     const opener = registry?.capture();
-    const releaseReturn = regionId ? registry?.registerReturn(regionId, opener) : undefined;
-    const releaseOpener = opener ? registry?.retain(opener) : undefined;
+    const releaseReturn = regionId && restoring.current ? registry?.registerReturn(regionId, opener) : undefined;
+    const releaseOpener = opener && restoring.current ? registry?.retain(opener) : undefined;
     const registration = {};
     const remove = stack.register(registration, reason => dismissRef.current(reason));
     const releaseKeys = retainOverlayKeys();
