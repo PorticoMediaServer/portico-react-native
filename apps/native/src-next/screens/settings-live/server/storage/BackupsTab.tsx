@@ -1,4 +1,5 @@
-import React, {useEffect, useState} from 'react';
+import {useSettingsRequestScope} from '../../use-settings-request-scope';
+import React, {useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 import type {BackupSummary, BackupsDocument, BackupKind} from '../../../../../../../packages/client-core/src/administration';
 import {backupProgressFraction} from '../../../../../../../packages/client-core/src/administration';
@@ -22,12 +23,15 @@ const kindWord = (kind: BackupKind): MessageId => kind === 'scheduled' ? 'web.ma
 
 /** Settings › Server › Storage & backups › Backups (owner-server.html frame 35b). */
 export function BackupsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
-  const theme = useTheme(), context = ports.context, authority = context.authority();
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
+  const theme = useTheme(), context = ports.context;
+  const {api, lifetime, authority} = useSettingsRequestScope(context);
   const [doc, setDoc] = useState<BackupsDocument>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
   const [menu, setMenu] = useState<BackupSummary>(), [restore, setRestore] = useState<BackupSummary | 'path'>(), [deleteTarget, setDeleteTarget] = useState<BackupSummary>(), [typed, setTyped] = useState(''), [path, setPath] = useState('');
-  const refresh = () => {void getBackups(api, authority.serverId).then(setDoc, setError);};
-  useEffect(() => {refresh(); return () => {};}, [context]);
+  const refresh = useCallback(() => {
+    if (!lifetime.current()) return;
+    void getBackups(api, authority.serverId).then(value => {if (lifetime.current()) {setDoc(value); setError(undefined);}}, failure => {if (lifetime.current()) setError(failure);});
+  }, [api, authority.serverId, lifetime]);
+  useEffect(() => {refresh();}, [refresh]);
   const run = (work: () => Promise<unknown>) => {
     setBusy(true); setProblem(undefined);
     void work().then(() => {setBusy(false); refresh();}, (failure: unknown) => {setBusy(false); setProblem(presentError(failure, 'server-console').body);});

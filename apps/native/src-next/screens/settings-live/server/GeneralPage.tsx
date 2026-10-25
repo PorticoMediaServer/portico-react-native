@@ -1,4 +1,5 @@
-import React, {useEffect, useState} from 'react';
+import {useSettingsRequestScope} from '../use-settings-request-scope';
+import React, {useCallback, useEffect, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {parseUpdateReport, type UpdateReport} from '../../../../../../packages/client-core/src/administration';
 import {pauseBackgroundWork, type MaintenanceDocument, type MaintenanceSettings} from '../../../../../../packages/client-core/src/server-admin/server-forms';
@@ -27,8 +28,8 @@ const IDS = ['runtime', 'maintenance'] as const;
 
 /** Settings › Server › General on the phone (slots server-general group 1–2 and the drawn background/restart rows). */
 export function NativeServerGeneral({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
-  const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context, authority = context.authority();
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
+  const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
+  const {api, lifetime} = useSettingsRequestScope(context);
   const {forms, set, state} = useStorageForms(ports, IDS);
   const runtimeState = useFormState<RuntimeSettings, unknown>(forms.runtime);
   const maintenanceState = useFormState<MaintenanceSettings, MaintenanceDocument>(forms.maintenance);
@@ -36,8 +37,13 @@ export function NativeServerGeneral({ports, runtime, compactHeader = false}: {po
   const [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>(), [restarting, setRestarting] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false), [messageTitle, setMessageTitle] = useState(''), [messageBody, setMessageBody] = useState(''), [audience, setAudience] = useState<'profile' | 'account-admin'>('profile'), [severity, setSeverity] = useState<'info' | 'warning' | 'critical'>('info');
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
-  const loadUpdates = () => {setChecking(true); void api.request<unknown>('/v1/admin/updates').then(raw => setUpdates(parseUpdateReport(raw)), setUpdateError).finally(() => setChecking(false));};
-  useEffect(() => {loadUpdates();}, [context]);
+  const loadUpdates = useCallback(() => {
+    if (!lifetime.current()) return;
+    setChecking(true); setUpdateError(undefined);
+    void api.request<unknown>('/v1/admin/updates').then(raw => {if (lifetime.current()) setUpdates(parseUpdateReport(raw));})
+      .catch(error => {if (lifetime.current()) setUpdateError(error);}).finally(() => {if (lifetime.current()) setChecking(false);});
+  }, [api, lifetime]);
+  useEffect(() => {loadUpdates();}, [loadUpdates]);
   const now = Date.now(), pausedUntil = maintenanceState.status?.pausedUntilUnixMillis ?? 0, paused = pausedUntil > now;
   const pause = () => {
     setBusy(true); setProblem(undefined);
