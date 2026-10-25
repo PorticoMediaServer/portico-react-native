@@ -45,4 +45,4 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
 export const nativeAccountPanelIds: readonly SettingsCustomId[] = Object.freeze(['identity', 'profiles', 'servers', 'porticoAccount', 'about', 'privacyNote', 'remoteControls', 'deviceName']);
 
 /** Drawn rows whose genuine native surface is not built yet; their capability stays off. */
-export const nativeSettingsUnavailablePanelIds: readonly SettingsCustomId[] = Object.freeze(['password', 'twoStep', 'devices', 'deviceName', 'downloadsStorage', 'accessTokens', 'subtitlePreview']);
+export const nativeSettingsUnavailablePanelIds: readonly SettingsCustomId[] = Object.freeze(['password', 'twoStep', 'devices', 'downloadsStorage', 'accessTokens', 'subtitlePreview']);
