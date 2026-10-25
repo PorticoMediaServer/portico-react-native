@@ -942,6 +942,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  NSDictionary *status=[self snapshot];
  NSMutableDictionary *fact=[@{@"type":type,@"position":status[@"positionSeconds"],@"paused":@(_paused),@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)} mutableCopy];
  for(NSString *key in @[@"effectiveRate",@"supportedRates",@"rateReady",@"rateWaiting",@"rateError",@"eqApplied",@"levelingApplied"])fact[key]=status[key];
+ if(status[@"levelingGainDb"])fact[@"levelingGainDb"]=status[@"levelingGainDb"];
  [fact addEntriesFromDictionary:extra];
  // Decoder/OS diagnostic prose never becomes UI copy.
  if([fact[@"error"] isKindOfClass:NSString.class]&&[fact[@"error"] length])fact[@"error"]=[type isEqual:@"audioPreparationFailed"]?@"audio_preparation_failed":@"audio_render_failed";
@@ -969,6 +970,13 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  BOOL heardCurrent=_active&&_primary.started&&!_primary.failed&&!_primary.ended&&!_endedSent&&renderTime.isSampleTimeValid&&renderTime.sampleTime>_primary.nodeOffset;
  facts[@"eqApplied"]=@(heardCurrent&&PorticoEqualizerApplied(_primary.equalizer,_engine));
  facts[@"levelingApplied"]=@(heardCurrent&&_primary.levelingProcessed);
+ // This deck's Float32 coefficient was multiplied into its decoded buffers in
+ // deliver:deck:. The node clock above proves those same buffers are now heard;
+ // neither the requested plan nor the crossfade node volume is a measurement.
+ if([facts[@"levelingApplied"] boolValue]&&isfinite(_primary.gain)&&_primary.gain>0){
+  double db=20*log10(_primary.gain);
+  if(isfinite(db)&&db>=-60&&db<=30)facts[@"levelingGainDb"]=@(db);
+ }
  double frames=[_primary.plan[@"durationFrames"] doubleValue],rate=[_primary.plan[@"sampleRate"] doubleValue],bytes=[_primary.plan[@"bytes"] doubleValue];
  if(frames>0&&rate>0&&bytes>0)facts[@"containerAverageBitrateBps"]=@(llround(bytes*8*rate/frames));
  facts[@"sourceSampleRate"]=_primary.plan[@"sampleRate"]?:@0;facts[@"sourceChannels"]=_primary.plan[@"channels"]?:@0;

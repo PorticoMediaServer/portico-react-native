@@ -421,3 +421,9 @@ Requested/output rates and channel counts are actual audio-session observations;
 remain machine codes. Persisted intent never proves processing. Current-song `eqApplied`
 and `levelingApplied` come from rendered-deck/connected-graph observations and clear for
 new, failed, ended or stopped playback. These facts do not claim physical bit-perfect output.
+
+Optional `levelingGainDb` is the current deck's actual Float32 coefficient converted to dB
+after it has been multiplied into decoded buffers and the node clock has heard that deck.
+It is finite within -60..30 and only accompanies `levelingApplied: true` under the same
+current listening binding. It excludes the crossfade node's volume and the device EQ preamp;
+a requested plan gain or an unobserved Android processor target is not this fact.

@@ -846,6 +846,8 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  snapshot[@"intent"]=(_safetyPaused||_interrupted||_ended||(![self allowed]&&Mono()>=_leaseUntil))?@"paused":_intent;
  snapshot[@"eqApplied"]=@(currentBinding&&!_ended&&!_terminal&&[snapshot[@"eqApplied"] boolValue]);
  snapshot[@"levelingApplied"]=@(currentBinding&&!_ended&&!_terminal&&[snapshot[@"levelingApplied"] boolValue]);
+ if(![snapshot[@"levelingApplied"] boolValue]||!ListeningNumber(snapshot[@"levelingGainDb"],-60,30,NO))
+  [snapshot removeObjectForKey:@"levelingGainDb"];
  snapshot[@"rate"]=@(_rate);snapshot[@"ended"]=@(_ended);snapshot[@"terminal"]=@(_terminal);snapshot[@"error"]=_error?:NSNull.null;
  snapshot[@"deadlines"]=[_deadlines copy];snapshot[@"timerStopped"]=@(_timerStopped);snapshot[@"expiredTimerRevision"]=@(_expiredTimerRevision);snapshot[@"policyRevision"]=_policy[@"revision"]?:@0;
  NSString *notice=_notice?:([self effectsWanted]?[_render notice:heard[@"presentation"]]:nil);if(notice)snapshot[@"noticeCode"]=notice;
