@@ -22,7 +22,7 @@ import {readNativeServerDisplays} from '../platform/server-display';
 import {nativeAppSessions} from '../platform/app-session-storage';
 import {nativeAccounts} from '../platform/accounts';
 import {hostedUrl} from '../platform/account-authority';
-import {nativeSignInEnded, type NativeSignInHint, type NativeSignInEnded, readNativeSignInHint} from '../platform/sign-in-ended';
+import {nativeSignInEnded, rememberNativeSignInHint, type NativeSignInHint, type NativeSignInEnded, readNativeSignInHint} from '../platform/sign-in-ended';
 import {nativeIdentityFailure, nativeRouteIdentityFailure, type NativeIdentityFailure, type NativeIdentityServer} from '../platform/identity-failure';
 import {profilePictureSource} from '../platform/profile-avatars';
 import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
@@ -86,6 +86,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
   let avatars: Awaited<ReturnType<IdentityClient['avatars']>> = [], libraries: readonly Library[] = [];
   let installationSettings: unknown;
+  let originalExpiresAt: string | undefined;
   let signInHint: NativeSignInHint | undefined;
   let identityServer: NativeIdentityServer | undefined;
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
@@ -110,7 +111,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     assertCurrent();
     const {saved, connection, env, identity: installed} = await installation.prepare(); assertCurrent();
     if (!saved.viewer) {dispose(); return undefined;}
-    const original = saved.viewer;
+    const original = saved.viewer; originalExpiresAt = original.session.expiresAt;
     nativeShellDirectViewer(original.session.viewer);
     const selected = await nativeAppSessions.selected(); assertCurrent();
     if (!selected || !sameViewer(original.session, selected.connection.session) || selected.connection.logicalOrigin !== original.serverUrl) throw cancelled();
@@ -150,6 +151,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     if (!document) throw documentService.getSnapshot().error ?? Object.assign(new Error('invalid_home'), {code: 'invalid_home'});
     if (document.serverId !== session.viewer.serverId) throw Object.assign(new Error('identity_mismatch'), {code: 'identity_mismatch'});
     account = initialAccount;
+    signInHint = Object.freeze({serverId: selected.connection.pin.serverId, accountId: session.viewer.accountId, familyId: session.sessionFamilyId,
+      fingerprint: selected.connection.pin.fingerprint, origin: original.serverUrl, serverName: server.name, username: initialAccount.account.username, signIn: selected.signIn});
+    await rememberNativeSignInHint(signInHint).catch(() => {}); assertCurrent();
     avatars = initialAvatars;
     const profile = account.profiles.find(value => value.id === session!.viewer.profileId);
     if (!profile) throw Object.assign(new Error('profile_unavailable'), {code: 'access_refused'});
@@ -251,7 +255,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();
-    }, onSignedOut: error => end(nativeSignInEnded(error, signInHint, session?.expiresAt))});
+    }, onSignedOut: error => end(nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt))});
     let refreshing: Promise<void> | undefined;
     const refresh = () => refreshing ??= (async () => {
       assertCurrent();
@@ -336,5 +340,5 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const retireTopShelfLocale = bindNativeTopShelfLocale(context, runtime.text, error => nativeScreenServices(context).reportError(error));
     if (retireTopShelfLocale) cleanups.push(retireTopShelfLocale);
     return runtime;
-  } catch (error) {const ended = nativeSignInEnded(error, signInHint, session?.expiresAt); dispose(); throw nativeIdentityFailure(error, identityServer) ?? ended ?? error;}
+  } catch (error) {const ended = nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt); dispose(); throw nativeIdentityFailure(error, identityServer) ?? ended ?? error;}
 }
