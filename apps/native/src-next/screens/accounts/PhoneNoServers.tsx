@@ -8,8 +8,8 @@ import {Button, TextField} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
 
 /** Empty directory only: discovery and invitation entry still prove their server. */
-export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin}: {
-  busy: boolean; error?: React.ReactNode; onFind: () => void; onRefresh: () => void;
+export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin, onSettings, username}: {
+  busy: boolean; error?: React.ReactNode; onSettings?: () => void; username?: string; onFind: () => void; onRefresh: () => void;
   onJoin: (invitation: string, address: string) => void; onShare: () => void; onSignOut: () => void; onBack?: () => void;
 }) {
   const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
@@ -37,6 +37,7 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.noneBody')}</Text>
         {error}
       </View>
+      {onSettings && <Button variant="text" disabled={busy} onPress={onSettings}>{username ? username + " · " + t('settings.title') : t('settings.title')}</Button>}
       <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
         <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('web.directJoin.title')}</Text>
         <TextField label={t('accounts.signIn.address')} value={link?.server ?? address} onChangeText={changeAddress} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy && !link}/>
