@@ -17,19 +17,25 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
   row: NativeMusicMixRow; artwork: (path: string | undefined) => React.ComponentProps<typeof Artwork>['source']; width?: number; onPlay: () => void;
 }) {
   const theme = useTheme(), tv = theme.isTV, phone = theme.platform === 'phone';
-  const radius = tv ? 14 : 12, fanWidth = width * .62, fanHeight = width * .52, cover = fanWidth * .56;
-  const styleSize = tv ? 32 : phone ? 18 : 26, nameSize = tv ? 22 : phone ? 12.5 : 13.5;
+  // Each platform keeps its own drawn card: kit.css' card art radius, music-plus' per-platform
+  // style word, title, caption and fan offsets, and Home's track gap.
+  const radius = tv ? 14 : 10, fanWidth = width * .62, fanHeight = width * .52, cover = fanWidth * .56;
+  const styleSize = tv ? 32 : phone ? 18 : 26;
+  const name = tv ? {size: 22, weight: 700, top: 14, color: theme.colors.textSecondary} : phone ? {size: 13, weight: 600, top: 8, color: theme.colors.text} : {size: 14, weight: 600, top: 10, color: theme.colors.text};
+  const caption = tv ? {size: 20, top: 3} : phone ? {size: 12, top: 2} : {size: 13, top: 2};
   const at = tv ? {left: 18, right: 18, bottom: 16} : phone ? {left: 10, right: 10, bottom: 9} : {left: 14, right: 14, bottom: 12};
   const gradient = `mix${row.id.replace(/[^a-zA-Z0-9]/g, '')}`;
-  const artists = defaultI18n.list([...row.artists.map(artist => artist.name), ...(row.more ? [t('next.watch.andMore', {count: 1})] : [])], 'and');
+  // Frame 15's artist line ends "and more"; the row carries only a yes/no, and the bare key is
+  // not published yet, so the fragment is left out rather than inventing a count.
+  const artists = defaultI18n.list(row.artists.map(artist => artist.name), 'and');
   return <Focusable focusId={`music-mix:${row.id}`} testID={`music-mix:${row.id}`} focusKind="card" focusRadius={radius}
-    accessibilityRole="button" accessibilityLabel={t('music.mix.name', {name: row.name})} onPress={onPlay} style={{width, marginRight: tv ? 28 : 14}}>
+    accessibilityRole="button" accessibilityLabel={t('music.mix.name', {name: row.name})} onPress={onPlay} style={{width, marginRight: tv ? 28 : phone ? 12 : 16}}>
     <View style={{width, height: width, borderRadius: radius, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       <Svg width={width} height={width} style={StyleSheet.absoluteFill} pointerEvents="none">
         <Defs><RadialGradient id={gradient} cx="100%" cy="0%" rx="130%" ry="120%"><Stop offset="0" stopColor={row.tint}/><Stop offset=".72" stopColor={row.tint} stopOpacity={0}/></RadialGradient></Defs>
         <Rect width="100%" height="100%" fill={`url(#${gradient})`}/>
       </Svg>
-      <View pointerEvents="none" style={{position: 'absolute', right: 12, top: 14, width: fanWidth, height: fanHeight}}>
+      <View pointerEvents="none" style={{position: 'absolute', right: phone ? 8 : 12, top: phone ? 10 : 14, width: fanWidth, height: fanHeight}}>
         {row.covers.slice(0, 3).map((coverAt, index) => {
           const source = artwork(coverAt.posterUrl);
           if (!source) return null;
@@ -44,9 +50,9 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
         color: theme.colors.white, textShadowColor: 'rgba(7,16,24,.6)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 18}]}>{row.name}</Text>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, {borderRadius: radius, borderWidth: 1, borderColor: 'rgba(237,245,250,.08)'}]}/>
     </View>
-    <Text numberOfLines={2} style={[browseType(theme, nameSize, 700), {marginTop: tv ? 14 : 8, color: theme.colors.textSecondary}]}>{t('music.mix.name', {name: row.name})}</Text>
-    <Text numberOfLines={2} style={[browseType(theme, tv ? 20 : phone ? 11.5 : 12.5, 400, 0, (tv ? 20 : phone ? 11.5 : 12.5) * 1.35),
-      {marginTop: 3, minHeight: (tv ? 20 : phone ? 11.5 : 12.5) * 1.35 * 2, color: theme.colors.textTertiary}]}>{artists}</Text>
+    <Text numberOfLines={2} style={[browseType(theme, name.size, name.weight), {marginTop: name.top, color: name.color}]}>{t('music.mix.name', {name: row.name})}</Text>
+    <Text numberOfLines={2} style={[browseType(theme, caption.size, 400, 0, caption.size * 1.35),
+      {marginTop: caption.top, minHeight: caption.size * 1.35 * 2, color: theme.colors.textTertiary}]}>{artists}</Text>
   </Focusable>;
 }
 
