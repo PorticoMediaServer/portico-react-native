@@ -41,7 +41,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
   const initialOwnerLibrary = context.current() && context.account.canManage && context.account.account.role === 'owner' && !context.account.account.disabled && context.account.account.primaryProfileId === authority.profileId ? initialLibraryId : undefined;
-  const [openId, setOpenId] = useState<string>(initialOwnerLibrary), [tab, setTab] = useState('general');
+  const [openId, setOpenId] = useState<string | undefined>(initialOwnerLibrary), [tab, setTab] = useState('general');
   const [adding, setAdding] = useState(false), [folderForm, setFolderForm] = useState<{source?: InventorySource}>(),
     [rename, setRename] = useState(false), [leaving, setLeaving] = useState(false), [removingFolder, setRemovingFolder] = useState<InventorySource>(),
     [folderMenu, setFolderMenu] = useState<InventorySource>(), [libraryMenu, setLibraryMenu] = useState<ManagedLibrary>(), [menuOnPage, setMenuOnPage] = useState(false), [skipped, setSkipped] = useState(false);
