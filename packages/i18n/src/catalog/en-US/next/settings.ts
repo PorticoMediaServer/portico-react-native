@@ -97,6 +97,8 @@ export const settingsMessages = {
   'next.tvPeople.lastActive': 'Last active {when}',
   'next.tvPeople.firstSeen': 'First seen {when}',
   'next.tvPeople.expires': 'Expires {when}',
+  'next.tvPeople.expiresIn': '{count, plural, one {Expires in # day} other {Expires in # days}}',
+  'next.tvPeople.expiresToday': 'Expires today at {time}',
   'next.tvPeople.notUsed': 'Not used yet',
   'next.tvPeople.turnedOff': 'Turned off',
   'next.tvPeople.invitationForMember': 'Invitation for a member',

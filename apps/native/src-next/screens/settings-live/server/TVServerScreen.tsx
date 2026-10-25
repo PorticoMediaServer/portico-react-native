@@ -31,6 +31,9 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
   const admission = nativeServerAdmission(ports.context.account, lifetime);
   const role: 'owner' | 'administrator' = admission === 'owner' ? 'owner' : 'administrator';
   const owner = admission === 'owner';
+  // The drawn page pill says who shares each page: Libraries and Remote access are
+  // the owner's alone; People and Troubleshooting are shared with administrators.
+  const audience = owner && (page === 'libraries' || page === 'remote') ? 'owner' : 'administrators';
   const service = useMemo(() => new LibraryManagementService({
     api: createTVServerReader(ports.context, lifetime),
     scope: {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])},
@@ -50,12 +53,12 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
     try {return publicTVHandoffAddress(new URL(page === 'libraries' ? '/settings/server-libraries' : '/settings/server-remote', ports.context.api.baseUrl).href);} catch {return undefined;}
   }, [ports, page]);
   return <Screen style={{paddingTop: 56}}>
-    <ServerBand viewerRole={role} audience={owner ? 'owner' : 'administrators'}/>
+    <ServerBand viewerRole={role} audience={audience}/>
     <View style={{flex: 1, flexDirection: 'row', gap: 80}}>
       <TVServerPageMenu role={role} page={page} serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
         onSelect={next => {if (next === 'dashboard') ports.context.navigation.open({kind: 'server-dashboard'}, lifetime.authority); else setPage(next);}}/>
       <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
-        <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={owner ? 'owner' : 'administrators'}/></View>
+        <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={audience}/></View>
         <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : page === 'remote' ? 'settings.server.remote' : page === 'people' ? 'settings.server.people' : 'settings.server.troubleshooting')}</Text>
         <FocusRegion key={page} id={rows} orientation="vertical" edges={{left: column}}>
           {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'troubleshooting' ? <TVTroubleshootingPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
