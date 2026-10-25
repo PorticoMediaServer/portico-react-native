@@ -20,6 +20,11 @@ type Row = Readonly<{
  * canonical codec; multi-key TV outputs and keys the source does not keep stay
  * unavailable instead of being given an invented record shape. */
 const rows: Readonly<Partial<Record<CompositeId, Row>>> = Object.freeze({
+  playerEngine: Object.freeze({
+    row: 'device.player',
+    shown: (current: unknown) => current === 'auto' || current === 'native' || current === 'mpv' ? current : undefined,
+    asked: (value: NativeDevicePreferenceValue) => value === 'auto' || value === 'native' || value === 'mpv' ? value : undefined,
+  }),
   forceStereo: Object.freeze({
     row: 'audioSubtitles.surround',
     shown: (current: unknown) => current === 'stereo' ? true : current === 'asis' ? false : undefined,

@@ -207,7 +207,16 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     const value = state.preferences.effective[row.enableWhen.key];
     return value !== undefined && row.enableWhen.in.includes(value);
   };
-  const sections = page.sections.filter(section => !section.advanced || advanced);
+  const engine = useSyncExternalStore(devicePreferences.subscribe, () => devicePreferences.read('playerEngine'));
+  const hasDevicePlayer = theme.isTV && Platform.OS === 'android' && page.id === 'device' && engine !== undefined;
+  const pageSections: SettingsPage['sections'] = hasDevicePlayer ? [...page.sections, {id: 'device-player', advanced: true, title: 'next.settingsSpec.account.device.advanced.groups.3.title', rows: [
+    {kind: 'composite', id: 'playerEngine', storage: 'device', scope: 'device', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.label', control: {type: 'choice', choices: [
+      {value: 'auto', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.label'},
+      {value: 'native', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.label'},
+      {value: 'mpv', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.label'},
+    ]}},
+  ]}] : page.sections;
+  const sections = pageSections.filter(section => !section.advanced || advanced);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const showEqualizer = page.id === 'music' && equalizer.supported;
   useEffect(() => {
@@ -275,7 +284,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}</View>
     </View>{managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
-    {page.sections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
+    {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
     <Dialog testID="settings-action-confirm" open={confirmation !== undefined} onOpenChange={open => {if (!open && !actionBusy) setConfirmation(undefined);}} initialFocusRef={cancel}
       title={confirmation === 'signOut' ? t('settings.signOutConfirm.title', {server: ports.serverName(), device: t(device)}) : t('settings.resetRecommendations.confirmTitle')}
