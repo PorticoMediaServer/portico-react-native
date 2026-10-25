@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useSyncExternalStore} from 'react';
+import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -20,11 +20,11 @@ export function NativeLibraryOverview({directory, runtime, activation, openLibra
   openLibrary: (id: string) => void; editPins: () => void;
 }) {
   const state = useSyncExternalStore(directory.subscribe, directory.getSnapshot), active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
-  const theme = useTheme(), insets = useSafeAreaInsets(), {width} = useWindowDimensions(), scroll = useRef<ScrollView>(null);
+  const theme = useTheme(), insets = useSafeAreaInsets(), {width} = useWindowDimensions(), scroll = useRef<ScrollView>(null), [surface, setSurface] = useState(width);
   useEffect(() => {if (active.visible) void directory.load(true).catch(runtime.reportError);}, [active.visible, active.revision, directory, runtime]);
   useEffect(() => runtime.registerScrollToTop({kind: 'libraries'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
   return <View testID="native-libraries-overview" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => setSurface(event.nativeEvent.layout.width)}>
     <ScrollView ref={scroll} contentContainerStyle={{paddingTop: Math.max(58, insets.top), paddingBottom: 28}}>
       <View style={{flexDirection: 'row', alignItems: 'baseline', marginHorizontal: 20, marginBottom: 18}}>
         <Text accessibilityRole="header" style={[browseType(theme, 36, 800, -.035, 39), {color: theme.colors.text, flex: 1}]}>{defaultI18n.t('pins.libraries')}</Text>
@@ -35,7 +35,7 @@ export function NativeLibraryOverview({directory, runtime, activation, openLibra
       {state.phase === 'error' && <StateView {...runtime.error(state.error, () => {void directory.load(true).catch(runtime.reportError);})}/>}
       <View style={{paddingHorizontal: 16, paddingTop: 4, gap: 12}}>
         {state.libraries.map(library => <LibraryCard key={library.id} testID={`libraries-open-${encodeURIComponent(library.id)}`} focusId={`library:${library.id}`}
-          title={library.name} width={Math.max(0, width - 32)} height={108} shape={library.kind === 'music' || library.kind === 'audiobook' ? 'square' : 'poster'}
+          title={library.name} width={Math.max(0, surface - 32)} height={108} shape={library.kind === 'music' || library.kind === 'audiobook' ? 'square' : 'poster'}
           covers={library.summary.coverUrls.map(path => runtime.artwork(path)).filter((source): source is ArtworkSource => !!source)}
           glyph={[...library.name][0]}
           ambient={library.summary.latestArtwork ? runtime.ambient(library.summary.latestArtwork) : undefined}
