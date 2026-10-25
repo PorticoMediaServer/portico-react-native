@@ -13,8 +13,10 @@ export type SelectionBarProps = {
   testID?: string;
   count: number;
   subtitle?: string;
-  selectAllLabel: string;
-  onSelectAll: () => void;
+  /** Absent where the whole result cannot be selected (a windowed library with no
+   * whole-query membership): the bar then draws no Select all at all. */
+  selectAllLabel?: string;
+  onSelectAll?: () => void;
   onCancel: () => void;
   onAction: (action: SelectionAction) => void;
   actions: readonly SelectionActionOffer[];
