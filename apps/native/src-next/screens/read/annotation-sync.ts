@@ -138,7 +138,7 @@ export class NativeAnnotationSync {
       let state = await this.pages(session, signal);
       // Keep the last server page this device saw so an offline open of the same source can
       // show it beside queued edits; the cache is a convenience, never a record of truth.
-      await this.journal.cache(identity, group.source, state.revision, state.entries);
+      await this.journal.cache(identity, group.source, state.revision, state.entries).catch(() => {}); // A cache is never worth failing a merge.
       for (const operation of group.operations) {
         if (!this.fresh(identity) || signal.aborted) return true;
         let decision = nativeAnnotationDecision(state, operation);
@@ -150,7 +150,7 @@ export class NativeAnnotationSync {
             const saved = await session.mutateAnnotation(mutation, signal);
             if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
             state = await this.pages(session, signal);
-            await this.journal.cache(identity, group.source, state.revision, state.entries);
+            await this.journal.cache(identity, group.source, state.revision, state.entries).catch(() => {});
             decision = {kind: 'resolved'};
           } catch (error) {
             if (signal.aborted || !this.fresh(identity) || (error instanceof ReadingError && error.code === 'cancelled')) return true;

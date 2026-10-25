@@ -241,6 +241,7 @@ export class NativeAnnotationJournal {
       const group: NativeAnnotationGroup = Object.freeze({source: Object.freeze({...source}), operations: existing?.operations ?? Object.freeze([]),
         localRevision: Math.max(existing?.localRevision ?? 0, revision), cache: Object.freeze({revision, entries: Object.freeze(kept)})});
       const groups = [...base.groups];
+      if (at < 0 && groups.length >= MAX_JOURNAL_GROUPS) return null; // Space is for queued edits.
       if (at < 0) groups.push(group); else groups[at] = group;
       const next: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
       return bytes(next) > MAX_RECORD_BYTES ? null : next;
@@ -290,6 +291,11 @@ export class NativeAnnotationJournal {
       const merged: NativeAnnotationOperation = previous
         ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt})
         : operation;
+      if (at < 0 && groups.length >= MAX_JOURNAL_GROUPS) {
+        const spare = groups.findIndex(value => value.operations.length === 0 && value.cache !== undefined);
+        if (spare < 0) throw new Error('native_annotation_journal_full');
+        groups.splice(spare, 1); // A cached page, never a person's queued edit.
+      }
       const operations = existing ? [...existing.operations.filter(value => value.id !== operation.id), merged] : [merged];
       const localRevision = bump ? (existing?.localRevision ?? 0) + 1 : existing?.localRevision ?? 0;
       revision = localRevision;

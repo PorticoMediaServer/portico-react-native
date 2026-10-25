@@ -87,7 +87,10 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const versions = await client.versions(target.itemId, life.signal);
       if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
       session = await client.open(target, life.signal);
-      livePort.current = session;
+      // Only a real server annotation port may be reused for a merge; a downloaded
+      // source's local view is never mistaken for one.
+      livePort.current = session.manifest.canAnnotate === true && typeof session.annotations === 'function'
+        && typeof session.mutateAnnotation === 'function' ? session : undefined;
       // A downloaded publication's queued edits live in that exact download's private
       // lease state; an ordinary session uses the protected record store. Bind before the
       // bridge can accept an edit, and only for this captured profile.
