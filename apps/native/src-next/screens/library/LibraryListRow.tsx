@@ -13,16 +13,18 @@ import type {NativeLibraryActions} from './LibraryScreen';
 
 /** The existing 70pt catalogue row: genuine title/art/facts and the same card
  * activation, selection and menu handling as the poster presentation. */
-export function LibraryListRow({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur}: Readonly<{
+export function LibraryListRow({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur, onSelect}: Readonly<{
   entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions;
   selected?: CardSelection; disabled?: boolean; focusId: string; onFocus: () => void; onBlur: () => void;
+  /** The menu's Select row: this row's real selection entry. */
+  onSelect?: () => void;
 }>) {
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), title = entry.displayTitle || entry.title;
   const text = homeCardText(entry, false, runtime.text), t = runtime.text.t;
   const square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
   return <CardFrame testID={`library-list-${encodeURIComponent(focusId)}`} focusId={focusId} title={title} width={width} disabled={disabled}
     selection={selected} onNavigate={() => actions.open(entry)} onPlay={entry.playback ? () => actions.play(entry) : undefined}
-    onMore={() => actions.menu(entry, menuAnchorRef)} moreExpanded={actions.isMenuOpen?.(entry)} menuAnchorRef={menuAnchorRef} onFocus={onFocus} onBlur={onBlur}
+    onMore={() => actions.menu(entry, menuAnchorRef, onSelect)} moreExpanded={actions.isMenuOpen?.(entry)} menuAnchorRef={menuAnchorRef} onFocus={onFocus} onBlur={onBlur}
     pressableStyle={{height: 70, borderRadius: 10, justifyContent: 'center'}}>
     {() => <View style={{height: 70, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12}}>
       {selected?.active && <SelectionCircle selected={selected.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/>}
@@ -34,7 +36,7 @@ export function LibraryListRow({entry, width, runtime, actions, selected, disabl
       {!disabled && !selected?.active && <View style={{flexDirection: 'row', gap: 6}}>
         {entry.playback && <CardAction focusId={`${focusId}:list-play`} name="i-play" label={t('card.play', {title})} size={36} onPress={() => actions.play(entry)}/>}
         <CardAction focusId={`${focusId}:list-more`} name="i-more" label={t('card.more', {title})} size={36} color={theme.colors.textSecondary}
-          style={{backgroundColor: 'transparent'}} onPress={() => actions.menu(entry, menuAnchorRef)}/>
+          style={{backgroundColor: 'transparent'}} onPress={() => actions.menu(entry, menuAnchorRef, onSelect)}/>
       </View>}
       <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, bottom: 0, height: 1, backgroundColor: theme.colors.line}}/>
     </View>}
