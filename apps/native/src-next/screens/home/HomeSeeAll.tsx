@@ -35,7 +35,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   kindLabel: (id: string) => string; selection?: LayoutSelection;
 }) {
   const theme = useTheme(), registry = useFocusRegistry(), t = runtime.text.t, labels = {t, has: defaultI18n.has};
-  const window = useWindowDimensions(), [view, setView] = useState<'grid' | 'list'>('grid'),
+  const window = useWindowDimensions(), [view, setView] = useState<'grid' | 'list'>('grid'), [collapsed, setCollapsed] = useState(false), [headerHeight, setHeaderHeight] = useState(0),
     list = !theme.isTV && view === 'list';
   const visible = useRef(active); visible.current = active;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -58,10 +58,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   const artwork = row.entries.find(entry => entry.backdropUrl || entry.posterUrl);
   const tv = theme.isTV, gutter = tv ? 200 : theme.gutter, cardScale = (runtime.appearanceCardSizePercent ?? 100) / 100,
     width = Math.round((tv ? 200 : theme.spec.card.width.poster[theme.platform]) * cardScale);
-  return <View testID="home-see-all" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    {artwork && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .26}}><AmbientArt source={runtime.ambient(artwork.backdropUrl ?? artwork.posterUrl)} treatment="hero" visible={active}/></View>}
-    <FocusRegion id={gridId} entry="play" enabled={active} style={{flex: 1}}>
-      <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, paddingTop: tv ? 64 : 20, paddingBottom: tv ? 24 : 16}}>
+  const header = <View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)} style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, paddingTop: tv ? 64 : 20, paddingBottom: tv ? 24 : 16}}>
         <Focusable focusId="back" onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')} style={{height: tv ? 32 : 28, marginBottom: 6, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start'}}>
           <Icon name="i-left" size={tv ? 22 : 16} color={theme.colors.textTertiary}/><Text style={[nativeType({size: tv ? 22 : 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.home.shell.home')}</Text>
         </Focusable>
@@ -69,8 +66,13 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
         {reason && <Text style={[nativeType({size: tv ? 24 : 15, weight: 400, tracking: 0, lineHeight: tv ? 34.8 : 22}, theme.textScale), {maxWidth: tv ? 1100 : undefined, color: theme.colors.textSecondary, marginBottom: 24}]}>{serverTextLabel(labels, reason)}</Text>}
         <View style={{flexDirection: 'row', gap: tv ? 16 : 10}}><Button focusId="play" icon="i-play" size={tv ? 'hero' : undefined} onPress={() => onPlay(false)}>{t('entry.play')}</Button>
           <Button focusId="shuffle" variant="glass" icon="i-shuffle" size={tv ? 'hero' : undefined} onPress={() => onPlay(true)}>{t('title.shuffle')}</Button></View>
-      </View>
-      <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
+      </View>;
+  const toolbar = <View style={{backgroundColor: collapsed && !tv ? theme.colors.ink : undefined}}>
+    {!tv && collapsed && <View style={{paddingHorizontal: theme.gutter, paddingTop: 12, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10}}>
+      <Focusable onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')}><Icon name="i-left" size={20}/></Focusable>
+      <Text numberOfLines={1} accessibilityRole="header" style={[nativeType({size: 17, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flex: 1, color: theme.colors.text}]}>{title}</Text>
+    </View>}
+    <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
         <SortMenu sorts={model.sorts} value={model.sort} label={value => homeBrowseLabel(value, labels)} onValueChange={controller.setSort}
           onReshuffle={onReshuffle}/>
         <FiltersButton count={state.filters.length} onPress={onFilters}/>
@@ -84,8 +86,14 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
         {!tv && <View style={{marginLeft: 'auto'}}><ViewToggle value={view} onValueChange={setView}/></View>}
         {total && <Text style={[theme.type.caption, {marginLeft: tv ? 'auto' : 8, color: theme.colors.textTertiary}]}>{t('count.titles', {count: total.total})}</Text>}
       </View>
+  </View>;
+  return <View testID="home-see-all" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    {artwork && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .26}}><AmbientArt source={runtime.ambient(artwork.backdropUrl ?? artwork.posterUrl)} treatment="hero" visible={active}/></View>}
+    <FocusRegion id={gridId} entry="play" enabled={active} style={{flex: 1}}>
+      {(tv || data.error) && <>{header}{toolbar}</>}
       {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0))} variant="centered"/> :
-        <WindowedGrid collection={controller.collection} getKey={item => item.membershipId} selection={selection}
+        <WindowedGrid header={tv ? undefined : header} stickyHeader={tv ? undefined : toolbar}
+          onScrollOffset={tv ? undefined : offset => setCollapsed(headerHeight > 0 && offset >= headerHeight)} collection={controller.collection} getKey={item => item.membershipId} selection={selection}
           itemWidth={list ? window.width - 32 : width} itemHeight={list ? 70 : width * 1.5 + (tv ? 74 : 48)}
           gap={list ? 0 : tv ? 32 : 12} rowGap={list ? 0 : tv ? 40 : 22} gutter={list ? 16 : gutter} rightGutter={list ? 16 : tv ? 96 : theme.gutter}
           paddingBottom={40} style={{flex: 1}} testID={list ? 'home-see-all-list' : 'home-see-all-grid'}
