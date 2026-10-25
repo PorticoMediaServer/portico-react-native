@@ -68,15 +68,19 @@ export class NativeHomeCustomizeController {
       pickedId: undefined, pickupOrder: undefined, pending: false, conflict: false, showConflict: false, error: undefined});
   }
   /** Adds the current server resource to the transient layout only. Save is
-   * the sole mutation; this never issues a separate pin or changes Saved. */
-  addSavedView = (view: PersonalResource): boolean => {
+   * the sole mutation; this never issues a separate pin or changes Saved.
+   * Frame 29: on TV the list returns with the new row held so it moves at once. */
+  addSavedView = (view: PersonalResource, hold = false): boolean => {
     const access = this.ports.savedViews;
     if (!this.editable() || this.state.pickedId || !access || view.serverId !== access.serverId || !access.isCurrent(view)
       || view.kind !== 'view' || view.status !== 'ready' || !view.definition || view.onHome || !view.actions.includes('pin')) return false;
     const id = `view:${view.id}`;
     if (this.state.rows.some(row => row.id === id)) return false;
     const row: NativeHomeCustomizeRow = Object.freeze({id, title: view.name, required: false, hideable: true, reorderable: true, hidden: false, savedView: view});
-    this.publish({rows: Object.freeze([...this.state.rows, row])}); return true;
+    const rows = Object.freeze([...this.state.rows, row]);
+    if (!hold) {this.publish({rows}); return true;}
+    this.pickedOrder = Object.freeze(rows.map(value => value.id));
+    this.publish({rows, pickedId: id, pickupOrder: this.pickedOrder}); return true;
   };
   private currentSavedViews(rows: readonly NativeHomeCustomizeRow[]): boolean {
     return rows.every(row => !row.savedView || this.ports.savedViews?.isCurrent(row.savedView));
