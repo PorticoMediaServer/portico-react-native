@@ -167,7 +167,8 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     const raw = legacyChannel(channel);
     if (!raw || !raw.tuneAvailable) return;
     controller.lifetime.assert();
-    ports.context.navigation.open({kind: 'channel', sourceId: raw.sourceId, channelId: raw.id}, controller.lifetime.authority);
+    ports.context.navigation.open({kind: 'channel', sourceId: raw.sourceId, channelId: raw.id,
+      guide: Object.freeze({row: channel, options: Object.freeze({...state.options})})}, controller.lifetime.authority);
   };
   const select = (change: Parameters<NativeLiveController['select']>[0]) => {guideOffset.current = 0; visible.current = {first: 0, last: 12}; controller.select(change);};
   const chooseSource = (sourceId: string) => {

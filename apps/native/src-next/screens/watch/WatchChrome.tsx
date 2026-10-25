@@ -22,6 +22,10 @@ import {NativeWatchTimeline} from './WatchTimeline';
 import {NativeUpNextCard} from './UpNextCard';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 import type {NativeWatchNotice} from './playback-info';
+import {emptyLiveGuide, noLiveGuideSubscription, type NativeTVLiveGuide} from './live-guide';
+import {nowNext} from '../../../../../packages/client-core/src/guide/now-next';
+import {playbackUserMessage} from '../../../../../packages/client-core/src/playback-messages';
+import {NativeTVMiniGuide} from './TVMiniGuide';
 
 export type NativeWatchChromeProps = Readonly<{
   source: NativePlaybackRuntimeSnapshot;
@@ -49,6 +53,7 @@ export type NativeWatchChromeProps = Readonly<{
   onMinimize: (fence: PlaybackFence) => void;
   /** Live TV's Guide leaves the player for the guide. */
   onGuide?: () => void;
+  liveGuide?: NativeTVLiveGuide;
   /** Channels only: return the same session to the live edge. */
   goLive?: (fence: PlaybackFence) => void;
   /** The viewer's Settings choice per segment kind; the engine already applies `auto`. */
@@ -114,11 +119,23 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const registry = useFocusRegistry();
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const focus = registry.capture();
-  const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null);
+  const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null), guideButton = useRef<View>(null);
+  const liveGuide = useSyncExternalStore(props.liveGuide?.subscribe ?? noLiveGuideSubscription, props.liveGuide?.getSnapshot ?? emptyLiveGuide);
+  const miniReturn = useRef<PlaybackFence | undefined>(undefined);
   const [landing, setLanding] = useState<number>(), [returnAt, setReturnAt] = useState(0), [now, setNow] = useState(() => Date.now());
   const fence = source.fence;
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
   const visible = current() && state.visible;
+  const liveCurrent = theme.isTV && fence?.kind === 'channel' && sameFence(liveGuide.fence, fence);
+  const miniOpen = liveCurrent && liveGuide.open;
+  const controlsEnabled = visible && !miniOpen;
+  useEffect(() => {
+    if (!miniOpen || !fence) return;
+    miniReturn.current = fence;
+    controls.holdOverlay(fence, true);
+    return () => {controls.holdOverlay(fence, false);};
+  }, [miniOpen, fence, controls]);
+  useEffect(() => {if (miniOpen && (!visible || state.panel)) props.liveGuide?.close(liveGuide);}, [miniOpen, visible, state.panel, props.liveGuide, liveGuide]);
   // tablet-play4: a swipe down on the picture minimises to the dock, the same
   // thing the chevron does. Taps, horizontal seeks and the equalizer keep
   // their own gestures; this one only starts on a clear downward drag.
@@ -191,12 +208,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   }, [visible, motion, opacity, state.hideReason]);
   const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
   useEffect(() => {
-    if (!theme.isTV || !fence || !current() || state.panel) return;
-    const node = visible ? toggle.current : picture.current;
+    if (!theme.isTV || !fence || !current() || state.panel || miniOpen) return;
+    const node = visible && sameFence(miniReturn.current, fence) ? guideButton.current : visible ? toggle.current : picture.current;
+    miniReturn.current = undefined;
     node?.requestTVFocus?.();
-  }, [visible, fence, theme.isTV, current, state.panel]); // The native focus engine owns movement inside the region.
+  }, [visible, fence, theme.isTV, current, state.panel, miniOpen]); // The native focus engine owns movement inside the region.
   useTVEventHandler(event => {
-    if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || event.eventKeyAction === 1) return;
+    if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || miniOpen || event.eventKeyAction === 1) return;
     if (['up', 'down', 'left', 'right', 'select', 'longLeft', 'longRight'].includes(event.eventType)) {
       if (!controls.key(fence)) controls.reveal(fence);
     }
@@ -246,6 +264,25 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const side = tabletop ? 22 : undefined;
   const big = theme.isTV ? 88 : bar ? 62 : tabletop ? (stacked ? 80 : 84) : compact ? (tablet ? 84 : 58) : 74;
   const small = theme.isTV ? 64 : bar ? 48 : tabletop ? 56 : compact ? 46 : 58;
+  const channelStep = (direction: -1 | 1) => {
+    const target = liveCurrent ? direction < 0 ? liveGuide.previous : liveGuide.next : undefined;
+    if (!target) return <View style={{width: small, height: small}}/>;
+    const id = direction < 0 ? 'watch-channel-down' : 'watch-channel-up';
+    return <View style={{position: 'relative'}}>
+      <Focusable focusId={id} testID={id} accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled || liveGuide.busy}
+        accessibilityLabel={t(direction < 0 ? 'next.live.channelDown' : 'next.live.channelUp', {channel: target.channel.name, number: target.channel.number})}
+        onPress={() => {if (current()) void props.liveGuide?.tune(target, liveGuide).catch(props.reportError);}}
+        style={{width: small, height: small, borderRadius: small / 2, alignItems: 'center', justifyContent: 'center'}}>
+        {direction < 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
+        <Icon name={direction < 0 ? 'i-chdown' : 'i-chup'} size={24} color={theme.colors.text}/>
+        {direction > 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
+      </Focusable>
+      {focus?.childId === id && <View pointerEvents="none" style={{position: 'absolute', bottom: 86, alignSelf: 'center', width: 360, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raisedHigh}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t(direction < 0 ? 'player.channelDown' : 'player.channelUp')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{[target.channel.number, target.channel.name].filter(Boolean).join(' ')}</Text>
+      </View>}
+    </View>;
+  };
   const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
     iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
@@ -286,14 +323,14 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const barUp = theme.isTV && source.playback.phase === 'error' && props.failureAction === true;
   // states 11: only the centred transport gives way while nothing can play.
   const transport = source.playback.phase === 'error' && theme.isTV ? null : <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 22 : bar ? 14 : tabletop ? 36 : compact ? 12 : 38}}>
-    {queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
+    {theme.isTV && fence.kind === 'channel' ? channelStep(-1) : queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
     {skip(false)}
     <Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
       accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={theme.isTV && visible}
       focusable={visible} disabled={!visible || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
       style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : compact && tablet ? 34 : 28}/>
     {skip(true)}
-    {queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, bar ? 48 : theme.isTV || compact ? undefined : 46)}
+    {theme.isTV && fence.kind === 'channel' ? channelStep(1) : queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, bar ? 48 : theme.isTV || compact ? undefined : 46)}
   </View>;
   // tv-player 3 / phone-player 2: the same prompt, notice and offer on a phone,
   // where the controls may be down and the note's line rides its bottom edge.
@@ -517,7 +554,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             </View>
             : <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
               <View style={{flex: 1}}>{linear
-                ? (props.onGuide ? <Focusable focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => {if (current() && props.onGuide) props.onGuide();}}
+                ? (props.onGuide ? <Focusable ref={guideButton} focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled} onPress={() => {if (current() && props.onGuide) props.onGuide();}}
                     style={{height: 64, paddingHorizontal: 26, borderRadius: 32, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
                     <Icon name="i-list" size={28} color={theme.colors.text}/><Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.live.guide')}</Text>
                   </Focusable> : null)
@@ -575,5 +612,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </FocusRegion>
         : <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>}
     </View>}
+    {miniOpen && props.liveGuide && <NativeTVMiniGuide rows={liveGuide.rows.map(row => ({channel: row.channel, ...nowNext(row.programmes, now), watching: row.step === 0}))}
+      now={now} timezone={liveGuide.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} loading={liveGuide.phase === 'loading'} busy={liveGuide.busy}
+      onSelect={channel => {const row = liveGuide.rows.find(value => value.channel === channel);if (current() && row) void props.liveGuide?.tune(row, liveGuide).catch(props.reportError);}}
+      onClose={() => {if (current()) props.liveGuide?.close(liveGuide);}} onFullGuide={() => {if (current()) props.liveGuide?.fullGuide(liveGuide);}}
+      error={liveGuide.error ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{playbackUserMessage(liveGuide.error)}</Text> : undefined}/>}
   </View></GestureDetector>;
 }

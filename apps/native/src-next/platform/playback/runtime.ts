@@ -16,6 +16,7 @@ import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/q
 import {V1ChannelControl, serverSupportsV1Channels} from '../../../../../packages/client-core/src/playback-v1/channel-control';
 import {channelSeconds, type ChannelReference} from '../../../../../packages/client-core/src/playback/linear-protocol';
 import {fetchGuideSourceSummaries} from '../../../../../packages/client-core/src/guide/directory';
+import {legacyChannel} from '../../../../../packages/client-core/src/guide/legacy-source';
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
@@ -115,6 +116,7 @@ export class NativePlaybackRuntime {
   private channelControl?: V1ChannelControl;
   private channelCleanup?: () => void;
   private channel?: HomeChannel;
+  private channelGuide?: NativePlaybackChannelStart['guide'];
   private sourceEpoch = 0;
   private sourceController?: AbortController;
   private sourceKey = '';
@@ -474,11 +476,18 @@ export class NativePlaybackRuntime {
    * generation/provenance is re-read; only the real channel POST grants tuning. */
   startChannel = async (input: NativePlaybackChannelStart): Promise<void> => {
     if (!wireId(input.sourceId) || !wireId(input.channelId) || !input.timezone || input.lifetime.signal.aborted || !input.lifetime.isCurrent() || !this.currentAuthority()) return;
-    const epoch = this.beginOperation();
-    const current = () => this.currentAuthority() && epoch === this.startEpoch && !input.lifetime.signal.aborted && input.lifetime.isCurrent();
+    const expected = input.expectedFence && playbackFence(input.expectedFence);
+    if (expected && !sameFence(this.snapshot.fence, expected)) return;
+    // A zap's preflight still borrows the old output. Taking the operation below
+    // closes that output itself, so only the owned epoch guards actual admission.
+    let dispatching = !expected, epoch = expected ? this.startEpoch : this.beginOperation();
+    const principal = startupPrincipal(this.o.session());
+    const current = () => this.currentAuthority() && principal !== undefined && startupPrincipal(this.o.session()) === principal
+      && epoch === this.startEpoch && !input.lifetime.signal.aborted && input.lifetime.isCurrent()
+      && (dispatching ? this.startOperationCurrent(epoch) : !!expected && sameFence(this.snapshot.fence, expected));
     const scoped = this.selectionScope(input.lifetime.signal, current);
     try {
-      this.connect(); await this.queue.cancel(); if (!current()) return;
+      this.connect(); if (!expected) await this.queue.cancel(); if (!current()) return;
       await this.o.capabilitiesReady(); if (!current()) return;
       const [capabilities, directory] = await Promise.all([
         this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
@@ -489,12 +498,22 @@ export class NativePlaybackRuntime {
       const sources = directory.sources.filter(source => source.id === input.sourceId);
       if (sources.length !== 1 || !wireId(sources[0]!.generation)) throw new Error('channel_source_unavailable');
       const source = sources[0]!;
+      if (input.expectedSourceGeneration !== undefined && source.generation !== input.expectedSourceGeneration) throw new Error('channel_source_unavailable');
+      const origin = input.guide, row = origin && legacyChannel(origin.row);
+      if (origin && (!row || row.id !== input.channelId || row.sourceId !== source.id || row.provenance !== source.provenance
+        || row.generation !== source.generation || !row.tuneAvailable || origin.options.timezone !== input.timezone)) throw new Error('channel_source_unavailable');
       if (source.provenance === 'library-channel' && input.sourceId !== input.channelId) throw new Error('invalid_channel_target');
+      if (expected) {
+        if (!current()) return;
+        epoch = this.beginOperation(scoped.signal);dispatching = true;
+        await this.queue.cancel();if (!current()) return;
+      }
+      this.channelGuide = origin ? Object.freeze({row: origin.row, options: Object.freeze({...origin.options})}) : undefined;
       this.rememberCurrent(); this.channel = undefined; this.expanded = true;
       await this.openChannel({kind: source.provenance, sourceId: source.id, channelId: input.channelId, generation: source.generation}, epoch, scoped.signal, current, 'playing');
       if (current()) this.changed();
     } catch (error) {
-      if (current()) {this.playback.leave(); this.changed(); throw error;}
+      if (current()) {if (dispatching) {this.playback.leave(); this.changed();} throw error;}
     } finally {scoped.close();}
   };
 
@@ -1168,6 +1187,8 @@ export class NativePlaybackRuntime {
       && acknowledgement.itemId === playback.itemId ? acknowledgement : null;
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
+      ...(fence?.kind === 'channel' && this.channelGuide && legacyChannel(this.channelGuide.row)?.id === fence.channelId
+        && legacyChannel(this.channelGuide.row)?.sourceId === fence.sourceId && legacyChannel(this.channelGuide.row)?.generation === fence.channelGeneration ? {channelGuide: this.channelGuide} : {}),
       startFailure: this.startFailure, capacityWait: this.capacityWait,
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
