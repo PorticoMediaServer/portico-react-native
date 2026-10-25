@@ -163,6 +163,8 @@ export class NativeServerSignIn {
     return this.run(async () => {
       const api = this.api, server = this.server;
       if (!api || !server?.setupRequired) throw mismatch();
+      const origin = new URL(api.baseUrl);
+      if (origin.origin !== api.baseUrl || (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && origin.hostname === 'localhost'))) throw mismatch();
       const store = nativeSetupDraft(server.id), saved = await store.read(); this.assertCurrent();
       if (saved && saved.authMode !== 'hosted') throw mismatch();
       const token = saved?.setupToken ?? (await startAppSetup(api, this.controller.signal)).setupToken; this.assertCurrent();
