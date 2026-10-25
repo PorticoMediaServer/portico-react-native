@@ -7,7 +7,7 @@ import type {V1QueueEditIntent} from '../../../../packages/client-core/src/playb
 import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
-import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation} from '../kit/dock';
+import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation,type CastDockBinding} from '../kit/dock';
 import {commandIsCurrent, currentOccupant, playbackPosition} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
@@ -128,17 +128,21 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
   const playOn = runtime.playOn;
   const playOnState = useSyncExternalStore(playOn?.subscribe ?? noListeningSubscribe, playOn?.getSnapshot ?? noPlayOnState);
   const action = useMemo(() => {
-    const bound=bindNativeDock(adapter,playOn?{remote:async command=>{await playOn.command(command.type,command.positionSeconds,command.remote.id);}}:{});
+    const bound=bindNativeDock(adapter,playOn?{remote:async command=>{await playOn.command(command.type,command.positionSeconds,command.remote.id,playOnState?.cast?.control);}}:{});
     return async (command: Parameters<typeof bound>[0]) => {
+      if(command.fence.kind==='cast-view'){
+        if(!playOn?.cast.viewIsCurrent(command.fence)||!command.remote)return false;
+        await playOn.command(command.type,command.positionSeconds,command.remote.id,command.fence);return true;
+      }
       // Cast custody cannot restore the sender's old queue. Continue here is an
       // explicit admitted start of the receiver's actual reported leaf instead.
       if(playOn&&command.type==='continue-here'&&command.remote&&adapter.dock.getSnapshot().remote?.kind==='cast'){
         if(!commandIsCurrent(adapter.dock,command))return false;
-        await playOn.command(command.type,command.positionSeconds,command.remote.id);return true;
+        await playOn.command(command.type,command.positionSeconds,command.remote.id,playOnState?.cast?.control);return true;
       }
       return bound(command);
     };
-  }, [adapter, playOn]);
+  }, [adapter, playOn,playOnState?.cast?.control]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
     const current = adapter.getSnapshot();
     if (!alive.current || !sameAuthority(current.authority, authority) || !sameFence(current.fence, original)
@@ -260,6 +264,21 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
     skipBackSeconds:runtime.skipBackSeconds,skipForwardSeconds:runtime.skipForwardSeconds,
     capabilities:{play:casting&&known&&observed.paused,pause:casting&&known&&!observed.paused,stop:cast.cast.phase!=='off'||cast.cast.transferPending===true,
       seek:casting&&known&&observed.durationSeconds>0,previous:false,next:false,cast:false}}:undefined;
+  // A validated returning receiver is a view-only occupant. No local fence,
+  // queue, runtime session or source is fabricated to keep this bar mounted.
+  const viewFence=cast?.control,returningView=cast?.resumed,viewKind=cast?.displayKind,viewTitle=cast?.title;
+  const castView:CastDockBinding|undefined=playOn&&cast&&returningView&&viewFence&&viewKind&&viewTitle&&
+    (casting||cast.cast.remoteStopped)&&playOn.cast.viewIsCurrent(viewFence)?(()=>{
+      const playback={kind:'cast' as const,fence:viewFence,positionSeconds:known?observed!.positionSeconds:0,playing:casting&&known&&!observed!.paused,expanded:false as const};
+      return {isCurrent:playOn.cast.viewIsCurrent,occupant:{mode:'cast' as const,playback,
+        remote:{id:returningView.id,kind:'cast' as const,phase:cast.cast.remoteStopped?'stopped' as const:'playing' as const,sequence:JSON.stringify(viewFence.remote),positionSeconds:playback.positionSeconds,playback},
+        presentation:{fence:viewFence,identity:{id:viewFence.remote.occurrence.itemId,kind:viewKind,title:viewTitle,subtitle:[]},
+          artwork:runtime.artwork(cast.posterUrl),ambient:runtime.ambient(cast.posterUrl),device:cast.cast.deviceName,
+          positionKnown:known,durationSeconds:known&&observed!.durationSeconds>0?observed!.durationSeconds:undefined,
+          skipBackSeconds:runtime.skipBackSeconds,skipForwardSeconds:runtime.skipForwardSeconds,
+          capabilities:{play:casting&&known&&!cast.cast.controlPending&&observed!.paused,pause:casting&&known&&!cast.cast.controlPending&&!observed!.paused,
+            stop:casting&&!cast.cast.controlPending,seek:casting&&known&&!cast.cast.controlPending&&observed!.durationSeconds>0,previous:false,next:false,cast:false}}}};
+    })():undefined;
   // tablet-play9/10: a music or audiobook occupant that the viewer expanded is the
   // listening surface, drawn from the same dock occupant and the listening owner's
   // queue. The dock stays underneath; this never starts a second session.
@@ -285,7 +304,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={watch ? {position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height} : {position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
-        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation,remote:remotePresentation}} morph={morph} onVideoSlot={onSlot} contentInset={contentInset}
+        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation,remote:remotePresentation}} castView={castView} morph={morph} onVideoSlot={onSlot} contentInset={contentInset}
           visible={snapshot.pictureInPicture?.active !== true}
           tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}

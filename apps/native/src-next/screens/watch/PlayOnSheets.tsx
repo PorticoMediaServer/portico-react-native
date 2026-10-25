@@ -26,24 +26,24 @@ export function NativePlayOnSheets({controller, artwork, posterUrl, onLinkTV}: N
   useEffect(() => () => controller?.close(), [controller]);
   if (!controller || !state) return null;
   const cast=state.cast,castState=cast?.cast,castReport=cast?.receiver;
-  if(castState?.takeover)return <Dialog open title={t('cast.takeover.title')} onOpenChange={open=>{if(!open)controller.castCommand('deny-takeover');}}>
+  if(castState?.takeover)return <Dialog open title={t('cast.takeover.title')} onOpenChange={open=>{if(!open)controller.castCommand('deny-takeover',undefined,undefined,castState.takeover);}}>
     <Text style={[theme.type.body,{color:theme.colors.textSecondary}]}>{t('cast.takeover.body',{requester:castState.takeover.requester})}</Text>
-    <Button variant="glass" onPress={()=>controller.castCommand('deny-takeover')}>{t('cast.takeover.deny')}</Button>
-    <Button variant="primary" onPress={()=>controller.castCommand('allow-takeover')}>{t('action.accept')}</Button>
+    <Button variant="glass" onPress={()=>controller.castCommand('deny-takeover',undefined,undefined,castState.takeover)}>{t('cast.takeover.deny')}</Button>
+    <Button variant="primary" onPress={()=>controller.castCommand('allow-takeover',undefined,undefined,castState.takeover)}>{t('action.accept')}</Button>
   </Dialog>;
   const castRemoteId=cast?.resumed?.id??cast?.source?.id;
   const isCast=state.castRemoteOpen&&!!castRemoteId;
-  const castKnown=!!castReport&&castReport.itemId===castState?.itemId;
+  const castKnown=!!castReport&&castReport.itemId===castState?.itemId&&!castState?.controlPending;
   const remote=isCast&&castRemoteId?{id:castRemoteId,device:castState?.deviceName??t('cast.theTV'),title:cast.title,
     positionSeconds:castReport?.positionSeconds??0,durationSeconds:castReport?.durationSeconds??0,
     playing:castState?.phase==='casting'&&castKnown&&!castReport?.paused,stopped:cast?.stopped===true,
-    allows:{pause:castState?.phase==='casting'&&castKnown,resume:castState?.phase==='casting'&&castKnown,seek:castState?.phase==='casting'&&castKnown&&(castReport?.durationSeconds??0)>0,stop:castState?.phase!=='off'}}:state.remote;
-  const closeRemote=isCast?controller.closeCastRemote:controller.closeRemote;
-  const pause=(id:string)=>isCast?controller.castCommand('pause'):void controller.pause(id);
-  const resume=(id:string)=>isCast?controller.castCommand('resume'):void controller.resume(id);
-  const seek=(delta:number,id:string)=>isCast?controller.castCommand('seek',Math.max(0,(castReport?.positionSeconds??0)+delta)):void controller.skip(delta,id);
-  const restart=(id:string)=>isCast?controller.castCommand('seek',0):void controller.startOver(id);
-  const stop=(id:string)=>isCast?controller.castCommand('stop'):void controller.stop(id);
+    allows:{pause:castState?.phase==='casting'&&castKnown,resume:castState?.phase==='casting'&&castKnown,seek:castState?.phase==='casting'&&castKnown&&(castReport?.durationSeconds??0)>0,stop:castState?.phase!=='off'&&!castState?.controlPending&&!!cast?.control}}:state.remote;
+  const closeRemote=isCast?()=>{if(cast?.control&&controller.cast.viewIsCurrent(cast.control))controller.closeCastRemote();}:controller.closeRemote;
+  const pause=(id:string)=>isCast?controller.castCommand('pause',undefined,cast?.control):void controller.pause(id);
+  const resume=(id:string)=>isCast?controller.castCommand('resume',undefined,cast?.control):void controller.resume(id);
+  const seek=(delta:number,id:string)=>isCast?controller.castCommand('seek',Math.max(0,(castReport?.positionSeconds??0)+delta),cast?.control):void controller.skip(delta,id);
+  const restart=(id:string)=>isCast?controller.castCommand('seek',0,cast?.control):void controller.startOver(id);
+  const stop=(id:string)=>isCast?controller.castCommand('stop',undefined,cast?.control):void controller.stop(id);
   if ((isCast || state.remoteOpen) && remote) {
     const control = (id: string, icon: 'i-rew' | 'i-ffw' | 'i-play' | 'i-pause' | 'i-restart' | 'i-stop', label: string, onPress: () => void, primary = false, disabled = false) =>
       <Focusable key={id} focusId={`remote-${id}`} testID={`remote-${id}`} accessibilityRole="button" accessibilityLabel={label} disabled={disabled}
@@ -94,7 +94,7 @@ export function NativePlayOnSheets({controller, artwork, posterUrl, onLinkTV}: N
       </Focusable>}
       {castState&&(['connecting','pairing','waiting'].includes(castState.phase)||castState.transferPending)&&<View style={{flexDirection:'row',gap:12,alignItems:'center',paddingVertical:12}}>
         <Text style={[theme.type.body,{flex:1,color:theme.colors.textSecondary}]}>{castState.phase==='connecting'?t('playOn.chooseDevice'):castState.phase==='waiting'?t('cast.waitingForAllow'):t('playOn.connectingTo',{device:castState.deviceName??t('cast.theTV')})}</Text>
-        <Button variant="glass" onPress={()=>controller.castCommand('stop')}>{t('action.cancel')}</Button>
+        <Button variant="glass" onPress={()=>controller.castCommand('stop',undefined,cast?.control)}>{t('action.cancel')}</Button>
       </View>}
       {castState?.phase==='error'&&<Text style={[theme.type.body,{color:theme.colors.textSecondary,paddingVertical:12}]}>{castState.error??t('cast.error.unreachable')}</Text>}
       {state.directoryPhase === 'loading' && !state.receivers.length && <Text style={[theme.type.body, {color: theme.colors.textTertiary, paddingVertical: 14}]}>{t('playOn.looking')}</Text>}

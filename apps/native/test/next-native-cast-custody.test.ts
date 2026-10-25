@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {castProofKey} from '../../../packages/client-core/src/cast/controller-proof.ts';
-import {CastController, parseCastEvent, type CastCommand} from '../../../packages/client-core/src/cast/index.ts';
+import {CastController, sameCastRemote, parseCastEvent, type CastCommand} from '../../../packages/client-core/src/cast/index.ts';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
 import {castOffered} from '../src/app/cast-offered.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
@@ -28,15 +28,16 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const receipt = deferred<unknown>(), cancelReceipt = deferred<unknown>();
   const message = (value: unknown) => emit('PorticoCastMessage', value);
   const attachmentId='11111111-1111-4111-8111-111111111111';
+  const stamp={bindingId:'cct_return',controllerGeneration:2,connectionGeneration:3},occurrence={sessionId:'receiver',generation:2,itemId:'song'};
   let selected=options.returning?{deviceName:'TV',deviceId:'sdk_device',attachmentId}:null;
   const bridge = {applicationId: 'APP', available: async () => true,current:async()=>selected, choose() {}};
   const transport = {
     send: async (value: CastCommand) => {
       sent.push(value);
-      if (value.type === 'pair') message({type: 'paired', controlToken: 'a'.repeat(48)});
-      if(value.type==='adopt')message({type:'status',attemptId:value.attemptId,itemId:'song',positionSeconds:80,durationSeconds:240,paused:false,audioTracks:[],textTracks:[]});
+      if (value.type === 'pair') message({type:'paired',binding,controller:stamp,controlToken:'a'.repeat(48)});
+      if(value.type==='adopt')message({type:'status',controller:stamp,occurrence,attemptId:value.attemptId,itemId:'song',positionSeconds:80,durationSeconds:240,paused:false,audioTracks:[],textTracks:[]});
       if (value.type === 'load') loaded.resolve(value);
-      if (value.type === 'status') message({type: 'status', itemId: 'song', positionSeconds: 12, durationSeconds: 240, paused: false});
+      if (value.type === 'status') message({type:'status',controller:stamp,occurrence,itemId:'song', positionSeconds: 12, durationSeconds: 240, paused: false});
     },
     onMessage: (listener: (value: unknown) => void) => {const sub = new Emitter().addListener('PorticoCastMessage', listener); return () => sub.remove();},
     end() {},
@@ -61,13 +62,13 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   };
   const proofScope={serverId:scope.serverId,authority:scope.authority,accountId:scope.accountId,profileId:scope.profileId,senderDeviceId:'device',senderFamilyId:'family'};
   const proofContext={...proofScope,origin:'https://server.test',publicKey:'a'.repeat(43)};
-  const binding={id:'cct_return',bootstrapId:'cbs_pair',receiverId:'sdk_device',targetId:'cdv_target',targetFamilyId:'target-family',targetGeneration:'1',scope:proofScope};
+  const binding={id:'cct_return',bootstrapId:'cbs_intent',receiverId:'sdk_device',targetId:'cdv_target',targetFamilyId:'target-family',targetGeneration:'1',scope:proofScope};
   const records=new Map(options.legacy?[[`portico.cast.controller:https://server.test:id:sdk_device`,'a'.repeat(48)]]:[[castProofKey(proofContext,'sdk_device'),JSON.stringify({version:2,context:proofContext,binding,controlToken:'a'.repeat(48)})]]);
   let current=true;
   const api = {baseUrl: 'https://server.test', request: async (path: string, method?: string, body?: any) => {
     requests.push({path, method, body});
     if(path==='/v1/cast/controllers/validate'){await options.validation;return {binding,attemptId:body.attemptId,ticket:'b'.repeat(43)};}
-    if(path==='/v1/items/song')return {id:'song',title:'Actual title'};
+    if(path==='/v1/items/song')return {id:'song',kind:'song',title:'Actual title'};
     if (path === '/v1/cast/configuration') return {applicationId: 'APP'};
     if (path === '/v1/cast/bootstrap' && method === 'POST') return {bootstrap: {id: 'cbs_intent', code: '123456', transfer: {id: 'cbs_intent', state: 'pending'}}};
     if (path === '/v1/cast/bootstrap/cbs_intent' && method === 'GET') {read.resolve(); return receipt.promise;}
@@ -76,7 +77,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   }};
   const {NativeCastCaller} = await screenModule(new URL('../src-next/platform/play-on/cast.ts', import.meta.url), {
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
-    '../../../../../packages/client-core/src/cast': {CastController, parseCastEvent},
+    '../../../../../packages/client-core/src/cast': {CastController,sameCastRemote,parseCastEvent},
     '../../../../../packages/player-core/src': {sameFence}, '../../../src/bridge/cast': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
     '../../../src/bridge/cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
     '../../../src/app/cast-offered': {castOffered},
@@ -90,7 +91,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const change = (patch: any) => {snapshot = {...snapshot, ...patch}; if (patch.dock) dock = patch.dock; for (const listener of [...playbackListeners]) listener();};
   const choose = () => {selected={deviceName:'TV',deviceId:'sdk_device',attachmentId};emit('PorticoCastSession', {state: 'started',...selected});};
   const committed = {bootstrap: {transfer: {id: 'cbs_intent', state: 'committed', itemId: 'song', playbackState: 'playing'}}};
-  return {retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
+  return {stamp,occurrence,attachmentId,retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
 }
 
 test('Root42 queue/header event before ACK and original receipt does not cancel the accepted target', async t => {
@@ -151,4 +152,18 @@ test('Root50: native legacy proof and a retired viewer never send a retained pro
  const validation=deferred<void>(),f=await fixture({returning:true,validation:validation.promise});t.after(()=>f.caller.dispose());
  f.retireViewer();validation.resolve();await new Promise(setImmediate);await new Promise(setImmediate);
  assert.equal(f.sent.some(command=>command.type==='adopt'),false);assert.equal(f.caller.getSnapshot().cast.itemId,undefined);assert.equal(f.effects.length,0);
+});
+
+
+test('cold-return view controls carry the original actual occurrence and reject retained callbacks after receiver advance',async t=>{
+ const f=await fixture({returning:true});t.after(()=>f.caller.dispose());
+ for(let n=0;n<20&&!f.caller.getSnapshot().resumed;n++)await new Promise(setImmediate);
+ const state=f.caller.getSnapshot(),target=state.control;assert.ok(target);assert.equal(state.displayKind,'music');assert.equal(state.source,undefined);
+ assert.equal(f.caller.viewIsCurrent(target),true);f.caller.controls('pause',undefined,target);
+ const pause=f.sent.at(-1);assert.equal(pause?.type,'pause');if(pause?.type!=='pause')throw new Error('missing pause');assert.deepEqual(pause.target,target.remote);
+ f.message({type:'status',controller:f.stamp,occurrence:{...f.occurrence,sessionId:'successor',generation:3},itemId:'song',paused:false});
+ for(let n=0;n<10;n++)await new Promise(setImmediate);
+ assert.equal(f.caller.getSnapshot().receiver,undefined,'a same-item successor without a clock cannot inherit the old occurrence time');
+ assert.equal(f.caller.viewIsCurrent(target),false);const count=f.sent.length;f.caller.controls('stop',undefined,target);f.caller.controls('seek',40,target);assert.equal(f.sent.length,count);assert.equal(f.effects.length,0);
+ f.retireViewer();assert.equal(f.caller.viewIsCurrent(f.caller.getSnapshot().control!),false);
 });

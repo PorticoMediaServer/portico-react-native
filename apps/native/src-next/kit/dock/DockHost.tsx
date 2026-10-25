@@ -2,38 +2,42 @@ import React, {useCallback, useMemo, useState} from 'react';
 import {View} from 'react-native';
 import Animated from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {sameFence} from '../../../../../packages/player-core/src/index';
 import {useTheme} from '../theme';
 import {MediaBar} from './MediaBar';
 import {NowPlayingCard} from './NowPlayingCard';
 import {DockNotice} from './DockNotice';
-import {commandAllowed, commandIsCurrent, currentOccupant, dockBarFrame, expandedDockMetrics} from './model';
+import {sameDockFence, commandAllowed, commandIsCurrent, currentOccupant, dockBarFrame, expandedDockMetrics} from './model';
 import {alpha, dockStyles} from './visual';
 import {useDockPresence} from './useDockPresence';
-import type {DockCommand, DockHostProps, DockRect} from './types';
+import type {DockCommand, DockHostProps, DockRect, DockRenderOccupant} from './types';
 
-/** The accepted core picks one occupant. This host neither owns an engine nor fabricates effects. */
-export function DockHost({dock, snapshot, presentation, onAction, bottomInset, contentInset, visible = true, tvExpanded, onTVExpandedChange, returnFocusRef, onVideoSlot, morph, notice, onNoticeDismiss, style, testID}: DockHostProps) {
+/** Render an admitted core occupant or a validated remote view, without engine effects. */
+export function DockHost({dock, snapshot, presentation, castView, onAction, bottomInset, contentInset, visible = true, tvExpanded, onTVExpandedChange, returnFocusRef, onVideoSlot, morph, notice, onNoticeDismiss, style, testID}: DockHostProps) {
   const theme = useTheme(), safe = useSafeAreaInsets(), frame = dockBarFrame(theme.platform, bottomInset, safe.bottom, contentInset);
   const [expanded, setExpanded] = useState(false), [menu, setMenu] = useState(false);
-  const occupant = useMemo(() => currentOccupant(dock, snapshot, presentation), [dock, snapshot, presentation]);
+  const readOccupant=useCallback(():DockRenderOccupant|null=>castView?.isCurrent(castView.occupant.playback.fence)?castView.occupant:currentOccupant(dock,dock.getSnapshot(),presentation),[castView,dock,presentation]);
+  const occupant = useMemo(() => castView?.isCurrent(castView.occupant.playback.fence)?castView.occupant:currentOccupant(dock,snapshot,presentation), [castView,dock,snapshot,presentation]);
   const wanted = visible && (!theme.isTV || occupant?.mode === 'music' || occupant?.mode === 'audiobook') ? occupant : null;
   const presence = useDockPresence(wanted, theme.isTV);
   const reportVideoSlot = useCallback((rect: DockRect) => {
-    const latest = currentOccupant(dock, dock.getSnapshot(), presentation);
+    const latest = readOccupant();
     if (visible && !theme.isTV && wanted?.mode === 'video' && presence.slotAdmission?.isCurrent() && latest?.mode === 'video' &&
-      sameFence(latest.playback.fence, wanted.playback.fence)) onVideoSlot?.(rect);
-  }, [dock, presentation, visible, theme.isTV, presence.slotAdmission, wanted, onVideoSlot]);
+      sameDockFence(latest.playback.fence, wanted.playback.fence)) onVideoSlot?.(rect);
+  }, [readOccupant, visible, theme.isTV, presence.slotAdmission, wanted, onVideoSlot]);
   const action = useCallback((command: DockCommand) => {
-    const latest = currentOccupant(dock, dock.getSnapshot(), presentation);
+    const latest = readOccupant();
+    if(command.fence.kind==='cast-view'){
+      if(castView?.isCurrent(command.fence)&&latest?.playback.fence.kind==='cast-view'&&sameDockFence(command.fence,latest.playback.fence)&&commandAllowed(latest,command.type))onAction(command);
+      return;
+    }
     const restoring = command.type === 'restore-audio' || command.type === 'restore-video';
     if (commandIsCurrent(dock, command) && (restoring || (latest && commandAllowed(latest, command.type)))) onAction(command);
-  }, [dock, presentation, onAction]);
+  }, [readOccupant,castView,dock,onAction]);
   const interactionCurrent = useCallback(() => {
-    const latest = currentOccupant(dock, dock.getSnapshot(), presentation);
-    return visible && !!wanted && !!latest && latest.mode === wanted.mode && sameFence(latest.playback.fence, wanted.playback.fence)
+    const latest = readOccupant();
+    return visible && !!wanted && !!latest && latest.mode === wanted.mode && sameDockFence(latest.playback.fence, wanted.playback.fence)
       && latest.remote?.id === wanted.remote?.id && latest.remote?.sequence === wanted.remote?.sequence;
-  }, [dock, presentation, visible, wanted]);
+  }, [readOccupant,visible,wanted]);
   const setTVExpanded = useCallback((value: boolean) => {setExpanded(value); onTVExpandedChange?.(value);}, [onTVExpandedChange]);
   const shown = presence.shown;
   if (!shown) return null;

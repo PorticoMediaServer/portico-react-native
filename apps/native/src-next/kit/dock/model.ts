@@ -1,10 +1,17 @@
+import {sameCastRemote} from '../../../../../packages/client-core/src/cast';
 import {sameFence, type PlaybackDock, type DockState} from '../../../../../packages/player-core/src/index';
 import {clockText, timelineFacts, type FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import type {DockAction, DockCommand, DockHostProps, DockOccupant} from './types';
+import type {CastDockIdentity, DockRenderOccupant, DockAction, DockCommand, DockHostProps, DockOccupant} from './types';
+
+export function sameDockFence(a:DockCommand['fence']|undefined,b:DockCommand['fence']|undefined):boolean{
+ if(a?.kind==='cast-view'||b?.kind==='cast-view')return a?.kind==='cast-view'&&b?.kind==='cast-view'&&a.attachmentId===b.attachmentId&&sameCastRemote(a.remote,b.remote);
+ return sameFence(a,b);
+}
 
 /** Text changes follow the actual media source, including a local play without a queue. */
-export function dockSourceIdentity(fence: Readonly<{kind: 'local'; playId: string}> | Readonly<{kind: 'queue' | 'channel'; sourceId?: string}>) {
+export function dockSourceIdentity(fence: CastDockIdentity | Readonly<{kind: 'local'; playId: string}> | Readonly<{kind: 'queue' | 'channel'; sourceId?: string}>) {
+  if(fence.kind==='cast-view')return JSON.stringify([fence.attachmentId,fence.remote.controller,fence.remote.occurrence]);
   return fence.kind === 'local' ? fence.playId : fence.sourceId;
 }
 
@@ -17,12 +24,13 @@ export function currentOccupant(dock: PlaybackDock, snapshot: DockState, present
   return model && sameFence(model.fence, occupant.playback.fence) ? {...occupant, presentation: model} : null;
 }
 
-export function dockCommand(occupant: DockOccupant, type: DockAction, positionSeconds?: number): DockCommand {
+export function dockCommand(occupant: DockRenderOccupant, type: DockAction, positionSeconds?: number): DockCommand {
   return {type, fence: occupant.playback.fence, ...(occupant.remote ? {remote: {id: occupant.remote.id, sequence: occupant.remote.sequence}} : {}), ...(positionSeconds !== undefined ? {positionSeconds} : {})};
 }
 
 /** Re-check at dispatch, including a remote sequence that changed since the control rendered. */
 export function commandIsCurrent(dock: PlaybackDock, command: DockCommand): boolean {
+  if(command.fence.kind==='cast-view')return false;
   const state = dock.getSnapshot();
   if (command.type === 'restore-audio') return !!state.parkedAudio && sameFence(state.parkedAudio.fence, command.fence);
   if (command.type === 'restore-video') return !!state.resumeVideo && sameFence(state.resumeVideo.fence, command.fence);
@@ -30,7 +38,7 @@ export function commandIsCurrent(dock: PlaybackDock, command: DockCommand): bool
   return !state.remote && !!state.local && sameFence(state.local.fence, command.fence);
 }
 
-export function commandAllowed(occupant: DockOccupant, type: DockAction): boolean {
+export function commandAllowed(occupant: DockRenderOccupant, type: DockAction): boolean {
   const {capabilities: cap, finished} = occupant.presentation;
   const phase = occupant.remote?.phase;
   if (type === 'dismiss-remote') return !!phase && ['stopped', 'replaced', 'error'].includes(phase);
@@ -48,23 +56,23 @@ export function commandAllowed(occupant: DockOccupant, type: DockAction): boolea
   return true;
 }
 
-export const playbackPosition = (occupant: DockOccupant) => occupant.remote?.positionSeconds ?? occupant.playback.positionSeconds;
-export function seekBounds(occupant: DockOccupant) {
+export const playbackPosition = (occupant: DockRenderOccupant) => occupant.remote?.positionSeconds ?? occupant.playback.positionSeconds;
+export function seekBounds(occupant: DockRenderOccupant) {
   const window = occupant.presentation.seekWindow;
   if (window && Number.isFinite(window.start) && Number.isFinite(window.end) && window.start >= 0 && window.end > window.start) return window;
   const duration = occupant.presentation.durationSeconds;
   return Number.isFinite(duration) && duration! > 0 ? {start: 0, end: duration!} : undefined;
 }
-export function progressOf(occupant: DockOccupant): number | undefined {
+export function progressOf(occupant: DockRenderOccupant): number | undefined {
   const bounds = seekBounds(occupant);
   return bounds ? timelineFacts(bounds.end - bounds.start, Math.max(0, playbackPosition(occupant) - bounds.start)).progress : undefined;
 }
-export function seekTo(occupant: DockOccupant, position: number): DockCommand | undefined {
+export function seekTo(occupant: DockRenderOccupant, position: number): DockCommand | undefined {
   const bounds = seekBounds(occupant);
   return bounds && Number.isFinite(position) && commandAllowed(occupant, 'seek') ? dockCommand(occupant, 'seek', Math.min(bounds.end, Math.max(bounds.start, position))) : undefined;
 }
 
-export function remoteSubtitle(occupant: DockOccupant): readonly FactPart[] {
+export function remoteSubtitle(occupant: DockRenderOccupant): readonly FactPart[] {
   const remote = occupant.remote;
   if (!remote) return occupant.presentation.identity.subtitle;
   const device = occupant.presentation.device ?? defaultI18n.t('cast.theTV');

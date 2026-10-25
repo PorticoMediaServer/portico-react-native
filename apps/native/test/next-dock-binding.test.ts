@@ -42,3 +42,11 @@ test('explicit restoration calls the fenced runtime operation and never toggles 
   assert.equal(await action({type: 'restore-video', fence}), true);
   assert.deepEqual(calls, ['restore-video']);
 });
+
+
+test('view-only Cast commands never reach runtime or remote source-restoration ports',async()=>{
+ const {adapter,calls}=port();const action=bindNativeDock(adapter,{remote:async()=>{calls.push('remote');}});
+ const fence={kind:'cast-view' as const,attachmentId:'11111111-1111-4111-8111-111111111111',remote:{controller:{bindingId:'binding',controllerGeneration:2,connectionGeneration:3},occurrence:{sessionId:'remote-session',generation:4,itemId:'item'}}};
+ for(const type of ['stop','continue-here','pause','seek'] as const)assert.equal(await action({type,fence,positionSeconds:20,remote:{id:'return',sequence:'1'}}),false);
+ assert.deepEqual(calls,[]);
+});

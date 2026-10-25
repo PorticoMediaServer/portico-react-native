@@ -1,11 +1,11 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {sameFence} from '../../../../../packages/player-core/src/index';
+import {sameDockFence} from './model';
 import {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming} from 'react-native-reanimated';
 import {useMotion} from '../useMotion';
-import type {DockOccupant, DockSlotAdmission} from './types';
+import type {DockRenderOccupant, DockSlotAdmission} from './types';
 
 /** Retain only outgoing chrome while it leaves; its controls cannot dispatch to a new source. */
-export function useDockPresence(wanted: DockOccupant | null, tv: boolean) {
+export function useDockPresence(wanted: DockRenderOccupant | null, tv: boolean) {
   const motion = useMotion();
   const [shown, setShown] = useState(wanted);
   const [slotAdmission, setSlotAdmission] = useState<DockSlotAdmission | null>(null);
@@ -16,7 +16,7 @@ export function useDockPresence(wanted: DockOccupant | null, tv: boolean) {
   const oldIntent = intent.current.wanted;
   if (intent.current.tv !== tv || intent.current.motion !== motion ||
     !!oldIntent !== !!wanted || (oldIntent && wanted &&
-      (!sameFence(oldIntent.playback.fence, wanted.playback.fence) || oldIntent.mode !== wanted.mode ||
+      (!sameDockFence(oldIntent.playback.fence, wanted.playback.fence) || oldIntent.mode !== wanted.mode ||
         oldIntent.remote?.id !== wanted.remote?.id || oldIntent.remote?.sequence !== wanted.remote?.sequence))) intent.current = {wanted, tv, motion};
   const target = intent.current;
   const entering = useRef<(DockSlotAdmission & {version: number}) | null>(null);
@@ -37,7 +37,7 @@ export function useDockPresence(wanted: DockOccupant | null, tv: boolean) {
     entering.current = next ? {version, isCurrent: () => ownedEpoch.current === version && intent.current === target} : null;
     if (!next) {
       animation.value = withTiming(0, motion.timing('quick', 'in'), finished => {if (finished) runOnJS(finishExit)(version);});
-    } else if (old && sameFence(old.playback.fence, next.playback.fence) && old.mode === next.mode) {
+    } else if (old && sameDockFence(old.playback.fence, next.playback.fence) && old.mode === next.mode) {
       animation.value = withTiming(1, motion.timing('standard'), finished => {if (finished) runOnJS(finishEnter)(version);});
     } else {
       const returningPaused = !next.remote && !next.playback.playing && (next.mode === 'music' || next.mode === 'audiobook');

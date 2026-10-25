@@ -14,6 +14,8 @@ export type RemoteDockCommandBinding = (command: DockCommand & {remote: NonNulla
 /** A real adapter binding, not an engine simulation. Errors remain the caller's failure flow. */
 export function bindNativeDock(adapter: NativeDockAdapter, options: {remote?: RemoteDockCommandBinding} = {}) {
   return async (command: DockCommand): Promise<boolean> => {
+    // A Cast view identity has no local engine authority. Its caller owns dispatch.
+    if(command.fence.kind==='cast-view')return false;
     if (!commandIsCurrent(adapter.dock, command)) return false;
     if (command.remote) {
       if (command.type === 'continue-here') {

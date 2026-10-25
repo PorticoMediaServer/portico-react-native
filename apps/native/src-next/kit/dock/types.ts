@@ -1,4 +1,5 @@
 import type React from 'react';
+import type {CastRemoteIdentity} from '../../../../../packages/client-core/src/cast';
 import type {StyleProp, View, ViewStyle} from 'react-native';
 import type {SharedValue} from 'react-native-reanimated';
 import type {PanGesture} from 'react-native-gesture-handler';
@@ -12,7 +13,7 @@ export type DockSlotAdmission = Readonly<{isCurrent: () => boolean}>;
 export type DockAction = 'expand' | 'collapse' | 'close' | 'stop' | 'play' | 'pause' | 'replay' | 'seek' | 'previous' | 'next' | 'cast' | 'open-remote' | 'continue-here' | 'dismiss-remote' | 'restore-audio' | 'restore-video';
 export type DockCommand = Readonly<{
   type: DockAction;
-  fence: PlaybackFence;
+  fence: PlaybackFence | CastDockIdentity;
   remote?: Readonly<{id: string; sequence: string}>;
   positionSeconds?: number;
 }>;
@@ -47,8 +48,18 @@ export type DockOccupant = Readonly<{
   remote?: RemoteDock;
   presentation: DockPresentation;
 }>;
+/** Presentation custody only: never accepted as a player-core/runtime fence. */
+export type CastDockIdentity=Readonly<{kind:'cast-view';attachmentId:string;remote:CastRemoteIdentity}>;
+export type CastDockPlayback=Readonly<{kind:'cast';fence:CastDockIdentity;positionSeconds:number;playing:boolean;expanded:false}>;
+export type CastDockOccupant=Readonly<{
+ mode:'cast';playback:CastDockPlayback;
+ remote:Readonly<{id:string;kind:'cast';phase:RemoteDock['phase'];sequence:string;positionSeconds:number;playback:CastDockPlayback}>;
+ presentation:Omit<DockPresentation,'fence'>&Readonly<{fence:CastDockIdentity}>;
+}>;
+export type DockRenderOccupant=DockOccupant|CastDockOccupant;
+export type CastDockBinding=Readonly<{occupant:CastDockOccupant;isCurrent:(identity:CastDockIdentity)=>boolean}>;
 export type DockRenderProps = {
-  occupant: DockOccupant;
+  occupant: DockRenderOccupant;
   onAction: (command: DockCommand) => void;
   visible?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -72,6 +83,7 @@ export type DockHostProps = {
   testID?: string;
   dock: PlaybackDock;
   snapshot: DockState;
+  castView?:CastDockBinding;
   presentation: Readonly<{local?: DockPresentation; remote?: DockPresentation}>;
   onAction: (command: DockCommand) => void;
   bottomInset?: number;

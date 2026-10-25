@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueuePlaybackFence, type QueueScope, type RemoteDock} from '../../../packages/player-core/src/index.ts';
 import {playbackIdentity} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
-import {commandAllowed, commandIsCurrent, currentOccupant, dockCommand, dockSourceIdentity, progressOf, releaseAside, releaseDock, remoteSubtitle, seekTo} from '../src-next/kit/dock/model.ts';
+import {sameDockFence, commandAllowed, commandIsCurrent, currentOccupant, dockCommand, dockSourceIdentity, progressOf, releaseAside, releaseDock, remoteSubtitle, seekTo} from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import type {DockPresentation} from '../src-next/kit/dock/types.ts';
 
@@ -138,4 +138,14 @@ test('an idle morph rejects captures and queued settlements, including after sco
   assert.equal(currentMorphFence({...fence, generation: fence.generation + 1}, fence), false);
   const otherProfile = {...fence, playback: {...fence.playback, scope: {...scope, profileId: 'other-profile'}}};
   assert.equal(currentMorphFence(otherProfile, fence), false);
+});
+
+
+test('Cast view custody is distinct from runtime fences and changes with actual attachment/controller/occurrence',()=>{
+ const identity={kind:'cast-view' as const,attachmentId:'11111111-1111-4111-8111-111111111111',remote:{controller:{bindingId:'binding',controllerGeneration:2,connectionGeneration:3},occurrence:{sessionId:'remote-session',generation:4,itemId:'item'}}};
+ assert.equal(sameDockFence(identity,identity),true);assert.equal(sameDockFence(identity,fence),false);
+ assert.equal(sameDockFence(identity,{...identity,attachmentId:'22222222-2222-4222-8222-222222222222'}),false);
+ assert.equal(sameDockFence(identity,{...identity,remote:{...identity.remote,controller:{...identity.remote.controller,controllerGeneration:3}}}),false);
+ assert.equal(sameDockFence(identity,{...identity,remote:{...identity.remote,occurrence:{...identity.remote.occurrence,generation:5}}}),false);
+ const {dock}=setup();assert.equal(commandIsCurrent(dock,{type:'stop',fence:identity}),false,'a view cannot authorize local runtime IO');
 });

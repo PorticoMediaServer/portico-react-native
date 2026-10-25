@@ -10,4 +10,4 @@ export {releaseDock, releaseAside, GestureRelease} from './model';
 export {DockNotice} from './DockNotice';
 export {bindNativeDock} from './native-binding';
 export type {NativeDockAdapter, RemoteDockCommandBinding} from './native-binding';
-export type {DockAction, DockCapabilities, DockCommand, DockHostProps, DockNoticeModel, DockOccupant, DockPresentation, DockRect, DockRenderProps, PlayerMorphController} from './types';
+export type {CastDockIdentity, CastDockOccupant, CastDockBinding, DockAction, DockCapabilities, DockCommand, DockHostProps, DockNoticeModel, DockOccupant, DockPresentation, DockRect, DockRenderProps, PlayerMorphController} from './types';

@@ -1,3 +1,5 @@
+import type {CastDockIdentity} from '../../kit/dock';
+import type {CastSnapshot} from '../../../../../packages/client-core/src/cast';
 import {playbackControlsService} from '../../../../../packages/client-core/src/playback-controls';
 import {HandoffController, type HandoffPhase, type HandoffSnapshot} from '../../../../../packages/client-core/src/remote-playback';
 import type {Receiver} from '../../../../../packages/client-core/src/social-playback';
@@ -93,7 +95,7 @@ export class NativePlayOn {
     this.options = options;
     this.cast = new NativeCastCaller(options);
     this.offCast = this.cast.subscribe(() => {const cast=this.cast.getSnapshot(),began=cast.cast.phase==='casting'&&this.state.cast?.cast.phase!=='casting';
-      this.publish({cast,...(began?{open:false,castRemoteOpen:true}:{})});});
+      this.publish({cast,...(began?{open:false,castRemoteOpen:!cast.resumed}:{})});});
     this.state=Object.freeze({...this.state,cast:this.cast.getSnapshot()});
     // Another surface may end the remote first (Continue here on the bar, Dismiss,
     // or the dock's own expiry); the controller follows the dock, never the reverse.
@@ -211,7 +213,7 @@ export class NativePlayOn {
   startCast = (): void => {if(!this.state.sending&&!this.state.remote){this.cast.start();this.publish({castRemoteOpen:false});}};
   openCastRemote = (): void => {this.publish({castRemoteOpen:true});};
   closeCastRemote = (): void => {this.publish({castRemoteOpen:false});};
-  castCommand = (type: string, position?: number): void => {this.cast.controls(type,position);};
+  castCommand=(type:string,position?:number,expected?:CastDockIdentity,takeover?:CastSnapshot['takeover']):void=>{this.cast.controls(type,position,expected,takeover);};
 
   send = async (receiver: Receiver): Promise<void> => {
     if(this.state.cast?.cast.transferPending||['connecting','pairing','waiting','casting'].includes(this.state.cast?.cast.phase??''))return;
@@ -372,14 +374,16 @@ export class NativePlayOn {
     if (this.state.remote) this.publish({remote: undefined});
   }
   /** The dock's remote commands, always bound to the bar's own remote id. */
-  command = async (type: string, positionSeconds?: number, remoteId?: string): Promise<void> => {
+  command = async (type:string,positionSeconds?:number,remoteId?:string,expected?:CastDockIdentity):Promise<void> => {
     const cast=this.cast.getSnapshot();
     if(remoteId&&(cast.source?.id===remoteId||cast.resumed?.id===remoteId)){
+      if(cast.resumed&&!expected||expected&&!this.cast.viewIsCurrent(expected))return;
       if(type==='open-remote')return this.openCastRemote();
-      if(type==='continue-here')return this.cast.continueHere();
+      if(type==='continue-here')return this.cast.continueHere(expected);
       if(type==='dismiss-remote')return this.cast.dismiss();
-      this.cast.controls(type,positionSeconds);return;
+      this.cast.controls(type,positionSeconds,expected);return;
     }
+    if(expected)return; // A retained Cast view never falls through to another remote.
     switch (type) {
       case 'pause': return this.pause(remoteId);
       case 'play': case 'resume': return this.resume(remoteId);

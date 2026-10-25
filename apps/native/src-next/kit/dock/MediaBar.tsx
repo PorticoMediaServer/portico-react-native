@@ -3,7 +3,6 @@ import {ActivityIndicator, Text, View, type LayoutChangeEvent} from 'react-nativ
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import {sameFence} from '../../../../../packages/player-core/src/index';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Artwork} from '../artwork';
 import {Button, Focusable} from '../controls';
@@ -13,7 +12,7 @@ import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {BlurView} from '../../platform/native-blur';
 import {selectionHaptic} from '../../platform/haptics';
-import {commandAllowed, dockCommand, dockSourceIdentity, expandedDockMetrics, mediumDockMetrics, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekBounds, seekTo, validRect} from './model';
+import {sameDockFence, commandAllowed, dockCommand, dockSourceIdentity, expandedDockMetrics, mediumDockMetrics, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekBounds, seekTo, validRect} from './model';
 import {alpha, DockFacts, dockStyles as s, dockType} from './visual';
 import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMorphController} from './types';
 
@@ -58,7 +57,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const changeMenu = useCallback((open: boolean) => {setMenu(open); onMenuOpenChange?.(open);}, [onMenuOpenChange]);
   useEffect(() => () => onMenuOpenChange?.(false), [onMenuOpenChange]);
   useEffect(() => {
-    if (!sameFence(menuSource.current, playback.fence) || menuRemote.current !== remote?.id) {changeMenu(false); x.value = 0; fade.value = 1;}
+    if (!sameDockFence(menuSource.current, playback.fence) || menuRemote.current !== remote?.id) {changeMenu(false); x.value = 0; fade.value = 1;}
     menuSource.current = playback.fence; menuRemote.current = remote?.id;
   }, [playback.fence, remote?.id, changeMenu, x, fade]);
   useEffect(() => {words.value = 0; words.value = withTiming(1, motion.timing('standard'));}, [p.identity.title, sourceIdentity, motion, words]);
@@ -68,7 +67,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   latest.current = {occupant, onAction, visible, isCurrent};
   const gestureTarget = useRef({occupant, visible, epoch: 1});
   const old = gestureTarget.current;
-  if (!sameFence(old.occupant.playback.fence, playback.fence) || old.occupant.remote?.id !== remote?.id
+  if (!sameDockFence(old.occupant.playback.fence, playback.fence) || old.occupant.remote?.id !== remote?.id
     || old.occupant.remote?.sequence !== remote?.sequence || old.visible !== visible || old.occupant.mode !== occupant.mode) {
     gestureTarget.current = {occupant, visible, epoch: old.epoch + 1};
   }
@@ -178,7 +177,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   }, [currentInteraction, remote, gestureSource, held, motion, changeMenu]);
   const textMotion = useAnimatedStyle(() => ({opacity: words.value, transform: [{translateY: motion.transforms ? 6 * (1 - words.value) : 0}]}));
   const slotSource = useRef(playback.fence);
-  if (!sameFence(slotSource.current, playback.fence)) slotSource.current = playback.fence;
+  if (!sameDockFence(slotSource.current, playback.fence)) slotSource.current = playback.fence;
   const measuredFence = slotSource.current;
   const measurement = useRef(0), measuring = useRef(false);
   const slotNow = useRef({video, visible, onVideoSlot, slotAdmission, fence: playback.fence});
@@ -194,7 +193,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     node.measureInWindow((ax, ay, w, h) => {
       const now = slotNow.current, rect = {x: ax, y: ay, width: w, height: h};
       if (measuring.current && !active.value && x.value === 0 && fade.value === 1 && held.value === 1 && version === measurement.current && node === art.current && now.video && now.visible &&
-        now.onVideoSlot === onVideoSlot && now.slotAdmission === slotAdmission && sameFence(now.fence, measuredFence) &&
+        now.onVideoSlot === onVideoSlot && now.slotAdmission === slotAdmission && sameDockFence(now.fence, measuredFence) &&
         slotAdmission?.isCurrent() !== false && validRect(rect)) onVideoSlot(rect);
     });
   }, [video, visible, onVideoSlot, slotAdmission, measuredFence, active, x, fade, held]);

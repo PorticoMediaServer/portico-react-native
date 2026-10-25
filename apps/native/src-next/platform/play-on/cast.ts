@@ -1,5 +1,6 @@
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
-import {CastController, parseCastEvent, type CastChoices, type CastSnapshot, type CastTransport} from '../../../../../packages/client-core/src/cast';
+import {CastController, sameCastRemote, parseCastEvent, type CastChoices, type CastSnapshot, type CastTransport} from '../../../../../packages/client-core/src/cast';
+import type {CastDockIdentity} from '../../kit/dock';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {LocalSession} from '../../../../../packages/client-core/src';
 import {sameFence, type DockPlayback, type QueuePlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
@@ -13,7 +14,7 @@ type Bridge = Readonly<{applicationId?: string; available(): Promise<boolean>; c
 type Source = Readonly<{id: string; adapter: NativePlaybackAdapter; snapshot: NativePlaybackRuntimeSnapshot;
   local: DockPlayback; fence: QueuePlaybackFence; choices: CastChoices}>;
 type Report = Readonly<{itemId: string; positionSeconds: number; durationSeconds: number; paused: boolean}>;
-export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; resumed?:Readonly<{id:string}>;receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
+export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; resumed?:Readonly<{id:string}>;control?:CastDockIdentity;displayKind?:'music'|'audiobook'|'video';receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
 export type NativeCastOptions = Readonly<{
   api: Readonly<{baseUrl?: string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
   session: () => LocalSession | undefined; playback: () => NativePlaybackAdapter | undefined;
@@ -56,7 +57,7 @@ export class NativeCastCaller {
   private receiver?: Report;
   private idleObserved=false;
   private metadataItem?: string;
-  private readonly descriptions=new Map<string,Readonly<{title:string;posterUrl?:string}>>();
+  private readonly descriptions=new Map<string,Readonly<{title:string;posterUrl?:string;kind?:'music'|'audiobook'|'video'}>>();
   private state: NativeCastState = Object.freeze({cast: idle});
 
   constructor(private readonly options: NativeCastOptions) {
@@ -74,10 +75,10 @@ export class NativeCastCaller {
       ...(original.serverIdentity&&original.deviceId?{controllerContext:{origin,publicKey:original.serverIdentity.publicKey,serverId:original.viewer.serverId,
         authority:original.viewer.authority,accountId:original.viewer.accountId,profileId:original.viewer.profileId,senderDeviceId:original.deviceId,senderFamilyId:original.sessionFamilyId}}:{}),
       describe:async itemId=>{
-        const item=await this.request<{id?:unknown;title?:unknown;posterUrl?:unknown}>(`/v1/items/${encodeURIComponent(itemId)}`,'GET');
+        const item=await this.request<{id?:unknown;title?:unknown;posterUrl?:unknown;kind?:unknown}>(`/v1/items/${encodeURIComponent(itemId)}`,'GET');
         if(item.id!==itemId||typeof item.title!=='string'||!item.title)return;
-        const title=item.title.slice(0,300);
-        this.descriptions.set(itemId,Object.freeze({title,...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{})}));
+        const title=item.title.slice(0,300),kind=item.kind==='song'?'music':item.kind==='audiobook_file'?'audiobook':['movie','episode','extra'].includes(String(item.kind))?'video':undefined;
+        this.descriptions.set(itemId,Object.freeze({title,...(kind?{kind}:{}),...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{})}));
         while(this.descriptions.size>4)this.descriptions.delete(this.descriptions.keys().next().value!);
         return title;
       },
@@ -141,6 +142,7 @@ export class NativeCastCaller {
     if(this.attachmentId!==device.attachmentId){
       this.attachmentId=device.attachmentId;this.bridgeGeneration++;
       for(const listener of [...this.attachmentListeners])listener();
+      if(this.returning&&this.returning.generation!==this.bridgeGeneration){this.returning=undefined;this.receiver=undefined;this.emit({resumed:undefined,control:undefined,receiver:undefined,title:undefined,posterUrl:undefined,displayKind:undefined,stopped:false});}
     }
     return this.bridgeGeneration;
   }
@@ -233,20 +235,22 @@ export class NativeCastCaller {
   private changed = (): void => {
     if (!this.viewerCurrent() || !this.controller) return;
     const cast = this.controller.getSnapshot();
-    if(cast.disclosureRefused){this.receiver=undefined;this.returning=undefined;this.emit({cast,resumed:undefined,receiver:undefined,title:undefined,posterUrl:undefined});return;}
+    if(cast.disclosureRefused){this.receiver=undefined;this.returning=undefined;this.emit({cast,resumed:undefined,control:undefined,receiver:undefined,title:undefined,posterUrl:undefined,displayKind:undefined,stopped:false});return;}
     if(cast.reported)this.receiver=cast.reported;
+    else if(cast.remoteStopped||!sameCastRemote(cast.remoteIdentity,this.state.cast.remoteIdentity))this.receiver=undefined;
+    const control=cast.remoteIdentity&&validCastAttachment(this.attachmentId)?Object.freeze({kind:'cast-view' as const,attachmentId:this.attachmentId,remote:cast.remoteIdentity}):undefined;
     const returning=this.returning;
-    if(returning&&['off','error','replaced'].includes(cast.phase)&&this.state.resumed){
-      this.returning=undefined;this.receiver=undefined;this.emit({cast,resumed:undefined,receiver:undefined,title:undefined,posterUrl:undefined});return;
+    if(returning&&['off','error','replaced'].includes(cast.phase)&&!cast.remoteStopped&&this.state.resumed){
+      this.returning=undefined;this.receiver=undefined;this.emit({cast,resumed:undefined,control:undefined,receiver:undefined,title:undefined,posterUrl:undefined,displayKind:undefined,stopped:false});return;
     }
-    if(returning&&cast.phase==='casting'){
+    if(returning&&(cast.phase==='casting'||cast.remoteStopped)&&control){
       const display=cast.itemId?this.descriptions.get(cast.itemId):undefined;
-      this.emit({cast,resumed:{id:returning.id},receiver:this.receiver,title:cast.title,posterUrl:display?.title===cast.title?display?.posterUrl:undefined,stopped:false});
+      this.emit({cast,control,resumed:{id:returning.id},receiver:this.receiver,title:cast.title,posterUrl:display?.title===cast.title?display?.posterUrl:undefined,displayKind:display?.title===cast.title?display?.kind:undefined,stopped:cast.remoteStopped===true});
       return;
     }
     const source = this.source, accepted = cast.acceptedSource, expected = source?.choices.source;
     if(cast.phase==='casting'&&this.state.cast.phase!=='casting')this.idleObserved=false;
-    const stopped=cast.phase==='off'&&!cast.transferPending&&(this.cancelling||this.idleObserved);
+    const stopped=cast.phase==='off'&&!cast.transferPending&&(cast.remoteStopped||this.cancelling||this.idleObserved);
     const committed = !!source && !!expected && !!accepted && (['sessionId', 'generation', 'queueId', 'entryId', 'queueRevision'] as const).every(key => expected[key] === accepted[key]);
     if (source && committed && !this.retired) {
       this.retired = true;
@@ -259,7 +263,7 @@ export class NativeCastCaller {
           Object.freeze({kind:'stop' as const,playback:Object.freeze({...source.local,playing:false,expanded:false}),playing:false as const})
         ])})).catch(this.options.reportError);
     }
-    this.emit({cast, receiver: this.receiver,stopped});
+    this.emit({cast,control, receiver: this.receiver,stopped});
     if (!source) return;
     if(cast.phase==='off'&&!this.retired&&!cast.transferPending){
       void source.adapter.dismissRemote?.(source.id).catch(this.options.reportError);
@@ -286,24 +290,31 @@ export class NativeCastCaller {
     if (first) this.dockStarted = true;
     void (first ? source.adapter.beginRemote?.(remote) : source.adapter.updateRemote?.(remote))?.catch(this.options.reportError);
   };
-  controls = (type: string, position?: number): void => {
+  viewIsCurrent=(identity:CastDockIdentity):boolean=>this.viewerCurrent()&&identity.attachmentId===this.attachmentId&&
+    sameCastRemote(identity.remote,this.controller?.getSnapshot().remoteIdentity)&&
+    (this.controller?.getSnapshot().phase==='casting'||this.controller?.getSnapshot().remoteStopped===true)&&
+    (!this.returning||this.returning.generation===this.bridgeGeneration);
+  controls = (type:string,position?:number,expected?:CastDockIdentity,takeover?:CastSnapshot['takeover']):void => {
     if (!this.viewerCurrent() || !this.controller) return;
     const cast = this.state.cast;
+    if(expected&&!this.viewIsCurrent(expected))return;
+    if(!expected&&(this.returning||cast.remoteIdentity)&&!['allow-takeover','deny-takeover'].includes(type))return;
+    const target=expected?.remote;
     switch (type) {
-      case 'allow-takeover': this.controller.answerTakeover(true);return;
-      case 'deny-takeover': this.controller.answerTakeover(false);return;
-      case 'stop': this.cancelling = true; this.cancelChooser?.(); this.controller.stop(); return;
-      case 'dismiss-remote': if(this.returning){this.controller.dismiss();this.returning=undefined;this.emit({resumed:undefined});return;}if (cast.transferPending) {this.cancelling = true; this.controller.stop(); return;}
+      case 'allow-takeover': this.controller.answerTakeover(true,takeover);return;
+      case 'deny-takeover': this.controller.answerTakeover(false,takeover);return;
+      case 'stop': this.cancelling = true; this.cancelChooser?.(); this.controller.stop(target); return;
+      case 'dismiss-remote': if(this.returning){this.controller.dismiss();this.returning=undefined;this.emit({resumed:undefined,control:undefined,receiver:undefined,title:undefined,posterUrl:undefined,displayKind:undefined,stopped:false});return;}if (cast.transferPending) {this.cancelling = true; this.controller.stop(target); return;}
         this.controller.dismiss(); return;
-      case 'pause': if (cast.phase === 'casting') this.controller.pause(); return;
-      case 'play': case 'resume': if (cast.phase === 'casting') this.controller.play(); return;
-      case 'seek': if (cast.phase === 'casting' && this.receiver?.itemId === cast.itemId && position !== undefined && Number.isFinite(position)) this.controller.seek(position); return;
+      case 'pause': if (cast.phase === 'casting') this.controller.pause(target); return;
+      case 'play': case 'resume': if (cast.phase === 'casting') this.controller.play(target); return;
+      case 'seek': if (cast.phase === 'casting' && this.receiver?.itemId === cast.itemId && position !== undefined && Number.isFinite(position)) this.controller.seek(position,target); return;
     }
   };
   dismiss = async (): Promise<void> => {
     const source=this.source;
     if(!this.viewerCurrent())return;
-    if(this.returning){this.controller?.dismiss();this.returning=undefined;this.emit({resumed:undefined});return;}
+    if(this.returning){this.controller?.dismiss();this.returning=undefined;this.emit({resumed:undefined,control:undefined,receiver:undefined,title:undefined,posterUrl:undefined,displayKind:undefined,stopped:false});return;}
     if(!source)return;
     if(this.state.cast.transferPending){this.controls('stop');return;}
     this.controller?.dismiss();
@@ -312,10 +323,26 @@ export class NativeCastCaller {
   };
   /** Explicit Continue here starts the one reported leaf through normal admission;
    * it cannot restore or copy the queue whose custody belongs to the receiver. */
-  continueHere = async (): Promise<void> => {
-    const source=this.source,report=this.receiver;
+  continueHere = async (expected?:CastDockIdentity): Promise<void> => {
+    const returning=this.returning,report=this.receiver,adapter=this.options.playback();
+    if(returning){
+      if(!expected||!adapter||!report||!this.state.cast.remoteStopped||!this.viewIsCurrent(expected)||report.itemId!==expected.remote.occurrence.itemId)return;
+      const current=()=>this.returning===returning&&this.options.playback()===adapter&&this.receiver===report&&this.state.cast.remoteStopped===true&&this.viewIsCurrent(expected);
+      const actual=await this.bridge?.current();
+      if(!actual||actual.attachmentId!==expected.attachmentId||!current())return;
+      const item=await this.request<{id?:string;kind?:string;title?:string;libraryId?:string;posterUrl?:string}>(`/v1/items/${encodeURIComponent(report.itemId)}`,'GET');
+      if(!current()||item.id!==report.itemId||typeof item.title!=='string'||!['song','audiobook_file','movie','episode','extra'].includes(item.kind??''))return;
+      const entry:ContentEntry=Object.freeze({id:item.id,kind:item.kind as ContentEntry['kind'],title:item.title,
+        ...(typeof item.libraryId==='string'?{libraryId:item.libraryId}:{}),...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{}),
+        playback:Object.freeze({itemId:item.id,startSeconds:report.positionSeconds})});
+      await adapter.start({entry,target:entry.playback!,lifetime:{signal:this.abort.signal,isCurrent:current}});
+      if(current())await this.dismiss();return;
+    }
+
+    const source=this.source;
+    if(expected&&!this.viewIsCurrent(expected))return;
     if(!source||!report?.itemId||!this.state.stopped||this.state.cast.phase!=='off'||this.state.cast.transferPending||!this.viewerCurrent())return;
-    const current=()=>this.source===source&&this.viewerCurrent()&&this.state.cast.phase==='off'&&this.receiver===report&&
+    const current=()=>this.source===source&&this.viewerCurrent()&&(!expected||this.viewIsCurrent(expected))&&this.state.cast.phase==='off'&&this.receiver===report&&
       source.adapter.getSnapshot().dock.remote?.id===source.id&&source.adapter.getSnapshot().dock.remote?.phase==='stopped'&&(!source.adapter.getSnapshot().dock.local||sameFence(source.adapter.getSnapshot().dock.local!.fence,source.fence));
     if(!current())return;
     const item=await this.request<{id?:string;kind?:string;title?:string;libraryId?:string;posterUrl?:string}>(`/v1/items/${encodeURIComponent(report.itemId)}`,'GET');
