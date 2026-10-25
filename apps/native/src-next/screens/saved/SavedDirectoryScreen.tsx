@@ -59,21 +59,30 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [creating, setCreating] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
-  const [menu, setMenu] = useState<{target: DirectoryTarget; anchor: RefObject<View | null>}>(), [renaming, setRenaming] = useState<DirectoryTarget>(),
+  const [menu, setMenu] = useState<{target: DirectoryTarget; anchor: RefObject<View | null>; opening: object}>(), [renaming, setRenaming] = useState<DirectoryTarget>(),
     [removing, setRemoving] = useState<DirectoryTarget>(), [commandBusy, setCommandBusy] = useState(false);
   const [paneWidth, setPaneWidth] = useState(0);
   const commandTicket = useRef<Readonly<{ticket: object; lease: SavedDirectoryCommandLease}> | undefined>(undefined);
   const mounted = useRef(false);
-  const renameOpening = useRef<DirectoryTarget | undefined>(undefined), removeOpening = useRef<DirectoryTarget | undefined>(undefined);
+  const renameOpening = useRef<DirectoryTarget | undefined>(undefined), removeOpening = useRef<DirectoryTarget | undefined>(undefined), menuOpening = useRef<object | undefined>(undefined);
   useEffect(() => {void destination.select(route).catch(runtime.reportError);}, [destination, route, runtime]);
   const saved = snapshot.saved, personal = snapshot.personal;
   const error = snapshot.error ?? saved?.error ?? personal?.error;
   const loading = snapshot.phase === 'loading' && !saved?.projection && !personal?.resources.length;
+  // A refused or unreadable directory retires the tile menu and its command sheets at
+  // layout, so a retained callback from that projection has no opening to dispatch.
+  useLayoutEffect(() => {
+    if (!error) return;
+    menuOpening.current = undefined; setMenu(undefined);
+    renameOpening.current = undefined; setRenaming(undefined);
+    removeOpening.current = undefined; setRemoving(undefined);
+  }, [error]);
   const playlists = route.view === 'playlists' ? (saved?.projection?.sections ?? []).flatMap(section => section.entries.filter((entry): entry is PlaylistCard => entry.kind === 'playlist')) : [];
   const resources = route.view === 'playlists' ? [] : personal?.resources ?? [];
   const title = t(route.view === 'playlists' ? 'saved.tab.playlists' : route.view === 'collections' ? 'saved.tab.collections' : 'saved.tab.savedViews');
   const summaryText = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale};
-  const createEnabled = route.view === 'playlists' ? saved?.projection?.actions?.includes('create_playlist') === true : route.view === 'collections';
+  // A refused or unreadable directory never advertises create or its query commands.
+  const createEnabled = !error && (route.view === 'playlists' ? saved?.projection?.actions?.includes('create_playlist') === true : route.view === 'collections');
   const filters = route.view === 'playlists' ? saved?.projection?.filters ?? [] : [];
   const sorts = route.view === 'playlists' ? saved?.projection?.sorts ?? [] : [];
   const tablet = theme.platform !== 'phone';
@@ -106,27 +115,42 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
       .catch((failure: unknown) => {if (current()) setProblem(presentError(failure, 'saved', {operation: 'save'}).body);})
       .finally(() => {if (!held()) return; const stillCurrent = current(); commandTicket.current = undefined; if (stillCurrent) setCommandBusy(false);});
   };
-  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; commandTicket.current = undefined; renameOpening.current = undefined; removeOpening.current = undefined;};}, []);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; commandTicket.current = undefined; renameOpening.current = undefined; removeOpening.current = undefined; menuOpening.current = undefined;};}, []);
   useLayoutEffect(() => {
     const off = activation.subscribe(() => {
       const now = activation.getSnapshot(), held = commandTicket.current;
       if (held && (!now.visible || now.revision !== held.lease.revision || now.intent !== held.lease.intent)) {commandTicket.current = undefined; setCommandBusy(false);}
-      if (menu && (!now.visible || now.revision !== menu.target.lease.revision || now.intent !== menu.target.lease.intent)) setMenu(undefined);
+      if (menu && (!now.visible || now.revision !== menu.target.lease.revision || now.intent !== menu.target.lease.intent)) {menuOpening.current = undefined; setMenu(undefined);}
       if (renaming && (!now.visible || now.revision !== renaming.lease.revision || now.intent !== renaming.lease.intent)) {renameOpening.current = undefined; setRenaming(undefined);}
       if (removing && (!now.visible || now.revision !== removing.lease.revision || now.intent !== removing.lease.intent)) {removeOpening.current = undefined; setRemoving(undefined);}
     });
     return () => {off();};
   }, [activation, menu, removing, renaming]);
 
-  const menuFor = (target: DirectoryTarget) => {
+  const menuFor = (target: DirectoryTarget, opening: object) => {
     const resource = target.resource, items: MenuEntry[] = [];
+    // The menu belongs to this exact opening; a retained row of a retired opening does nothing.
+    const live = () => menuOpening.current === opening;
     if (resource.actions.includes('pin')) items.push({id: 'pin', label: t(resource.pinned ? 'pins.unpin' : 'pins.pin'), icon: (resource.pinned ? 'i-bookmark-f' : 'i-bookmark') as IconName,
-      onSelect: () => {setMenu(undefined); runCommand(target.lease, () => commands!.pin(resource, target.lease, !resource.pinned));}});
+      onSelect: () => {if (!live()) return; setMenu(undefined); runCommand(target.lease, () => commands!.pin(resource, target.lease, !resource.pinned));}});
     if (resource.actions.includes('update')) items.push({id: 'rename', label: t('web.saved.rename'), icon: 'i-edit' as IconName,
-      onSelect: () => {setMenu(undefined); renameOpening.current = target; setRenaming(target);}});
+      onSelect: () => {if (!live()) return; setMenu(undefined); renameOpening.current = target; setRenaming(target);}});
     if (resource.actions.includes('delete')) items.push({id: 'delete', label: t(resource.kind === 'view' ? 'web.saved.deleteView' : 'web.saved.deleteCollection'),
-      icon: 'i-trash' as IconName, destructive: true, onSelect: () => {setMenu(undefined); removeOpening.current = target; setRemoving(target);}});
+      icon: 'i-trash' as IconName, destructive: true, onSelect: () => {if (!live()) return; setMenu(undefined); removeOpening.current = target; setRemoving(target);}});
     return items;
+  };
+  const openMenu = (target: DirectoryTarget, anchor: RefObject<View | null>) => {
+    // The tile's own render cannot open after unmount, an activation replacement or a
+    // refresh that replaced its resource; the live page must still be the readable one.
+    if (!mounted.current) return;
+    const now = activation.getSnapshot();
+    if (!now.visible || now.revision !== target.lease.revision || now.intent !== target.lease.intent) return;
+    if (routeCurrent?.() === false) return;
+    const live = destination.getSnapshot();
+    if (live.error ?? live.saved?.error ?? live.personal?.error) return;
+    if (!live.personal?.resources.includes(target.resource)) return;
+    const opening = {};
+    menuOpening.current = opening; setMenu({target, anchor, opening});
   };
   const empty = (id: MessageId, body: MessageId) => <StateView variant="inline" title={t(id)} body={t(body)}/>;
   return <View testID={`native-saved-directory-${route.view}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
@@ -149,7 +173,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
       </View>
     </View>
     <ScrollView contentContainerStyle={{paddingBottom: 28 + insets.bottom}}>
-      {route.view === 'playlists' && !!filters.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 10, gap: 8}}>
+      {route.view === 'playlists' && !error && !!filters.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 10, gap: 8}}>
         {!!sorts.length && <Chip focusId="dir-sort" icon="i-sort" trailingIcon="i-down" onPress={() => {
           const current = sorts.find(sort => sort.id === (saved?.projection?.query.sort ?? sorts[0]?.id)) ?? sorts[0]!;
           const direction = saved?.projection?.query.direction === 'asc' ? 'desc' : 'asc';
@@ -184,7 +208,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
                 note={route.view === 'collections' ? savedVisibility(resource) : resource.onHome ? {text: t('next.saved.onHome'), icon: 'i-home', strong: true} : undefined}
                 summary={route.view === 'views' ? summaries?.line(resource, summaryText) : undefined} filterTile={route.view === 'views' && !paths.length} pinned={resource.pinned}
                 mosaic={paths.map(path => runtime.artwork(path))} menuOpen={menu?.target.resource.id === resource.id}
-                onPress={() => open({view: 'resource', resourceId: resource.id})} onMenu={anchor => setMenu({target, anchor})}
+                onPress={() => open({view: 'resource', resourceId: resource.id})} onMenu={anchor => openMenu(target, anchor)}
                 commands={!!commands && resource.actions.some(action => action === 'pin' || action === 'update' || action === 'delete')}/>;
             </View>;
           })}</View>
@@ -204,15 +228,17 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
     </ScrollView>
     <SavedNameSheet open={creating} title={t(route.view === 'playlists' ? 'web.saved.newPlaylist' : 'web.saved.newCollection')} action={t('web.saved.create')}
       withSummary withVisibility={route.view === 'collections'} busy={busy} error={problem || undefined} testID="saved-create" onClose={() => setCreating(false)} onSave={create}/>
-    {!!commands && <Menu testID="saved-directory-menu" open={!!menu} onOpenChange={open => {if (!open) setMenu(current => current === menu ? undefined : current);}} anchorRef={menu?.anchor} returnFocusRef={menu?.anchor}
-      title={menu?.target.resource.name} items={menu ? menuFor(menu.target) : []}/>}
-    <SavedNameSheet open={!!renaming} title={t(renaming?.resource.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}
+    {!!commands && <Menu testID="saved-directory-menu" open={!!menu && !error} onOpenChange={open => {if (open) return;
+      const opening = menu?.opening; if (opening && menuOpening.current === opening) menuOpening.current = undefined;
+      setMenu(current => current === menu ? undefined : current);}} anchorRef={menu?.anchor} returnFocusRef={menu?.anchor}
+      title={menu?.target.resource.name} items={menu && !error ? menuFor(menu.target, menu.opening) : []}/>}
+    <SavedNameSheet open={!!renaming && !error} title={t(renaming?.resource.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}
       action={t('action.save')} initialName={renaming?.resource.name ?? ''} initialSummary={renaming?.resource.summary ?? ''} withSummary busy={commandBusy}
       error={problem || undefined} testID="saved-directory-rename"
       onClose={() => {const target = renaming; if (!target) return; if (renameOpening.current === target) renameOpening.current = undefined; setRenaming(current => current === target ? undefined : current);}}
       onSave={input => {const target = renaming; if (!target || renameOpening.current !== target) return; renameOpening.current = undefined; setRenaming(current => current === target ? undefined : current);
         if (commands) runCommand(target.lease, () => commands.rename(target.resource, target.lease, input.name, input.summary));}}/>
-    <SavedConfirmSheet open={!!removing} title={t('web.saved.deleteTitle', {name: removing?.resource.name ?? ''})} destructive busy={commandBusy}
+    <SavedConfirmSheet open={!!removing && !error} title={t('web.saved.deleteTitle', {name: removing?.resource.name ?? ''})} destructive busy={commandBusy}
       body={t(removing?.resource.kind === 'view' ? 'web.saved.deleteViewBody' : 'web.saved.deleteCollectionBody')}
       action={t(removing?.resource.kind === 'view' ? 'web.saved.deleteViewAction' : 'web.saved.deleteCollectionAction')}
       error={problem || undefined} testID="saved-directory-delete"

@@ -86,9 +86,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   /** The opening this screen is showing, retired by identity so a late result or a second
    * press can only ever act on the sheet it came from; `epoch` moves with the route so a
    * command started on one page cannot report onto the next. */
-  const opening = useRef<RowMenu | undefined>(undefined), flight = useRef<Readonly<{token: object}> | undefined>(undefined);
+  const opening = useRef<RowMenu | undefined>(undefined), flight = useRef<Readonly<{token: object}> | undefined>(undefined), pageOpening = useRef<object | undefined>(undefined);
   const mounted = useRef(true), epoch = useRef(0), shownRoute = useRef(route);
-  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; opening.current = undefined; flight.current = undefined;};}, []);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; opening.current = undefined; pageOpening.current = undefined; flight.current = undefined;};}, []);
   useEffect(() => {void destination.select(route).catch(runtime.reportError);}, [destination, route, runtime]);
   useEffect(() => {setPageMenu(false); setRenaming(false); setDeleting(false); setReordering(false); setProblem(''); setBusy(false);}, [route]);
   const saved = snapshot.saved as SavedSnapshot | undefined, personal = snapshot.personal as PersonalSavedSnapshot | undefined;
@@ -140,6 +140,19 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     if (!canPlayResource || !actions.playResource) return;
     const playResource = actions.playResource;
     void run(() => playResource(shuffle));
+  };
+  /** One page-menu opening; every row is bound to it by identity. */
+  const openPageMenu = () => {
+    // Only the page that is still mounted, activated and readable may mint an opening;
+    // the live document must be the exact one this render drew, never a later replacement.
+    if (!mounted.current || !onPage(witness()) || !name) return;
+    const nowActivation = activation.getSnapshot();
+    if (!nowActivation.visible || nowActivation.revision !== active.revision || nowActivation.intent !== active.intent) return;
+    const live = destination.getSnapshot();
+    if (live.error ?? live.saved?.error ?? live.personal?.error) return;
+    if (isPlaylist ? (live.saved?.playlist ?? null) !== playlist : (live.personal?.resource ?? null) !== resource) return;
+    const page = {};
+    pageOpening.current = page; setPageMenu(true);
   };
   const pin = () => {
     if (isPlaylist ? !playlist : !resource) return;
@@ -271,13 +284,19 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     opening.current = next;
     setRowMenuState(next);
   };
+  const stateError = snapshot.error ?? saved?.error ?? personal?.error;
   const menuItems: readonly MenuEntry[] = (() => {
+    // A page whose document was refused or unreadable has no command to advertise.
+    if (stateError) return [];
+    // Every row belongs to this exact page-menu opening; a retained row from a retired
+    // opening dispatches nothing.
+    const page = pageOpening.current, livePage = () => !!page && pageOpening.current === page;
     const items: MenuEntry[] = [], pinned = playlist?.pinned === true || resource?.pinned === true;
     // collections.html 20 and 21: a personal collection or saved view is renamed and deleted
     // on a phone, tablet or browser, so the TV page menu keeps Pin alone.
     const changeableHere = !(theme.isTV && resource);
     if (isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin')) items.push({id: 'pin', label: t(pinned ? 'pins.unpin' : 'pins.pin'),
-      icon: pinned ? 'i-bookmark-f' : 'i-bookmark', onSelect: () => {setPageMenu(false); pin();}});
+      icon: pinned ? 'i-bookmark-f' : 'i-bookmark', onSelect: () => {if (!livePage()) return; pageOpening.current = undefined; setPageMenu(false); pin();}});
     const library = !isPlaylist && resource?.definition ? libraries.find(value => value.id === resource.definition!.libraryId) : undefined;
     // The shortcut may only act on the exact resource the page rendered and still shows.
     const shortcut = (action: ((value: PersonalResource) => void) | undefined) => {
@@ -292,17 +311,25 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     };
     if (!theme.isTV && !isPlaylist && resource?.kind === 'view' && resource.definition && library && !isReadingLibraryKind(library.kind) && openInLibrary
       && defaultI18n.has('next.saved.openInLibrary' as MessageId)) items.push({id: 'openInLibrary',
-      label: t('next.saved.openInLibrary' as MessageId, {library: library.name}), icon: 'i-grid', onSelect: () => {setPageMenu(false); shortcut(openInLibrary);}});
+      label: t('next.saved.openInLibrary' as MessageId, {library: library.name}), icon: 'i-grid', onSelect: () => {if (!livePage()) return; pageOpening.current = undefined; setPageMenu(false); shortcut(openInLibrary);}});
     if (!theme.isTV && !isPlaylist && resource?.kind === 'view' && resource.onHome !== true && showOnHome) items.push({id: 'showOnHome',
-      label: t('home.customize.showRow', {title: name ?? ''}), icon: 'i-home', onSelect: () => {setPageMenu(false); shortcut(showOnHome);}});
+      label: t('home.customize.showRow', {title: name ?? ''}), icon: 'i-home', onSelect: () => {if (!livePage()) return; pageOpening.current = undefined; setPageMenu(false); shortcut(showOnHome);}});
     if (changeableHere && (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update'))) items.push({id: 'rename', label: t('web.saved.rename'),
-      icon: 'i-edit', onSelect: () => {setPageMenu(false); setRenaming(true);}});
+      icon: 'i-edit', onSelect: () => {if (!livePage()) return; pageOpening.current = undefined; setPageMenu(false); setRenaming(true);}});
     if (changeableHere && (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete'))) items.push({id: 'delete',
       label: t(isPlaylist ? 'web.saved.deletePlaylist' : resource?.kind === 'view' ? 'web.saved.deleteView' : 'web.saved.deleteCollection'),
-      icon: 'i-trash', destructive: true, onSelect: () => {setPageMenu(false); setDeleting(true);}});
+      icon: 'i-trash', destructive: true, onSelect: () => {if (!livePage()) return; pageOpening.current = undefined; setPageMenu(false); setDeleting(true);}});
     return items;
   })();
-  const stateError = snapshot.error ?? saved?.error ?? personal?.error;
+  // A refused document retires every command surface opened from it (page menu, row menu,
+  // rename and delete sheets) at layout, so a retained callback has no opening to dispatch.
+  // Only the UI openings retire: a service's in-flight or uncertain mutation/retry state
+  // (and `flight`) is left exactly as it was.
+  useLayoutEffect(() => {
+    if (!stateError) return;
+    opening.current = undefined; pageOpening.current = undefined; setRowMenuState(undefined);
+    setPageMenu(false); setRenaming(false); setDeleting(false);
+  }, [stateError]);
   const width = theme.isTV ? 1920 - theme.gutter * 2 : dimensions.width - theme.gutter * 2;
   const focusIds = useMemo(() => nativeDestinationFocusIds(runtime.getSnapshot().authority), [runtime]);
   const region = `saved.resource.${route.view === 'playlist' ? route.playlistId : `${route.view}:${route.resourceId ?? ''}`}`;
@@ -319,11 +346,11 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
           style={{width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.ink, .45)}}>
           <Icon name="i-left" size={22} color={theme.colors.text}/>
         </Focusable>
-        <View style={{marginLeft: 'auto'}}>
+        {!stateError && <View style={{marginLeft: 'auto'}}>
           <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size="small"
-            accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}} onPress={() => setPageMenu(true)}
+            accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}} onPress={openPageMenu}
             style={{width: 38, height: 38, borderRadius: 19}}/>
-        </View>
+        </View>}
       </View>}
       <ScrollView contentContainerStyle={{paddingTop: insets.top + (theme.isTV ? 96 : 52), paddingBottom: 32 + insets.bottom}}>
         {stateError ? applyError(stateError) : !name ? <View style={{paddingVertical: 40}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View> : <>
@@ -372,7 +399,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               style={theme.isTV ? undefined : {width: 48, height: 48, borderRadius: 24}}>{t(playlist?.pinned || resource?.pinned ? 'pins.unpin' : 'pins.pin')}</Button>
             {theme.isTV && <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly
               accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}}
-              onPress={() => setPageMenu(true)} style={{width: 72, height: 72, borderRadius: 14}}/>}
+              onPress={openPageMenu} style={{width: 72, height: 72, borderRadius: 14}}/>}
             {canReorder && !theme.isTV && <Button testID="saved-reorder" focusId="saved-reorder" variant={reordering ? 'primary' : 'glass'} icon={reordering ? 'i-check' : 'i-updown'}
               onPress={() => setReordering(value => !value)}>{t(reordering ? 'order.done' : 'order.reorder')}</Button>}
           </View>
@@ -412,15 +439,15 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
         </>}
       </ScrollView>
     </FocusRegion>
-    <Menu open={pageMenu} onOpenChange={setPageMenu} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')}
+    <Menu open={!stateError && pageMenu} onOpenChange={open => {if (!open) pageOpening.current = undefined; setPageMenu(open);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')}
       items={menuItems} testID="saved-resource-page-menu"/>
-    <Menu open={!!rowMenu} onOpenChange={open => {if (!open && rowMenu) closeOpening(rowMenu);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
+    <Menu open={!stateError && !!rowMenu} onOpenChange={open => {if (!open && rowMenu) closeOpening(rowMenu);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
       secondaryTitle={rowMenu ? <View style={{flexDirection: 'row', gap: 8}}>{[t('title.kind', {kind: rowMenu.entry.kind}), savedLibraryName(libraries, rowMenu.entry.libraryId),
         // collections.html 19's lead ends with the page the item is in.
         ...(theme.isTV && name ? [t('web.saved.inList', {name})] : [])].filter(Boolean).map(part =>
         <Text key={part} style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{part}</Text>)}</View> : undefined}
-      items={rowMenu ? rowMenuEntries(rowMenu) : []} initialFocusId={rowMenu?.focus} testID="saved-resource-row-menu"/>
-    <SavedNameSheet open={renaming} title={t(isPlaylist ? 'web.saved.renamePlaylist' : resource?.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}
+      items={rowMenu && !stateError ? rowMenuEntries(rowMenu) : []} initialFocusId={rowMenu?.focus} testID="saved-resource-row-menu"/>
+    <SavedNameSheet open={!stateError && renaming} title={t(isPlaylist ? 'web.saved.renamePlaylist' : resource?.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}
       action={t('action.save')} initialName={name} initialSummary={isPlaylist ? playlist?.summary : resource?.summary} withSummary={isPlaylist ? playlist?.actions.includes('summary') === true : true}
       busy={busy} error={problem || undefined} testID="saved-rename" onClose={() => setRenaming(false)} onSave={saveName}/>
     <BottomSheet open={infoOpen} onOpenChange={setInfoOpen} title={t('web.saved.savedView')} testID="saved-view-info" fitContent>
@@ -430,7 +457,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
         <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('next.saved.viewsHelp')}</Text>
       </View>
     </BottomSheet>
-    <SavedConfirmSheet open={deleting} title={t('web.saved.deleteTitle', {name: name ?? ''})} destructive
+    <SavedConfirmSheet open={!stateError && deleting} title={t('web.saved.deleteTitle', {name: name ?? ''})} destructive
       body={t(isPlaylist ? 'web.saved.deletePlaylistBody' : resource?.kind === 'view' ? 'web.saved.deleteViewBody' : 'web.saved.deleteCollectionBody')}
       action={t(isPlaylist ? 'web.saved.deletePlaylistAction' : resource?.kind === 'view' ? 'web.saved.deleteViewAction' : 'web.saved.deleteCollectionAction')}
       busy={busy} error={problem || undefined} testID="saved-delete" onClose={() => setDeleting(false)} onConfirm={confirmDelete}/>

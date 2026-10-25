@@ -88,13 +88,13 @@ export function SavedListScreen({route, destination, activation, runtime, action
       </View>
     </View>
     <ScrollView contentContainerStyle={{paddingBottom: 28 + insets.bottom}}>
-      {route.view !== 'history' && (!!sorts.length || !!filters.length) && <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      {route.view !== 'history' && !error && (!!sorts.length || !!filters.length) && <ScrollView horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 8, gap: 8}}>
         {!!sorts.length && <Chip focusId="list-sort" icon="i-sort" trailingIcon="i-down" onPress={chooseSort} accessibilityLabel={t('next.browse.native.sort')}>{sortLabel}</Chip>}
         {filters.flatMap(filter => filter.options.map(option => <Chip key={`${filter.id}:${option.id}`} focusId={`list-filter-${option.id}`} count={option.count}
           selected={(projection?.query.category ?? 'all') === option.id} onPress={() => chooseFilter(option.id as SavedListFilter)}>{option.label}</Chip>))}
       </ScrollView>}
-      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, marginHorizontal: gutter, marginTop: 10, marginBottom: 12}]}>{savedTitleCount(count)}</Text>
+      {!error && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, marginHorizontal: gutter, marginTop: 10, marginBottom: 12}]}>{savedTitleCount(count)}</Text>}
       {error && !loading ? <StateView variant="inline" {...runtime.error(error, retry)}/>
         : loading ? <View style={{paddingVertical: 32}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View>
         : !entries.length ? <StateView variant="inline" title={t(emptyCopy[route.view].title)} body={t(emptyCopy[route.view].body)}/>
