@@ -55,7 +55,10 @@ export function ServerIdentityFailure({failure, onRetry, onChoose, onForget, onE
       description={t('connection.identity.forgetBody')} initialFocusRef={cancel} returnFocusRef={opener} testID="identity-forget"
       footer={<View style={{flexDirection: tv ? 'row' : 'column', gap: tv ? 18 : 10}}>
         <Button variant="text" loading={busy} disabled={busy} style={{backgroundColor: theme.colors.record}} textStyle={{color: '#2a0808'}} onPress={() => {void forget();}}>{t('connection.identity.forgetAction')}</Button>
-        <Button ref={cancel} variant="glass" disabled={busy} onPress={() => setConfirm(false)}>{t('action.cancel')}</Button>
+        {/* Frame 4 draws Forget first and Cancel as the starting focus. The red verb
+            leads the footer, so the confirmation's safe focus is declared here too,
+            not only by the delayed native request. */}
+        <Button ref={cancel} variant="glass" hasTVPreferredFocus disabled={busy} onPress={() => setConfirm(false)}>{t('action.cancel')}</Button>
       </View>}><View/></Dialog>
   </View>;
   return <OverlaysProvider><View testID="server-identity-failure" style={{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}}>
