@@ -26,34 +26,50 @@ jobs:
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
+      - id: native-deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
-      - run: npm run typecheck
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        run: npm run typecheck
         working-directory: portico-react-native/apps/native
-      - run: npm run typecheck:next-test
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        run: npm run typecheck:next-test
         working-directory: portico-react-native/apps/native
-      - name: Check hooks in the mounted application
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        name: Check hooks in the mounted application
         run: npx --no-install eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src-next App.tsx
         working-directory: portico-react-native/apps/native
-      - name: Check mounted application copy
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        name: Check mounted application copy
         run: |
-          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict
-          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict
-          node ../../packages/i18n/scripts/lint-glossary.mjs
+          status=0
+          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict || status=1
+          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict || status=1
+          node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
+          exit "$status"
         working-directory: portico-react-native/apps/native
-      - name: Test the mounted application
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        name: Test the mounted application
         run: node --experimental-strip-types --import ./test/register.mjs --test test/next-*.test.ts
         working-directory: portico-react-native/apps/native
       # src is retained for compatibility, but App.tsx mounts src-next. Its
       # historical checks stay available at a checkpoint and remain mandatory
       # for release callers; they are not the source gate for the current app.
-      - name: Retired application compatibility checkpoint
-        if: true
-        run: |
-          npm run typecheck:test
-          npm run lint:hooks
-          npm run lint:strings
-          node --experimental-strip-types --import ./test/register.mjs --test $(find test -maxdepth 1 -name '*.test.ts' ! -name 'next-*' -print)
+      - name: Retired application test types
+        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        run: npm run typecheck:test
+        working-directory: portico-react-native/apps/native
+      - name: Retired application hooks
+        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        run: npm run lint:hooks
+        working-directory: portico-react-native/apps/native
+      - name: Retired application strings
+        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        run: npm run lint:strings
+        working-directory: portico-react-native/apps/native
+      - name: Retired application unit tests
+        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        run: node --experimental-strip-types --import ./test/register.mjs --test $(find test -maxdepth 1 -name '*.test.ts' ! -name 'next-*' -print)
         working-directory: portico-react-native/apps/native
 
   # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
@@ -66,15 +82,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/vega/package-lock.json}
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
+      - id: vega-deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: apps/vega
-      - run: npm run typecheck
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm run typecheck
         working-directory: apps/vega
-      - run: npm run typecheck:test
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm run typecheck:test
         working-directory: apps/vega
-      - run: npm run lint:strings
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm run lint:strings
         working-directory: apps/vega
-      - run: npm test
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm test
         working-directory: apps/vega
 
   apple-contracts:
