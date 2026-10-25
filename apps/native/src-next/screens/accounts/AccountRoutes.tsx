@@ -27,6 +27,7 @@ import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
 import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
+import {PhoneServerChooser} from './PhoneServerChooser';
 import {removeCapturedServerDownloads} from './sign-out-downloads';
 import {TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 
@@ -189,6 +190,24 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
       <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{t('settings.signOutConfirm.removeDownloads')}</Text>
     </Focusable>}
   </BottomSheet> : null;
+  if (!Platform.isTV) return <><PhoneServerChooser snapshot={servers} busy={busy} error={errorView} onBack={onBack ? cancel : undefined}
+    onSelect={value => {void run(async () => {await nativeAccounts.switchServer(value.id); onComplete?.();});}}
+    onSignOut={value => {void run(async () => {
+      const state = await nativeAppSessions.read(), found = state.servers.find(item => item.connection.pin.serverId === value.id);
+      if (!found || found.connection.session.sessionFamilyId !== value.familyId || found.connection.pin.fingerprint !== value.fingerprint)
+        throw Object.assign(new Error('native_server_changed'), {code: 'cancelled'});
+      setCaptured({session: found, name: value.name}); setPanel('sign-out-server');
+    });}}
+    onRefresh={() => {void run(async () => {const value = await nativeAccounts.snapshot(); if (alive.current) setServers(value);});}}
+    onAdd={() => {void run(async () => setPanel('add'));}}
+    footer={<View style={{alignSelf: 'stretch', gap: 8, marginTop: 10}}>
+      <Button variant="text" disabled={busy} onPress={() => setPanel('consent-kind')}>{t('settings.linkTV')}</Button>
+      {servers?.servers.some(value => value.signIn === 'portico') && <Button variant="text" disabled={busy} onPress={() => {void run(async () => {
+        const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize(); const session = credentials.getSnapshot().session;
+        if (!session) throw Object.assign(new Error('native_account_signed_out'), {code: 'account_changed'});
+        setAccountScope({accountId: session.account.id, familyId: session.familyId}); setPanel('sign-out-account');
+      });}}>{t('accounts.signOut.portico')}</Button>}
+    </View>}/>{signOutSheet}</>;
   return <>{layout(t('accounts.servers.title'), undefined, <ScrollView style={{maxHeight: theme.isTV ? 500 : 340, alignSelf: 'stretch', marginBottom: 16}} contentContainerStyle={{gap: 14}}>
     {servers?.servers.map(value => <View key={value.id} style={{gap: 6}}>
       <Button variant={value.id === servers.selectedServerId ? 'primary' : 'glass'} disabled={busy} onPress={() => {void run(async () => {await nativeAccounts.switchServer(value.id); onComplete?.();});}}>{value.name}</Button>
