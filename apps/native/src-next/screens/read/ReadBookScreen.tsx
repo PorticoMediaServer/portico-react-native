@@ -6,6 +6,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingManifest} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable, Tabs} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -13,6 +14,7 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeReadBook} from './read-book-model';
+import type {NativeReadVersion} from './read-book-model';
 
 const {t} = defaultI18n;
 const initials = (author: string): string => author.trim().split(/\s+/).slice(0, 2).map(part => part.slice(0, 1).toUpperCase()).join('') || '·';
@@ -24,9 +26,10 @@ type BookRoute = Extract<NativeShellRoute, {kind: 'read-book'}>;
 type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
 
 /** phone-read 3/3c and tablet-read 2/2b/2c: the book's own page before the
- * reader. Real manifest, saved position, declared contents and descriptive
- * facts only; word counts, reading time and opening lines appear only when the
- * server publishes them. The Read action is the one openNativeRead door. */
+ * reader. Real versions, manifest, saved position, declared contents and
+ * descriptive facts only; choosing another real available version reloads this
+ * page's projection for that source. The Read action is the one openNativeRead
+ * door with the exact manifest it drew. */
 export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpenSettings}: {
   controller: NativeReadBook; route: BookRoute; comic: boolean; runtime: NativeShellRuntime; onBack: () => void; onOpenSettings: () => void;
 }) {
@@ -52,12 +55,16 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   const openSeries = (target: SeriesLink, manifest: ReadingManifest) => {
     void controller.openSeries(target, manifest).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
+  const selectVersion = (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => {
+    void controller.selectVersion(manifest, versions, sourceId).catch(runtime.reportError);
+  };
   const body = state.phase === 'error'
     ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'detail')}/>
     : !manifest || state.phase !== 'ready'
       ? <SkeletonBlock width="100%" height={520}/>
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime}
-        saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}/>;
+        saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
+        versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}/>;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
@@ -74,12 +81,15 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, saved, currentSection, tab, onTab, onRead, onSeries}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
+  versions: readonly NativeReadVersion[]; sourceId?: string;
+  onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
 }) {
-  const theme = useTheme();
+  const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
+  const selectedVersion = versions.find(version => version.sourceId === sourceId);
   const title = manifest.metadata.title || controller.item.title, author = manifest.metadata.author || controller.item.author?.value;
   const cover = runtime.artwork(controller.item.coverUrl ?? manifest.metadata.coverUrl), tint = generatedCoverTint(title);
   const coverWidth = theme.platform === 'phone' ? 168 : 190, coverHeight = coverWidth * 3 / 2;
@@ -128,6 +138,12 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
       <Button icon="i-book" progress={saved} onPress={() => onRead(manifest)} style={{alignSelf: 'stretch'}}>
         {t(saved !== undefined ? 'next.cards.read' : 'next.reader.read')}
       </Button>
+      {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
+        onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
+        <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
+        <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
+        <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
+      </Focusable> : null}
     </View>
     {manifest.metadata.openingLines ? <View style={{marginHorizontal: 20, marginTop: 18}}>
       <Text style={[browseType(theme, 13, 700), {color: theme.colors.textTertiary}]}>{t('next.reader.openingLines')}</Text>
@@ -143,6 +159,11 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
       <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
       <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
     </View>}
+    <Menu open={versionsOpen} onOpenChange={setVersionsOpen} title={t('next.reader.version')} items={versions.map(version => ({
+      id: version.sourceId, label: `${version.format.toUpperCase()} · ${defaultI18n.bytes(version.size)}`,
+      selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
+      onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
+    }))}/>
   </View>;
 }
 

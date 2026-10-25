@@ -4,8 +4,13 @@ import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeReadOrigin, openNativeRead, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
 
+export type NativeReadVersion = Awaited<ReturnType<ReadingClient['versions']>>['versions'][number];
 export type NativeReadBookState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
+  /** Every real version the item producer returned, chosen or not. */
+  versions: readonly NativeReadVersion[];
+  /** The selected version the manifest, progress and contents belong to. */
+  sourceId?: string;
   manifest?: ReadingManifest;
   progress?: ReadingProgress;
   error?: unknown;
@@ -18,8 +23,9 @@ const cancelled = (error: unknown): boolean => error instanceof ReadingError && 
 
 /** The real book page's own projection: the selected version's manifest, saved
  * position and declared contents from one preview session that is closed before
- * the page becomes ready. The page opens no reader host; its Read action reuses
- * the one openNativeRead door with the manifest it actually rendered. */
+ * the page becomes ready. Choosing another real available version reloads the
+ * same projection for that source. The page opens no reader host; its Read
+ * action reuses the one openNativeRead door with the manifest it actually drew. */
 export class NativeReadBook {
   private readonly context: NativeShellBootstrapContext;
   readonly item: ReadingItem;
@@ -30,7 +36,9 @@ export class NativeReadBook {
   private authority?: ShellAuthority;
   private life?: AbortController;
   private client?: ReadingClient;
-  private state: NativeReadBookState = Object.freeze({phase: 'idle'});
+  private state: NativeReadBookState = Object.freeze({phase: 'idle', versions: []});
+  /** The version this page last selected; the item's own source until then. */
+  private selected?: string;
   private readonly listeners = new Set<() => void>();
   private flight = 0;
   /** The one page command (Read or series) this mounted page may run. */
@@ -50,7 +58,7 @@ export class NativeReadBook {
     this.origin = origin;
     this.authority = this.context.authority();
     this.captured = Object.freeze({sessionFamilyId: selected.sessionFamilyId, viewer: Object.freeze({...selected.viewer})});
-    this.state = Object.freeze({phase: 'idle'});
+    this.state = Object.freeze({phase: 'idle', versions: []});
     this.emit();
     return true;
   };
@@ -96,23 +104,42 @@ export class NativeReadBook {
   load = async (): Promise<void> => {
     if (!this.current()) return;
     const flight = ++this.flight;
-    this.publish({phase: 'loading'});
+    this.publish({phase: 'loading', versions: this.state.versions, ...(this.selected ? {sourceId: this.selected} : {})});
     try {
       const client = this.reading(), signal = this.life!.signal;
       const versions = await client.versions(this.item.id, signal);
       if (flight !== this.flight || !this.current()) return;
-      if (!versions.versions.some(version => version.sourceId === this.item.sourceId && version.inventoryAvailable)) throw new ReadingError('source_unavailable');
-      const session = await client.open({itemId: this.item.id, sourceId: this.item.sourceId}, signal);
-      let progress: ReadingProgress | undefined;
-      try {progress = await session.progress(signal);} finally {await session.close().catch(() => {});}
-      if (flight !== this.flight || !this.current() || !progress) return;
+      // The item's own source opens when it has inventory; otherwise the first
+      // real available version does, never a format preference.
+      const available = versions.versions.filter(version => version.inventoryAvailable);
+      const selected = available.find(version => version.sourceId === (this.selected ?? this.item.sourceId)) ?? available[0];
+      if (!selected) throw new ReadingError('source_unavailable');
+      const session = await client.open({itemId: this.item.id, sourceId: selected.sourceId}, signal);
+      let progress: ReadingProgress | undefined, closeError: unknown;
+      try {progress = await session.progress(signal);}
+      finally {try {await session.close();} catch (error) {closeError = error;}}
+      if (flight !== this.flight || !this.current()) return;
+      // A preview that could not be retired must not become a ready page.
+      if (closeError) {this.publish({phase: 'error', versions: this.state.versions, error: closeError}); return;}
+      if (!progress) return;
       const manifest = session.manifest;
-      if (manifest.itemId !== this.item.id || manifest.sourceId !== this.item.sourceId) throw new ReadingError('invalid_document');
-      this.publish({phase: 'ready', manifest, progress});
+      if (manifest.itemId !== this.item.id || manifest.sourceId !== selected.sourceId) throw new ReadingError('invalid_document');
+      this.selected = selected.sourceId;
+      this.publish({phase: 'ready', versions: versions.versions, sourceId: selected.sourceId, manifest, progress});
     } catch (error) {
       if (flight !== this.flight || !this.current() || cancelled(error)) return;
-      this.publish({phase: 'error', error});
+      this.publish({phase: 'error', versions: this.state.versions, error});
     }
+  };
+  /** Choosing another real available version reloads this page's exact
+   * projection. The picker passes the manifest and version list it rendered, so
+   * a retained callback cannot act under a replaced page or a newer flight. */
+  selectVersion = async (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string): Promise<void> => {
+    if (this.command || !this.current() || this.state.phase !== 'ready' || this.state.manifest !== manifest || this.state.versions !== versions) return;
+    const version = versions.find(candidate => candidate.sourceId === sourceId);
+    if (!version?.inventoryAvailable || sourceId === this.state.sourceId) return;
+    this.selected = sourceId;
+    await this.load();
   };
   retry = (): Promise<void> => this.load();
   /** Only a saved position for this exact source revision of the rendered
@@ -121,7 +148,7 @@ export class NativeReadBook {
     const state = this.state;
     if (state.phase !== 'ready' || state.manifest !== manifest) return undefined;
     const saved = state.progress?.progress;
-    if (!saved || saved.stale || saved.sourceId !== this.item.sourceId || saved.sourceRevision !== manifest.revision) return undefined;
+    if (!saved || saved.stale || saved.sourceId !== manifest.sourceId || saved.sourceRevision !== manifest.revision) return undefined;
     const progression = saved.location.progression;
     return progression > 0 && progression < 1 ? progression : undefined;
   };
@@ -138,14 +165,14 @@ export class NativeReadBook {
   read = async (manifest: ReadingManifest, index?: number): Promise<boolean> => {
     const origin = this.origin, life = this.life;
     if (this.command || !origin || !life || !this.current() || this.state.phase !== 'ready' || this.state.manifest !== manifest) return false;
-    if (manifest.itemId !== this.item.id || manifest.sourceId !== this.item.sourceId) return false;
+    if (manifest.itemId !== this.item.id || manifest.sourceId !== this.state.sourceId) return false;
     const contents = manifest.contents;
     if (index !== undefined && (!contents || manifest.format !== 'epub' || !Number.isInteger(index) || index < 0 || index >= Math.min(contents.length, 512))) return false;
     const contentsTarget = index === undefined || !contents ? undefined : Object.freeze({sourceId: manifest.sourceId, sourceRevision: manifest.revision, index});
     const ticket = {};
     this.command = ticket;
     try {
-      return await openNativeRead(this.context, {itemId: this.item.id, sourceId: this.item.sourceId, ...(contentsTarget ? {contentsTarget} : {})}, life.signal, origin);
+      return await openNativeRead(this.context, {itemId: this.item.id, sourceId: manifest.sourceId, ...(contentsTarget ? {contentsTarget} : {})}, life.signal, origin);
     } finally {if (this.command === ticket) this.command = undefined;}
   };
   /** Open the series the page actually drew for the manifest it actually drew.
