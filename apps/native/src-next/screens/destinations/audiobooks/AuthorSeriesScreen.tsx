@@ -97,6 +97,9 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
     ? void controller.resumeBook(book).catch(error => runtime.reportError(error)) : open(book);
   const regionId = `audiobook-${entry.id}`, resumeFocusId = `${regionId}.resume`, startFocusId = `${regionId}.start`,
     moreFocusId = `${regionId}.more`, bookFocus = `${regionId}.book`;
+  // collections 44/45 draw the first rows at 560; a longer shelf keeps its rows
+  // reachable by growing the canvas instead of clipping them at the frame's height.
+  const canvasHeight = Math.max(1120, 560 + books.length * 168 + Math.max(0, books.length - 1) * 10 + 64);
   const body = <>
     {tv && series ? <View style={{position: 'absolute', left: 200, top: 120, width: 380, height: 380}}>
       {runtime.ambient(coverPath) ? <View pointerEvents="none" style={{position: 'absolute', left: -26, top: -26, width: 432, height: 432, borderRadius: 18, overflow: 'hidden'}}>
@@ -146,8 +149,9 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       </View> : null}
       {/* collections 41c/45: the rows keep the server's own order and only a
           server-sent series position is labelled; nothing is numbered by index. */}
-      {books.map(book => <BookRow key={book.id} entry={book} runtime={runtime} tv={tv} focusId={`${bookFocus}-${book.id}`}
-        position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/>)}
+      {books.map((book, index) => <View key={book.id} style={{marginTop: tv && index ? 10 : 0}}>
+        <BookRow entry={book} runtime={runtime} tv={tv} focusId={`${bookFocus}-${book.id}`}
+          position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/></View>)}
       {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
         <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
         {narrators.length ? <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
@@ -172,7 +176,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
     {!tv ? <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entity)}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     <ScrollView contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}}>
-      {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: 1120}}>{body}</FocusRegion>
+      {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
     </ScrollView>
   </View>;

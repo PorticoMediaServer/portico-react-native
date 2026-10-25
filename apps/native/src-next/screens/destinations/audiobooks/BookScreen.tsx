@@ -136,6 +136,11 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   const download = nativeDownloadRequest(entity);
   const regionId = `book-${entry.id}`, resumeFocusId = `${regionId}.resume`, startFocusId = `${regionId}.start`,
     moreFocusId = `${regionId}.more`, chapterFocus = `${regionId}.chapter`;
+  // collections 43 draws a slice of the list: a real book with more chapters than fit
+  // still has to be reachable, so the canvas grows past its drawn 1120 rather than
+  // clipping the rows below it.
+  const chaptersHeight = rows.reduce((sum, row) => sum + (row.id === currentId ? 84 : 68), 0);
+  const canvasHeight = Math.max(1120, 548 + 44 + chaptersHeight + 64);
   const body = <>
     <View style={tv ? {position: 'absolute', left: 200, top: 96} : undefined}><Cover runtime={runtime} path={entity.posterUrl} size={tv ? 420 : 232}/></View>
     <View style={tv ? {position: 'absolute', left: 700, top: 96, width: 1040} : {alignItems: 'center', marginTop: 20, width: '100%'}}>
@@ -210,7 +215,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
     {!tv && <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity)}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/>}
     <ScrollView contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}} showsVerticalScrollIndicator={false}>
-      {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: 1120}}>{body}</FocusRegion>
+      {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
     </ScrollView>
   </View>;
