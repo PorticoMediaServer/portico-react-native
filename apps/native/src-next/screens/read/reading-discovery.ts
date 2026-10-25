@@ -1,7 +1,7 @@
 import {ReadingError, type LocalSession, type ReadingClient, type ReadingContinueItem, type ReadingItem, type ReadingShortRead} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
-import {openNativeRead} from './eligibility';
+import {nativeReadOrigin, openNativeReadBook, type NativeReadOrigin} from './eligibility';
 
 export type NativeReadingDiscoveryState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -30,6 +30,7 @@ export class NativeReadingDiscovery {
   private readonly captured?: Readonly<{sessionFamilyId: string; viewer: LocalSession['viewer']}>;
   private readonly life = new AbortController();
   private client?: ReadingClient;
+  private origin?: NativeReadOrigin;
   private state: NativeReadingDiscoveryState = Object.freeze({phase: 'idle', continueItems: [], recent: [], shortReads: []});
   private listeners = new Set<() => void>();
   private disposed = false;
@@ -61,6 +62,7 @@ export class NativeReadingDiscovery {
   };
   load = async (): Promise<void> => {
     if (!this.current() || this.opened) return;
+    this.origin ??= nativeReadOrigin(this.context, this.context.navigation.getSnapshot().route);
     this.opened = true;
     this.publish({phase: 'loading', continueItems: [], recent: [], shortReads: []});
     const signal = this.life.signal;
@@ -88,11 +90,13 @@ export class NativeReadingDiscovery {
   };
   /** Only an item this Discover page shows, with available inventory, opens. */
   open = async (item: ReadingItem): Promise<boolean> => {
-    if (!this.current() || item.inventoryAvailable !== true) return false;
-    const resident = this.state.continueItems.some(row => row.item.id === item.id) || this.state.recent.some(row => row.id === item.id)
-      || this.state.shortReads.some(row => row.item.id === item.id);
+    const origin = this.origin;
+    if (!origin || !this.current() || item.inventoryAvailable !== true) return false;
+    const resident = this.state.continueItems.some(row => row.item.id === item.id && row.item.sourceId === item.sourceId)
+      || this.state.recent.some(row => row.id === item.id && row.sourceId === item.sourceId)
+      || this.state.shortReads.some(row => row.item.id === item.id && row.item.sourceId === item.sourceId);
     if (!resident) return false;
-    try {return await openNativeRead(this.context, {itemId: item.id, sourceId: item.sourceId}, this.life.signal);}
+    try {return await openNativeReadBook(this.context, {libraryId: this.libraryId, item}, origin, this.life.signal);}
     catch (error) {
       const cancelledOpen = error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
       if (this.life.signal.aborted || !this.current() || cancelledOpen) return false;

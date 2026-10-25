@@ -1,9 +1,23 @@
 import type {ReadingHostContentsTarget} from '../../../../../packages/client-core/src/reading-host';
-import {ReadingError, type ReadingClient} from '../../../../../packages/client-core/src';
+import {ReadingError, type ReadingClient, type ReadingItem} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 export type NativeReadEligibility = Awaited<ReturnType<ReadingClient['versions']>>;
 export type NativeReadNavigationContext = Pick<NativeShellBootstrapContext, 'api' | 'session' | 'current' | 'navigation' | 'authority'>;
+/** The exact route and revision a page was laid out on. A retained page never
+ * adopts a later snapshot: every helper and controller refuses a replaced origin. */
+export type NativeReadOrigin = Readonly<{route: NativeShellRoute; revision: number}>;
+/** Capture in a layout effect for the route being rendered. */
+export function nativeReadOrigin(context: NativeReadNavigationContext, route: NativeShellRoute): NativeReadOrigin | undefined {
+  if (!context.current()) return undefined;
+  const snapshot = context.navigation.getSnapshot();
+  return snapshot.route === route ? Object.freeze({route, revision: snapshot.revision}) : undefined;
+}
+const originCurrent = (context: NativeReadNavigationContext, origin: NativeReadOrigin): boolean => {
+  if (!context.current()) return false;
+  const snapshot = context.navigation.getSnapshot();
+  return snapshot.route === origin.route && snapshot.revision === origin.revision;
+};
 /** Authoritative producer only. A book-labelled audiobook is never inferred as Read. */
 export async function nativeReadEligibility(client: ReadingClient, itemId: string, signal?: AbortSignal): Promise<NativeReadEligibility | null> {
   try {const result = await client.versions(itemId, signal); return result.versions.length ? result : null;}
@@ -11,17 +25,54 @@ export async function nativeReadEligibility(client: ReadingClient, itemId: strin
 }
 /** The caller supplies an actual selected version. There is no format/default
  * preference, inventory fallback, URL, or server credential in a route. */
-export async function openNativeRead(context: NativeReadNavigationContext, target: Readonly<{itemId: string; sourceId: string; contentsTarget?: ReadingHostContentsTarget}>, signal?: AbortSignal): Promise<boolean> {
-  const selected = context.session(), route = context.navigation.getSnapshot();
+export async function openNativeRead(context: NativeReadNavigationContext, target: Readonly<{itemId: string; sourceId: string; contentsTarget?: ReadingHostContentsTarget}>, signal?: AbortSignal, origin?: NativeReadOrigin): Promise<boolean> {
+  const selected = context.session(), snapshot = context.navigation.getSnapshot();
+  if (origin && (snapshot.route !== origin.route || snapshot.revision !== origin.revision)) return false;
   const destination: NativeShellRoute = {kind: 'read', itemId: target.itemId, sourceId: target.sourceId, ...(target.contentsTarget ? {contentsTarget: target.contentsTarget} : {})};
   if (target.contentsTarget && (target.contentsTarget.sourceId !== target.sourceId || !target.contentsTarget.sourceRevision
     || !Number.isInteger(target.contentsTarget.index) || target.contentsTarget.index < 0 || target.contentsTarget.index > 511)) return false;
   if (signal?.aborted || !selected || !context.current() || !context.navigation.allows(destination)) return false;
-  const current = () => context.current() && context.session()?.sessionFamilyId === selected.sessionFamilyId && context.navigation.getSnapshot() === route;
+  const current = () => origin ? originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId
+    : context.current() && context.session()?.sessionFamilyId === selected.sessionFamilyId && context.navigation.getSnapshot() === snapshot;
   const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
   try {
     const eligibility = await nativeReadEligibility(client, target.itemId, signal);
     if (!current() || !eligibility?.versions.some(version => version.sourceId === target.sourceId && version.inventoryAvailable)) return false;
+    return context.navigation.open(destination, context.authority());
+  } finally {client.dispose();}
+}
+/** The phone's drawn book destination: a visible, inventory-available Reading
+ * item of this library, whose exact version the signed producer still offers.
+ * The action is checked against the origin captured when the page was laid out. */
+export async function openNativeReadBook(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; item: ReadingItem}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
+  const selected = context.session(), item = target.item;
+  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin)) return false;
+  if (item.libraryId !== target.libraryId || item.inventoryAvailable !== true || !item.id || !item.sourceId) return false;
+  const destination: NativeShellRoute = {kind: 'read-book', libraryId: target.libraryId, item};
+  if (!context.navigation.allows(destination)) return false;
+  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId;
+  const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
+  try {
+    const eligibility = await nativeReadEligibility(client, item.id, signal);
+    if (!current() || !eligibility?.versions.some(version => version.sourceId === item.sourceId && version.inventoryAvailable)) return false;
+    return context.navigation.open(destination, context.authority());
+  } finally {client.dispose();}
+}
+/** The series page only admits a signed series of this library that currently
+ * returns real members; a label hash, a stale id or an unready series cannot open it. */
+export async function openNativeReadSeries(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; seriesId: string}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
+  const selected = context.session();
+  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin) || !/^[A-Za-z0-9_-]{43}$/.test(target.seriesId)) return false;
+  const destination: NativeShellRoute = {kind: 'read-series', libraryId: target.libraryId, seriesId: target.seriesId};
+  if (!context.navigation.allows(destination)) return false;
+  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId;
+  const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
+  try {
+    const page = await client.series(target.libraryId, target.seriesId, {limit: 1}, signal).catch(error => {
+      if (error instanceof ReadingError && (error.status === 404 || error.code === 'not_found')) return undefined;
+      throw error;
+    });
+    if (!page?.items.length || !current()) return false;
     return context.navigation.open(destination, context.authority());
   } finally {client.dispose();}
 }

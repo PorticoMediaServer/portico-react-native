@@ -1,7 +1,7 @@
 import {ReadingError, type LocalSession, type ReadingClient, type ReadingItem} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
-import {openNativeRead} from './eligibility';
+import {nativeReadOrigin, openNativeReadBook, type NativeReadOrigin} from './eligibility';
 
 export type NativeReadingLibraryState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -22,6 +22,7 @@ export class NativeReadingLibrary {
   private readonly captured?: Readonly<{sessionFamilyId: string; viewer: LocalSession['viewer']}>;
   private readonly life = new AbortController();
   private client?: ReadingClient;
+  private origin?: NativeReadOrigin;
   private state: NativeReadingLibraryState = Object.freeze({phase: 'idle', items: []});
   private listeners = new Set<() => void>();
   private disposed = false;
@@ -53,6 +54,7 @@ export class NativeReadingLibrary {
   };
   load = async (): Promise<void> => {
     if (!this.current() || this.opened) return;
+    this.origin ??= nativeReadOrigin(this.context, this.context.navigation.getSnapshot().route);
     this.opened = true;
     this.publish({phase: 'loading', items: []});
     try {
@@ -79,10 +81,11 @@ export class NativeReadingLibrary {
     this.state = Object.freeze({phase: 'idle', items: []});
     await this.load();
   };
-  /** Only a resident, inventory-available item opens; the Read door owns the route. */
+  /** Only a resident, inventory-available item opens its own book page. */
   open = async (item: ReadingItem): Promise<boolean> => {
-    if (!this.current() || item.inventoryAvailable !== true || !this.state.items.some(candidate => candidate.id === item.id)) return false;
-    try {return await openNativeRead(this.context, {itemId: item.id, sourceId: item.sourceId}, this.life.signal);}
+    const origin = this.origin;
+    if (!origin || !this.current() || item.inventoryAvailable !== true || !this.state.items.some(candidate => candidate.id === item.id && candidate.sourceId === item.sourceId)) return false;
+    try {return await openNativeReadBook(this.context, {libraryId: this.libraryId, item}, origin, this.life.signal);}
     catch (error) {
       const cancelled = error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
       if (this.life.signal.aborted || !this.current() || cancelled) return false;
