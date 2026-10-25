@@ -11,6 +11,21 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/** Only an actual renderer decoded-output stream boundary may originate one of these.
+ * Reference identity distinguishes streams even when every session/plan field is unchanged.
+ * The sink never creates a stamp from PTS, configure/flush or the player's current item. */
+internal class PorticoDecodedStreamStamp(
+  val sessionId: String, val generation: Long, val itemId: String, val planId: String,
+  val lease: String, val intentId: Long,
+)
+
+/** Complete, settled normalization on every contributing source sample, with unity fade.
+ * No public observation is possible until a genuine renderer supplies [stream]. */
+internal class PorticoGainWitness(val stream: PorticoDecodedStreamStamp, val coefficient: Float) {
+  fun sameAs(other: PorticoGainWitness?): Boolean =
+      other != null && stream === other.stream && coefficient == other.coefficient
+}
+
 /**
  * Music gain applied to the decoder's own PCM, before the sink converts anything.
  *
@@ -23,7 +38,16 @@ import java.nio.ByteOrder
  * resamples, mixes or reorders channels, and [input] is never consumed.
  */
 internal class PorticoAudioGain {
-  @Volatile var target = 1f
+  private data class Target(val composite: Float, val normalization: Float?, val fade: Double?, val known: Boolean)
+  @Volatile private var wantedTarget = Target(1f, null, null, false)
+  /** A composite-only caller supplies no normalization proof. */
+  var target: Float
+    get() = wantedTarget.composite
+    set(value) { wantedTarget = Target(value, null, null, false) }
+  fun components(normalization: Float, fade: Double, known: Boolean) {
+    wantedTarget = Target((normalization * fade).toFloat(), normalization, fade, known)
+  }
+  data class Applied(val buffer: ByteBuffer, val normalizationCoefficient: Float?)
   private var level = 1f
   private var goal = 1f
   private var remaining = 0
@@ -32,30 +56,39 @@ internal class PorticoAudioGain {
   /** Begins a new stream at the current target, without a ramp from the previous one. */
   fun reset() { level = target; goal = target; remaining = 0 }
 
-  fun apply(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int): ByteBuffer {
+  fun apply(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int): ByteBuffer =
+      applyObserved(input, sourceEncoding, targetEncoding, channelCount, sampleRate).buffer
+
+  fun applyObserved(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int): Applied {
     require(PorticoAudioOutput.supports(sourceEncoding) && PorticoAudioOutput.supports(targetEncoding)) {
       "unsupported pcm encoding"
     }
     val sourceFrame = PorticoAudioOutput.bytesPerSample(sourceEncoding) * channelCount
     val targetFrame = PorticoAudioOutput.bytesPerSample(targetEncoding) * channelCount
-    if (sourceFrame <= 0 || targetFrame <= 0 || input.remaining() < sourceFrame) return input
-    val wanted = target.takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 1f
+    if (sourceFrame <= 0 || targetFrame <= 0 || input.remaining() < sourceFrame) return Applied(input, null)
+    val controls = wantedTarget
+    val wanted = controls.composite.takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 1f
     if (wanted != goal) {
       goal = wanted
       remaining = (sampleRate / 50).coerceAtLeast(1)
       step = (goal - level) / remaining
     }
-    if (level == 1f && goal == 1f && sourceEncoding == targetEncoding) return input
+    // Capture the coefficient this call actually uses, never the control target at acceptance.
+    // A ramp that settles inside this buffer still leaves the entire buffer unproven.
+    val observed = level.takeIf { remaining == 0 && it == goal && it.isFinite() && it > 0f
+      && controls.known && controls.fade == 1.0 && controls.normalization == it
+      && input.remaining() % sourceFrame == 0 }
+    if (level == 1f && goal == 1f && sourceEncoding == targetEncoding) return Applied(input, observed)
     val source = input.duplicate().order(ByteOrder.nativeOrder())
     val frames = source.remaining() / sourceFrame
-    if (frames <= 0) return input
+    if (frames <= 0) return Applied(input, null)
     val out = ByteBuffer.allocateDirect(frames * targetFrame).order(ByteOrder.nativeOrder())
     repeat(frames) {
       if (remaining > 0) { level += step; if (--remaining == 0) level = goal }
       repeat(channelCount) { writeSample(out, targetEncoding, readSample(source, sourceEncoding) * level) }
     }
     out.flip()
-    return out
+    return Applied(out, observed)
   }
 
   private fun readSample(input: ByteBuffer, encoding: Int): Float = when (encoding) {
@@ -102,11 +135,13 @@ internal class PorticoGainQueue(private val gain: PorticoAudioGain) {
   private var pendingTime = 0L
   private var pendingCount = 0
   private var pendingEnd = 0
+  var witness: PorticoGainWitness? = null
+    private set
 
   fun hasPending(): Boolean = pending != null
 
   fun bufferFor(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int,
-                presentationTimeUs: Long, encodedAccessUnitCount: Int): ByteBuffer {
+                presentationTimeUs: Long, encodedAccessUnitCount: Int, stream: PorticoDecodedStreamStamp? = null): ByteBuffer {
     val held = pending
     if (held != null) {
       check(pendingInput === input && pendingTime == presentationTimeUs && pendingCount == encodedAccessUnitCount) {
@@ -116,7 +151,10 @@ internal class PorticoGainQueue(private val gain: PorticoAudioGain) {
     }
     // Cache every submission, including a unity buffer that is handed on unchanged: the delegate
     // must see the same object again if it refuses it, whatever the gain target becomes meanwhile.
-    val scaled = gain.apply(input, sourceEncoding, targetEncoding, channelCount, sampleRate)
+    val applied = gain.applyObserved(input, sourceEncoding, targetEncoding, channelCount, sampleRate)
+    val scaled = applied.buffer
+    witness = if (stream != null && applied.normalizationCoefficient != null)
+      PorticoGainWitness(stream, applied.normalizationCoefficient) else null
     pending = scaled
     pendingInput = input
     pendingTime = presentationTimeUs
@@ -136,6 +174,7 @@ internal class PorticoGainQueue(private val gain: PorticoAudioGain) {
     pendingTime = 0
     pendingCount = 0
     pendingEnd = 0
+    witness = null
   }
 }
 
@@ -159,6 +198,10 @@ internal class PorticoMusicPipeline(
   private var targetEncoding = C.ENCODING_PCM_16BIT
   private var channels = 0
   private var sampleRate = 0
+  /** Internal only: the accepted piece's original proof, never today's playback binding.
+   * Production remains unknown until the renderer supplies an actual decoded stream stamp. */
+  @Volatile var acceptedWitness: PorticoGainWitness? = null
+    private set
 
   /**
    * What the delegate must be configured with for [format]. media3 may call this without a flush —
@@ -175,6 +218,7 @@ internal class PorticoMusicPipeline(
   fun configure(format: Format): Format {
     // A pending gain buffer belongs to the previous stream; configure must not discard it.
     check(!queue.hasPending()) { "configure while a buffer is still pending" }
+    acceptedWitness = null
     val source = if (format.pcmEncoding != Format.NO_VALUE) format.pcmEncoding else C.ENCODING_PCM_16BIT
     // Only the four paths this stage converts are accepted; anything else is refused before a
     // single byte reaches the delegate, which would otherwise misread it at the target encoding.
@@ -234,6 +278,7 @@ internal class PorticoMusicPipeline(
       return true
     }
     if (!deliver(piece.buffer, piece.timeUs, piece.count)) return false
+    acceptedWitness = piece.witness.takeIf { piece.frames > 0 }
     old.accepted(piece)
     draining = null
     return true
@@ -243,16 +288,18 @@ internal class PorticoMusicPipeline(
   fun drained() { deferred = null }
 
   fun handle(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int,
+             stream: PorticoDecodedStreamStamp? = null,
              deliver: (ByteBuffer, Long, Int) -> Boolean): Boolean {
     val scaled = queue.bufferFor(buffer, sourceEncoding, targetEncoding, channels, sampleRate,
-        presentationTimeUs, encodedAccessUnitCount)
+        presentationTimeUs, encodedAccessUnitCount, stream)
     // The stage owns time and count from here: a retried buffer returns the same piece, so the
     // delegate sees one stable timestamp rather than the input buffer's start each attempt.
-    val piece = stage.process(scaled, presentationTimeUs, encodedAccessUnitCount)
+    val piece = stage.process(scaled, presentationTimeUs, encodedAccessUnitCount, queue.witness)
     // The delegate's own buffer object, every time: media3 requires a retry to pass the same buffer
     // it last saw, and it may have partially consumed it before returning false. Its position is
     // never reset here; the piece keeps the clock and count independently of the buffer's position.
     if (!deliver(piece.buffer, piece.timeUs, piece.count)) return false
+    acceptedWitness = piece.witness.takeIf { piece.frames > 0 }
     queue.accepted()
     stage.accepted(piece)
     return true
@@ -270,7 +317,10 @@ internal class PorticoMusicPipeline(
   fun takeTail(): PorticoRateStage.Piece? = stage.takeTail()
 
   fun acceptedTail(piece: PorticoRateStage.Piece, accepted: Boolean) {
-    if (accepted) stage.accepted(piece)
+    if (accepted) {
+      acceptedWitness = piece.witness.takeIf { piece.frames > 0 }
+      stage.accepted(piece)
+    }
   }
 
   /** True once the tail has been accepted, so the delegate may be told the stream ended. */
@@ -281,11 +331,13 @@ internal class PorticoMusicPipeline(
   fun hasPendingOutput(): Boolean = stage.hasPendingOutput || draining != null
 
   fun flush() {
+    acceptedWitness = null
     queue.clear(); gain.reset(); stage.flush()
     draining = null; deferred = null
   }
 
   fun reset() {
+    acceptedWitness = null
     queue.clear(); gain.reset(); stage.reset()
     draining = null; deferred = null
   }
@@ -337,7 +389,7 @@ internal class PorticoMusicSink(
 
   override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
     if (!settleDeferred()) return false
-    return pipeline.handle(buffer, presentationTimeUs, encodedAccessUnitCount, ::deliverToDelegate)
+    return pipeline.handle(buffer, presentationTimeUs, encodedAccessUnitCount, deliver = ::deliverToDelegate)
   }
 
   override fun flush() {

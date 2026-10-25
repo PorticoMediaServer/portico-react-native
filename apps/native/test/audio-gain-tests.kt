@@ -172,6 +172,91 @@ fun main() {
   // A float-only device does not upgrade a 16-bit stream, and capability alone is not bit perfect.
   val sixteen = PorticoAudioOutput.choose(floatRoute, 96000, 2, C.ENCODING_PCM_16BIT, true)
   check(sixteen.encoding == C.ENCODING_PCM_16BIT && sixteen.bytePassthrough && !sixteen.bitPerfect)
+  gainProvenanceFoundations()
+}
+
+/** Test-only stream stamps. Production must obtain them from the renderer, never these fixtures. */
+private fun gainProvenanceFoundations() {
+  val first = PorticoDecodedStreamStamp("session-a", 1L, "item-a", "plan-a", "lease", 1L)
+  val next = PorticoDecodedStreamStamp("session-b", 2L, "item-b", "plan-b", "lease", 2L)
+  val gain = PorticoAudioGain()
+  gain.components(2f, 1.0, true); gain.reset()
+  check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == 2f)
+  gain.components(2f, 0.5, true); gain.reset()
+  check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == null)
+  gain.target = 2f; gain.reset()
+  check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == null)
+  gain.components(2f, 1.0, true); gain.reset()
+  gain.components(3f, 1.0, true)
+  check(gain.applyObserved(provenancePcm(1600), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == null)
+  check(gain.applyObserved(provenancePcm(8), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000).normalizationCoefficient == 3f)
+
+  gain.components(2f, 1.0, true); gain.reset()
+  val queue = PorticoGainQueue(gain)
+  val input = provenancePcm(8)
+  val held = queue.bufferFor(input, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000, 0L, 1, first)
+  val proof = queue.witness
+  check(proof != null && proof.stream === first && proof.coefficient == 2f)
+  gain.components(4f, 1.0, true)
+  check(queue.bufferFor(input, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 48000, 0L, 1, next) === held)
+  check(queue.witness === proof) // neither today's control nor a later stamp retags a retry
+  queue.accepted(); check(queue.witness == null)
+
+  val stage = PorticoRateStage()
+  stage.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
+  val a = PorticoGainWitness(first, 2f)
+  val b = PorticoGainWitness(next, 3f)
+  val firstPiece = stage.process(provenancePcm(3), 0L, 1, a)
+  check(firstPiece.witness?.sameAs(a) == true)
+  check(stage.process(provenancePcm(3), 1000L, 1, b) === firstPiece) // retained delegate piece
+  stage.accepted(firstPiece)
+  val boundary = stage.process(provenancePcm(3), 2000L, 1, b)
+  check(boundary.frames > 0 && boundary.witness == null) // interpolation crosses original streams
+  stage.accepted(boundary)
+  val current = stage.process(provenancePcm(3), 3000L, 1, b)
+  check(current.witness?.sameAs(b) == true)
+  stage.accepted(current)
+  val tail = stage.takeTail()!!
+  check(tail.witness?.sameAs(b) == true)
+  check(stage.takeTail() === tail)
+  stage.accepted(tail)
+
+  val changing = PorticoRateStage()
+  changing.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
+  val beforeChange = changing.process(provenancePcm(3), 0L, 1, a)
+  changing.accepted(beforeChange)
+  val changedGain = changing.process(provenancePcm(3), 1000L, 1, PorticoGainWitness(first, 3f))
+  check(changedGain.witness == null) // one stream with unlike actual coefficients is also mixed
+  changing.accepted(changedGain)
+  check(changing.process(provenancePcm(3), 2000L, 1).witness == null) // unknown never inherits a prior proof
+
+  val route = PorticoAudioOutput.Route(listOf(PorticoAudioOutput.Device("provenance-test", listOf(
+      PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 44100, 1),
+      PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 48000, 1)))), true)
+  gain.components(2f, 1.0, true); gain.reset()
+  val pipeline = PorticoMusicPipeline(gain, route = { route }, sampleRateMode = { "off" }, preferredSampleRate = { 48000 })
+  pipeline.configure(format(C.ENCODING_PCM_FLOAT, 44100, 1))
+  check(pipeline.handle(provenancePcm(3), 0L, 1, first) { _, _, _ -> true })
+  check(pipeline.acceptedWitness?.stream === first)
+  pipeline.configure(format(C.ENCODING_PCM_FLOAT, 32000, 1))
+  check(pipeline.acceptedWitness == null)
+  check(!pipeline.drain { _, _, _ -> false })
+  check(pipeline.acceptedWitness == null)
+  check(pipeline.drain { _, _, _ -> true })
+  check(pipeline.acceptedWitness?.stream === first) // old tail survives the deferred format
+  pipeline.drained(); pipeline.flush()
+  check(pipeline.acceptedWitness == null)
+  // Even a settled, separately known gain is not a stream witness without the actual renderer.
+  pipeline.configure(format(C.ENCODING_PCM_FLOAT, 48000, 1))
+  check(pipeline.handle(provenancePcm(8), 0L, 1) { _, _, _ -> true })
+  check(pipeline.acceptedWitness == null)
+}
+
+private fun provenancePcm(frames: Int): ByteBuffer {
+  val buffer = ByteBuffer.allocateDirect(frames * 4).order(ByteOrder.nativeOrder())
+  repeat(frames) { buffer.putFloat(0.25f) }
+  buffer.flip()
+  return buffer
 }
 
 private fun format(encoding: Int, rate: Int, channels: Int): Format =

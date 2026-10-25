@@ -427,3 +427,11 @@ after it has been multiplied into decoded buffers and the node clock has heard t
 It is finite within -60..30 and only accompanies `levelingApplied: true` under the same
 current listening binding. It excludes the crossfade node's volume and the device EQ preamp;
 a requested plan gain or an unobserved Android processor target is not this fact.
+
+Android's gain queue and rate stage retain optional original-stream coefficient witnesses
+through retries, interpolation, format drains and end tails. The coefficient comes from
+the gain call itself, and mixed/ramped/unknown samples or non-unity fade suppress it.
+These are additive internal foundations only: the current Media3 renderer does not yet
+supply a decoded-output stream/session/plan stamp, so Android still publishes neither
+`levelingApplied` nor `levelingGainDb`. PTS, current media item, configure/flush and today's
+binding at sink acceptance must never manufacture that missing provenance.

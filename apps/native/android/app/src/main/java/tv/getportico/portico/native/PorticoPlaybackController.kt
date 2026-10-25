@@ -439,10 +439,10 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
-  private fun musicGain(engine: ExoPlayer, gain: Float) {
+  private fun musicGain(engine: ExoPlayer, normalization: Float, fade: Double = 1.0, known: Boolean = false) {
     val processor = audioGains[engine]
-    if (processor != null) { processor.target = gain; engine.volume = 1f }
-    else engine.volume = gain.coerceIn(0f, 1f)
+    if (processor != null) { processor.components(normalization, fade, known); engine.volume = 1f }
+    else engine.volume = (normalization * fade).toFloat().coerceIn(0f, 1f)
   }
 
   /**
@@ -955,6 +955,16 @@ internal class PorticoPlaybackController(private val context: Context) {
     @Suppress("UNCHECKED_CAST") return (part as? Map<*, *>)?.get("plan") as? Map<String, Any?>
   }
 
+  /** The same gain choice as PorticoAudioPlan.gain; a missing analysis value is unknown,
+   * even though playback correctly uses unity in that case. This alone proves no output. */
+  private fun normalizationKnown(plan: Map<*, *>?, effects: Map<*, *>?): Boolean {
+    val mode = effects?.get("normalization")
+    if (mode != "track" && mode != "album") return false
+    val gain = plan?.get("gain") as? Map<*, *> ?: return false
+    val db = number(if (mode == "album" && gain["albumDb"] != null) gain["albumDb"] else gain["trackDb"])
+    return db != null && db >= -60 && db <= 30
+  }
+
   /**
    * The next track, as the owner has it: prepared (the server reserved it) or committed (the server
    * moved the queue). A prepared track is queued behind the current one and held at the end of the
@@ -963,7 +973,11 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyRenderEdges(render: Map<String, Any?>?) {
     val engine = player ?: return
     if (render == null || engine.currentMediaItem == null) { if (nextToken != null) dropNext(); return }
-    if (incoming == null) musicGain(engine, PorticoAudioPlan.gain(planOf(render), settings()))
+    if (incoming == null) {
+      val activePlan = planOf(render)
+      val effects = settings()
+      musicGain(engine, PorticoAudioPlan.gain(activePlan, effects), known = normalizationKnown(activePlan, effects))
+    }
     val committed = render["committed"] as? Map<*, *>
     val wanted = committed ?: render["prepared"] as? Map<*, *>
     val token = wanted?.get("token") as? String
@@ -1075,10 +1089,13 @@ internal class PorticoPlaybackController(private val context: Context) {
       if (deck.isPlaying && fadeStartedAt == 0L) fadeStartedAt = SystemClock.elapsedRealtime()
       val rate = Math.max(0.25, old.playbackParameters.speed.toDouble())
       val t = if (fadeStartedAt == 0L) 0.0 else Math.min(1.0, (SystemClock.elapsedRealtime() - fadeStartedAt) / 1000.0 * rate / fadeSeconds)
-      val outgoing = PorticoAudioPlan.gain(planOf(command?.get("audioRender")), settings())
-      val arriving = PorticoAudioPlan.gain(nextPlan, settings())
-      musicGain(old, (outgoing * Math.cos(t * Math.PI / 2)).toFloat())
-      musicGain(deck, (arriving * Math.sin(t * Math.PI / 2)).toFloat())
+      val effects = settings()
+      val outgoingPlan = planOf(command?.get("audioRender"))
+      val arrivingPlan = nextPlan
+      val outgoing = PorticoAudioPlan.gain(outgoingPlan, effects)
+      val arriving = PorticoAudioPlan.gain(arrivingPlan, effects)
+      musicGain(old, outgoing, Math.cos(t * Math.PI / 2), normalizationKnown(outgoingPlan, effects))
+      musicGain(deck, arriving, Math.sin(t * Math.PI / 2), normalizationKnown(arrivingPlan, effects))
       val over = t >= 1 || (fadeStartedAt != 0L && (heldAtEnd || old.playbackState == Player.STATE_ENDED))
       if (!over) { main.postDelayed(this, 40); return }
       // The new track is the player from here: position, facts and the next edge are its own.
@@ -1087,7 +1104,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       incoming = null
       old.removeListener(listener)
       old.release()
-      musicGain(deck, arriving)
+      musicGain(deck, arriving, known = normalizationKnown(arrivingPlan, effects))
       deck.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
       deck.addListener(listener)
       player = deck

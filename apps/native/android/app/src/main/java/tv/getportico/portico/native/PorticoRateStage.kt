@@ -35,7 +35,14 @@ internal class PorticoRateStage {
    * retry to hand back the same buffer it last saw, and it may have partially consumed that buffer
    * before returning false, so its position is never rewound here. [frames] is captured at creation
    * because the position no longer describes the piece once the delegate has touched it. */
-  data class Piece(val buffer: ByteBuffer, val timeUs: Long, val count: Int, val frames: Int)
+  data class Piece(val buffer: ByteBuffer, val timeUs: Long, val count: Int, val frames: Int,
+                   val witness: PorticoGainWitness? = null)
+
+  /** Source-frame runs survive interpolation, deferred formats and draining tails.
+   * Unknown or unlike contributors suppress the whole output piece; they never acquire
+   * the stamp of the next input, the current format or the binding at acceptance. */
+  private class Run(var frames: Int, val witness: PorticoGainWitness?)
+  private val provenance = java.util.ArrayDeque<Run>()
 
   private var sourceRate = 0
   private var targetRate = 0
@@ -110,15 +117,16 @@ internal class PorticoRateStage {
           targetRate == this.targetRate
 
   /** One decoder buffer in; the piece the delegate must accept (same identity on a retry). */
-  fun process(input: ByteBuffer, presentationTimeUs: Long, count: Int): Piece {
+  fun process(input: ByteBuffer, presentationTimeUs: Long, count: Int, witness: PorticoGainWitness? = null): Piece {
     retained?.let { return it }
     lastCount = count
     if (startTimeUs < 0) startTimeUs = presentationTimeUs
     if (!resampling) {
       val frames = if (frame > 0) input.remaining() / frame else 0
-      return Piece(input, presentationTimeUs, count, frames).also { retained = it }
+      return Piece(input, presentationTimeUs, count, frames,
+          witness.takeIf { frames > 0 && input.remaining() % frame == 0 }).also { retained = it }
     }
-    copy(input)
+    copy(input, witness)
     return produce(eos = false).also { retained = it }
   }
 
@@ -178,6 +186,7 @@ internal class PorticoRateStage {
   /** Retire every retained piece and the clock with it; nothing of this stream survives. */
   private fun clear() {
     pending = FloatArray(0)
+    provenance.clear()
     pendingCount = 0
     position = 0.0
     retained = null
@@ -192,7 +201,7 @@ internal class PorticoRateStage {
     if (startTimeUs < 0 || targetRate <= 0) startTimeUs.coerceAtLeast(0)
     else startTimeUs + Math.round(framesBefore * 1_000_000.0 / targetRate)
 
-  private fun copy(input: ByteBuffer) {
+  private fun copy(input: ByteBuffer, witness: PorticoGainWitness?) {
     val source = input.duplicate().order(ByteOrder.nativeOrder())
     val frames = if (frame > 0) source.remaining() / frame else 0
     if (frames <= 0) return
@@ -207,7 +216,32 @@ internal class PorticoRateStage {
         pending[(pendingCount + index) * channels + channel] = read(source)
       }
     }
+    val last = provenance.peekLast()
+    if (last != null && (last.witness?.sameAs(witness) == true || last.witness == null && witness == null)) last.frames += frames
+    else provenance.addLast(Run(frames, witness))
     pendingCount += frames
+  }
+
+  private fun witnessAt(index: Int): PorticoGainWitness? {
+    val first = provenance.peekFirst() ?: return null
+    if (index < first.frames) return first.witness
+    var at = index
+    for (run in provenance) {
+      if (at < run.frames) return run.witness
+      at -= run.frames
+    }
+    return null
+  }
+
+  private fun consumeProvenance(frames: Int) {
+    var remaining = frames
+    while (remaining > 0 && provenance.isNotEmpty()) {
+      val first = provenance.peekFirst()
+      val consumed = minOf(remaining, first.frames)
+      first.frames -= consumed
+      remaining -= consumed
+      if (first.frames == 0) provenance.removeFirst()
+    }
   }
 
   /** Emit every target position the finite input supports, consuming whole source frames. */
@@ -218,9 +252,18 @@ internal class PorticoRateStage {
     val capacity = maxOf(1, ceil(duration / step).toInt() + 2)
     val out = FloatArray(capacity * channels)
     var produced = 0
+    var proof: PorticoGainWitness? = null
+    var complete = true
+    fun include(index: Int) {
+      if (!complete) return
+      val contributor = witnessAt(index)
+      if (contributor == null || proof != null && !proof!!.sameAs(contributor)) complete = false
+      else if (proof == null) proof = contributor
+    }
     while (produced < capacity) {
       val at = floor(position).toInt()
       if (at < last) {
+        include(at); include(at + 1)
         val fraction = (position - at).toFloat()
         for (channel in 0 until channels) {
           val a = pending[at * channels + channel]
@@ -228,6 +271,7 @@ internal class PorticoRateStage {
           out[produced * channels + channel] = a + (b - a) * fraction
         }
       } else if (eos && at == last && position < duration) {
+        include(at)
         // Inside the input duration but past the last whole source frame: hold that frame. Past the
         // duration the next phase is beyond the stream, so nothing is invented.
         for (channel in 0 until channels) {
@@ -241,11 +285,13 @@ internal class PorticoRateStage {
     }
     val consumed = minOf(floor(position).toInt(), pendingCount)
     if (consumed > 0) {
+      consumeProvenance(consumed)
       System.arraycopy(pending, consumed * channels, pending, 0, (pendingCount - consumed) * channels)
       pendingCount -= consumed
       position -= consumed
     }
-    return Piece(encode(produced, out), timeFor(outputFrames), lastCount, produced)
+    return Piece(encode(produced, out), timeFor(outputFrames), lastCount, produced,
+        proof.takeIf { complete && produced > 0 })
   }
 
   private fun encode(frames: Int, source: FloatArray): ByteBuffer {
