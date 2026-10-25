@@ -1,40 +1,82 @@
-import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
+import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {sourceStateText} from '../../../../../../packages/client-core/src/server-admin/storage-words';
+import type {RemoteSource} from '../../../../../../packages/client-core/src/remote-sources';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
+import {Button} from '../../../kit/controls/Button';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {StateView} from '../../../kit/states';
 import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
+import {ConnectionEditor, DisconnectEditor, ReadingEditor, remoteSourceError} from './RemoteSourceForms';
 
-/** Read surface only, not mounted yet: the frame's wizard and source-detail actions
- * must land before Settings exposes this screen. No legacy UI or invented status data. */
-export function NativeRemoteSourcesScreen({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = runtime.text.t;
-  const controller = useMemo(() => new NativeRemoteSourcesController(ports), [ports]);
+type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime};
+type Mode = {kind: 'connection'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect'; source: RemoteSource};
+
+/** Supported WebDAV cohort only. Settings owns the entry. Unavailable producer flows are not offered. */
+export function NativeRemoteSourcesScreen({ports, runtime}: Props) {
+  const next = useRef(0);
+  const [owned, setOwned] = useState<{controller: NativeRemoteSourcesController; ports: NativeSettingsLivePorts; key: number}>();
+  useEffect(() => {
+    const controller = new NativeRemoteSourcesController(ports);
+    setOwned({controller, ports, key: ++next.current});
+    void controller.load();
+    return () => controller.dispose();
+  }, [ports]);
+  return owned ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime}/>
+    : <StateView title={runtime.text.t('next.remoteSources.loading')}/>;
+}
+
+function Viewport({controller, ports, runtime}: Props & {controller: NativeRemoteSourcesController}) {
+  const theme = useTheme(), t = runtime.text.t as typeof defaultI18n.t;
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-  useEffect(() => {void controller.load(); return () => controller.dispose();}, [controller]);
+  const [mode, setMode] = useState<Mode>(), [error, setError] = useState<string>();
   if (!snapshot.allowed) {
     const problem = presentError({code: 'forbidden'}, 'server-console');
     return <StateView title={problem.title} body={problem.body} tone="error"/>;
   }
-  const state = snapshot.sources;
-  const problem = state.error ? presentError({code: state.errorCode || 'request_failed'}, 'server-console') : undefined;
-  return <ScrollView testID="native-remote-sources" contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40, gap: 16}}>
+  const close = () => {setMode(undefined); setError(undefined);};
+  if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} onCancel={close}
+    onSaved={source => setMode({kind: 'reading', source})}/>;
+  if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} onCancel={close} onSaved={close}/>;
+  if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} onCancel={close} onSaved={close}/>;
+  const state = snapshot.sources, blocked = state.busy || state.ambiguous;
+  const recover = async () => {
+    setError(undefined);
+    try {await controller.recover();}
+    catch (problem) {if (controller.getSnapshot().allowed) setError(remoteSourceError(t, problem));}
+  };
+  const detail = mode?.kind === 'detail' ? mode.source : undefined;
+  const selected = detail ? state.sources.find(source => source.id === detail.id) ?? detail : undefined;
+  return <ScrollView testID="native-remote-sources" contentContainerStyle={{padding: 20, paddingBottom: 40, gap: 16}}>
     <ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner" variant="phone"/>
-    <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.remoteSources')}</Text>
-    {problem && <StateView title={problem.title} body={problem.body} tone="error"
-      primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: () => {void controller.load();}}}/>}
-    {!state.loading && !problem && !state.sources.length && <StateView title={t('web.storage.empty')} body={t('web.storage.emptyHelp')}/>}
-    {state.sources.map(source => <View key={source.id} testID={`remote-source-${source.id}`} style={{paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.line, gap: 6}}>
-      <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
-      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), source)}</Text>
-      {!!source.origin && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{source.origin}</Text>}
-      {!!source.rootPath && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{source.rootPath}</Text>}
-    </View>)}
+    <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{selected?.name ?? t('settings.server.remoteSources')}</Text>
+    {state.ambiguous && <Button disabled={state.busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>}
+    {(state.error || error) && <StateView title={error ?? remoteSourceError(t, {code: state.errorCode})} tone="error"/>}
+    {selected ? <>
+      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), selected)}</Text>
+      {!!selected.origin && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{selected.origin}</Text>}
+      <Button variant="text" onPress={close}>{t('next.remoteSources.back')}</Button>
+      {selected.kind === 'webdav' && <>
+        <Button variant="glass" disabled={blocked} onPress={() => setMode({kind: 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>
+        <Button variant="glass" disabled={blocked} onPress={() => setMode({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
+        <Button variant="text" disabled={blocked} onPress={() => setMode({kind: 'disconnect', source: selected})}>{t('next.remoteSources.disconnect')}</Button>
+      </>}
+    </> : <>
+      <Button disabled={blocked} onPress={() => setMode({kind: 'connection'})}>{t('next.remoteSources.add')}</Button>
+      <Button variant="text" disabled={blocked || state.loading} onPress={() => {void controller.load();}}>{t('next.remoteSources.refresh')}</Button>
+      {state.loading && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.loading')}</Text>}
+      {!state.loading && !state.error && !state.sources.length && <StateView title={t('next.remoteSources.empty')} body={t('next.remoteSources.emptyHelp')}/>}
+      {state.sources.map(source => <View key={source.id} testID={`remote-source-${source.id}`} style={{paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.line, gap: 6}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), source)}</Text>
+        {!!source.origin && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{source.origin}</Text>}
+        <Button variant="text" disabled={blocked} onPress={() => setMode({kind: 'detail', source})}>{t('next.remoteSources.manage')}</Button>
+      </View>)}
+    </>}
   </ScrollView>;
 }

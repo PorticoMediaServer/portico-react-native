@@ -1,4 +1,4 @@
-import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -82,25 +82,47 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   }
 
   /** Credential fields stay in this call and the service request, never in a snapshot. */
-  async testConnection(input: DAVConnectionInput): Promise<DAVConnectionResult> {
+  async testConnection(input: DAVConnectionInput, guard: () => boolean = () => true): Promise<DAVConnectionResult> {
     this.assertAllowed();
     try {
-      const result = await this.service.testConnection(input);
+      if (!guard()) throw screenScopeEnded();
+      const result = await this.service.testConnection(input, guard);
+      if (!guard()) throw screenScopeEnded();
       this.assertAllowed();
       return result;
     } finally {if (!this.allowed()) this.dispose();}
   }
 
-  async configure(id: string | null, input: DAVConfiguration, base?: RemoteSource): Promise<void> {
+  async configure(id: string | null, input: DAVConfiguration, base?: RemoteSource, guard: () => boolean = () => true): Promise<void> {
     this.assertAllowed();
-    try {await this.service.configure(id, input, base);}
+    try {if (!guard()) throw screenScopeEnded(); await this.service.configure(id, input, base, guard);}
     finally {if (!this.allowed()) this.dispose();}
   }
 
-  async remove(source: RemoteSource): Promise<void> {
+  async remove(source: RemoteSource, guard: () => boolean = () => true): Promise<void> {
     this.assertAllowed();
-    try {await this.service.remove(source);}
+    try {if (!guard()) throw screenScopeEnded(); await this.service.remove(source, guard);}
     finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async readProfile(source: RemoteSource, guard: () => boolean): Promise<SourceReadSettings> {
+    this.assertAllowed();
+    try {
+      const result = await this.service.readProfile(source.id, String(source.generation), guard);
+      this.assertAllowed();
+      if (!guard()) throw screenScopeEnded();
+      return result;
+    } finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async saveProfile(profile: SourceReadSettings, values: SourceReadValues, guard: () => boolean): Promise<SourceReadSettings> {
+    this.assertAllowed();
+    try {
+      const result = await this.service.saveProfile(profile, values, guard);
+      this.assertAllowed();
+      if (!guard()) throw screenScopeEnded();
+      return result;
+    } finally {if (!this.allowed()) this.dispose();}
   }
 
   async recover(): Promise<void> {
