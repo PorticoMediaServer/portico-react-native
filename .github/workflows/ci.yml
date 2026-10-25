@@ -45,7 +45,13 @@ jobs:
         run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
       - name: Mounted source and test types
-        run: npm run typecheck && npm run typecheck:next-test
+        run: |
+          status=0
+          npm run typecheck > "$RUNNER_TEMP/types-source.log" 2>&1 || status=1
+          npm run typecheck:next-test > "$RUNNER_TEMP/types-tests.log" 2>&1 || status=1
+          tail -n 20 "$RUNNER_TEMP/types-source.log"
+          tail -n 20 "$RUNNER_TEMP/types-tests.log"
+          exit "$status"
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
         name: Mounted application lint (informational)
@@ -66,6 +72,17 @@ jobs:
           tail -n 20 "$RUNNER_TEMP/full-ci.log"
           exit "$status"
         working-directory: portico-react-native
+      - name: Retain full diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-${{ github.job }}-${{ strategy.job-index || '0' }}
+          path: |
+            ${{ runner.temp }}/full-ci.log
+            ${{ runner.temp }}/go-build.log
+            ${{ runner.temp }}/types*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   apple-contracts:
     runs-on: macos-15
@@ -118,3 +135,15 @@ jobs:
           done
           xcrun clang -fobjc-arc -fblocks -framework Foundation -framework CoreVideo apps/native/test/apple-playback-observation-tests.m -o "$RUNNER_TEMP/apple-playback-observation"
           "$RUNNER_TEMP/apple-playback-observation"
+      - name: Retain full diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-${{ github.job }}-${{ strategy.job-index || '0' }}
+          path: |
+            ${{ runner.temp }}/full-ci.log
+            ${{ runner.temp }}/go-build.log
+            ${{ runner.temp }}/types*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
