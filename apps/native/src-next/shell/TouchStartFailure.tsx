@@ -26,7 +26,7 @@ export function TouchStartFailure({failure, wait, runtime}: {
   const consent = useRef<AbortController | undefined>(undefined);
   const offered = useRef<readonly RemotePlaybackControls[]>([]);
   const [sessions, setSessions] = useState<Readonly<{owner: Opening['owner']; items: readonly RemotePlaybackControls[]}>>();
-  const rows = sessions?.owner === owner ? sessions.items : [];
+  const rows = sessions && sessions.owner === owner ? sessions.items : [];
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState<string>();
   const [report, setReport] = useState(false), [sent, setSent] = useState(false);
   const [now, setNow] = useState(Date.now), began = useRef(Date.now());
