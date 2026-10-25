@@ -1,4 +1,4 @@
-import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues, type RcloneSourceDraft, type RcloneTestInput, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -101,9 +101,34 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     finally {if (!this.allowed()) this.dispose();}
   }
 
+  async importedFacts(guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const [program, providers] = await Promise.all([this.service.rcloneProgram(), this.service.rcloneProviders()]);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return {program, providers};
+  }
+
+  async testImported(input: RcloneTestInput, guard: () => boolean): Promise<RcloneTestResult> {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.testRclone(input, guard);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
+  }
+
+  async configureImported(source: RemoteSource | undefined, input: RcloneSourceDraft, guard: () => boolean): Promise<void> {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    await this.service.configureRclone(source?.id ?? null, input, source, guard);
+    this.assertAllowed();
+  }
+
   async remove(source: RemoteSource, guard: () => boolean = () => true): Promise<void> {
     this.assertAllowed();
-    try {if (!guard()) throw screenScopeEnded(); await this.service.remove(source, guard);}
+    try {if (!guard()) throw screenScopeEnded(); if (source.kind === 'rclone') await this.service.removeRclone(source, guard); else await this.service.remove(source, guard);}
     finally {if (!this.allowed()) this.dispose();}
   }
 
