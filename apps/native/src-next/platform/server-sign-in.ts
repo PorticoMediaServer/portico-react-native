@@ -193,6 +193,16 @@ export class NativeServerSignIn {
       const review = await this.hostedSetup.accountApproval(url, opening); this.assertCurrent(); return review;
     });
   }
+  restartEndedSetup() {
+    return this.run(async () => {
+      const claim = this.hostedSetup, api = this.api, server = this.server;
+      if (!claim || !api || !server?.setupRequired) throw mismatch();
+      await claim.abandonEnded(); this.assertCurrent();
+      const checked = await rememberNativeServerDisplay(api, {serverId: server.id, signIn: server.signIn, signal: this.controller.signal, isCurrent: this.current});
+      this.assertCurrent(); if (!checked.setupRequired) throw mismatch();
+      this.hostedSetup = undefined; this.server = checked;
+    });
+  }
   finishHostedSetup() {
     return this.run(async () => {
       const claim = this.hostedSetup;

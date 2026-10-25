@@ -4,10 +4,11 @@ import {parseClaimStatus, type ClaimExpected} from '../../../../packages/client-
 import {installationIdentity} from '../../../../packages/client-core/src/installation.ts';
 import {prepareSetupClaimHandoff, type SetupClaimHandoff} from '../../../../packages/client-core/src/setup-claim-client.ts';
 import {verifySetupClaimStart} from '../../../../packages/client-core/src/setup-claim-start.ts';
-import {resumeServerSetup, type SetupDraft, type SetupDraftStore} from '../../../../packages/client-core/src/setup-onboarding.ts';
+import {resumeServerSetup, type SetupDraft} from '../../../../packages/client-core/src/setup-onboarding.ts';
 import {parseDirectSignIn, type DirectSignIn} from '../../../../packages/client-core/src/profile-management.ts';
 import {assertFirstContactIdentity, routeBase64, routeBytes, routeOrigin, sameServerPin, type ServerPin, type RouteCrypto} from '../../../../packages/client-core/src/route-identity.ts';
 import {connectPairedServer, connectPairedPorticoServer, type ConnectionEnvironment} from '../../../../packages/client-core/src/server-connections.ts';
+import {NativeSetupEnded} from './setup-outcome';
 import {NativeSetupApproval} from './setup-approval';
 import {CodedError} from '../../../../packages/client-core/src/server-messages.ts';
 import {routePath} from '../../../../packages/contracts/src/routes.ts';
@@ -16,12 +17,13 @@ type Pending = Readonly<{
   version: 1; kind: 'setup'; attemptId: string; origin: string; hostedOrigin: string; pin: ServerPin;
   expectedRevision: number; setupRequestId: string; setupToken: string; setupRevision: string;
   installationId: string; state: string; verifier: string; codeChallenge: string; createdAt: number; expiresAt: string;
-  expected?: ClaimExpected; handoff?: SetupClaimHandoff; approvalURL?: string;
+  expected?: ClaimExpected; handoff?: SetupClaimHandoff; approvalURL?: string; retired?: true; retiredDraft?: SetupDraft;
 }>;
 type Journal = Readonly<{assertAvailable: () => void; read: () => Promise<Pending | undefined>;
-  change: (update: (old: Pending | undefined) => Pending | undefined) => Promise<void>}>;
+  change: (update: (old: Pending | undefined) => Pending | undefined, beforeCommit?: () => void) => Promise<void>}>;
 type Ports = Readonly<{
-  journal: Journal; draft: (serverId: string) => SetupDraftStore; sessions: Pick<AppSessionStore, 'read'>;
+  journal: Journal; draft: (serverId: string) => NativeSetupDraftStore;
+  selectionLease: typeof withNativeSelectionLease; sessions: Pick<AppSessionStore, 'read'>;
   environment: (serverId: string) => ConnectionEnvironment; installationId: () => string; pageOrigin: () => string;
   crypto: RouteCrypto; fetcher: typeof fetch;
   now?: () => number; prepare?: typeof prepareSetupClaimHandoff;
@@ -41,6 +43,8 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
  * Initial setup has no Local owner or authorization family. Its only authority
  * is the original protected setup request/token and Server-supplied revision. */
 export class NativeSetupClaim {
+  private ended?: Pending;
+  private endedDraft?: SetupDraft;
   private epoch = 0;
   private controller?: AbortController;
   private attemptId?: string;
@@ -59,7 +63,7 @@ export class NativeSetupClaim {
     const draft = await this.ports.draft(record.pin.serverId).read(), selection = await this.ports.sessions.read();
     if (!operation.current() || record.version !== 1 || record.kind !== 'setup' || record.origin !== this.ports.pageOrigin() ||
       record.installationId !== this.ports.installationId() || selection.revision !== record.expectedRevision ||
-      !draft || draft.version !== 1 || draft.authMode !== 'hosted' || draft.serverId !== record.pin.serverId || draft.requestId !== record.setupRequestId || draft.setupToken !== record.setupToken ||
+      (!draft ? !record.retired : draft.version !== 1 || draft.authMode !== 'hosted' || draft.serverId !== record.pin.serverId || draft.requestId !== record.setupRequestId || draft.setupToken !== record.setupToken) ||
       !Number.isSafeInteger(record.createdAt) || record.createdAt < 0 || record.createdAt > this.now() + 60_000 || !Number.isFinite(Date.parse(record.expiresAt)) ||
       Date.parse(record.expiresAt) <= this.now() || Date.parse(record.expiresAt) > record.createdAt + 300_000) throw cancelled();
     return draft;
@@ -87,6 +91,7 @@ export class NativeSetupClaim {
       const proof = await verifySetupClaimStart(record.handoff.claim, record.handoff.start, binding, this.now(), this.ports.crypto);
       await this.current(record, operation);
       if (record.handoff.expiresAt !== proof.start.expiresAt || Date.parse(record.expiresAt) > Date.parse(proof.start.expiresAt)) throw invalid();
+      if (record.retired) {this.ended = record; this.endedDraft = record.retiredDraft; throw new NativeSetupEnded('cancelled');}
       if (record.approvalURL) {
         const url = new URL(record.approvalURL), fragment = new URLSearchParams(url.hash.slice(1));
         if (url.origin !== record.hostedOrigin || url.pathname !== '/claim' || url.search || url.username || url.password
@@ -173,11 +178,40 @@ export class NativeSetupClaim {
         || fragment.get('server') !== proof.claim.name) throw invalid();
       const code = fragment.get('code') ?? '';
       if (!code.startsWith('claim_')) throw invalid(); routeBytes(code.slice(6), 32);
+      const originalDraft = await this.current(record, operation);
       const approval = new NativeSetupApproval({code, serverId: record.pin.serverId, name: proof.claim.name, origin: record.origin,
         transactionId: record.handoff.transactionId, expiresAt: record.handoff.expiresAt},
-        async () => {await this.current(record, operation);}, operation.signal, opening);
+        async () => {await this.current(record, operation);}, operation.signal, opening, () => {if (!operation.current() || !opening.current()) throw cancelled(); this.ended = record; this.endedDraft = originalDraft ? Object.freeze({...originalDraft}) : undefined;});
       try {const display = await approval.review(); return {approval, display};}
       catch (error) {approval.dispose(); throw error;}
+    } finally {this.busy = false;}
+  }
+  /** Explicit user restart retires only this terminal local journal/draft.
+   * A tombstone prevents a crash between keys from reviving the old handoff. */
+  async abandonEnded() {
+    const operation = this.operation(), record = this.ended, capturedDraft = this.endedDraft;
+    try {
+      if (!record || !capturedDraft) throw invalid();
+      let ownedRecord = record;
+      const assert = () => {
+        if (!operation.current() || record.installationId !== this.ports.installationId() || this.ended !== ownedRecord) throw cancelled();
+      };
+      await this.ports.selectionLease(record.expectedRevision, assert, async (check, beforeCommit) => {
+        const stored = await this.ports.journal.read(); await check();
+        if (!same(stored, record)) throw cancelled();
+        const retired: Pending = {...record, retired: true, retiredDraft: {...capturedDraft}};
+        await this.ports.journal.change(old => {beforeCommit(); if (!same(old, record)) throw cancelled(); return retired;}, beforeCommit);
+        ownedRecord = retired; this.ended = retired; await check();
+        await this.ports.draft(record.pin.serverId).change(old => {
+          beforeCommit();
+          if (old === undefined ? !record.retired : JSON.stringify(old) !== JSON.stringify(capturedDraft)) throw cancelled();
+          return undefined;
+        }, beforeCommit);
+        await check();
+        await this.ports.journal.change(old => {beforeCommit(); if (!same(old, retired)) throw cancelled(); return undefined;}, beforeCommit);
+        await check(); this.ended = undefined;
+        this.endedDraft = undefined; this.attemptId = undefined;
+      });
     } finally {this.busy = false;}
   }
   private async retire(api: HttpLocalApi, session: LocalSession, initial: ReadonlySet<string>) {
@@ -214,6 +248,7 @@ export class NativeSetupClaim {
       const digest = routeBase64(await this.ports.crypto.sha256(new TextEncoder().encode(record.verifier)));
       routeBytes(record.verifier, 32);
       if (digest !== proof.start.codeChallenge || handoff.expiresAt !== proof.start.expiresAt) throw invalid();
+      if (record.retired) {this.ended = record; this.endedDraft = record.retiredDraft; throw new NativeSetupEnded('cancelled');}
       await current();
       const environment = this.ports.environment(record.pin.serverId);
       connected = await (this.ports.connect ?? connectPairedServer)(record.origin, record.pin, environment, operation.signal);
@@ -221,6 +256,11 @@ export class NativeSetupClaim {
       const raw = await connected.api.request<unknown>(routePath('get_networking_claim'), 'GET', undefined, operation.signal);
       await current();
       const status = parseClaimStatus(raw, record.pin), setup = object(raw) ? raw.setupContinuation : undefined;
+      if (status.state === 'cancelled' && status.identity.localGeneration === record.expected.localGeneration
+        && status.operation?.operationId === record.expected.operationId && status.operation.localGeneration === record.expected.localGeneration
+        && BigInt(status.operation.revision) >= BigInt(record.expected.revision) && object(setup) && setup.phase === 'cancelled'
+        && setup.transactionId === handoff.transactionId && typeof setup.expiresAt === 'string' && Date.parse(setup.expiresAt) === Date.parse(handoff.expiresAt)
+        && Object.keys(setup).sort().join(',') === 'expiresAt,phase,transactionId') {this.ended = record; const draft = await current(); this.endedDraft = draft ? Object.freeze({...draft}) : undefined; throw new NativeSetupEnded('cancelled');}
       if (status.state !== 'installed') return undefined;
       if (status.identity.localGeneration !== record.expected.localGeneration || status.operation?.operationId !== record.expected.operationId
         || status.operation.localGeneration !== record.expected.localGeneration || BigInt(status.operation.revision) < BigInt(record.expected.revision)
@@ -269,8 +309,8 @@ export class NativeSetupClaim {
 }
 
 import {NativeQueueStore} from './queue-storage';
-import {nativeAppSessions} from './app-session-storage';
-import {nativeSetupDraft} from './setup-draft';
+import {nativeAppSessions, withNativeSelectionLease} from './app-session-storage';
+import {nativeSetupDraft, type NativeSetupDraftStore} from './setup-draft';
 import {nativeNetworkFetch, nativeRouteCrypto, nativeServerEnvironment} from './server-connections';
 
 export function createNativeSetupClaim(origin: string, serverId: string) {
@@ -278,8 +318,8 @@ export function createNativeSetupClaim(origin: string, serverId: string) {
   return new NativeSetupClaim({
     journal: {assertAvailable: () => {},
       read: () => storage.change(key, raw => ({record: raw, value: raw == null ? undefined : raw as Pending})),
-      change: async update => {await storage.change(key, raw => ({record: update(raw == null ? undefined : raw as Pending) ?? null, value: undefined}));}},
-    draft: nativeSetupDraft, sessions: nativeAppSessions, environment: nativeServerEnvironment,
+      change: async (update, beforeCommit) => {await storage.change(key, raw => ({record: update(raw == null ? undefined : raw as Pending) ?? null, value: undefined}), undefined, beforeCommit);}},
+    selectionLease: withNativeSelectionLease, draft: nativeSetupDraft, sessions: nativeAppSessions, environment: nativeServerEnvironment,
     crypto: nativeRouteCrypto, fetcher: nativeNetworkFetch, pageOrigin: () => origin,
     installationId: () => {const value = installationIdentity(); if (!value) throw invalid(); return value.installationId;},
   });
