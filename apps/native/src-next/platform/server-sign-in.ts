@@ -1,9 +1,9 @@
-import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
+import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
-import {porticoSignIn} from '../../../../packages/client-core/src/portico-servers';
+import {porticoSignIn, acceptPorticoInvitation, acceptShortPorticoInvitation} from '../../../../packages/client-core/src/portico-servers';
 import {routePath} from '../../../../packages/contracts/src/routes';
 import {createNativeLocalTVSignIn} from './tv-sign-in';
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
@@ -15,6 +15,7 @@ import {rememberNativeServerDisplay} from './server-display';
 import {nativeAppSessions, subscribeNativeAppSessions} from './app-session-storage';
 import {NativeMemberAccountMove} from './member-account-move';
 import {NativeLocalInvitation} from './local-invitation';
+import {NativePorticoInvitation} from './portico-invitation';
 import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
@@ -63,6 +64,7 @@ export class NativeServerSignIn {
   private hostedLease?: () => boolean;
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
   private memberMove?: {dispose: () => void};
+  private porticoInvitation?: NativePorticoInvitation<Awaited<ReturnType<NativeServerSignIn['signInLocal']>>>;
   private invitationBinding?: () => boolean;
   private localInvitation?: NativeLocalInvitation<Awaited<ReturnType<NativeServerSignIn['signInLocal']>>>;
   private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
@@ -72,7 +74,7 @@ export class NativeServerSignIn {
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
   }
-  private current = (): boolean => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease()) && (!this.localInvitation || this.localInvitation.current()) && (!this.invitationBinding || this.invitationBinding());
+  private current = (): boolean => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease()) && (!this.localInvitation || this.localInvitation.current()) && (!this.invitationBinding || this.invitationBinding()) && (!this.porticoInvitation || this.porticoInvitation.current());
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
   /** Public hand-offs use the connected, identity-verified server origin. The
@@ -111,7 +113,7 @@ export class NativeServerSignIn {
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
       if (this.expectedTarget && (server.id !== this.expectedTarget.serverId || server.signIn !== 'local' || server.setupRequired)) throw mismatch();
-      if (this.expectedInvitation && (server.setupRequired || server.signIn !== 'local' || this.expectedInvitation.serverId && server.id !== this.expectedInvitation.serverId)) throw mismatch();
+      if (this.expectedInvitation && (server.setupRequired || this.expectedInvitation.serverId && server.id !== this.expectedInvitation.serverId)) throw mismatch();
       this.server = server; return server;
     });
   }
@@ -336,40 +338,81 @@ export class NativeServerSignIn {
       const system = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'portico',
         signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
       this.server = system;
-      const signal = this.controller.signal, hosted = new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch);
-      const api = connected.api, routes = connected.connection, origin = api.baseUrl, pin = routes.pin;
-      const samePin = () => {const live = api.getRouteConnection()?.pin; return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;};
-      this.hostedLease = () => {
-        const live = credentials.getSnapshot().session;
-        return this.api === api && live?.account.id === account.account.id && live.familyId === account.familyId && samePin();
-      };
-      const assertHostedCurrent = () => {this.assertCurrent();};
-      const before = await nativeAppSessions.read(); assertHostedCurrent();
-      const protectedFamilies = new Set(before.servers.map(value => value.connection.session.sessionFamilyId));
-      if (this.account) protectedFamilies.add(this.account.sessionFamilyId);
-      const retireFresh = async (fresh: LocalSession) => {
-        if (fresh.viewer.authority !== 'local' || fresh.viewer.serverId !== pin.serverId
-          || fresh.installationId !== this.installation?.installationId || protectedFamilies.has(fresh.sessionFamilyId)
-          || fresh.sessionFamilyId === this.account?.sessionFamilyId) return;
-        const stored = await nativeAppSessions.read();
-        if (stored.servers.some(value => value.connection.session.sessionFamilyId === fresh.sessionFamilyId) || !samePin()) return;
-        // Cleanup uses only this command's original issuer and proven routes,
-        // never the now-selected server or its credential. Normal consume owns
-        // retirement after the synchronous handoff below.
-        const cleanup = new HttpLocalApi(origin, fresh.accessToken, nativeNetworkFetch); cleanup.useRoutes(routes);
-        await cleanup.logout();
-      };
-      const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown) => {
-        assertHostedCurrent();
-        try {const result = await hosted.request<T>(path, method, body, signal); assertHostedCurrent(); return result;}
-        catch (error) {assertHostedCurrent(); throw hostedSignInUnavailable(error) ?? error;}
-      }};
-      const result = await porticoSignIn(officialHosted, hostedUrl, api, server.id, {signal, crypto: nativeRouteCrypto});
-      try {assertHostedCurrent();}
-      catch (error) {if (result.kind === 'signed-in') await retireFresh(result.session); throw error;}
-      if (result.kind === 'challenge') this.directoryFactor = {api, token: result.token, expiresAt: result.expiresAt, assert: assertHostedCurrent, retire: retireFresh};
-      return this.consume(result);
+      return this.consumeHostedCommand(connected, credentials, account,
+        (hosted, api, signal) => porticoSignIn(hosted, hostedUrl, api, server.id, {signal, crypto: nativeRouteCrypto}));
+    });
+  }
+  /** Shared directory/invitation handoff: preserve the exact account family through
+   * exchange, repeated factors, profile choice and atomic publication. */
+  private async consumeHostedCommand(connected: Awaited<ReturnType<typeof connectHostedServer>>,
+    credentials: ReturnType<NativeAccounts['accountCredentials']>, account: Omit<HostedSession, 'refreshToken'>,
+    command: (hosted: HostedRequestApi, api: HttpLocalApi, signal: AbortSignal) => Promise<DirectSignIn>) {
+    const signal = this.controller.signal, hosted = new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch);
+    const api = connected.api, routes = connected.connection, origin = api.baseUrl, pin = routes.pin;
+    const samePin = () => {const live = api.getRouteConnection()?.pin; return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;};
+    this.hostedLease = () => {
+      const live = credentials.getSnapshot().session;
+      return this.api === api && live?.account.id === account.account.id && live.familyId === account.familyId && samePin();
+    };
+    const assertHostedCurrent = () => {this.assertCurrent();};
+    const before = await nativeAppSessions.read(); assertHostedCurrent();
+    const protectedFamilies = new Set(before.servers.map(value => value.connection.session.sessionFamilyId));
+    if (this.account) protectedFamilies.add(this.account.sessionFamilyId);
+    const retireFresh = async (fresh: LocalSession) => {
+      if (fresh.viewer.authority !== 'local' || fresh.viewer.serverId !== pin.serverId
+        || fresh.installationId !== this.installation?.installationId || protectedFamilies.has(fresh.sessionFamilyId)
+        || fresh.sessionFamilyId === this.account?.sessionFamilyId) return;
+      const stored = await nativeAppSessions.read();
+      if (stored.servers.some(value => value.connection.session.sessionFamilyId === fresh.sessionFamilyId) || !samePin()) return;
+      // Cleanup uses only this command's original issuer and proven routes,
+      // never the now-selected server or its credential. Normal consume owns
+      // retirement after the synchronous handoff below.
+      const cleanup = new HttpLocalApi(origin, fresh.accessToken, nativeNetworkFetch); cleanup.useRoutes(routes);
+      await cleanup.logout();
+    };
+    const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown) => {
+      assertHostedCurrent();
+      try {const result = await hosted.request<T>(path, method, body, signal); assertHostedCurrent(); return result;}
+      catch (error) {assertHostedCurrent(); throw hostedSignInUnavailable(error) ?? error;}
+    }};
+    const result = await command(officialHosted, api, signal);
+    try {assertHostedCurrent();}
+    catch (error) {if (result.kind === 'signed-in') await retireFresh(result.session); throw error;}
+    if (result.kind === 'challenge') this.directoryFactor = {api, token: result.token, expiresAt: result.expiresAt, assert: assertHostedCurrent, retire: retireFresh};
+    return this.consume(result);
 
+  }
+  preparePorticoInvitation() {
+    return this.run(async () => {
+      const server = this.server, origin = this.probe.getSnapshot().origin;
+      if (!server || server.signIn !== 'portico' || server.setupRequired || !origin || this.api || this.expectedTarget || this.porticoInvitation) throw mismatch();
+      const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
+      if (pin.serverId !== server.id) throw mismatch();
+      assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
+      const credentials = this.owner.accountCredentials(); await credentials.synchronize(); this.assertCurrent();
+      const account = await credentials.accessSession(); this.assertCurrent();
+      const accountCurrent = () => {const live = credentials.getSnapshot().session; return live?.account.id === account.account.id && live.familyId === account.familyId;};
+      this.hostedLease = accountCurrent; this.assertCurrent();
+      this.admission = await this.owner.admission('portico', {origin: hostedUrl, accountId: account.account.id}); this.assertCurrent();
+      const connected = await connectPairedPorticoServer(origin, pin, nativeHostedSource(hostedUrl, credentials, account.account.id), nativeServerEnvironment(server.id), this.controller.signal);
+      try {
+        this.assertCurrent(); this.api = connected.api; this.hosted = connected.hosted;
+        this.hostedLease = () => {
+          const live = connected.api.getRouteConnection()?.pin;
+          return accountCurrent() && this.api === connected.api && !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;
+        };
+        this.assertCurrent();
+        this.server = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'portico', signal: this.controller.signal, isCurrent: this.current});
+        this.assertCurrent(); if (this.server.setupRequired) throw mismatch();
+        const anonymous = new HttpLocalApi(connected.api.baseUrl, '', nativeNetworkFetch); anonymous.useRoutes(connected.connection);
+        this.porticoInvitation = new NativePorticoInvitation({api: anonymous, origin: routeOrigin(origin), serverId: pin.serverId,
+          username: account.account.username, current: this.current,
+          accept: capability => this.run(() => this.consumeHostedCommand(connected, credentials, account, (hosted, api, signal) =>
+            'shortCode' in capability
+              ? acceptShortPorticoInvitation(hosted, hostedUrl, api, server.id, capability.shortCode, signal, nativeRouteCrypto)
+              : acceptPorticoInvitation(hosted, hostedUrl, api, server.id, capability.code, signal, nativeRouteCrypto)))});
+        return this.porticoInvitation;
+      } catch (error) {connected.connection.dispose(); throw error;}
     });
   }
   localTVSignIn() {
@@ -699,7 +742,7 @@ export class NativeServerSignIn {
   }
   private cancel() {
     if (this.controller.signal.aborted) return;
-    this.localInvitation?.dispose(); this.hostedSetup?.dispose(); this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
+    this.localInvitation?.dispose(); this.porticoInvitation?.dispose(); this.hostedSetup?.dispose(); this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
     this.probe.dispose(); this.unfence();
     const routes = this.api?.getRouteConnection();
     void Promise.resolve(this.running).catch(() => {}).then(() => Promise.allSettled([...this.issued.values()].map(session => this.retire(session)))).finally(() => routes?.dispose());
