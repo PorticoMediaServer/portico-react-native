@@ -34,6 +34,7 @@ import type {NativeLibraryFilterDraft} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
+import type {NativeMarkAllRequest} from './mark-all';
 
 export type NativeLibraryActions = Readonly<{
   dispose?: () => void;
@@ -43,6 +44,8 @@ export type NativeLibraryActions = Readonly<{
   menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
   saveView: (destination: NativeLibraryDestination, draft: NativeLibraryViewDraft) => void;
+  /** The host's count-aware bulk command: one durable job over the view the viewer sees. */
+  markAll?: (request: NativeMarkAllRequest) => void;
 }>;
 export type NativeLibrarySelectionPort = Readonly<{
   /** Enter this library's actual current selection context without selecting an item. */
@@ -199,10 +202,29 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const washed = !!source && theme.platform === 'phone' && libraryWashKind(state.library.kind);
   const wash = washed ? <View pointerEvents="none" style={nativeLibraryR46.wash}><AmbientArt source={source} treatment="library"/></View> : undefined;
   const ambient = source && !washed ? <AmbientArt source={source} treatment="library"/> : undefined;
+  // The menu's Mark all covers exactly this view: the pivot and filters the viewer sees, with
+  // the view's own count. The job captures membership itself, so nothing here is a client tally.
+  const markAll = (): void => {
+    const view = state.collection?.getSnapshot();
+    if (!view || view.total === undefined || !actions.markAll) return;
+    const predicates = state.predicates;
+    const filter = predicates.length === 0 ? undefined : predicates.length === 1 ? predicates[0] : {all: predicates};
+    const sort = state.sort ? [{field: state.sort.field, direction: state.sort.direction}] : undefined;
+    actions.markAll({selector: {query: {libraryId: state.library.id, pivot: state.tab.pivot ?? '',
+      ...(filter ? {filter} : {}), ...(sort ? {sort} : {})}},
+      pivot: state.tab.pivot ?? 'other', viewTotal: view.total, viewAtLeast: view.totalIsLowerBound === true,
+      read: isReadingLibraryKind(state.library.kind),
+      // The cards' watched marks come from the fetched page, so the view that submitted the job
+      // reloads itself when the job is applied — and only while it is still the same view.
+      applied: () => {
+        const now = destination.getSnapshot();
+        if (now.predicates === predicates && now.sort === state.sort) destination.setQuery(predicates, state.sort);
+      }});
+  };
   const menu = <LibraryMenu {...runtime.libraryMenu(state.library)}
     canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
       if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
-    }}/>;
+    }} onMarkAll={actions.markAll && state.collection ? markAll : undefined}/>;
   const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient}>{tabs}</LibraryHeader>
     : theme.platform === 'phone' ? <LibraryCompactHeader switcher={switcher} menu={menu} wash={washed}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</LibraryCompactHeader>

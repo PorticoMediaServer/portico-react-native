@@ -72,7 +72,7 @@ export function LibrarySwitcher({libraries, value, onValueChange, open: supplied
 }
 
 type LibraryMenuCommon = {
-  read?: boolean; canSaveView?: boolean; onSaveView: () => void; onMarkAll: () => void; onEditPins: () => void;
+  read?: boolean; canSaveView?: boolean; onSaveView: () => void; /** Present only where the host has a real count-aware bulk command. */ onMarkAll?: () => void; onEditPins: () => void;
   viewSummary?: ReactNode; count?: ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void; testID?: string;
 };
 export type LibraryMenuProps = LibraryMenuCommon & (
@@ -90,7 +90,7 @@ export function LibraryMenu(props: LibraryMenuProps) {
     <Button ref={anchorRef} testID={props.testID} variant="icon" icon="i-more" size="compact" iconOnly onPress={() => setOpen(!open)} accessibilityLabel={t('next.browse.native.libraryOptions')} accessibilityState={{expanded: open}}/>
     <Popover testID={props.testID ? `${props.testID}-surface` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.libraryOptions')} accessibilityLabel={t('next.browse.native.libraryOptions')} placement="bottom-end" width={theme.isTV ? 560 : 282} offset={2} modal backdropOpacity={.62}>
       <MenuRow focusId="save-view" testID={props.testID ? `${props.testID}-save-view` : undefined} label={t('next.browse.native.saveThisView')} icon="i-filter" trailing={props.viewSummary} variant="compact" disabled={props.canSaveView === false} onPress={action(props.onSaveView)}/>
-      <MenuRow focusId="mark-all" testID={props.testID ? `${props.testID}-mark-all` : undefined} label={t(props.read ? 'next.browse.native.markAllRead' : 'next.browse.native.markAllWatched')} icon="i-check" trailing={props.count} variant="compact" onPress={action(props.onMarkAll)}/>
+      {props.onMarkAll && <MenuRow focusId="mark-all" testID={props.testID ? `${props.testID}-mark-all` : undefined} label={t(props.read ? 'next.browse.native.markAllRead' : 'next.browse.native.markAllWatched')} icon="i-check" trailing={props.count} variant="compact" onPress={action(props.onMarkAll)}/>}
       <MenuRow focusId="edit-pins" testID={props.testID ? `${props.testID}-edit-pins` : undefined} label={t('next.browse.native.editPins')} icon="i-updown" variant="compact" onPress={action(props.onEditPins)}/>
       {props.owner && !theme.isTV && <>
         <View style={{height: 34, marginTop: 6, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: alpha(theme.colors.accentStrong, .22), backgroundColor: alpha(theme.colors.accent, .16)}}>
