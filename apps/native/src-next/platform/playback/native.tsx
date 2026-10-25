@@ -67,7 +67,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
       const android = Platform.OS === 'android', amazon = android && String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon';
       const screen = Dimensions.get('screen');
       const pad = !Platform.isTV && (android ? Math.min(screen.width, screen.height) >= 600 : (Platform as {isPad?: boolean}).isPad === true);
-      const document = deviceCapabilityDocument({setting: settings.engine, overrides: settings.overrides, native: facts, mpv: mpvFacts, mpvAvailable, appVersion: options.appVersion,
+      const document = deviceCapabilityDocument({setting: settings.engine, passthroughFormats: settings.passthroughFormats, overrides: settings.overrides, native: facts, mpv: mpvFacts, mpvAvailable, appVersion: options.appVersion,
         device: {television: Platform.isTV, pad, family: android ? Platform.isTV ? amazon ? 'firetv' : 'androidtv' : 'android' : undefined, osVersion: String(Platform.Version)}});
       await publisher.publish(document);
     }).catch(() => {});

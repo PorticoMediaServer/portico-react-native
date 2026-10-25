@@ -52,6 +52,7 @@ export type NativePlaybackSurfaceProps = Readonly<{
 }>;
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
 export type NativePlaybackSettings = Readonly<{
+  passthroughFormats?: import('./passthrough-formats').PassthroughFormats;
   /** Android display matching; absent is the platform's existing Automatic behavior. */
   matchFrameRate?: 'auto' | 'off';
   audiobook?: import('../../../../../packages/client-core/src/audiobook-preferences').AudiobookPreferences;
