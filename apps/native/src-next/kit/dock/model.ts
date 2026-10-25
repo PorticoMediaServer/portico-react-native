@@ -38,14 +38,9 @@ export function commandAllowed(occupant: DockOccupant, type: DockAction): boolea
   if (type === 'stop' || type === 'close') return cap.stop;
   if (type === 'open-remote') return phase === 'playing';
   if (type === 'expand' || type === 'collapse') return !phase;
-  // A connection can be stopped while it is still asking, and a stopped remote
-  // offers Continue here and Dismiss; every other command waits for 'playing'.
-  if (phase) {
-    if (type === 'stop') return phase === 'connecting' || phase === 'pairing' || phase === 'waiting' || phase === 'playing';
-    if (type === 'continue-here' || type === 'dismiss-remote') return phase === 'stopped';
-    if (type === 'open-remote') return phase === 'playing' || phase === 'stopped';
-    if (phase !== 'playing') return false;
-  }
+  // Remote-only actions were decided above using their exact phase/capability.
+  // Remaining transport controls wait for the actual playing phase.
+  if (phase && phase !== 'playing') return false;
   if (type === 'seek') return cap.seek;
   if (type === 'previous' || type === 'next' || type === 'cast') return cap[type];
   if (type === 'pause') return cap.pause;
