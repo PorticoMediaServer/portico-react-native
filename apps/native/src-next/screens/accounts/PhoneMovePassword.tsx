@@ -1,4 +1,4 @@
-import React, {useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, type TextInput} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -16,6 +16,7 @@ export function PhoneMovePassword<Result>({controller, serverName, onBack}: {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const [username, setUsername] = useState(''), [password, setPassword] = useState(''), [showPassword, setShowPassword] = useState(false);
   const passwordInput = useRef<TextInput>(null);
+  useEffect(() => {if (state.phase !== 'password') {setPassword(''); setShowPassword(false);}}, [state.phase]);
   if (state.phase !== 'password') return null;
   const submit = () => {
     if (state.busy || !username || !password) return;
