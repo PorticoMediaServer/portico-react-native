@@ -27,7 +27,7 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
     const forms = {runtime: createServerForm('runtime', deps), connectivity: createServerForm('connectivity', deps)};
     const set = new FormSet(); set.add('runtime', forms.runtime); set.add('connectivity', forms.connectivity);
     return {lifetime, api, console, forms, set};
-  }, [context, ports]);
+  }, [context]);
   const [configuration, setConfiguration] = useState<SettingsConfiguration>(), [configurationError, setConfigurationError] = useState<unknown>();
   useEffect(() => {const read = new AbortController(); void owned.api.request(routePath('get_settings_configuration'), 'GET', undefined, read.signal).then(parseSettingsConfiguration).then(value => {if (!read.signal.aborted) setConfiguration(value);}, error => {if (!read.signal.aborted) setConfigurationError(error);}); return () => read.abort();}, [owned]);
   useEffect(() => {for (const form of Object.values(owned.forms)) void form.load(); return () => {for (const form of Object.values(owned.forms)) form.dispose(); owned.console.dispose(); owned.set.discard(); owned.lifetime.dispose();};}, [owned]);
