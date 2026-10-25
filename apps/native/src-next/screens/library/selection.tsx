@@ -32,9 +32,9 @@ type RegisteredWindow = Readonly<{id: string; first: number; entries: readonly C
  *
  * Toggling works on the genuine entries the grid registers, and every action the
  * bar offers is one the canonical Detail projection enables for *every* pick:
- * Play, Add to queue, My List, Favorites and Watched. Edit, delete, download and
- * the playlist/collection pickers have no executor on this surface, so their
- * capabilities stay false and the bar never draws them.
+ * Play, Add to queue, My List, Favorites and Watched, the bounded playlist and
+ * collection picker, and the owner's bulk edit and delete. Download has no
+ * executor on this surface, so that capability stays false.
  *
  * Select all is deliberately absent. It means the whole result (select.html #5),
  * which needs the whole-query membership descriptor; this view is windowed, so a
@@ -253,7 +253,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, snapshot, loadedCount: () => loaded().length, personal: () => personal?.service.getSnapshot(),
     personalBusy: () => !!personal?.service.getSnapshot().busy, resultsToken: () => personalToken,
-    busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal,
+    // An open bulk dialog owns the current operation: the bar must not offer another.
+    busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy || !!bulk, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal,
     destination: () => destinations, destinationKind: () => destinationKind, openDestination, closeDestinations,
     bulk: () => bulk, openAdmin, closeBulk, entries: () => entriesFor(selectedKeys()).filter(leaf)};
   // useSyncExternalStore compares snapshots by identity: one layout object per
