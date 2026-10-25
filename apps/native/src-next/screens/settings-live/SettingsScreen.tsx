@@ -1,3 +1,4 @@
+import {useTVVoiceSearch} from './use-tv-voice-search';
 import {passthroughFormats} from '../../platform/playback/passthrough-formats';
 import {NativeFrameRateRow, nativeFrameRateFocusId} from './NativeFrameRateRow';
 import {NativePassthroughRow, nativePassthroughFocusId} from './NativePassthroughRow';
@@ -135,6 +136,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     <Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18}/><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text}]}>{t(value.title)}</Text>
   </Focusable>;
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
+  const voiceSearch = useTVVoiceSearch(theme.isTV && searching, controller.lifetime, setQuery, runtime.reportError);
   const [restoreRevision, setRestoreRevision] = useState(0);
   const liveControllers = useMemo(() => {
     if (!managesServer || theme.isTV) return undefined;
@@ -201,7 +203,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           <TextField focusId="input" testID="settings-search" variant="search" leadingIcon="i-search" accessibilityLabel={t('next.shell.searchSettings')} placeholder={t('next.shell.searchSettings')} value={query} onChangeText={setQuery} showSoftInputOnFocus={!theme.isTV}
             onFocus={() => {if (theme.isTV && !searching) {setSearching(true); setSearchRevision(value => value + 1);}}} containerStyle={{marginHorizontal: theme.isTV ? 0 : 16}}/>
         </FocusRegion>
-        {theme.isTV && searching ? <View style={{marginTop: 32}}><NativeTVKeyboard id={keyboard} value={query} onChangeText={setQuery} activation={{visible: true, intent: 'enter', revision: searchRevision}} leftRegionId={ids.rail} rightRegionId={matchingPages[0] ? ids.surface(`settings.matches.${matchingPages[0].id}`) : undefined} width={500} testID="settings-keyboard"/></View> : <ScrollView style={{marginTop: 20, marginHorizontal: theme.isTV ? -16 : 0}} contentContainerStyle={theme.isTV ? {paddingHorizontal: 16} : undefined}>
+        {theme.isTV && searching ? <View style={{marginTop: 32}}><NativeTVKeyboard id={keyboard} value={query} onChangeText={setQuery} activation={{visible: true, intent: 'enter', revision: searchRevision}} leftRegionId={ids.rail} rightRegionId={matchingPages[0] ? ids.surface(`settings.matches.${matchingPages[0].id}`) : undefined} width={500} testID="settings-keyboard" onVoice={voiceSearch.start} voiceBusy={voiceSearch.busy}/></View> : <ScrollView style={{marginTop: 20, marginHorizontal: theme.isTV ? -16 : 0}} contentContainerStyle={theme.isTV ? {paddingHorizontal: 16} : undefined}>
           {query.trim().length >= 2 ? <SettingsSearchResults matches={matches} query={query} onNavigate={address => choose(address)}/>
             : <FocusRegion id={column} entry={orderedPages[0].id} order={orderedPages.map(value => value.id)} orientation="vertical" edges={{left: ids.rail, right: rows}} onLayout={enter}>
               <Text style={[shellType(theme.isTV ? 20 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 20, marginBottom: 10}]}>{t('settings.heading.account')}</Text>

@@ -26,6 +26,7 @@ async function fixture() {
     react, 'react-native': {View: 'View'}, '../../kit/controls': {Select: 'Select'}, '../../kit/states': {StateView: 'StateView'},
   });
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
+    './use-tv-voice-search': {useTVVoiceSearch: () => ({start: undefined, busy: false})},
     './NativeSafeModeRow': safeMode,
     './NativeFrameRateRow': {NativeFrameRateRow: 'NativeFrameRateRow', nativeFrameRateFocusId: 'settings-device-match-frame-rate'},
     '../../platform/playback/passthrough-formats': {passthroughFormats},
