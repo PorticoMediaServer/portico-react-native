@@ -5,7 +5,8 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {NativeTVKeyboard} from '../search/TVKeyboard';
 import {ColourBackdrop} from '../../kit/artwork';
-import {Button, TextField} from '../../kit/controls';
+import {Button, Focusable, TextField} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {useTVBusyEntryRevision} from '../../tv/auth/entry-revision';
@@ -16,27 +17,31 @@ const addressKeys = ['abcdef', 'ghijkl', 'mnopqr', 'stuvwx', 'yz1234', '567890',
 const invitationKeys = ['ABCDEF', 'GHIJKL', 'MNOPQR', 'STUVWX', 'YZ1234', '567890', '-_'].map(row => [...row]);
 type Ticket = {live: boolean; scope: object};
 
-/** Frames 35 and 38 draw the start state with focus on Join with an invitation.
- * A pending directory run disables every control in the door, including that
- * one, so the door declares its own entry and asks for it again when the run
- * ends; the parent's `hasTVPreferredFocus` still covers the first mount. */
-function DoorTiles({busy, revision, onJoin, onRefresh}: {busy: boolean; revision: number; onJoin: () => void; onRefresh: () => void}) {
+/** Frames 35 and 38 draw two tiles. The Join tile is the focus and OK target;
+ * the setup tile is the QR to scan. Nothing else inside the tiles is drawn. */
+function DoorTiles({busy, revision, onJoin}: {busy: boolean; revision: number; onJoin: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision}, {regionId: 'accounts.empty.door', childId: 'join'});
-  return <FocusRegion id="accounts.empty.door" entry="join" order={['join', 'refresh']} enabled={!busy}
-    style={{flexDirection: 'row', gap: 40, alignItems: 'flex-start'}}>
-    <View style={{flex: 1, gap: 18, padding: 28, borderRadius: 20, backgroundColor: theme.colors.raised}}>
-      <Button focusId="join" hasTVPreferredFocus disabled={busy} onPress={onJoin}>{t('services.start.join')}</Button>
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.joinBody')}</Text>
-      <Button focusId="refresh" variant="text" disabled={busy} onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
-    </View>
-    <View style={{flex: 1, gap: 18, padding: 28, borderRadius: 20, backgroundColor: theme.colors.raised}}>
-      <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.setup')}</Text>
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.phoneSetupBody')}</Text>
-      <View accessible accessibilityLabel="https://getportico.tv/download/" style={{padding: 16, alignSelf: 'flex-start', backgroundColor: theme.colors.white, borderRadius: 16}}>
-        <QRCode value="https://getportico.tv/download/" size={220}/>
+  const tile = {flex: 1, minHeight: 440, paddingVertical: 44, paddingHorizontal: 48, borderRadius: 28,
+    backgroundColor: 'rgba(13, 27, 37, 0.78)', borderWidth: 1.5, borderColor: 'rgba(237, 245, 250, 0.10)'} as const;
+  const heading = [nativeType({size: 44, lineHeight: 46.2, weight: 800, tracking: -.035}, theme.textScale), {color: theme.colors.text, marginBottom: 14}];
+  const body = [nativeType({size: 26, lineHeight: 37.7, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary}];
+  const chip = (icon: 'i-link' | 'i-server') => <View style={{width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center',
+    marginBottom: 26, backgroundColor: `${theme.colors.accent}29`}}><Icon name={icon} size={34} color={theme.colors.accentStrong}/></View>;
+  return <FocusRegion id="accounts.empty.door" entry="join" enabled={!busy} style={{flexDirection: 'row', gap: 40, alignItems: 'stretch'}}>
+    <Focusable focusId="join" focusKind="card" focusRadius={28} hasTVPreferredFocus disabled={busy} onPress={onJoin} accessibilityRole="button"
+      style={{...tile, boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0, 0, 0, 0.9)'}]}}>
+      {chip('i-link')}
+      <Text style={heading}>{t('services.start.join')}</Text>
+      <Text style={body}>{t('services.start.joinBody')}</Text>
+    </Focusable>
+    <View style={tile}>
+      {chip('i-server')}
+      <Text style={heading}>{t('services.start.setup')}</Text>
+      <Text style={[...body, {maxWidth: 380}]}>{t('services.start.phoneSetupBody')}</Text>
+      <View accessible accessibilityLabel="https://getportico.tv/download/" style={{position: 'absolute', right: 44, top: 190, width: 220, height: 220, padding: 16, borderRadius: 18, backgroundColor: theme.colors.white}}>
+        <QRCode value="https://getportico.tv/download/" size={188}/>
       </View>
-      <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary}]}>getportico.tv/download/</Text>
     </View>
   </FocusRegion>;
 }
@@ -89,7 +94,7 @@ export function TVNoServers(props: Props) {
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.whereBody')}</Text>
         <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}}>{t('services.start.joinAction')}</Button>
       </FocusRegion> : <DoorTiles busy={props.busy} revision={entryRevision}
-        onJoin={() => {if (owns()) setJoining(true);}} onRefresh={() => {if (current()) props.onRefresh();}}/>}
+        onJoin={() => {if (owns()) setJoining(true);}}/>}
       <View style={{flexDirection: 'row', gap: 24}}>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
