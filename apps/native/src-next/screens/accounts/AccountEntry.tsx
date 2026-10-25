@@ -42,7 +42,7 @@ import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
-export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move' | 'invitation-code' | 'invitation-local';
+export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move' | 'invitation-code' | 'invitation-local' | 'invitation-portico';
 type MemberMove = Awaited<ReturnType<NativeServerSignIn['createMemberMove']>>;
 type MemberMoveSnapshot = ReturnType<MemberMove['getSnapshot']>;
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
@@ -84,7 +84,10 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   useEffect(() => {if (!memberMove) return; const publish = () => setMoveSnapshot(memberMove.getSnapshot()); publish(); return memberMove.subscribe(publish);}, [memberMove]);
   const [pinRecovery, setPinRecovery] = useState<PINRecovery>();
   const [invitationPreview, setInvitationPreview] = useState<PublicInvitation>();
-  const invitationOpening = useRef<{source: NativeServerSignIn; controller: ReturnType<NativeServerSignIn['createLocalInvitation']>; active: boolean} | undefined>(undefined);
+  type InvitationOpening = {source: NativeServerSignIn; active: boolean} & (
+    {kind: 'local'; controller: ReturnType<NativeServerSignIn['createLocalInvitation']>}
+    | {kind: 'portico'; controller: Awaited<ReturnType<NativeServerSignIn['preparePorticoInvitation']>>});
+  const invitationOpening = useRef<InvitationOpening | undefined>(undefined);
   const retireInvitation = () => {const ticket = invitationOpening.current; if (ticket) {ticket.active = false; ticket.controller.dispose(); invitationOpening.current = undefined;} setInvitationPreview(undefined);};
 
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
@@ -174,7 +177,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
-    if (stage === 'invitation-code' || stage === 'invitation-local') {invitationIntent.current = undefined; retireInvitation(); cancelDirectory(); setPassword(''); setCode(''); setAddress(''); stageRef.current = 'address'; setStage('address'); return;}
+    if (stage === 'invitation-code' || stage === 'invitation-local' || stage === 'invitation-portico') {invitationIntent.current = undefined; retireInvitation(); cancelDirectory(); setPassword(''); setCode(''); setAddress(''); stageRef.current = 'address'; setStage('address'); return;}
     if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {reset(); setCode(''); setResetLocation(undefined); setStage('address'); return;}
     if (stage === 'setup-review') {retireSetupReview(); setError(undefined); setStage('setup-choice'); return;}
     if (stage === 'setup-local') {setPassword(''); setSetupPasswordConfirm(''); setError(undefined); setStage('setup-choice'); return;}
@@ -365,6 +368,16 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     }
     if (value.setupRequired) throw Object.assign(new Error('native_setup_phone_required'), {code: 'access_refused'});
     if (value.signIn === 'portico') {
+      if (invite) {
+        const controller = await next.preparePorticoInvitation();
+        if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite) return;
+        const ticket = {source: next, controller, active: true, kind: 'portico' as const}; invitationOpening.current = ticket;
+        stageRef.current = 'invitation-code'; setStage('invitation-code');
+        const preview = await controller.preview(invite.raw);
+        if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite || invitationOpening.current !== ticket || !ticket.active) return;
+        invitationIntent.current = undefined; setInvitationPreview(preview); setCode(''); setPassword(''); setSetupPasswordConfirm('');
+        stageRef.current = 'invitation-portico'; setStage('invitation-portico'); return;
+      }
       if (resetIntent) {
         const ticket = {source: next, controller: new AbortController()}; ownerResetOpening.current = ticket;
         await next.prepareOwnerReset();
@@ -377,7 +390,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     await next.confirmLocal(await next.inspectLocalIdentity());
     if (invite) {
       if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite) return;
-      const controller = next.createLocalInvitation(), ticket = {source: next, controller, active: true}; invitationOpening.current = ticket;
+      const controller = next.createLocalInvitation(), ticket = {source: next, controller, active: true, kind: 'local' as const}; invitationOpening.current = ticket;
       stageRef.current = 'invitation-code'; setStage('invitation-code');
       const preview = await controller.preview(invite.raw);
       if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite || invitationOpening.current !== ticket || !ticket.active) return;
@@ -666,7 +679,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       }}/>) }{status}</>}
     primaryAction={Platform.isTV ? undefined : action('check-code', t('action.continue'), () => confirmCode(), identityCode.replace(/-/g, '').length !== 12)}
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
-  if (stage === 'invitation-code' || stage === 'invitation-local') {
+  if (stage === 'invitation-code' || stage === 'invitation-local' || stage === 'invitation-portico') {
     const ticket = invitationOpening.current, renderedStage = stage, preview = invitationPreview;
     const current = () => !!ticket?.active && invitationOpening.current === ticket && operation.current === ticket.source
       && lifetime.current && stageRef.current === renderedStage;
@@ -683,10 +696,31 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       primaryAction={{id: 'preview-invitation', label: t('action.continue'), disabled: busy || !code.trim(), loading: busy, onPress: () => {
         if (!current()) return; void run(async () => {
           if (!current()) return; const value = await ticket!.controller.preview(code);
-          if (!current()) return; invitationIntent.current = undefined; setInvitationPreview(value); setCode(''); stageRef.current = 'invitation-local'; setStage('invitation-local');
+          if (!current()) return; invitationIntent.current = undefined; setInvitationPreview(value); setCode(''); const destination = ticket!.kind === 'portico' ? 'invitation-portico' : 'invitation-local'; stageRef.current = destination; setStage(destination);
         });
       }}} secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
+    if (failure === 'other-account') return <StateLayout testID="accounts-invitation-other-account" icon="i-person"
+      title={t('accounts.invitation.otherAccountTitle')} body={t('web.signIn.error.invitationOtherAccount', {server: preview?.serverName ?? server!.name})}
+      primaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
     if (!preview) return null;
+    if (stage === 'invitation-portico' && ticket?.kind === 'portico') {
+      const controller = ticket.controller;
+      return <StateLayout testID="accounts-portico-invitation" title={t('accounts.invitation.to') + ' ' + preview.serverName}
+        body={t('accounts.invitation.porticoBody', {server: preview.serverName})}
+        beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{status}
+          <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('accounts.invitation.libraries')}</Text>
+          {preview.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
+          {preview.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}
+          <Text style={[theme.type.body, {color: theme.colors.text}]}>{controller.username}</Text>
+        </View>}
+        primaryAction={{id: 'join-portico-invitation', label: t('accounts.invitation.joinAs', {username: controller.username}), disabled: busy, loading: busy,
+          onPress: () => {if (!current()) return; void run(async () => {
+            if (!current()) return; const result = await controller.join(preview);
+            if (current()) consume(result);
+          });}}} secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
+    }
+    if (ticket?.kind !== 'local') return null;
+    const localController = ticket.controller;
     return <StateLayout testID="accounts-local-invitation" title={t('accounts.invitation.to') + ' ' + preview.serverName}
       body={t('accounts.invitation.localPhoneBody', {server: preview.serverName})}
       beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{invitationStatus}
@@ -701,7 +735,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       primaryAction={{id: 'join-local-invitation', label: t('web.directJoin.submit'), loading: busy,
         disabled: busy || !/^[A-Za-z0-9_.-]{3,64}$/.test(username.trim()) || !passwordStrength(password).acceptable || password !== setupPasswordConfirm,
         onPress: () => {if (!current()) return; void run(async () => {
-          if (!current()) return; const result = await ticket!.controller.join(preview, username, password, name);
+          if (!current()) return; const result = await localController.join(preview, username, password, name);
           if (!current()) return; setPassword(''); setSetupPasswordConfirm(''); consume(result);
         });}}} secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
   }
@@ -715,7 +749,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         if (!source || source !== operation.current || !lifetime.current || stageRef.current !== 'local' || busyRef.current) return;
         let controller: ReturnType<NativeServerSignIn['createLocalInvitation']>;
         try {controller = source.createLocalInvitation();} catch (failure) {setError(failure); return;}
-        invitationOpening.current = {source, controller, active: true}; setInvitationPreview(undefined);
+        invitationOpening.current = {source, controller, active: true, kind: 'local'}; setInvitationPreview(undefined);
         setCode(''); setPassword(''); setSetupPasswordConfirm(''); setUsername(''); setName(''); setError(undefined);
         stageRef.current = 'invitation-code'; setStage('invitation-code');
       }}>{t('web.directJoin.have')}</Button>}
