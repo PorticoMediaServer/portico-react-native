@@ -1,7 +1,7 @@
 import {ReadingError, type ReadingHostSession} from '../../../../../packages/client-core/src';
 import {captureReadingAnnotationMutation, type ReadingAnnotationContent, type ReadingAnnotationMutation, type ReadingAnnotationPort} from '../../../../../packages/client-core/src/reading-annotations';
 import {validateReadingLocation} from '../../../../../packages/client-core/src/reading';
-import {nativeAnnotationFingerprint, type NativeAnnotationJournal, type NativeAnnotationIdentity, type NativeAnnotationSource} from './annotation-journal';
+import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotationSource} from './annotation-journal';
 
 /** Offline annotation authoring for one downloaded publication (P1-READ-OFFLINE-ANNOTATION-SYNC).
  *
@@ -72,7 +72,7 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
       // proven by content. 0 means it exists only locally and was never put on the wire.
       baseRevision: group?.cache?.revision ?? 0,
       baseUpdatedAt: cached ? 1 : 0,
-      ...(cached ? {baseFingerprint: nativeAnnotationFingerprint(cached)} : {}),
+      ...(cached ? {baseContent: cached} : {}),
       baseComplete: group?.cache?.complete === true,
       attempted: false, // Never put on the wire: an absent entry is evidence when the base is complete.
     }, captured.expectedRevision, guard, signal);

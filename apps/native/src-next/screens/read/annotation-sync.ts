@@ -1,9 +1,9 @@
 import {ReadingError, type LocalSession, type ReadingClient, type ReadingSession} from '../../../../../packages/client-core/src';
-import type {ReadingAnnotation} from '../../../../../packages/client-core/src/reading-annotations';
+import type {ReadingAnnotation, ReadingAnnotationContent} from '../../../../../packages/client-core/src/reading-annotations';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {
-  NativeAnnotationJournal, nativeAnnotationFingerprint, nativeAnnotationJournalCounts, nativeAnnotationIdentity,
+  NativeAnnotationJournal, nativeAnnotationJournalCounts, nativeAnnotationIdentity, nativeAnnotationOperationRef,
   type NativeAnnotationGroup, type NativeAnnotationIdentity, type NativeAnnotationOperation, type NativeAnnotationResolution,
   type NativeAnnotationUnresolved,
 } from './annotation-journal';
@@ -36,49 +36,44 @@ const displaced = (error: unknown): boolean => error instanceof ReadingError && 
 type Decision = Readonly<{kind: 'apply'}> | Readonly<{kind: 'resolved'}> | Readonly<{kind: 'unresolved'; reason: NativeAnnotationUnresolved}>;
 type PageState = Readonly<{revision: number; entries: readonly ReadingAnnotation[]}>;
 
-function sameAnnotation(entry: ReadingAnnotation, content: NativeAnnotationOperation['content']): boolean {
-  if (!content || entry.kind !== content.kind || entry.text !== content.text || entry.note !== content.note || entry.colour !== content.colour) return false;
-  if (entry.location.format !== content.location.format || entry.location.progression !== content.location.progression
-    || (entry.location.format === 'epub' ? entry.location.cfi !== content.location.cfi || entry.location.section !== content.location.section
-      : entry.location.pageIndex !== content.location.pageIndex)) return false;
-  const rects = entry.rects ?? [], wanted = content.rects ?? [];
-  return rects.length === wanted.length && rects.every((rect, index) => rect.x === wanted[index]!.x && rect.y === wanted[index]!.y
-    && rect.width === wanted[index]!.width && rect.height === wanted[index]!.height);
+/** Exact content equality, field for field; a hash is never the proof. */
+export function sameAnnotationContent(a: ReadingAnnotationContent, b: ReadingAnnotationContent): boolean {
+  if (a.kind !== b.kind || a.text !== b.text || a.note !== b.note || a.colour !== b.colour) return false;
+  if (a.location.format !== b.location.format || a.location.progression !== b.location.progression) return false;
+  if (a.location.format === 'epub' ? a.location.cfi !== b.location.cfi || a.location.section !== b.location.section
+    : a.location.pageIndex !== b.location.pageIndex) return false;
+  const x = a.rects ?? [], y = b.rects ?? [];
+  return x.length === y.length && x.every((rect, index) => rect.x === y[index]!.x && rect.y === y[index]!.y
+    && rect.width === y[index]!.width && rect.height === y[index]!.height);
 }
 
-/** Union by id, last edit wins, proven by content identity and the captured base:
- * - a present entry applies only when its fingerprint still equals the captured base (or no
- *   set write happened since the base); a timestamp inequality is never used as identity;
- * - an absent create applies only when it was never put on the wire with a complete base, or
- *   when the set did not advance after an attempt (an accepted-then-deleted create is not
- *   distinguishable then, so it stays unresolved);
+/** Union by id, last edit wins, proven by the exact captured base content:
+ * - a present entry applies only when its content still exactly equals the captured base, or
+ *   when no set write happened since the base; a timestamp or hash is never identity;
+ * - an absent create applies only when it was explicitly never sent with a complete base, or
+ *   when the set did not advance after an attempt; legacy records without an explicit flag
+ *   are UNKNOWN and stay unresolved if the set advanced;
  * - an absent update is a deletion elsewhere and stays unresolved;
- * - a delete is satisfied by absence and otherwise needs the captured base fingerprint. */
+ * - a delete is satisfied by absence and otherwise needs the exact captured base content. */
 export function nativeAnnotationDecision(state: PageState, operation: NativeAnnotationOperation): Decision {
   const entry = state.entries.find(value => value.id === operation.id);
-  const current = entry ? nativeAnnotationFingerprint(entry) : undefined;
   if (operation.delete) {
     if (!entry) return {kind: 'resolved'};
-    if (operation.baseFingerprint !== undefined) return current === operation.baseFingerprint ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
+    if (operation.baseContent) return sameAnnotationContent(entry, operation.baseContent) ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
     return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'conflict'};
   }
   if (!operation.content) return {kind: 'resolved'};
-  const wanted = nativeAnnotationFingerprint(operation.content);
   if (state.revision < operation.baseRevision) return {kind: 'unresolved', reason: 'conflict'};
   if (!entry) {
     if (operation.baseUpdatedAt > 0) return {kind: 'unresolved', reason: 'deleted-elsewhere'};
-    // Legacy records without an explicit attempted flag are UNKNOWN: an earlier online
-    // fallback could already have committed before the queue entry was written. Only an
-    // explicit false is evidence that nothing was sent.
     if (operation.attempted === false) {
       return operation.baseComplete === true || state.revision === operation.baseRevision
         ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
     }
-    // Attempted (or unknown): only an unchanged set proves the server did not accept it.
     return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
   }
-  if (current === wanted) return {kind: 'resolved'}; // our own committed retry
-  if (operation.baseFingerprint !== undefined) return current === operation.baseFingerprint ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
+  if (sameAnnotationContent(entry, operation.content)) return {kind: 'resolved'}; // our own committed retry
+  if (operation.baseContent) return sameAnnotationContent(entry, operation.baseContent) ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
   return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
 }
 
@@ -153,7 +148,7 @@ export class NativeAnnotationSync {
       && typeof live.annotations === 'function' && typeof live.mutateAnnotation === 'function'
       && live.manifest.sourceId === group.source.sourceId && live.manifest.revision === group.source.sourceRevision;
     const mark = async (reason: NativeAnnotationUnresolved) => {
-      const resolutions: NativeAnnotationResolution[] = group.operations.map(operation => ({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved', reason}));
+      const resolutions: NativeAnnotationResolution[] = group.operations.map(operation => ({...nativeAnnotationOperationRef(operation), outcome: 'unresolved', reason}));
       if (this.fresh(identity, life)) await this.journal.resolve(identity, group.source, resolutions, () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
     };
     try {
@@ -174,48 +169,51 @@ export class NativeAnnotationSync {
       await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
       for (const operation of group.operations) {
         if (!this.fresh(identity, life) || signal.aborted) return true;
-        const settled = (outcome: NativeAnnotationResolution) =>
-          this.journal.resolve(identity, group.source, [outcome],
+        // Exact per-operation identity: a resolution or witness for this payload can never
+        // retire or mark a successor edit of the same annotation id.
+        const before = nativeAnnotationOperationRef(operation);
+        const after = nativeAnnotationOperationRef({...operation, attempted: true});
+        const settle = (ref: typeof before, outcome: 'applied' | 'resolved' | 'unresolved', reason?: NativeAnnotationUnresolved) =>
+          this.journal.resolve(identity, group.source, [{...ref, outcome, ...(reason ? {reason} : {})} as NativeAnnotationResolution],
             () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
+        const witness = (ref: typeof before) => this.journal.markAttempted(identity, group.source, [ref],
+          () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
         const decision = nativeAnnotationDecision(state, operation);
         if (decision.kind !== 'apply') {
-          await settled({id: operation.id, observedAt: operation.observedAt, ...decision});
+          await settle(before, decision.kind, 'reason' in decision ? decision.reason : undefined);
           continue;
         }
         const build = (revision: number) => operation.delete
           ? {operation: 'delete' as const, id: operation.id, expectedRevision: revision}
           : {...operation.content!, operation: 'upsert' as const, expectedRevision: revision};
-        const witness = () => this.journal.markAttempted(identity, group.source, [{id: operation.id, observedAt: operation.observedAt}],
-          () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
         try {
           if (!this.fresh(identity, life) || signal.aborted) return true; // Re-check after the page/cache awaits.
-          await witness(); // Durable evidence before any wire write.
+          await witness(before); // Durable exact witness before any wire write.
           if (!this.fresh(identity, life) || signal.aborted) return true;
           const saved = await session.mutateAnnotation(build(state.revision), signal);
           if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
-          await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'applied'});
+          await settle(after, 'applied');
         } catch (error) {
           if (cancelled(error, signal) || !this.fresh(identity, life)) return true;
           if (!displaced(error)) {
             if (retryable(error)) throw error;
-            await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved', reason: 'refused'});
+            await settle(after, 'unresolved', 'refused');
             continue;
           }
           // One fresh read may explain the displacement; the payload is unchanged.
           state = await this.pages(session, signal, group.source);
           const again = nativeAnnotationDecision(state, operation);
-          if (again.kind !== 'apply') {await settled({id: operation.id, observedAt: operation.observedAt, ...again}); continue;}
+          if (again.kind !== 'apply') {await settle(after, again.kind, 'reason' in again ? again.reason : undefined); continue;}
           if (!this.fresh(identity, life) || signal.aborted) return true;
           try {
-            await witness();
+            await witness(after);
             const saved = await session.mutateAnnotation(build(state.revision), signal);
             if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
-            await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'applied'});
+            await settle(after, 'applied');
           } catch (second) {
             if (cancelled(second, signal) || !this.fresh(identity, life)) return true;
             if (retryable(second)) throw second;
-            await settled({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved',
-              reason: displaced(second) ? 'conflict' : 'refused'});
+            await settle(after, 'unresolved', displaced(second) ? 'conflict' : 'refused');
             continue;
           }
         }

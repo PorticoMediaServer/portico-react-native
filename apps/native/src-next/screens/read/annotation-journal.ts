@@ -50,10 +50,11 @@ export type NativeAnnotationOperation = Readonly<{
   /** The server annotation-set revision this edit was made against. */
   baseRevision: number;
   /** Whether the id existed in the captured base; 0 means it did not. The merge no longer uses
-   * a timestamp as identity — the captured fingerprint below is the evidence. */
+   * a timestamp as identity — the captured base content below is the evidence. */
   baseUpdatedAt: number;
-  /** The exact captured base content, so an unchanged entry is proven by identity, not by
-   * a timestamp that can tie across distinct writes. Absent on records queued before the fix. */
+  /** The exact captured base content, compared field for field — never a hash alone. */
+  baseContent?: ReadingAnnotationContent;
+  /** Legacy accelerator from earlier pins; parsed for old records but never used as proof. */
   baseFingerprint?: string;
   /** The base page was the whole server set at `baseRevision`; absence is only evidence when true. */
   baseComplete?: boolean;
@@ -71,7 +72,7 @@ export type NativeAnnotationGroup = Readonly<{
   cache?: NativeAnnotationCache;
 }>;
 export type NativeAnnotationRecord = Readonly<{version: 1; identity: NativeAnnotationIdentity; groups: readonly NativeAnnotationGroup[]}>;
-export type NativeAnnotationOperationRef = Readonly<{id: string; observedAt: number}>;
+export type NativeAnnotationOperationRef = Readonly<{id: string; /** Exact immutable operation snapshot. */ snapshot: string}>;
 export type NativeAnnotationResolution = NativeAnnotationOperationRef & (
   | Readonly<{outcome: 'applied' | 'resolved'}>
   | Readonly<{outcome: 'unresolved'; reason: NativeAnnotationUnresolved}>);
@@ -143,7 +144,7 @@ function annotationContent(raw: unknown): ReadingAnnotationContent {
   let location: ReadingAnnotationContent['location'];
   if (l.format === 'epub') {
     if (typeof l.cfi !== 'string' || !l.cfi.startsWith('epubcfi(/') || !l.cfi.endsWith(')') || new TextEncoder().encode(l.cfi).length > 4096
-      || l.pageIndex !== undefined || l.section !== undefined && !text(l.section, 1024)) throw new Error('native_annotation_journal_invalid');
+      || /[\p{Cc}<>]/u.test(l.cfi) || l.pageIndex !== undefined || l.section !== undefined && !text(l.section, 1024)) throw new Error('native_annotation_journal_invalid');
     location = Object.freeze({format: 'epub', cfi: l.cfi, progression: l.progression, ...(l.section === undefined ? {} : {section: l.section})});
   } else if (l.format === 'pdf' || l.format === 'cbz') {
     if (!integer(l.pageIndex, 1_000_000) || l.cfi !== undefined || l.section !== undefined) throw new Error('native_annotation_journal_invalid');
@@ -156,7 +157,7 @@ function annotationContent(raw: unknown): ReadingAnnotationContent {
   }
   const bad = kind === 'bookmark'
     ? raw.text !== '' || raw.colour !== '' || rects.length > 0
-    : raw.colour === '' || rects.length > 0 && location.format !== 'pdf' || location.format === 'pdf' && rects.length === 0;
+    : raw.colour === '' || String(raw.text).trim() === '' || rects.length > 0 && location.format !== 'pdf' || location.format === 'pdf' && rects.length === 0;
   if (bad) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({id: raw.id, kind, location, text: raw.text, note: raw.note, colour: raw.colour as ReadingAnnotationContent['colour'],
     ...(rects.length ? {rects: Object.freeze(rects)} : {})});
@@ -171,13 +172,17 @@ function operation(raw: unknown): NativeAnnotationOperation {
   if (!object(raw) || typeof raw.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.id) || typeof raw.delete !== 'boolean'
     || !integer(raw.observedAt) || !integer(raw.baseRevision) || !integer(raw.baseUpdatedAt)
     || raw.attempted !== undefined && typeof raw.attempted !== 'boolean'
+    || raw.baseContent !== undefined && !object(raw.baseContent)
     || raw.baseFingerprint !== undefined && (typeof raw.baseFingerprint !== 'string' || !/^[0-9a-f]{16}$/.test(raw.baseFingerprint))
     || raw.baseComplete !== undefined && typeof raw.baseComplete !== 'boolean'
     || raw.unresolved !== undefined && !reason(raw.unresolved)) throw new Error('native_annotation_journal_invalid');
   const content = raw.delete ? undefined : annotationContent(raw.content);
   if (content && content.id !== raw.id) throw new Error('native_annotation_journal_invalid');
+  const baseContent = raw.baseContent === undefined ? undefined : annotationContent(raw.baseContent);
+  if (baseContent && baseContent.id !== raw.id) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({id: raw.id, delete: raw.delete, observedAt: raw.observedAt, baseRevision: raw.baseRevision, baseUpdatedAt: raw.baseUpdatedAt,
-    ...(raw.attempted === true ? {attempted: true} : {}), ...(raw.baseFingerprint === undefined ? {} : {baseFingerprint: raw.baseFingerprint}),
+    ...(raw.attempted === true ? {attempted: true} : {}), ...(baseContent ? {baseContent} : {}),
+    ...(raw.baseFingerprint === undefined ? {} : {baseFingerprint: raw.baseFingerprint}),
     ...(raw.baseComplete === undefined ? {} : {baseComplete: raw.baseComplete}),
     ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}), ...(content ? {content} : {})});
 }
@@ -340,7 +345,7 @@ export class NativeAnnotationJournal {
       snapshot = raw == null ? undefined : JSON.stringify(raw);
       carried = record(raw, identity);
       return {record: raw ?? null, value: undefined};
-    });
+    }, undefined, () => {if (!still()) throw new Error(RETIRED);});
     if (!carried) return;
     let conflict = false;
     await this.local.change(key, raw => {
@@ -368,14 +373,14 @@ export class NativeAnnotationJournal {
       if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS || bytes(merged) > MAX_RECORD_BYTES)
         throw new Error('native_annotation_journal_migration_overflow');
       return {record: merged, value: undefined};
-    });
+    }, undefined, () => {if (!still()) throw new Error(RETIRED);});
     if (conflict) throw new Error('native_annotation_journal_migration_conflict');
     if (snapshot !== undefined) {
       await this.local.change(legacy, raw => {
         if (!still()) throw new Error(RETIRED);
         // Clear only the exact snapshot that was copied; a concurrent add/replacement stays.
         return raw != null && JSON.stringify(raw) === snapshot ? {record: null, value: undefined} : {record: raw ?? null, value: undefined};
-      });
+      }, undefined, () => {if (!still()) throw new Error(RETIRED);});
     }
   }
   snapshot = async (identity: NativeAnnotationIdentity, assert?: () => void, signal?: AbortSignal): Promise<NativeAnnotationRecord | undefined> => {
@@ -426,7 +431,7 @@ export class NativeAnnotationJournal {
       const groups = current.groups.map(group => {
         if (JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) !== wanted) return group;
         const operations = group.operations.flatMap(operation => {
-          const resolution = resolutions.find(value => value.id === operation.id && value.observedAt === operation.observedAt);
+          const resolution = resolutions.find(value => value.id === operation.id && value.snapshot === nativeAnnotationOperationSnapshot(operation));
           if (!resolution) return [operation];
           if (resolution.outcome !== 'unresolved') return [];
           return [{...operation, unresolved: resolution.reason} as NativeAnnotationOperation];
@@ -450,7 +455,7 @@ export class NativeAnnotationJournal {
       const groups = current.groups.map(group => {
         if (JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) !== wanted) return group;
         const operations = group.operations.map(operation => {
-          if (!refs.some(ref => ref.id === operation.id && ref.observedAt === operation.observedAt)) return operation;
+          if (!refs.some(ref => ref.id === operation.id && ref.snapshot === nativeAnnotationOperationSnapshot(operation))) return operation;
           changed++;
           return {...operation, attempted: true} as NativeAnnotationOperation;
         });
@@ -470,12 +475,14 @@ export class NativeAnnotationJournal {
   private async add(identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>,
     assert: (() => void) | undefined, signal: AbortSignal | undefined, bump: boolean, expectLocal?: number): Promise<number> {
     if (!integer(next.observedAt) || !integer(next.baseRevision) || !integer(next.baseUpdatedAt)
+      || next.baseContent !== undefined && annotationContent(next.baseContent).id !== next.id
       || next.baseFingerprint !== undefined && !/^[0-9a-f]{16}$/.test(next.baseFingerprint)
       || next.baseComplete !== undefined && typeof next.baseComplete !== 'boolean'
       || next.attempted !== undefined && typeof next.attempted !== 'boolean') throw new Error('native_annotation_journal_invalid');
     if (!next.delete && annotationContent(next.content).id !== next.id) throw new Error('native_annotation_journal_invalid');
     const witness = {
       ...(next.attempted === true ? {attempted: true} : {}),
+      ...(next.baseContent === undefined ? {} : {baseContent: annotationContent(next.baseContent)}),
       ...(next.baseFingerprint === undefined ? {} : {baseFingerprint: next.baseFingerprint}),
       ...(next.baseComplete === undefined ? {} : {baseComplete: next.baseComplete}),
     } as const;
@@ -495,6 +502,7 @@ export class NativeAnnotationJournal {
       const merged: NativeAnnotationOperation = previous
         ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt,
             ...(previous.attempted === true ? {attempted: true} : {}),
+            ...(previous.baseContent !== undefined ? {baseContent: previous.baseContent} : {}),
             ...(previous.baseFingerprint !== undefined ? {baseFingerprint: previous.baseFingerprint} : {}),
             ...(previous.baseComplete !== undefined ? {baseComplete: previous.baseComplete} : {})})
         : operation;
@@ -524,21 +532,24 @@ export class NativeAnnotationJournal {
   }
 }
 
-/** Identity of an annotation's content at a moment: merge decisions compare this, never a
- * timestamp that can tie across distinct writes. */
-export function nativeAnnotationFingerprint(content: ReadingAnnotationContent): string {
-  const rects = (content.rects ?? []).map(rect => [rect.x, rect.y, rect.width, rect.height]);
-  const canonical = JSON.stringify([content.id, content.kind, content.location.format,
-    content.location.format === 'epub' ? [content.location.cfi, content.location.section ?? ''] : content.location.pageIndex,
-    content.location.progression, content.text, content.note, content.colour, rects]);
-  let a = 0x811c9dc5, b = 0x85ebca6b;
-  for (let index = 0; index < canonical.length; index++) {
-    const code = canonical.charCodeAt(index);
-    a = Math.imul(a ^ code, 0x01000193) >>> 0;
-    b = Math.imul(b ^ (code + 0x9e3779b9), 0x01000193) >>> 0;
-  }
-  return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
+/** The exact immutable identity of a queued operation. Resolutions and witnesses match this
+ * snapshot, so a newer edit of the same annotation id can never be retired or marked. */
+export function nativeAnnotationOperationSnapshot(operation: NativeAnnotationOperation): string {
+  const content = operation.content;
+  return JSON.stringify([operation.id, operation.delete, operation.observedAt, operation.baseRevision, operation.baseUpdatedAt,
+    operation.attempted === true, operation.baseComplete === true,
+    content ? [content.kind, content.location.format, content.location.format === 'epub' ? content.location.cfi : content.location.pageIndex,
+      content.location.format === 'epub' ? content.location.section ?? '' : '', content.location.progression, content.text, content.note, content.colour,
+      (content.rects ?? []).map(rect => [rect.x, rect.y, rect.width, rect.height])] : null,
+    operation.baseContent ? [operation.baseContent.kind, operation.baseContent.location.format,
+      operation.baseContent.location.format === 'epub' ? operation.baseContent.location.cfi : operation.baseContent.location.pageIndex,
+      operation.baseContent.location.format === 'epub' ? operation.baseContent.location.section ?? '' : '', operation.baseContent.location.progression,
+      operation.baseContent.text, operation.baseContent.note, operation.baseContent.colour,
+      (operation.baseContent.rects ?? []).map(rect => [rect.x, rect.y, rect.width, rect.height])] : null,
+    operation.unresolved ?? '']);
 }
+export const nativeAnnotationOperationRef = (operation: NativeAnnotationOperation): NativeAnnotationOperationRef =>
+  Object.freeze({id: operation.id, snapshot: nativeAnnotationOperationSnapshot(operation)});
 
 /** The local view: the complete cached server set overlaid with this device's queued edits.
  * `complete` is false unless the cache is a proven complete set; a partial cache is never

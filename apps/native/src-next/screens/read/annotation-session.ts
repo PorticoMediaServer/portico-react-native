@@ -1,6 +1,6 @@
 import {ReadingError, type ReadingHostSession} from '../../../../../packages/client-core/src';
 import type {ReadingAnnotation, ReadingAnnotationContent, ReadingAnnotationMutation, ReadingAnnotationPort} from '../../../../../packages/client-core/src/reading-annotations';
-import {nativeAnnotationFingerprint, type NativeAnnotationJournal, type NativeAnnotationIdentity, type NativeAnnotationSource} from './annotation-journal';
+import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotationSource} from './annotation-journal';
 import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 import {nativeAnnotationLeaseOf} from './annotation-journal';
 import {nativeOfflineAnnotationSession} from './annotation-offline-port';
@@ -64,13 +64,13 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
   const base: ReadingHostSession = {manifest: session.manifest, signal: session.signal, headPDF: session.headPDF, readRange: session.readRange,
     readAsset: session.readAsset, page: session.page, progress: session.progress, saveProgress: session.saveProgress,
     ...(session.openSequential ? {openSequential: session.openSequential} : {})};
-  /** The exact captured base: content fingerprints per id, and whether the guest has read
+  /** The exact captured base: content per id, and whether the guest has read
    * the whole page chain (so absence can be evidence). */
-  let observed: Readonly<{revision: number; fingerprints: ReadonlyMap<string, string>; complete: boolean}> | undefined;
+  let observed: Readonly<{revision: number; contents: ReadonlyMap<string, ReadingAnnotation>; complete: boolean}> | undefined;
   const remember = (revision: number, entries: readonly ReadingAnnotation[], complete: boolean) => {
-    const fingerprints = new Map(observed && observed.revision === revision ? observed.fingerprints : []);
-    for (const entry of entries) fingerprints.set(entry.id, nativeAnnotationFingerprint(entry));
-    observed = {revision, fingerprints, complete};
+    const contents = new Map(observed && observed.revision === revision ? observed.contents : []);
+    for (const entry of entries) contents.set(entry.id, entry);
+    observed = {revision, contents, complete};
   };
   const annotations: ReadingAnnotationPort['annotations'] = async (cursor = '', revision?: number, signal?: AbortSignal) => {
     const page = await session.annotations(cursor, revision, signal);
@@ -94,8 +94,8 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
         ...(mutation.operation === 'delete' ? {} : {content: content(mutation)}),
         observedAt: now(),
         baseRevision: mutation.expectedRevision,
-        baseUpdatedAt: base.fingerprints.has(mutation.id) ? 1 : 0, // Present in the captured base?
-        ...(base.fingerprints.has(mutation.id) ? {baseFingerprint: base.fingerprints.get(mutation.id)!} : {}),
+        baseUpdatedAt: base.contents.has(mutation.id) ? 1 : 0, // Present in the captured base?
+        ...(base.contents.has(mutation.id) ? {baseContent: base.contents.get(mutation.id)!} : {}),
         baseComplete: base.complete,
         attempted: true, // The mutation reached the wire; absence later must not assume "never created".
       }, () => {if (!fresh()) throw new ReadingError('cancelled');}, signal);
