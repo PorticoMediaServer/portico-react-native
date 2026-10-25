@@ -8,7 +8,7 @@ import {savedListFilters, type HistoryPeriod, type SavedListFilter, type SavedLi
 import {Artwork} from '../../../kit/artwork';
 import {Button, Chip, Focusable} from '../../../kit/controls';
 import {PosterCard, SquareCard} from '../../../kit/cards';
-import {Dialog, Menu} from '../../../kit/overlays';
+import {Menu} from '../../../kit/overlays';
 import {StateView} from '../../../kit/states';
 import {FocusRegion} from '../../../kit/focus';
 import type {NativeSavedSelectionPort} from '../../saved/SavedScreen';
@@ -19,6 +19,7 @@ import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
+import {SavedConfirmSheet} from '../../saved/SavedForms';
 import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
 import {useDestinationEntryFocus} from '../useEntryFocus';
 import {sameAuthority, type ShellAuthority} from '../../../shell/model';
@@ -291,8 +292,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         onSelect: () => {setFilter(option.id as SavedListFilter); run(controller.select(tab, {sort, filter: option.id as SavedListFilter, period}));}}))
       : filters.map(value => ({id: value.id, label: t(value.label), selected: value.id === filter,
         onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
-    <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
-      footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
+    {/* tv-more3 draws History's Clear history confirm as the saved pages' own destructive
+        confirm: Cancel first, then the red verb, and the sentence naming what stays. */}
+    <SavedConfirmSheet open={clearOpen} title={t('web.saved.clearHistoryTitle')} body={t('web.saved.clearHistoryBody')} action={t('web.saved.clearHistoryAction')}
+      busy={false} destructive testID="saved-clear-history" onClose={() => setClearOpen(false)}
+      onConfirm={() => {setClearOpen(false); run(controller.clearHistory(period));}}/>
     {opening && <LibraryJumpSheet open panelId={`${ids.savedGrid}.jump`} letters={jumpLetters.map(letter => ({key: letter.key, index: letter.index}))} selected={selectedLetter}
       onSelect={key => {
         if (!jumpCurrent(opening)) return;
