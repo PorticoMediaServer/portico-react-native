@@ -33,7 +33,7 @@ const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed
 /** Current product sign-in commands. UI frames are separate; no retired screen is imported.
  * Every path uses the canonical probe, real verified routes, account/profile API and secure store. */
 export class NativeServerSignIn {
-  static parseInvitationLink = NativeLocalInvitation.parseLink;
+  static parseInvitationEntry = NativeLocalInvitation.parseEntry;
   readonly probe = new ServerSignInProbe(nativeNetworkFetch);
   private readonly controller = new AbortController();
   private readonly installation = installationIdentity();
