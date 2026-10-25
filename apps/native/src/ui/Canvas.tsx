@@ -68,10 +68,10 @@ export function Backdrop({source, height, align = 'right', opacity = 1, style}: 
             phones a bottom one only (the identity sits below the image). */}
         <Defs>
           <LinearGradient id="bottom" x1="0" y1="0" x2="0" y2="1">
-            {align === 'overlay' ? heroSpec.scrim.phoneOverlay.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />) : <>
-              <Stop offset={String(1 - (align === 'top' ? heroSpec.mask.phoneBottomOpaqueAt : heroSpec.mask.bottomOpaqueAt))} stopColor={colors.ink} stopOpacity={0} />
-              <Stop offset="1" stopColor={colors.ink} stopOpacity={1} />
-            </>}
+            {align === 'overlay' ? heroSpec.scrim.phoneOverlay.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />) : [
+              <Stop key="transparent" offset={String(1 - (align === 'top' ? heroSpec.mask.phoneBottomOpaqueAt : heroSpec.mask.bottomOpaqueAt))} stopColor={colors.ink} stopOpacity={0} />,
+              <Stop key="opaque" offset="1" stopColor={colors.ink} stopOpacity={1} />,
+            ]}
           </LinearGradient>
           <LinearGradient id="side" x1="0" y1="0" x2="1" y2="0">
             {heroSpec.scrim.tvLeft.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}

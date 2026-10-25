@@ -87,7 +87,8 @@ test('phone Search draws the frame 7 empty state: 32pt title, bare 44px recent r
   assert.equal(heading.props.accessibilityRole, 'header');
   assert.equal(headingStyle.fontSize, 32);
   assert.equal(headingStyle.lineHeight, 36.8);
-  assert.equal(Number(headingStyle.letterSpacing.toFixed(2)), -1.12);
+  assert.equal(typeof headingStyle.letterSpacing, 'number');
+  assert.equal(Number(Number(headingStyle.letterSpacing).toFixed(2)), -1.12);
   assert.equal(headingStyle.marginBottom, 12);
   assert.equal(headingStyle.marginHorizontal, 20);
 
