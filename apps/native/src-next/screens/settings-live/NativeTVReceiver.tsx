@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, Platform, Text, View} from 'react-native';
 import {ReceiverHost} from '../../../../../packages/client-core/src/remote-playback';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
@@ -21,22 +21,38 @@ const getOff = () => off;
 /** The existing grant/handoff protocol, owned by this installed viewer, only in the foreground. */
 export function NativeTVReceiver({context, runtime}: {context: NativeShellBootstrapContext; runtime: NativeShellRuntime}) {
   const enabled = useSyncExternalStore(context.subscribePreferences, () => context.current() && nativeDeviceSettings(context).read('receiveFromDevices') === true);
-  const [host, setHost] = useState<ReceiverHost>();
+  type Ticket = {context: typeof context; runtime: typeof runtime; enabled: boolean; live: boolean; abort: AbortController};
+  const active = useRef<Ticket | undefined>(undefined);
+  const [owned, setOwned] = useState<Readonly<{host: ReceiverHost; ticket: Ticket}>>();
+  const retire = React.useCallback((ticket: Ticket | undefined) => {if (!ticket) return; ticket.live = false; if (active.current === ticket) active.current = undefined; ticket.abort.abort();}, []);
+  // Retained handlers from the previous render cannot borrow the replacement's ticket.
+  if (active.current && (active.current.context !== context || active.current.runtime !== runtime || active.current.enabled !== enabled)) retire(active.current);
+  useLayoutEffect(() => {
+    const ticket: Ticket = {context, runtime, enabled, live: true, abort: new AbortController()};
+    active.current = ticket;
+    return () => retire(ticket);
+  }, [context, runtime, enabled, retire]);
+  const ticketCurrent = React.useCallback((ticket: Ticket) => active.current === ticket && ticket.live && !ticket.abort.signal.aborted
+    && ticket.context === context && ticket.runtime === runtime && ticket.enabled && context.current(), [context, runtime]);
+  const host = owned?.host;
   useEffect(() => {
-    if (!Platform.isTV || !enabled || !context.current()) return;
+    const ticket = active.current;
+    if (!Platform.isTV || !enabled || !ticket || !ticketCurrent(ticket)) return;
     const identity = installationIdentity();
     if (!identity) return;
     const lifetime = new NativeScreenLifetime(context), abort = new AbortController();
     let receiver: ReceiverHost | undefined, foreground = new AbortController();
-    const current = () => !abort.signal.aborted && lifetime.current() && installationIdentity() === identity
+    const current = () => ticketCurrent(ticket) && !abort.signal.aborted && lifetime.current() && installationIdentity() === identity
       && nativeDeviceSettings(context).read('receiveFromDevices') === true;
+    const cancelTicket = () => {abort.abort(); foreground.abort(); lifetime.dispose();};
+    ticket.abort.signal.addEventListener('abort', cancelTicket, {once: true});
     const follow = () => {
       if (!current()) return;
       if (AppState.currentState === 'active') {if (foreground.signal.aborted) foreground = new AbortController(); receiver?.start();}
       else {foreground.abort(); receiver?.stop();}
     };
     const activity = AppState.addEventListener('change', follow);
-    const playbackOff = context.playback.subscribe(() => receiver?.setPlayerActive(!!context.playback.getSnapshot().dock.local));
+    const playbackOff = context.playback.subscribe(() => {if (current()) receiver?.setPlayerActive(!!context.playback.getSnapshot().dock.local);});
     void nativeRouteCrypto.sha256(Uint8Array.from('portico-receiver:' + identity.installationId, c => c.charCodeAt(0) & 255)).then(digest => {
       if (!current()) return;
       receiver = new ReceiverHost({
@@ -75,17 +91,17 @@ export function NativeTVReceiver({context, runtime}: {context: NativeShellBootst
         },
       });
       receiver.setPlayerActive(!!context.playback.getSnapshot().dock.local);
-      setHost(receiver); follow();
+      setOwned({host: receiver, ticket}); follow();
     }).catch(error => {if (current()) runtime.reportError(error);});
-    return () => {abort.abort(); foreground.abort(); lifetime.dispose(); activity.remove(); playbackOff(); receiver?.dispose(); setHost(undefined);};
-  }, [context, enabled, runtime]);
+    return () => {ticket.abort.signal.removeEventListener('abort', cancelTicket); cancelTicket(); activity.remove(); playbackOff(); receiver?.dispose(); setOwned(value => value?.ticket === ticket ? undefined : value);};
+  }, [context, enabled, runtime, ticketCurrent]);
   const state = useSyncExternalStore(host?.subscribe ?? noSubscribe, host?.getSnapshot ?? getOff);
   const asking = 'asking' in state ? state.asking : undefined;
   const decide = (decision: 'accept' | 'decline') => {
-    if (!host || !asking || !context.current() || !nativeDeviceSettings(context).read('receiveFromDevices') || AppState.currentState !== 'active' || host.getSnapshot().asking !== asking) return;
-    void host.decide(asking, decision).catch(error => {if (context.current()) runtime.reportError(error);});
+    if (!host || !owned || !ticketCurrent(owned.ticket) || !asking || !context.current() || !nativeDeviceSettings(context).read('receiveFromDevices') || AppState.currentState !== 'active' || host.getSnapshot().asking !== asking) return;
+    void host.decide(asking, decision).catch(error => {if (ticketCurrent(owned.ticket)) runtime.reportError(error);});
   };
-  return <Dialog testID="tv-receiver-approval" open={!!asking} title={runtime.text.t('playOn.receiver.askTitle', {device: asking?.controllerDisplayName ?? ''})} onOpenChange={open => {if (!open) decide('decline');}}>
+  return <Dialog testID="tv-receiver-approval" open={!!asking && !!owned && ticketCurrent(owned.ticket)} title={runtime.text.t('playOn.receiver.askTitle', {device: asking?.controllerDisplayName ?? ''})} onOpenChange={open => {if (!open) decide('decline');}}>
     <View style={{gap: 16}}>
       <Text>{runtime.text.t('playOn.receiver.askBody', {device: asking?.controllerDisplayName ?? ''})}</Text>
       <Button testID="tv-receiver-decline" variant="glass" onPress={() => decide('decline')}>{runtime.text.t('playOn.receiver.decline')}</Button>
