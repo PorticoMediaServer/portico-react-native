@@ -24,6 +24,11 @@ export function IntroCreditsReview({context, lifetime, t, runtime}: NativeSettin
   const [seasonNumber, setSeasonNumber] = useState<number>(), [confirm, setConfirm] = useState(false), [adding, setAdding] = useState<SegmentReviewEntry>();
   const [kind, setKind] = useState<SegmentKind>('intro'), [start, setStart] = useState('0:00'), [end, setEnd] = useState('0:01');
   useEffect(() => {void controller.open(); return () => controller.dispose();}, [controller]);
+  useEffect(() => {
+    if (state.titleId || state.libraryId) return;
+    const timer = setInterval(() => {const current = controller.getSnapshot(); if (!current.busy && !current.loading) void controller.reload();}, 15000);
+    return () => clearInterval(timer);
+  }, [controller, state.libraryId, state.titleId]);
   useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {
     if (state.busy) return true;
     if (state.titleId) {void controller.open(state.libraryId); return true;}

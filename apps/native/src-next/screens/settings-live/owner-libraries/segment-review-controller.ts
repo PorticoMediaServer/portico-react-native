@@ -11,8 +11,8 @@ export class NativeSegmentReviewController extends NativeScreenStore<Snapshot> {
   async open(libraryId?: string, titleId?: string, append = false): Promise<void> {
     if (!this.current() || this.getSnapshot().busy) return;
     this.read?.abort(); const read = this.read = new AbortController(), generation = ++this.generation;
-    const before = this.getSnapshot();
-    this.publish({...before, libraryId, titleId, page: append ? before.page : undefined, review: undefined, loading: true, error: undefined, notice: undefined});
+    const before = this.getSnapshot(), sameView = before.libraryId === libraryId && before.titleId === titleId;
+    this.publish({...before, libraryId, titleId, page: append || sameView ? before.page : undefined, review: sameView ? before.review : undefined, loading: true, error: undefined, notice: undefined});
     try {
       const value = await this.lifetime.request<SegmentTitleReview | SegmentTitlePage | SegmentStatus>(signal => titleId ? readSegmentTitle(this.api, titleId, signal) : libraryId ? readSegmentTitles(this.api, libraryId, append ? before.page?.nextCursor : undefined, signal) : readSegmentStatus(this.api, signal), read.signal);
       if (!this.current() || read.signal.aborted || generation !== this.generation) return;
