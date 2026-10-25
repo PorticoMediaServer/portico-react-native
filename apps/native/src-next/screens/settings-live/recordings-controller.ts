@@ -97,7 +97,7 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
       if (original) throw error;
       return undefined;
     }
-    finally {if (this.current()) this.publish({...this.getSnapshot(), busy: false});}
+    finally {if (this.current()) this.publish({...this.getSnapshot(), busy: false});this.requireCommand(original);}
   }
   schedule = (draft: RecordingDraft, options: RecordingOptions, lifetime?: DVRCommandLifetime) => {
     const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
