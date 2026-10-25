@@ -281,7 +281,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   const showSafeMode = theme.isTV && page.id === 'quality' && nativeSafeModeAvailable(devicePreferences);
   const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId),
     ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : []),
-    ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', 'settings-away-limit-change'] : []),
+    ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', ...(!theme.isTV ? ['settings-away-limit-change'] : [])] : []),
     ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [nativeLossNoticesFocusId] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
@@ -349,7 +349,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}
       {section.id === 'limits' && awayLimitLabel ? <>
         <SettingsRow testID="settings-away-limit" label={t('next.settingsSpec.account.quality.groups.0.rows.3.label')} description={t('next.settingsSpec.account.quality.groups.0.rows.3.help')} value={awayLimitLabel}/>
-        <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>
+        {!theme.isTV && <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>}
       </> : null}</View>
     </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <NativeLossNoticesRow context={ports.context} runtime={runtime}/>}
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
