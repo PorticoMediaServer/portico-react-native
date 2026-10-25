@@ -1190,7 +1190,11 @@ export class NativePlaybackRuntime {
       else {this.playback.seek(0); this.playback.resume();}
       return;
     }
-    if (this.playback.hasNativeOwner() && this.o.nativeListening) await this.o.nativeListening.action('retry', 0);
+    const session = this.currentSession(), listening = this.playback.getSnapshot().nativeListening;
+    // The listening bridge retries only the audio session it actually owns.
+    // Ordinary native video always restarts the current queue entry from zero.
+    if (session?.kind === 'audio' && session.id === fence.sessionId && listening?.session.id === session.id
+      && this.playback.hasNativeOwner() && this.o.nativeListening) await this.o.nativeListening.action('retry', 0);
     else await this.queue.playItem(fence.itemId, 0);
   };
   seek = async (fence: PlaybackFence, seconds: number): Promise<void> => {
