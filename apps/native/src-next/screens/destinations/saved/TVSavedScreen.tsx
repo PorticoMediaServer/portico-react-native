@@ -3,7 +3,7 @@ import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
-import type {HistoryPeriod, SavedListFilter, SavedListSort, SavedRoute} from '../../../../../../packages/client-core/src/saved';
+import {savedListFilters, type HistoryPeriod, type SavedListFilter, type SavedListSort, type SavedRoute} from '../../../../../../packages/client-core/src/saved';
 import {Artwork} from '../../../kit/artwork';
 import {Button, Chip, Focusable} from '../../../kit/controls';
 import {PosterCard, SquareCard} from '../../../kit/cards';
@@ -160,6 +160,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
             {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
           </View> : <Empty tab={tab} browseHome={browseHome}/>)
         : null;
+  // tv-more1/3 draw the server's own quick filters, with counts in the Filters menu; a server
+  // that publishes none keeps the two the page has always offered.
+  const publishedFilters = (snapshot.posters?.filters ?? snapshot.squares?.filters ?? []).flatMap(filter => filter.options)
+    .filter(option => (savedListFilters as readonly string[]).includes(option.id));
+  const quickFilters = publishedFilters.filter(option => option.id !== 'all');
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
@@ -176,7 +181,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
           <Button focusId="saved-sort" ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
           <Button focusId="saved-filter" ref={filterAnchor} variant="glass" icon="i-filter" size="compact" onPress={() => setFilterOpen(true)} accessibilityLabel={t('filter.title')}>{t('filter.title')}</Button>
           <View style={{width: 1.5, height: 40, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-          {filters.map(value => <Chip focusId={`saved-filter-${value.id}`} key={value.id} selected={filter === value.id} onPress={() => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}>{t(value.label)}</Chip>)}
+          {quickFilters.length
+            ? quickFilters.map(option => <Chip focusId={`saved-filter-${option.id}`} key={option.id} selected={filter === option.id}
+              onPress={() => {const next = filter === option.id ? 'all' as const : option.id as SavedListFilter; setFilter(next); run(controller.select(tab, {sort, filter: next, period}));}}>{option.label}</Chip>)
+            : filters.filter(value => value.id !== 'all').map(value => <Chip focusId={`saved-filter-${value.id}`} key={value.id} selected={filter === value.id}
+              onPress={() => {const next = filter === value.id ? 'all' as const : value.id; setFilter(next); run(controller.select(tab, {sort, filter: next, period}));}}>{t(value.label)}</Chip>)}
         </> : <>
           <Button variant="glass" icon="i-sort" size="compact" disabled accessibilityLabel={t('saved.sort')}>{t('web.saved.sort.recent')}</Button>
           {periods.map(value => <Chip focusId={`saved-period-${value}`} key={value} selected={period === value} onPress={() => {setPeriod(value); run(controller.select(tab, {sort, filter, period: value}));}}>
@@ -191,8 +200,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     </ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
-    <Menu open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} title={t('filter.title')} placement="bottom-start" items={filters.map(value => ({id: value.id, label: t(value.label), selected: value.id === filter,
-      onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
+    <Menu open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} title={t('filter.title')} placement="bottom-start" items={publishedFilters.length
+      ? publishedFilters.map(option => ({id: option.id, label: option.label, trailing: defaultI18n.number(option.count), selected: option.id === filter,
+        onSelect: () => {setFilter(option.id as SavedListFilter); run(controller.select(tab, {sort, filter: option.id as SavedListFilter, period}));}}))
+      : filters.map(value => ({id: value.id, label: t(value.label), selected: value.id === filter,
+        onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
     <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
       footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
     {selection?.render()}
