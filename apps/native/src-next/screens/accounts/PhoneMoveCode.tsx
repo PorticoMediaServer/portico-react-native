@@ -75,8 +75,9 @@ export function PhoneMoveCode<Result>({controller, onBack, isCurrent}: {
       const supplied = password; const opening = committed; submitted.current = true; revision.current++; setPassword(''); setConfirmation(''); setShown(false);
       void controller.redeemLocal(draft.username, supplied).finally(() => {if (opening.live && active.current === opening) submitted.current = false;});
     } else {
-      if (!/^[A-Za-z0-9_-]{43}$/.test(code)) {setInvalidCode(true); return;}
-      const supplied = code; const opening = committed; submitted.current = true; revision.current++; setCode(''); setInvalidCode(false);
+      const supplied = controller.readCodeInput(code);
+      if (supplied === undefined) {setInvalidCode(true); return;}
+      const opening = committed; submitted.current = true; revision.current++; setCode(''); setInvalidCode(false);
       void controller.previewCode(supplied).finally(() => {if (opening.live && active.current === opening) submitted.current = false;});
     }
   };
