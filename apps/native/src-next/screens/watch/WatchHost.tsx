@@ -7,6 +7,7 @@ import {usePlatformPosture} from '../../platform/platformPosture';
 import {useMotion} from '../../kit/useMotion';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import type {NativeWatchNotice} from './playback-info';
+import type {NativePlaybackFailure} from './PlaybackFailed';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
@@ -39,6 +40,8 @@ export type NativeWatchHostBindings = Readonly<{
   panel: (context: NativeWatchHostContext) => React.ReactNode;
   /** A title that ended with nothing queued after it: its own end screen. */
   postPlay?: (context: NativeWatchHostContext) => React.ReactNode;
+  /** states 11: the failed-playback state, its own resume port and (where sanctioned) owner facts. */
+  failed?: (context: NativeWatchHostContext, failure: NativePlaybackFailure, chromeVisible: boolean) => React.ReactNode;
   /** Shell owns status/navigation application; Watch supplies canonical facts. */
   presentation?: (layout: PlayerPresentation | undefined) => void;
   scrubbing?: boolean;
@@ -142,6 +145,17 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // full-window player (phone-player 6); the upright watch page keeps its own page.
   const postPlay = bindings.postPlay && !panelOpen && (isTV || layout.mode === 'full-window') && source.playback.phase === 'ended'
     && !(source.queue.view?.next.available === true) ? bindings.postPlay(context) : undefined;
+  // states 11: a failure names one exact fence, session and place. Capture it when
+  // that failure appears and never re-read the live context, so a later start
+  // (a successor) is never the thing a recovery control acts on.
+  const failureRef = useRef<{key: string; failure: NativePlaybackFailure} | undefined>(undefined);
+  const failureKey = source.playback.phase === 'error'
+    ? JSON.stringify([fence, source.playback.intentId, source.playback.session?.id, source.playback.positionSeconds]) : undefined;
+  if (failureKey === undefined) failureRef.current = undefined;
+  else if (failureRef.current?.key !== failureKey) failureRef.current = {key: failureKey,
+    failure: Object.freeze({fence, sessionId: source.playback.session?.id, positionSeconds: source.playback.positionSeconds, itemId: source.playback.itemId})};
+  const failed = bindings.failed && !panelOpen && (isTV || layout.mode === 'full-window') && failureRef.current
+    ? bindings.failed(context, failureRef.current.failure, state.visible) : undefined;
   const content = <Animated.View testID="watch-panes" pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
     {postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
@@ -156,6 +170,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
     {panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
+    {failed && <View testID="watch-failed-pane" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{failed}</View>}
     </>}
   </Animated.View>;
   return <View testID="watch-host" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>

@@ -18,6 +18,7 @@ import type {NativeWatchHostBindings} from './WatchHost';
 import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
+import {NativePlaybackFailed} from './PlaybackFailed';
 import {NativeWatchPostPlay} from './PostPlayScreen';
 import {isTablet} from '../../../src/bridge/device-platform';
 import {createNativeWatchPanelNames} from './panel-names';
@@ -40,6 +41,8 @@ export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
   playbackInfo?: NativeWatchPanelsProps['playbackInfo'];
   episodes?: NativeWatchPanelsProps['episodes'];
   presentation?: NativeWatchHostBindings['presentation'];
+  /** The runtime's own resume-at-the-saved-place retry for a failed playback; absent until it exists. */
+  retryPlayback?: (failure: import('./PlaybackFailed').NativePlaybackFailure) => Promise<void>;
   onPictureInPicture?: ReturnType<NativeWatchHostBindings['chrome']>['onPictureInPicture'];
   onFullWindow?: ReturnType<NativeWatchHostBindings['chrome']>['onFullWindow'];
   renderOverlays?: (runtime: NativeShellRuntime) => React.ReactNode;
@@ -140,6 +143,8 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     content: host => screens.watch.body(host),
     details: host => screens.watch.details(host),
     episodes: host => screens.watch.upNext(host),
+    failed: (host, failure, chromeVisible) => <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible}
+      {...(bindings.retryPlayback ? {retry: value => {void bindings.retryPlayback!(value).catch(host.runtime.reportError);}} : {})}/>,
     postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
       current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
       onClose={() => {if (current()) void context.playback.stop(host.fence).catch(host.runtime.reportError);}} onOpen={entry => {if (current()) bindings.title.navigate(entry);}}
