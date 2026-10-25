@@ -14,6 +14,7 @@ import {nativeNetworkFetch, nativeServerEnvironment, nativeHostedSource, nativeR
 import {rememberNativeServerDisplay} from './server-display';
 import {nativeAppSessions, subscribeNativeAppSessions} from './app-session-storage';
 import {NativeMemberAccountMove} from './member-account-move';
+import {NativeLocalInvitation} from './local-invitation';
 import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
@@ -60,13 +61,15 @@ export class NativeServerSignIn {
   private hostedLease?: () => boolean;
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
   private memberMove?: {dispose: () => void};
+  private invitationBinding?: () => boolean;
+  private localInvitation?: NativeLocalInvitation<Awaited<ReturnType<NativeServerSignIn['signInLocal']>>>;
   private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
   constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean; expectedTarget?: Readonly<{serverId: string; fingerprint: string}>} = {}) {
     this.expectedTarget = options.expectedTarget ? Object.freeze({...options.expectedTarget}) : undefined;
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
   }
-  private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease());
+  private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease()) && (!this.localInvitation || this.localInvitation.current()) && (!this.invitationBinding || this.invitationBinding());
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
   /** Public hand-offs use the connected, identity-verified server origin. The
@@ -379,6 +382,20 @@ export class NativeServerSignIn {
       } catch (error) {await this.retire(session); throw error;}
     });
   }
+  createLocalInvitation() {
+    this.assertCurrent();
+    const api = this.api, server = this.server, routes = api?.getRouteConnection(), pin = routes?.pin;
+    if (!api || !server || !routes || !pin || server.signIn !== 'local' || server.setupRequired || !this.admission
+      || this.account || this.expectedTarget || this.localInvitation) throw mismatch();
+    this.invitationBinding = () => {
+      const live = api.getRouteConnection()?.pin;
+      return this.api === api && this.server === server && !!live
+        && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;
+    };
+    const invitationApi = new HttpLocalApi(api.baseUrl, '', nativeNetworkFetch); invitationApi.useRoutes(routes);
+    this.localInvitation = new NativeLocalInvitation({api: invitationApi, current: this.current, signIn: (username, password) => this.signInLocal(username, password)});
+    return this.localInvitation;
+  }
   signInLocal(username: string, password: string) {
     return this.run(async () => {
       if (this.server?.signIn !== 'local' || !this.api || this.account || !this.admission) throw mismatch();
@@ -677,7 +694,7 @@ export class NativeServerSignIn {
   }
   private cancel() {
     if (this.controller.signal.aborted) return;
-    this.hostedSetup?.dispose(); this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
+    this.localInvitation?.dispose(); this.hostedSetup?.dispose(); this.directoryFactor = undefined; this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
     this.probe.dispose(); this.unfence();
     const routes = this.api?.getRouteConnection();
     void Promise.resolve(this.running).catch(() => {}).then(() => Promise.allSettled([...this.issued.values()].map(session => this.retire(session)))).finally(() => routes?.dispose());
