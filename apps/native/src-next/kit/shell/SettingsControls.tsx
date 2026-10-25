@@ -25,24 +25,26 @@ export type SettingsRowProps = {
   dependent?: boolean;
   continuesBranch?: boolean;
   highlighted?: boolean;
+  /** A consequential action's row (sign out): its label reads in the record colour. */
+  destructive?: boolean;
   first?: boolean;
   style?: StyleProp<ViewStyle>;
   nextFocusLeft?: number;
 };
 /** A slotted control keeps its sole focus target. A TV readable row intentionally has no OK action. */
-export function SettingsRow({label, highlightQuery, description, scope, control, value, onPress, readable = false, dependent = false, continuesBranch = false, highlighted = false, first = false, style, nextFocusLeft, testID}: SettingsRowProps) {
+export function SettingsRow({label, highlightQuery, description, scope, control, value, onPress, readable = false, dependent = false, continuesBranch = false, highlighted = false, destructive = false, first = false, style, nextFocusLeft, testID}: SettingsRowProps) {
   const theme = useTheme();
   const tv = theme.isTV;
   const content = <>
     {dependent && <View pointerEvents="none" style={{position: 'absolute', left: tv ? 38 : 31, top: -1, height: '50%', width: 14, borderLeftWidth: 2, borderBottomWidth: 2, borderBottomLeftRadius: 9, borderColor: theme.colors.line}}/>}
     {dependent && continuesBranch && <View pointerEvents="none" style={{position: 'absolute', left: tv ? 38 : 31, top: 0, bottom: 0, width: 2, backgroundColor: theme.colors.line}}/>}
     {highlighted && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 14, bottom: 14, width: 3, borderRadius: 3, backgroundColor: theme.colors.accent}}/>}
-    <View style={{flex: 1, minWidth: 0}}><HighlightedText text={label} query={highlightQuery} style={[shellType(tv ? 24 : 15.5), {color: theme.colors.text}]}/>
+    <View style={{flex: 1, minWidth: 0}}><HighlightedText text={label} query={highlightQuery} style={[shellType(tv ? 24 : 15.5), {color: destructive ? theme.colors.record : theme.colors.text}]}/>
       {description && <Text numberOfLines={tv ? 2 : undefined} style={[shellType(tv ? 20 : 12.5, tv ? 400 : 500, tv ? 29 : 17.5), {color: theme.colors.textTertiary, marginTop: 3}]}>{description}</Text>}
       {scope && <Text style={[shellType(tv ? 18 : 12, 600), {color: theme.colors.textTertiary, marginTop: 3}]}>{scope}</Text>}
     </View>
-    {control ?? (value && <Text style={[shellType(tv ? 22 : 14.5), {color: theme.colors.textSecondary, maxWidth: tv ? 340 : 170}]}>{value}</Text>)}
-    {onPress && !control && <Icon name="i-updown" size={tv ? 26 : 18} color={theme.colors.textTertiary}/>}
+    {control ?? (value && <Text style={[shellType(tv ? 22 : 14.5), {color: destructive ? theme.colors.record : theme.colors.textSecondary, maxWidth: tv ? 340 : 170}]}>{value}</Text>)}
+    {onPress && !control && <Icon name="i-updown" size={tv ? 26 : 18} color={destructive ? theme.colors.record : theme.colors.textTertiary}/>}
   </>;
   const layout: StyleProp<ViewStyle> = [{flexDirection: 'row', alignItems: 'center', gap: tv ? 20 : 12, paddingHorizontal: tv ? 24 : 14, paddingVertical: tv ? 12 : 8, paddingLeft: dependent ? tv ? 64 : 58 : tv ? 24 : 14, minHeight: tv ? 80 : 48, borderTopWidth: first ? 0 : 1, borderTopColor: theme.colors.lineSoft, borderRadius: tv ? 18 : 0, backgroundColor: highlighted ? alpha(theme.colors.accent, .16) : 'transparent'}, style];
   return (onPress || (tv && readable)) && !control ? <Focusable testID={testID} accessibilityRole={onPress ? 'button' : 'text'} accessibilityLabel={label} accessibilityHint={description} accessibilityValue={value ? {text: value} : undefined} onPress={onPress} focusKind="row" focusRadius={tv ? 18 : 10} nextFocusLeft={nextFocusLeft} style={layout}>{content}</Focusable> : <View style={layout}>{content}</View>;
