@@ -19,6 +19,7 @@ import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from 
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
 import {NowPlayingQueue} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
+import {NativeListeningNotice} from './ListeningNotice';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -96,7 +97,7 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
     {signal ? <MusicFocusRegion id={`${focus}.signal`} entry="music-signal-line" edges={{down: `${focus}.progress`}} style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></MusicFocusRegion> : null}
-    {notice ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
+    {notice && !theme.isTV ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
       <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
       <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
     </View> : null}
@@ -166,5 +167,6 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
         </View>
       </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>
+    {theme.isTV && notice && <NativeListeningNotice notice={notice} persistent/>}
   </View></TVMusicFocus>;
 }
