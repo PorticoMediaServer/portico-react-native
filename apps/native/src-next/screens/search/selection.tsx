@@ -42,7 +42,8 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   };
   const reconcile = () => {
     const snapshot = source.getSnapshot().search, next = visible() ? keyFor(snapshot) : '';
-    if (next === token) return;
+    if (next === token && [...windows.values()].every(window => source.getSnapshot().groups.some(group =>
+      group.id === window.group && group.status === 'success' && group.items.includes(window.entry)))) return;
     reset();
     if (!next || !snapshot.data) return;
     const viewer = context.session()?.viewer;
@@ -124,8 +125,15 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     } catch (error) {if (current()) feedback.reportError(error, 'search');}
     finally {if (pending === controller) {pending = undefined; emit();}}
   };
+  let lastQueueControl = queueControl();
+  const queueChanged = () => {
+    const next = queueControl();
+    if (next === lastQueueControl) return;
+    lastQueueControl = next;
+    pending?.abort(); emit();
+  };
   const off = [source.subscribe(reconcile), activation.subscribe(reconcile), context.subscribeAuthority(reconcile),
-    context.navigation.subscribe(() => {pending?.abort(); reconcile();}), context.playback.subscribe(emit)];
+    context.navigation.subscribe(() => {pending?.abort(); reconcile();}), context.playback.subscribe(queueChanged)];
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, loadedCount: () => source.getSnapshot().groups.filter(group => group.status === 'success').reduce((count, group) => count + group.items.filter(leaf).length, 0), snapshot: () => model?.getSnapshot(), busy: () => !!pending, queueControl,
