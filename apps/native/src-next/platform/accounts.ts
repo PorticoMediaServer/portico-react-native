@@ -132,7 +132,7 @@ export class NativeAccounts {
   }
   /** Explicit user-selected Portico action only. Constructing this owner does no account IO. */
   accountCredentials() {this.assertCurrent(); return this.credentials ??= createCredentials(hostedUrl);}
-  accountClient(binding: string) {this.assertCurrent(); return createNativeAccountClient(hostedUrl, binding);}
+  accountClient(binding: string, isCurrent?: () => boolean, ownsResult?: () => boolean) {this.assertCurrent(); return createNativeAccountClient(hostedUrl, binding, isCurrent, ownsResult);}
   async authenticatePorticoAccount(callback: (signal: AbortSignal) => Promise<HostedSession>) {
     const credentials = this.accountCredentials();
     if (this.accountAttempt) throw Object.assign(new Error('native_account_attempt_active'), {code: 'account_changed'});
