@@ -380,23 +380,43 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             </View>}
             {props.owner && <Button testID="watch-show-settings-open" variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={openSettings}/>}
           </View>
-          {episodes.map(entry => {
-            const numbering = episodeNumbering(entry);
-            const model = cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title, episode: numbering, durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
-            const plate = !theme.isTV && openEpisode.entry?.id === entry.id && openEpisode.entry.kind === 'episode';
-            return cell(entry.id, plate ? <NativeTitleEpisodePlate entry={entry} code={episodeLabel(numbering, 'player', text)} width={bodyWidth - 40}
+          {(() => {
+            const model = (entry: ContentEntry) => cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title,
+              episode: episodeNumbering(entry), durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
+            const card = (entry: ContentEntry, layout: 'row' | 'tile', width: number) => {
+              const copy = model(entry);
+              return <TitleEpisode entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)}
+                title={entry.displayTitle ?? entry.title} label={copy.caption} caption={layout === 'row' ? copy.detail : undefined}
+                width={width} layout={layout} artWidth={layout === 'row' ? (tabletWatch ? 224 : theme.platform === 'tablet' ? 210 : undefined) : undefined}
+                watched={entry.watched} progress={copy.progress}
+                length={layout === 'tile' && entry.duration ? durationText(entry.duration, t) : undefined}
+                status={entry.id === playingEpisodeId ? t('player.miniPlaying') : entry.id === nextEpisodeId ? t('player.queue') : undefined}
+                artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={layout === 'row' ? entry.overview : undefined}
+                {...(theme.isTV && entry.playback ? {primaryAction: 'play' as const, onPlay: () => {void controller.play(entry).catch(props.reportError);}} : {primaryAction: 'navigate' as const})}
+                onNavigate={() => theme.isTV ? props.navigate(entry) : controller.episode.open(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>;
+            };
+            const plate = (entry: ContentEntry) => <NativeTitleEpisodePlate entry={entry} code={episodeLabel(episodeNumbering(entry), 'player', text)} width={bodyWidth - 40}
               still={props.artwork(entry.stillUrl)} backdrop={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} snapshot={openEpisode}
               more={props.more} download={props.download} onClose={() => controller.episode.close()} onPlay={() => {void controller.episode.play().catch(props.reportError);}}
               onStartOver={() => {void controller.episode.play(true).catch(props.reportError);}}
               onPersonal={intent => {void controller.episode.personal(intent).catch(props.reportError);}}
               onNeighbour={neighbour => props.navigate({id: neighbour.id, kind: 'episode', title: neighbour.title, libraryId: workspace.show.libraryId, show: {id: workspace.show.id, name: workspace.show.title}})}
-              onRetry={() => controller.episode.retry()} renderError={props.renderError} locale={text.locale ?? 'en-US'}/>
-              : <TitleEpisode entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : bodyWidth - 40} layout={theme.isTV ? 'tile' : 'row'} artWidth={tabletWatch ? 224 : undefined} watched={entry.watched} progress={model.progress}
-                status={entry.id === playingEpisodeId ? t('player.miniPlaying') : entry.id === nextEpisodeId ? t('player.queue') : undefined}
-                artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={entry.overview}
-                {...(theme.isTV && entry.playback ? {primaryAction: 'play' as const, onPlay: () => {void controller.play(entry).catch(props.reportError);}} : {primaryAction: 'navigate' as const})}
-                onNavigate={() => theme.isTV ? props.navigate(entry) : controller.episode.open(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
-          })}
+              onRetry={() => controller.episode.retry()} renderError={props.renderError} locale={text.locale ?? 'en-US'}/>;
+            const open = openEpisode.entry && openEpisode.entry.kind === 'episode' ? openEpisode.entry : undefined;
+            if (theme.isTV) return episodes.map(entry => cell(entry.id, card(entry, 'tile', 356)));
+            // tablet7: the expanded page draws the episodes as one sideways tile row,
+            // three and a bit visible, with the open episode's panel beneath the row.
+            if (wide) {
+              const tile = Math.min(300, Math.max(200, Math.floor((bodyWidth - 40 - 28) / 3.3)));
+              return <>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 14, paddingRight: 20}}>
+                  {episodes.map(entry => <View key={entry.id}>{card(entry, 'tile', tile)}</View>)}
+                </ScrollView>
+                {open ? plate(open) : null}
+              </>;
+            }
+            return episodes.map(entry => cell(entry.id, open?.id === entry.id ? plate(entry) : card(entry, 'row', bodyWidth - 40)));
+          })()}
         </>)}
         {selectedTab === 'related' && detail?.related?.rows.map((row, rowIndex) => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map((entry, entryIndex) => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (bodyWidth - 60) / 3}
