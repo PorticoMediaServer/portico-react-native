@@ -27,7 +27,9 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const loaded = deferred<Extract<CastCommand, {type: 'load'}>>(), read = deferred<void>(), cancellation = deferred<void>();
   const receipt = deferred<unknown>(), cancelReceipt = deferred<unknown>();
   const message = (value: unknown) => emit('PorticoCastMessage', value);
-  const bridge = {applicationId: 'APP', available: async () => true,current:async()=>options.returning?{deviceName:'TV',deviceId:'sdk_device'}:null, choose() {}};
+  const attachmentId='11111111-1111-4111-8111-111111111111';
+  let selected=options.returning?{deviceName:'TV',deviceId:'sdk_device',attachmentId}:null;
+  const bridge = {applicationId: 'APP', available: async () => true,current:async()=>selected, choose() {}};
   const transport = {
     send: async (value: CastCommand) => {
       sent.push(value);
@@ -75,7 +77,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const {NativeCastCaller} = await screenModule(new URL('../src-next/platform/play-on/cast.ts', import.meta.url), {
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
     '../../../../../packages/client-core/src/cast': {CastController, parseCastEvent},
-    '../../../../../packages/player-core/src': {sameFence}, '../../../src/bridge/cast': {castTransport: transport},
+    '../../../../../packages/player-core/src': {sameFence}, '../../../src/bridge/cast': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
     '../../../src/bridge/cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
     '../../../src/app/cast-offered': {castOffered},
   });
@@ -86,7 +88,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   if (!caller.getSnapshot().cast.available) await ready.promise;
   off();
   const change = (patch: any) => {snapshot = {...snapshot, ...patch}; if (patch.dock) dock = patch.dock; for (const listener of [...playbackListeners]) listener();};
-  const choose = () => emit('PorticoCastSession', {state: 'started', deviceName: 'TV', deviceId: 'sdk_device'});
+  const choose = () => {selected={deviceName:'TV',deviceId:'sdk_device',attachmentId};emit('PorticoCastSession', {state: 'started',...selected});};
   const committed = {bootstrap: {transfer: {id: 'cbs_intent', state: 'committed', itemId: 'song', playbackState: 'playing'}}};
   return {retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
 }

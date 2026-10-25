@@ -3,12 +3,12 @@ import {CastController, parseCastEvent, type CastChoices, type CastSnapshot, typ
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {LocalSession} from '../../../../../packages/client-core/src';
 import {sameFence, type DockPlayback, type QueuePlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
-import {castTransport} from '../../../src/bridge/cast';
+import {castTransport,validCastAttachment} from '../../../src/bridge/cast';
 import {castControllerStorage, castControllerStorageReady} from '../../../src/bridge/cast-controller-storage';
 import {castOffered} from '../../../src/app/cast-offered';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot, PlaybackAuthority} from '../playback/types';
 
-type Device = Readonly<{state: string; deviceName: string; deviceId?: string}>;
+type Device = Readonly<{state:string;deviceName:string;deviceId?:string;attachmentId?:string}>;
 type Bridge = Readonly<{applicationId?: string; available(): Promise<boolean>; current():Promise<Omit<Device,'state'>|null>;choose(): void}>;
 type Source = Readonly<{id: string; adapter: NativePlaybackAdapter; snapshot: NativePlaybackRuntimeSnapshot;
   local: DockPlayback; fence: QueuePlaybackFence; choices: CastChoices}>;
@@ -39,6 +39,10 @@ export class NativeCastCaller {
   private readonly origin: string;
   private offBridge?: () => void;
   private bridgeGeneration=0;
+  private attachmentId?:string;
+  private eventOrder=0;
+  private acceptedEventOrder=0;
+  private readonly attachmentListeners=new Set<()=>void>();
   private offController?: () => void;
   private offPlayback?: () => void;
   private cancelChooser?: () => void;
@@ -63,11 +67,7 @@ export class NativeCastCaller {
     if (Platform.isTV || !origin || !this.session || !this.authority || !NativeModules.PorticoCast) return;
     this.bridge = NativeModules.PorticoCast as Bridge;
     this.emitter = new NativeEventEmitter(NativeModules.PorticoCast);
-    const bridgeEvents=this.emitter.addListener('PorticoCastSession',(event:Device)=>{
-      const generation=++this.bridgeGeneration;
-      // Existing chooser listeners run first; an explicit start is not adoption.
-      if(event.state==='started'&&!this.cancelChooser)void Promise.resolve().then(()=>this.resume(event,generation));
-    });
+    const bridgeEvents=this.emitter.addListener('PorticoCastSession',(event:Device)=>{void this.observeDevice(event);});
     this.offBridge=()=>bridgeEvents.remove();
     const original=this.session;
     const controller = new CastController({origin, displayName: options.deviceName(), controllerStorage: castControllerStorage,isCurrent:()=>this.viewerCurrent(),
@@ -92,9 +92,11 @@ export class NativeCastCaller {
         this.cancelling = true; this.cancelChooser?.(); controller.stop();
       }
     });
-    const generation=this.bridgeGeneration;
+    const order=++this.eventOrder;
     void castControllerStorageReady.then(()=>this.bridge?.current()).then(device=>{
-      if(device&&generation===this.bridgeGeneration)void this.resume(device,generation);
+      if(!device||!this.viewerCurrent())return;
+      const generation=this.acceptAttachment(device,order);
+      if(generation!==undefined&&!this.cancelChooser)void this.resume(device,generation);
     },()=>{/* Missing SDK session/proof leaves explicit pairing available. */});
     void Promise.all([this.bridge.available(), this.request<{applicationId?: unknown}>('/v1/cast/configuration')]).then(
       ([available, config]) => {if (this.viewerCurrent()) controller.setAvailable(castOffered(available, config.applicationId, this.bridge?.applicationId));},
@@ -133,9 +135,34 @@ export class NativeCastCaller {
       now.session.presentation.generation === source.fence.generation && !!queue && queue.id === source.choices.queue?.queueId &&
       queue.currentEntryId === source.fence.entryId && queue.currentPlaybackId === source.fence.sessionId && queue.revision === source.choices.source?.queueRevision;
   }
+  private acceptAttachment(device:Omit<Device,'state'>,order:number):number|undefined{
+    if(!this.viewerCurrent()||!validCastAttachment(device.attachmentId)||order<this.acceptedEventOrder)return;
+    this.acceptedEventOrder=order;
+    if(this.attachmentId!==device.attachmentId){
+      this.attachmentId=device.attachmentId;this.bridgeGeneration++;
+      for(const listener of [...this.attachmentListeners])listener();
+    }
+    return this.bridgeGeneration;
+  }
+  private async observeDevice(event:Device):Promise<void>{
+    if(!this.viewerCurrent()||!validCastAttachment(event.attachmentId))return;
+    if(event.state!=='started'){
+      if(event.attachmentId!==this.attachmentId)return;
+      this.attachmentId=undefined;this.bridgeGeneration++;
+      for(const listener of [...this.attachmentListeners])listener();
+      return;
+    }
+    const order=++this.eventOrder;
+    try{
+      const actual=await this.bridge?.current();
+      if(!actual||actual.attachmentId!==event.attachmentId)return;
+      const generation=this.acceptAttachment(actual,order);
+      if(generation!==undefined&&!this.cancelChooser)void this.resume(actual,generation);
+    }catch{/* A replaced attachment is never adopted from a queued event. */}
+  }
   private async resume(device:Omit<Device,'state'>,generation:number):Promise<void>{
     const controller=this.controller;
-    if(!controller||!device.deviceId||!this.viewerCurrent()||this.cancelChooser||this.returning||this.state.cast.transferPending||
+    if(!controller||!device.deviceId||!validCastAttachment(device.attachmentId)||device.attachmentId!==this.attachmentId||!this.viewerCurrent()||this.cancelChooser||this.returning||this.state.cast.transferPending||
       controller.getSnapshot().phase!=='off'||this.source&&!this.retired)return;
     const returning=Object.freeze({id:`cast_return_${++this.operation}`,generation});this.returning=returning;
     try{
@@ -169,24 +196,28 @@ export class NativeCastCaller {
     const finish = () => {if (done) return; done = true; clearTimeout(timer); sub.remove(); if (this.cancelChooser === cancel) this.cancelChooser = undefined;};
     const cancel = () => {finish(); controller.cancelConnecting();};
     const timer = setTimeout(cancel, 90000);
-    const sub = this.emitter.addListener('PorticoCastSession', (event: Device) => {
-      if (done || this.source !== source) return;
-      finish();
-      if (event.state !== 'started' || !this.precommitSourceCurrent(source)) {controller.cancelConnecting(); return;}
-      const bridgeGeneration=this.bridgeGeneration;
-      const device = Object.freeze({deviceName: String(event.deviceName || '').slice(0, 100), ...(event.deviceId ? {deviceId: event.deviceId} : {})});
-      void castControllerStorageReady.then(() => {
-        if (this.source !== source || this.bridgeGeneration!==bridgeGeneration || !this.precommitSourceCurrent(source) || this.cancelling) {controller.stop(); return;}
-        return controller.start(this.transport(device,bridgeGeneration,()=>this.source===source), fence.itemId, meta, snapshot.playback.positionSeconds, source.choices);
-      }).catch(error => {if (this.viewerCurrent()) {this.options.reportError(error); controller.stop();}});
+    const sub = this.emitter.addListener('PorticoCastSession',(event:Device)=>{
+      if(done||this.source!==source||event.state!=='started'||!validCastAttachment(event.attachmentId))return;
+      const order=++this.eventOrder;
+      void this.bridge!.current().then(async actual=>{
+        if(done||this.source!==source||!actual||actual.attachmentId!==event.attachmentId)return;
+        const generation=this.acceptAttachment(actual,order);if(generation===undefined)return;
+        finish();
+        if(!this.precommitSourceCurrent(source)){controller.cancelConnecting();return;}
+        const device=Object.freeze({...actual,deviceName:String(actual.deviceName||'').slice(0,100)});
+        await castControllerStorageReady;
+        if(this.source!==source||this.bridgeGeneration!==generation||this.attachmentId!==device.attachmentId||!this.precommitSourceCurrent(source)||this.cancelling){controller.cancelConnecting();return;}
+        return controller.start(this.transport(device,generation,()=>this.source===source),fence.itemId,meta,snapshot.playback.positionSeconds,source.choices);
+      }).catch(error=>{if(this.viewerCurrent()&&this.source===source){finish();this.options.reportError(error);controller.cancelConnecting();}});
     });
     this.cancelChooser = cancel;
     try {this.bridge.choose();} catch (error) {cancel(); this.options.reportError(error);}
   };
   private transport(device: Omit<Device, 'state'>,generation:number,attempt:()=>boolean): CastTransport {
-    const current=()=>this.viewerCurrent()&&attempt()&&this.bridgeGeneration===generation;
+    const attachmentId=device.attachmentId;
+    const current=()=>validCastAttachment(attachmentId)&&this.attachmentId===attachmentId&&this.viewerCurrent()&&attempt()&&this.bridgeGeneration===generation;
     return {deviceName: device.deviceName, ...(device.deviceId ? {deviceId: device.deviceId} : {}),
-      send:message=>current()?castTransport.send(message):Promise.reject(cancelled()),
+      send:message=>current()?castTransport.send(message,attachmentId):Promise.reject(cancelled()),
       onMessage:listener=>castTransport.onMessage(raw=>{
         if(!current())return;
         const previous=this.controller?.getSnapshot(),event=parseCastEvent(raw);
@@ -195,9 +226,9 @@ export class NativeCastCaller {
         // Only the shared controller's admitted idle transition is a stopped
         // fact. No raw SDK item, clock or track is published by this adapter.
         if(event?.type==='status'&&!event.itemId&&previous?.phase==='casting'&&accepted?.phase==='off'&&!accepted.disclosureRefused){this.idleObserved=true;this.changed();}
-      }),
-      onSessionEnd:listener=>{const sub=this.emitter!.addListener('PorticoCastSession',()=>{if(attempt()&&this.bridgeGeneration!==generation)listener();});return()=>sub.remove();},
-      end:stopReceiver=>{if(current())castTransport.end(stopReceiver);}};
+      },attachmentId),
+      onSessionEnd:listener=>{const changed=()=>{if(attempt()&&(this.attachmentId!==attachmentId||this.bridgeGeneration!==generation))listener();};this.attachmentListeners.add(changed);return()=>{this.attachmentListeners.delete(changed);};},
+      end:stopReceiver=>{if(current())castTransport.end(stopReceiver,attachmentId);}};
   }
   private changed = (): void => {
     if (!this.viewerCurrent() || !this.controller) return;
@@ -297,6 +328,6 @@ export class NativeCastCaller {
   };
   dispose(): void {
     if (this.abort.signal.aborted) return;
-    this.cancelChooser?.(); this.offPlayback?.(); this.offController?.();this.offBridge?.(); this.controller?.dispose(); this.abort.abort();this.descriptions.clear(); this.listeners.clear();
+    this.cancelChooser?.(); this.offPlayback?.(); this.offController?.();this.offBridge?.(); this.controller?.dispose(); this.abort.abort();this.descriptions.clear();this.attachmentListeners.clear(); this.listeners.clear();
   }
 }

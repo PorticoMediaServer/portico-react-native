@@ -12,7 +12,6 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactMethod
 import com.google.android.gms.cast.Cast
-import com.google.android.gms.cast.CastDevice
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.CastSession
@@ -21,6 +20,7 @@ import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.cast.framework.SessionProvider
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import java.util.UUID
 import tv.getportico.portico.TelevisionDisplay
 
 /** What only this build has: Google Cast, on phones and tablets with Google Play services. */
@@ -45,18 +45,27 @@ class PorticoCastOptions : OptionsProvider {
 class PorticoCast(context: ReactApplicationContext) : PorticoEventModule(context) {
   private val main = Handler(Looper.getMainLooper())
   private var cast: CastContext? = null
-  private var attached: CastSession? = null
+  private data class Attachment(val session: CastSession, val id: String, val callback: Cast.MessageReceivedCallback)
+  private var attached: Attachment? = null
   private var listening = false
+  private var listenerCount = 0
 
   override fun getName(): String = "PorticoCast"
 
-  @ReactMethod fun addListener(eventName: String) { main.post { listening = true; context()?.sessionManager?.addSessionManagerListener(sessions, CastSession::class.java) } }
+  @ReactMethod fun addListener(eventName: String) { main.post {
+    listenerCount++
+    if (!listening) { listening = true; context()?.sessionManager?.addSessionManagerListener(sessions, CastSession::class.java) }
+  } }
 
-  @ReactMethod fun removeListeners(count: Double) {}
+  @ReactMethod fun removeListeners(count: Double) { main.post {
+    if (count.isFinite() && count > 0) listenerCount = (listenerCount - count.toInt()).coerceAtLeast(0)
+    if (listenerCount == 0) { listening = false; cast?.sessionManager?.removeSessionManagerListener(sessions, CastSession::class.java); detach() }
+  } }
 
   override fun invalidate() {
     main.post {
       listening = false
+      listenerCount = 0
       cast?.sessionManager?.removeSessionManagerListener(sessions, CastSession::class.java)
       detach()
     }
@@ -71,42 +80,71 @@ class PorticoCast(context: ReactApplicationContext) : PorticoEventModule(context
     return try { @Suppress("DEPRECATION") CastContext.getSharedInstance(app).also { cast = it } } catch (_: Exception) { null }
   }
 
-  private fun emitSession(state: String, session: CastSession?, failed: Boolean) {
+  private fun emitSession(state: String, session: CastSession, attachmentId: String, failed: Boolean) {
     if (!listening) return
     val body = Arguments.createMap()
     body.putString("state", state)
-    body.putString("deviceName", session?.castDevice?.friendlyName ?: "")
+    body.putString("attachmentId", attachmentId)
+    body.putString("deviceName", session.castDevice?.friendlyName ?: "")
     // The SDK's own id for the television: two with one name keep separate pairing proofs.
-    body.putString("deviceId", session?.castDevice?.deviceId ?: "")
+    body.putString("deviceId", session.castDevice?.deviceId ?: "")
     body.putString("error", if (failed) "cast_failed" else "")
     emit("PorticoCastSession", body)
   }
 
-  private val messages = Cast.MessageReceivedCallback { _: CastDevice, namespace: String, message: String ->
-    if (listening && namespace == NAMESPACE && message.length <= 65536) emit("PorticoCastMessage", Arguments.createMap().apply { putString("message", message) })
-  }
+  private fun currentAttachment(session: CastSession, id: String): Boolean =
+      attached?.session === session && attached?.id == id && context()?.sessionManager?.currentCastSession === session && session.isConnected
 
-  private fun attach(session: CastSession) {
-    if (attached === session) return
+  private fun attach(session: CastSession): Attachment? {
+    if (context()?.sessionManager?.currentCastSession !== session || !session.isConnected) return null
+    attached?.let { if (it.session === session) return it }
     detach()
-    try { session.setMessageReceivedCallbacks(NAMESPACE, messages); attached = session } catch (_: Exception) {}
+    val id = UUID.randomUUID().toString()
+    // A distinct closure retains the original session and attachment identity,
+    // even if the SDK has already queued a callback when unregister runs.
+    val callback = Cast.MessageReceivedCallback { _, namespace, message ->
+      main.post {
+        if (listening && currentAttachment(session, id) && namespace == NAMESPACE && message.toByteArray(Charsets.UTF_8).size <= 65536) {
+          emit("PorticoCastMessage", Arguments.createMap().apply { putString("message", message); putString("attachmentId", id) })
+        }
+      }
+    }
+    val original = Attachment(session, id, callback)
+    attached = original
+    return try { session.setMessageReceivedCallbacks(NAMESPACE, callback); original }
+    catch (_: Exception) { if (attached === original) detach(); null }
   }
 
   private fun detach() {
-    try { attached?.removeMessageReceivedCallbacks(NAMESPACE) } catch (_: Exception) {}
+    val original = attached
     attached = null
+    try { original?.session?.removeMessageReceivedCallbacks(NAMESPACE) } catch (_: Exception) {}
+  }
+
+  private fun started(session: CastSession) {
+    val original = attach(session) ?: return
+    if (currentAttachment(original.session, original.id)) emitSession("started", session, original.id, false)
+  }
+
+  private fun finished(session: CastSession, state: String, failed: Boolean) {
+    val original = attached ?: return
+    if (original.session !== session || session.isConnected) return
+    val current = context()?.sessionManager?.currentCastSession
+    if (current != null && current !== session) return
+    detach()
+    emitSession(state, session, original.id, failed)
   }
 
   private val sessions = object : SessionManagerListener<CastSession> {
-    override fun onSessionStarted(session: CastSession, sessionId: String) { attach(session); emitSession("started", session, false) }
-    override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) { attach(session); emitSession("started", session, false) }
-    override fun onSessionEnded(session: CastSession, error: Int) { detach(); emitSession("ended", session, error != 0) }
-    override fun onSessionStartFailed(session: CastSession, error: Int) { detach(); emitSession("failed", session, true) }
-    override fun onSessionResumeFailed(session: CastSession, error: Int) { detach(); emitSession("failed", session, true) }
+    override fun onSessionStarted(session: CastSession, sessionId: String) { started(session) }
+    override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) { started(session) }
+    override fun onSessionEnded(session: CastSession, error: Int) { finished(session, "ended", error != 0) }
+    override fun onSessionStartFailed(session: CastSession, error: Int) { finished(session, "failed", true) }
+    override fun onSessionResumeFailed(session: CastSession, error: Int) { finished(session, "failed", true) }
     override fun onSessionStarting(session: CastSession) {}
     override fun onSessionEnding(session: CastSession) {}
     override fun onSessionResuming(session: CastSession, sessionId: String) {}
-    override fun onSessionSuspended(session: CastSession, reason: Int) {}
+    override fun onSessionSuspended(session: CastSession, reason: Int) { finished(session, "ended", false) }
   }
 
   @ReactMethod
@@ -116,10 +154,11 @@ class PorticoCast(context: ReactApplicationContext) : PorticoEventModule(context
   @ReactMethod
   fun current(promise: Promise) {
     main.post {
-      val session = context()?.sessionManager?.currentCastSession
+      val session = if (listening) context()?.sessionManager?.currentCastSession else null
       if (session == null || !session.isConnected) { promise.resolve(null); return@post }
-      attach(session)
-      promise.resolve(Arguments.createMap().apply { putString("deviceName", session.castDevice?.friendlyName ?: ""); putString("deviceId", session.castDevice?.deviceId ?: "") })
+      val original = attach(session)
+      if (original == null || !currentAttachment(original.session, original.id)) { promise.resolve(null); return@post }
+      promise.resolve(Arguments.createMap().apply { putString("attachmentId", original.id); putString("deviceName", session.castDevice?.friendlyName ?: ""); putString("deviceId", session.castDevice?.deviceId ?: "") })
     }
   }
 
@@ -136,22 +175,34 @@ class PorticoCast(context: ReactApplicationContext) : PorticoEventModule(context
   }
 
   @ReactMethod
-  fun send(json: String?, promise: Promise) {
+  fun send(json: String?, attachmentId: String?, promise: Promise) {
     main.post {
-      val session = attached
-      if (session == null || json == null || json.length > 65536) { promise.reject("cast_not_connected", "No Cast session."); return@post }
-      try {
-        session.sendMessage(NAMESPACE, json).setResultCallback { status ->
-          if (status.isSuccess) promise.resolve(true) else promise.reject("cast_send_failed", "The message was not sent.")
-        }
-      } catch (_: Exception) {
-        promise.reject("cast_send_failed", "The message was not sent.")
+      val original = attached
+      if (original == null || attachmentId == null || original.id != attachmentId || !currentAttachment(original.session, attachmentId) || json == null || json.toByteArray(Charsets.UTF_8).size > 65536) {
+        promise.reject("cast_attachment_retired", "The Cast attachment changed."); return@post
       }
+      try {
+        original.session.sendMessage(NAMESPACE, json).setResultCallback { status ->
+          main.post {
+            if (!currentAttachment(original.session, original.id)) promise.reject("cast_attachment_retired", "The Cast attachment changed.")
+            else if (status.isSuccess) promise.resolve(true)
+            else promise.reject("cast_send_failed", "The message was not sent.")
+          }
+        }
+      } catch (_: Exception) { promise.reject("cast_send_failed", "The message was not sent.") }
     }
   }
 
   @ReactMethod
-  fun end(stopReceiver: Boolean) { main.post { try { context()?.sessionManager?.endCurrentSession(stopReceiver) } catch (_: Exception) {} } }
+  fun end(stopReceiver: Boolean, attachmentId: String?) {
+    main.post {
+      val original = attached
+      if (original == null || attachmentId == null || original.id != attachmentId || !currentAttachment(original.session, attachmentId)) return@post
+      // SessionManager operates on its current session; prove it is still the
+      // original attachment immediately before invoking it on the main thread.
+      try { context()?.sessionManager?.endCurrentSession(stopReceiver) } catch (_: Exception) {}
+    }
+  }
 
   private companion object { const val NAMESPACE = "urn:x-cast:tv.getportico.cast" }
 }
