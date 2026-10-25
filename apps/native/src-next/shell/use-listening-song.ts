@@ -29,18 +29,23 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
   const tokens = useRef(new WeakMap<object, Opening>()), mounted = useRef(true), currentRef = useRef(current);
   currentRef.current = current;
   const fenceKey = fence ? JSON.stringify(fence) : '';
-  useLayoutEffect(() => () => {mounted.current = false; ticket.current++; openingRef.current = undefined; pendingRef.current = undefined;}, []);
+  // Bounded eligibility for exactly this fence and lifetime. It changes when the accepted window
+  // arrives or retires, not on progress ticks, and opens or closes the reading with it.
+  const canRead = !!detail && !!fence && !!lifetime && detail.canRead(fence, lifetime);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {mounted.current = false; ticket.current++; openingRef.current = undefined; pendingRef.current = undefined;};
+  }, []);
   useLayoutEffect(() => {
     // Retire the previous opening before publishing anything for this one; its state and its
     // pending ticket leave in the same layout pass, so an older token is never drawn under it.
     const at = ++ticket.current;
     openingRef.current = undefined; pendingRef.current = undefined;
     if (mounted.current) setState(() => ({pending: false}));
-    if (!detail || !fence || !lifetime) return;
+    if (!canRead || !detail || !fence || !lifetime) return;
     const owner = currentRef.current;
     const opening: Opening = Object.freeze({port: detail, fence, lifetime, live: () => lifetime.isCurrent() && owner()});
     openingRef.current = opening;
-    if (!detail.canRead(fence, lifetime)) return;
     void detail.read(fence, lifetime).then(song => {
       if (!mounted.current || openingRef.current !== opening || ticket.current !== at || !opening.live()) return;
       if (song) tokens.current.set(song, opening);
@@ -51,7 +56,7 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
       if (openingRef.current === opening) openingRef.current = undefined;
       if (pendingRef.current === opening) pendingRef.current = undefined;
     };
-  }, [detail, fenceKey, lifetime]);
+  }, [detail, fenceKey, lifetime, canRead]);
   const favorite = useCallback((song: NativeListeningSong, value: boolean) => {
     const opening = tokens.current.get(song);
     // The token itself names the opening that issued it: a retained press can never borrow
@@ -73,8 +78,14 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
     }).catch(() => {}).finally(() => {
       if (!mounted.current || openingRef.current !== opening || ticket.current !== at) return;
       if (pendingRef.current === opening) pendingRef.current = undefined;
+      // A vanished lifetime releases its own ticket and opening without publishing a UI state
+      // for a page that is no longer the original opening.
+      if (!opening.live()) {
+        if (openingRef.current === opening) openingRef.current = undefined;
+        return;
+      }
       setState(previous => previous.opening === opening && previous.pending ? {...previous, pending: false} : previous);
     });
   }, []);
-  return {...(state.opening && state.song ? {song: state.song} : {}), pending: state.opening ? state.pending : false, favorite};
+  return {...(canRead && state.opening && state.song ? {song: state.song} : {}), pending: canRead && state.opening ? state.pending : false, favorite};
 }
