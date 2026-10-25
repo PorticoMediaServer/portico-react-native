@@ -49,6 +49,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
+  const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'failed'>('idle');
   const [pinRecovery, setPinRecovery] = useState<PINRecovery>();
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
   const lifetime = useRef(true), directoryAttempt = useRef(0), retryDelay = useRef(20), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
@@ -105,10 +106,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
-  const cancelDirectory = () => {retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
+  const cancelDirectory = () => {setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
     if (pinRecoveryRef.current) {retireRecovery(); setCode(''); return;}
     if (stage === 'servers' && target) {cancelDirectory(); return;}
@@ -146,15 +147,33 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     else onComplete();
   };
   const directory = async () => {
-    ++directoryAttempt.current;
+    const attempt = ++directoryAttempt.current;
     const credentials = nativeAccounts.accountCredentials(), session = await credentials.accessSession();
+    const current = () => {
+      const live = credentials.getSnapshot().session;
+      return lifetime.current && attempt === directoryAttempt.current && live?.account.id === session.account.id && live.familyId === session.familyId;
+    };
+    if (!current()) return;
     accountScope.current = {accountId: session.account.id, familyId: session.familyId};
-    const out = await new HttpHostedApi(hostedUrl, session.accessToken, nativeNetworkFetch).servers();
-    if (!out || !Array.isArray(out.items) || out.items.some(value => !value || typeof value.id !== 'string' || !value.id ||
-      typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
-      !Number.isSafeInteger(value.policyRevision) || value.policyRevision < 0) || new Set(out.items.map(value => value.id)).size !== out.items.length)
-      throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
-    if (lifetime.current) {setPassword(''); setServers(out.items); stopRetry(); targetRef.current = undefined; setTarget(undefined); setError(undefined); setStage('servers');}
+    stopRetry(); targetRef.current = undefined; setTarget(undefined); setError(undefined); setPassword('');
+    setServers([]); setDirectoryList('loading'); setStage('servers');
+    try {
+      const out = await new HttpHostedApi(hostedUrl, session.accessToken, nativeNetworkFetch).servers();
+      if (!current()) return;
+      if (!out || !Array.isArray(out.items) || out.items.some(value => !value || typeof value.id !== 'string' || !value.id ||
+        typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
+        !Number.isSafeInteger(value.policyRevision) || value.policyRevision < 0) || new Set(out.items.map(value => value.id)).size !== out.items.length)
+        throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
+      setServers(out.items); setDirectoryList('idle');
+    } catch (failure) {
+      if (!current()) return;
+      const presentation = presentError(failure, 'portico-account');
+      if (presentation.silent) {setDirectoryList('idle'); return;}
+      if (['offline', 'unreachable', 'timeout', 'busy', 'unavailable', 'invalid-response', 'rate-limited'].includes(presentation.category)) {
+        setDirectoryList('failed'); return;
+      }
+      setDirectoryList('idle'); throw failure;
+    }
   };
   const connectDirectory = (value: HostedServer, automatic = false) => {
     if (busyRef.current || acting.current || adoptingTV.current || !lifetime.current) return;
@@ -359,6 +378,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
     await account.current!.verifyContact(contact.current!, code); setTransaction(value => value && {...value, contactVerified: true}); setCode(''); setStage('provider');
   }, !code));
+  if (stage === 'servers' && directoryList === 'loading') return <StateLayout testID="accounts-server-list-loading" title={t('web.chooser.loading')}/>;
+  if (stage === 'servers' && directoryList === 'failed') return <StateLayout testID="accounts-server-list-failed" icon="i-warn" tone="error"
+    title={t('web.chooser.loadFailed')} body={t('web.chooser.loadFailedBody')}
+    primaryAction={{id: 'retry-server-list', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => {void run(directory);}}}/>;
   if (stage === 'servers' && target && directoryIdentityUnconfirmed(error)) return <StateLayout testID="accounts-server-unconfirmed" icon="i-question"
     title={t('web.chooser.unconfirmedTitle', {server: target.name})} body={t('web.chooser.unconfirmedBody')}
     primaryAction={{id: 'retry-identity', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
