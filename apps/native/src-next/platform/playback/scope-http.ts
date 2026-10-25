@@ -17,6 +17,8 @@ export class PlaybackScopeHttp implements V1Http {
     this.guards.set(signal, current);
     return () => { if (this.guards.get(signal) === current) this.guards.delete(signal); };
   }
+  /** Retain this exact caller's guard before another wrapper joins its signal. */
+  capture(signal?: AbortSignal): (() => boolean) | undefined {return signal ? this.guards.get(signal) : undefined;}
   send = async (request: V1Request) => {
     const guard = request.signal ? this.guards.get(request.signal) : undefined;
     const current = () => !this.closed && this.current() && (!guard || guard());

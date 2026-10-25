@@ -94,6 +94,8 @@ export interface NativeShellRuntime {
   /** Destinations name their own copy context; Home stays the default. */
   error: (error: unknown, retry: () => void, context?: ErrorContext) => StateViewProps;
   reportError: (error: unknown) => void;
+  /** Explicit consent only, scoped to the still-current original startup refusal. */
+  reportPlaybackProblem?: (consent: Readonly<{signal: AbortSignal; current: () => boolean}>) => Promise<void>;
   onDestination: (destination: ShellDestination) => void;
   scrollToTop: (destination: ShellDestination) => void;
   registerScrollToTop: (destination: ShellDestination, handler: () => void) => () => void;

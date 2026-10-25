@@ -26,6 +26,8 @@ import type {QualityOption} from '../../../../../packages/client-core/src/playba
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
 import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
 import type {SubtitlePreferences} from '../../../../../packages/client-core/src/preference-effects';
+import type {NativePlaybackStartFailure} from './start-failure';
+import type {NativePlaybackCapacityWait} from './capacity-retry';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
@@ -83,10 +85,16 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
    * same view: only the view's own fenced report sets `active` or `state`. */
   pictureInPicture?: Readonly<{request: number; binding?: NativeBinding; active: boolean; state: NativePictureInPictureState}>;
   retired: boolean;
+  startFailure?: NativePlaybackStartFailure;
+  capacityWait?: NativePlaybackCapacityWait;
 }>;
 
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */
 export type NativePlaybackRuntimeOptions = Readonly<{
+  /** Opt in only with an installed refusal presenter. Captured before options/read/create. */
+  startFailurePresentation?: boolean;
+  captureStartContext?: () => (() => boolean) | undefined;
+  subscribeStartContext?: (listener: () => void) => () => void;
   androidDisplayMatching?: true;
   nativeDynamicRangeMatching?: true;
   api: HttpLocalApi;

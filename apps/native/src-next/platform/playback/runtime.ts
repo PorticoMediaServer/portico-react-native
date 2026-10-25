@@ -1,4 +1,6 @@
-import {NativeModules} from 'react-native';
+import {AppState, NativeModules} from 'react-native';
+import {startFailureHttp, type NativePlaybackStartFailure} from './start-failure';
+import {capacityRetryHttp, type NativePlaybackCapacityWait} from './capacity-retry';
 import {PlaybackService, type PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {DetailService, type DetailProjection} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -96,6 +98,11 @@ export class NativePlaybackRuntime {
   private connected = false;
   private retired = false;
   private startEpoch = 0;
+  private startContext?: () => boolean;
+  private startAdmission = false;
+  private readonly startLife = new AbortController();
+  private startFailure?: NativePlaybackStartFailure;
+  private capacityWait?: NativePlaybackCapacityWait;
   private versionMenuEpoch = 0;
   private startController?: AbortController;
   private offlineLifetimeOff?: () => void;
@@ -165,11 +172,28 @@ export class NativePlaybackRuntime {
     // These are the actual controller identifiers V1QueuePlayer publishes (its constructor).
     this.scope = Object.freeze({serverId: viewer.serverId, authority: viewer.authority as 'local' | 'hosted', accountId: viewer.accountId, profileId: viewer.profileId, controllerId: 'v1', controllerEpoch: 'v1', commandLaneId: 'v1'});
     this.http = new PlaybackScopeHttp(localV1Http(options.api), () => this.currentAuthority(), (request, response) => this.retiredStart(request, response));
+    const visibility = {hidden: () => AppState.currentState !== 'active', onVisible(listener: () => void) {
+      const off = AppState.addEventListener('change', state => {if (state === 'active') listener();});return () => off.remove();
+    }};
+    const captureCurrent = (request: V1Request) => {
+      const epoch = this.startEpoch, context = this.startContext, guard = this.http.capture(request.signal);
+      if (!context || !request.signal || !this.startAdmission) return;
+      return () => this.currentAuthority() && epoch === this.startEpoch && !request.signal!.aborted && context() && guard?.() !== false;
+    };
+    const capacity = capacityRetryHttp({http: this.http, life: this.startLife.signal, captureCurrent,
+      isCurrent: () => this.currentAuthority(), timers: options.timers, foreground: () => !visibility.hidden(), onVisible: visibility.onVisible,
+      publish: wait => {this.capacityWait = wait;if (this.snapshot) this.changed();}});
+    const startHttp = options.startFailurePresentation ? startFailureHttp({http: capacity, api: options.api, events: options.events,
+      life: this.startLife.signal, visibility, captureCurrent, isCurrent: () => this.currentAuthority(), isInitial: () => this.startAdmission,
+      subscribeCurrent: listener => {const offs = [options.subscribeAuthority(listener), options.subscribeStartContext?.(listener)];return () => offs.forEach(off => off?.());},
+      publish: failure => {this.startFailure = failure;if (this.snapshot) this.changed();},
+      cancelStart: () => {this.beginOperation();this.changed();},
+    }) : this.http;
     this.optionsClient = new PlaybackOptionsClient(this.http);
-    this.path = new NativePlayback({http: this.http, key: options.requestId, timers: options.timers});
+    this.path = new NativePlayback({http: startHttp, key: options.requestId, timers: options.timers});
     if (options.offlineDevice) this.offline = new NativeOfflinePlayback(options.session, options.offlineDevice);
     this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
-    this.queue = new V1QueuePlayer({http: this.http, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
+    this.queue = new V1QueuePlayer({http: startHttp, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
       transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
       audiobookPreferences: () => this.o.settings().audiobook ?? {skipBackMs:15000,skipForwardMs:30000,resumeRewindMs:0},
       retainQueueIds: () => this.retainedQueueIds()});
@@ -292,6 +316,8 @@ export class NativePlaybackRuntime {
 
   private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
+    this.startContext = this.o.captureStartContext?.();
+    this.startFailure = undefined;this.capacityWait = undefined;this.startAdmission = false;
     this.externalController?.abort(); this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle';
     this.offlineLifetimeOff?.(); this.offlineLifetimeOff = undefined;
     this.startController?.abort();
@@ -360,7 +386,7 @@ export class NativePlaybackRuntime {
       this.subject = this.entry ? subjectOf(this.entry) : undefined; this.options = undefined;
       this.expanded = this.entry ? !audioKind(this.entry.kind) : true;
       this.expandAtStart = epoch;
-      this.preparing = true;
+      this.preparing = true;this.startAdmission = true;
       // Only the canonical core owns the create/adopt path and its pre-adoption context fence.
       const queue = await this.queue.playSegments(segments, {startSeconds: selectionStartSeconds(request.items), signal: scoped.signal, isCurrent: valid});
       if (!valid()) throw new Error('stale_selection_context');
@@ -370,7 +396,7 @@ export class NativePlaybackRuntime {
       throw error;
     } finally {
       scoped.close();
-      if (epoch === this.startEpoch) { this.preparing = false; this.changed(); }
+      if (epoch === this.startEpoch) { this.preparing = false;this.startAdmission = false; this.changed(); }
     }
   }
   private async enqueueSelection(request: HomeSelectionPlaybackRequest & {placement: 'next' | 'end'}, current: (context: SelectionContext) => boolean, epoch: number, source: number) {
@@ -506,7 +532,7 @@ export class NativePlaybackRuntime {
   start = async (input: NativePlaybackStart): Promise<void> => {
     const caller = input.lifetime;
     const callerCurrent = () => !caller?.signal.aborted && caller?.isCurrent() !== false;
-    if (!callerCurrent()) return;
+    if (!callerCurrent()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
     this.connect();
     if (!this.active()) return;
     if (!wireId(input.target.itemId) || input.target.startSeconds !== undefined && (!Number.isFinite(input.target.startSeconds) || input.target.startSeconds < 0)) throw new Error('Invalid playback target.');
@@ -518,15 +544,15 @@ export class NativePlaybackRuntime {
     const current = () => this.active() && epoch === this.startEpoch && !controller.signal.aborted && callerCurrent();
     const scoped = this.selectionScope(controller.signal, current);
     try {
-      await this.queue.cancel(); if (!current()) return;
-      await this.o.capabilitiesReady(); if (!current()) return;
+      await this.queue.cancel(); if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
+      await this.o.capabilitiesReady(); if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
       const [offered, capabilities] = await Promise.all([
         this.optionsClient.options(input.target.itemId, {}, scoped.signal),
         this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
       ]);
-      if (!current()) return;
+      if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
       await this.startOffered(input, offered, capabilities, epoch, undefined, {signal: scoped.signal, isCurrent: current});
-    } catch (error) {if (current()) throw error;}
+    } catch (error) {if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});throw error;}
     finally {
       caller?.signal.removeEventListener('abort', abort); scoped.close();
       if (this.startController === controller) this.startController = undefined;
@@ -629,7 +655,7 @@ export class NativePlaybackRuntime {
       this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
       this.rememberCurrent(); assertCurrent();
       this.entry = undefined; this.subject = undefined; this.options = undefined;
-      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;
+      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;this.startAdmission = true;
       const queue = await this.queue.playSegments(segments, {...options, signal: scoped.signal, isCurrent: valid});
       assertCurrent(); return queue;
     } catch (error) {
@@ -637,7 +663,7 @@ export class NativePlaybackRuntime {
       throw error;
     } finally {
       scoped.close();
-      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+      if (epoch === this.startEpoch) {this.preparing = false;this.startAdmission = false; this.changed();}
     }
   }
 
@@ -687,7 +713,7 @@ export class NativePlaybackRuntime {
       this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
       this.rememberCurrent(); assertCurrent();
       this.entry = undefined; this.subject = undefined; this.options = undefined;
-      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;
+      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;this.startAdmission = true;
       await this.queue.playSegments([{source: {query: input.query}, ...(input.shuffle ? {order: {mode: 'shuffle' as const}} : {})}], {signal: scoped.signal, isCurrent: valid});
       assertCurrent();
     } catch (error) {
@@ -695,7 +721,7 @@ export class NativePlaybackRuntime {
       throw error;
     } finally {
       scoped.close();
-      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+      if (epoch === this.startEpoch) {this.preparing = false;this.startAdmission = false; this.changed();}
     }
   };
 
@@ -734,7 +760,7 @@ export class NativePlaybackRuntime {
       if (!current()) return;
       dispatching = true;
       await this.startOffered(fresh, offered, capabilities, epoch, versionId, {signal: scoped.signal, isCurrent: current});
-    } catch (error) { if (!current() || scoped.signal.aborted) return; throw error; }
+    } catch (error) { if (!current() || scoped.signal.aborted) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'}); throw error; }
     finally { scoped.close(); }
   };
 
@@ -750,7 +776,7 @@ export class NativePlaybackRuntime {
       if (this.snapshot.fence && sameFence(old.fence, this.snapshot.fence)) this.playback.pause();
     }
     if (!current()) return; // A synchronous pause subscriber may retire the chooser or start another item.
-    this.preparing = true;
+    this.preparing = true;this.startAdmission = true;
     this.entry = input.entry.id === input.target.itemId ? input.entry : undefined;
     this.subject = this.entry ? subjectOf(this.entry) : undefined;
     this.options = offered;
@@ -764,7 +790,7 @@ export class NativePlaybackRuntime {
       // retry policy and account detail. A retired operation cannot publish it.
       if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
       throw error;
-    } finally { if (epoch === this.startEpoch) { this.preparing = false; this.changed(); } }
+    } finally { if (epoch === this.startEpoch) { this.preparing = false;this.startAdmission = false; this.changed(); } }
   }
 
   /** Info reads borrow the actual queue occurrence. Unlike a replan, a read must
@@ -1101,6 +1127,7 @@ export class NativePlaybackRuntime {
       && acknowledgement.itemId === playback.itemId ? acknowledgement : null;
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
+      startFailure: this.startFailure, capacityWait: this.capacityWait,
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
@@ -1643,6 +1670,7 @@ export class NativePlaybackRuntime {
     return () => { if (this.surfaceOwner === owner) { this.cancelSnapshot(); this.surfaceTag = undefined; this.surfaceTagOwner = undefined; this.surfaceOwner = undefined; queueMicrotask(() => { if (!this.surfaceOwner) this.dispose(); }); } };
   }
   dispose = (): void => {
+    this.startLife.abort();
     if (this.retired) return;
     const state = this.playback.getSnapshot();
     // An ordinary shell unmount stops its exact server session at the settled position. On an

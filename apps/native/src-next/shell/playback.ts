@@ -11,6 +11,8 @@ import type {PlaybackSubject} from '../../../../packages/client-core/src/present
 import type {NativePlaybackRuntimeSnapshot} from '../platform/playback/types';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence, type RemoteDock} from '../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from './model';
+import type {NativePlaybackStartFailure} from '../platform/playback/start-failure';
+import type {NativePlaybackCapacityWait} from '../platform/playback/capacity-retry';
 
 export type NativeShellPlaybackStart = Readonly<{
   /** The real display record and the server-selected target stay separate for show continuations. */
@@ -28,6 +30,8 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   authority: ShellAuthority;
   dock: DockState;
   playback: PlaybackSnapshot;
+  startFailure?: NativePlaybackStartFailure;
+  capacityWait?: NativePlaybackCapacityWait;
   fence?: PlaybackFence;
   subject?: PlaybackSubject;
   entry?: ContentEntry;

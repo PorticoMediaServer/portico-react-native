@@ -1,4 +1,6 @@
 import {AppState, Dimensions, Platform} from 'react-native';
+import {NativeScreenLifetime} from '../screens/settings-live/lifetime';
+import {sendNativeDeviceReport} from '../screens/settings-live/device-client-report';
 import {audiobookPreferences} from '../../../../packages/client-core/src/audiobook-preferences';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
@@ -220,6 +222,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       }};
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
+      startFailurePresentation: Platform.isTV,
+      captureStartContext: () => {const original = navigation!.getSnapshot();return () => current() && navigation!.getSnapshot() === original;},
+      subscribeStartContext: listener => navigation!.subscribe(listener),
       ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),
       settings: () => {
         // The sample-rate match is this device's own engine value, never the profile's.
@@ -371,7 +376,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
       return value / 1000;
     };
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn,
+      reportPlaybackProblem: async consent => {
+        const lifetime = new NativeScreenLifetime(context);
+        try {await sendNativeDeviceReport({context, lifetime}, consent);} finally {lifetime.dispose();}
+      }, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       // The real pushed route and revision, for a guarded control that must retire when the page
       // it opened on is left. The navigation snapshot is stable between publishes.

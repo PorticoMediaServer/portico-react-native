@@ -24,6 +24,7 @@ import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlayb
 import {NativeVideoSnapshotCapture} from './video-snapshot';
 import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
+import {TVStartFailure} from './TVStartFailure';
 
 const noListeningSubscribe = () => () => {};
 const noListeningNavigation = () => undefined;
@@ -259,6 +260,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
+    {theme.isTV && (snapshot.startFailure || snapshot.capacityWait) && <TVStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>}
   </View>;
 }
 
