@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
@@ -69,6 +69,14 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const name = library?.name ?? title, authoredTabs = useMemo(() => libraryTabs(kind), [kind]);
   const [tab, setTab] = useState<LibraryTabId>('discover'), [switcherOpen, setSwitcherOpen] = useState(false), fellBack = useRef(false);
   const [paneWidth, setPaneWidth] = useState<number>();
+  // tablet-read#1b: the wide header carries the count of the view the grid is
+  // showing. The grid publishes it with its own owner, so a projection can only
+  // be retired by the view that made it, and a later mount replaces it.
+  const [gridCount, setGridCount] = useState<Readonly<{owner: object; text: string}>>();
+  const projectGridCount = useCallback((owner: object, text: string | undefined) => {
+    setGridCount(current => text ? Object.freeze({owner, text}) : current?.owner === owner ? undefined : current);
+  }, []);
+  useEffect(() => {setGridCount(undefined);}, [libraryId]);
   const tablet = !theme.isTV && theme.platform !== 'phone'; // Medium, tablet and native web windows share the wide surface.
   const [summary, setSummary] = useState<LibrarySummary>();
   const libraryKind = library?.kind, wideId = library?.id;
@@ -172,8 +180,10 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
           <Icon name="i-down" size={22} color={theme.colors.text}/>
         </Focusable> : null}
       </View>
-      {counts.length ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
-        {counts.map(text => <Text key={text} style={[browseType(theme, 15, 500), {color: theme.colors.textTertiary}]}>{text}</Text>)}</View> : null}
+      {gridCount ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
+        <Text accessibilityLiveRegion="polite" style={[browseType(theme, 15, 500), {color: theme.colors.textTertiary}]}>{gridCount.text}</Text></View>
+        : counts.length ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
+          {counts.map(text => <Text key={text} style={[browseType(theme, 15, 500), {color: theme.colors.textTertiary}]}>{text}</Text>)}</View> : null}
       <View style={{marginTop: 16}}><LibraryTabs items={tabs} selected={tab} enabled phone={false} regionId={`reading-tabs-${libraryId}`}
         leftEdge="reading-tabs-edge" onSelect={id => setTab(id)}/></View>
     </View> : <LibraryCompactHeader switcher={switcher} onLibraries={onBack} testID="native-reading-library-header">
@@ -182,7 +192,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     </LibraryCompactHeader>}
     {tab === 'discover' ? discover
       : tablet && gridTab && library ? <NativeReadingBooks context={context} runtime={runtime} library={library} tab={gridTab} labels={labels}
-        owner={context.session()?.viewer.role === 'owner'}/>
+        owner={context.session()?.viewer.role === 'owner'} onCount={projectGridCount}/>
       : tablet && !capability ? <View style={{flex: 1}}>{loading}</View>
       : booksGrid}
     <Menu open={!!downloadMenu && downloadMenu.owner === downloadOwner && downloadOwner.current?.() === true && menuRef.current === downloadMenu}

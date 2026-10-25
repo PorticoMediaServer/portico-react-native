@@ -9,8 +9,10 @@ import {browseToolbarModel} from '../../../../../packages/client-core/src/presen
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {BrowseLabels} from '../../kit/browse';
 import {BrowseToolbar, FilteredEmpty} from '../../kit/browse';
-import {Button, Chip} from '../../kit/controls';
+import {Button, Chip, Focusable} from '../../kit/controls';
+import {MediaArt} from '../../kit/artwork';
 import {PosterCard} from '../../kit/cards';
+import {Parts} from '../../kit/cards/primitives';
 import {AlphabetRail, WindowedGrid, type WindowedGridHandle} from '../../kit/layout';
 import {StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
@@ -35,9 +37,12 @@ type BooksLease = Readonly<{origin: NativeReadOrigin; life: AbortController}>;
  * Browse toolbar over real capabilities and quick filters — with the real
  * Filters panel docked beside it in landscape. A card opens the item's own
  * Reading book page; this surface never opens the reader itself. */
-export function NativeReadingBooks({context, runtime, library, tab, owner, labels, filterWidth = 360}: {
+export function NativeReadingBooks({context, runtime, library, tab, owner, labels, filterWidth = 360, onCount}: {
   context: NativeShellBootstrapContext; runtime: NativeShellRuntime; library: Library; /** The browsable tab the server's own reading pivots published. */ tab: LibraryTab;
   owner: boolean; labels: BrowseLabels; filterWidth?: number;
+  /** tablet-read#1b: the wide header shows the count of this grid's view, tagged
+   * with the owner of the mount that reported it. */
+  onCount?: (owner: object, text: string | undefined) => void;
 }) {
   const theme = useTheme(), dimensions = useWindowDimensions(), lifetime = useMemo(() => nativeDestinationLifetime(context), [context]);
   const current = () => lifetime.current() && context.libraries().some(value => value.id === library.id && value.kind === library.kind);
@@ -45,6 +50,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>();
   const [paneWidth, setPaneWidth] = useState<number>();
+  const [view, setView] = useState<'grid' | 'list'>('grid');
   const [visible, setVisible] = useState({first: 0, last: 0});
   const grid = useRef<WindowedGridHandle>(null);
   const [lease, setLease] = useState<BooksLease>();
@@ -85,6 +91,12 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
     ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(total)}${page?.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
         total: defaultI18n.t(unfiltered.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: unfiltered.total, pivot: pivot ?? 'other'})})
     : defaultI18n.t(page?.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: total, pivot: pivot ?? 'other'});
+  // tablet-read#1b puts a filtered view's count in the library header, not the
+  // toolbar; an unfiltered grid keeps the library's own pivot counts there.
+  // Report it under a per-mount owner so only this grid retires its own line.
+  const countOwner = useMemo(() => ({}), []);
+  useEffect(() => {onCount?.(countOwner, filtered ? resultCount || undefined : undefined);}, [countOwner, filtered, onCount, resultCount]);
+  useEffect(() => () => {onCount?.(countOwner, undefined);}, [countOwner, onCount]);
   const applyQuery = (predicates: readonly BrowseNode[]) => {
     if (!filters) {destination.setQuery(predicates); return;}
     filters.setPredicates(predicates); // Debounced count/facet refresh of the same panel.
@@ -142,6 +154,9 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const columns = Math.max(1, Math.min(7, Math.floor((room + gap) / (minimum + gap))));
   const cardWidth = Math.max(1, Math.floor((room - gap * (columns - 1)) / columns));
   const cardHeight = cardWidth * 1.5 + 48;
+  // The drawn grid/list pair: the same bounded collection, the same query and
+  // the same open action; only the row height and cover change.
+  const list = view === 'list', rowWidth = Math.max(1, room);
   // Stable identity: the grid re-runs its range callback when this prop changes,
   // and an unchanged range must not publish a new object.
   const changedRange = useCallback((first: number, last: number) => {
@@ -152,7 +167,8 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
   }}>
-    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount={resultCount} filtersOpen={!!filters}
+    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount="" filtersOpen={!!filters}
+      view={{value: view, onValueChange: setView}}
       onFilters={openFilters} onQuickChange={quick} onSortChange={applySort}
       onReshuffle={() => {if (sort) applySort({...sort, seed: (sort.seed ?? 0) + 1});}}/> : null}
     {applied.length ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingHorizontal: theme.gutter, paddingTop: 10}}>
@@ -166,14 +182,18 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
           ? <View style={{flex: 1}}><FilteredEmpty testID="reading-books-filtered-empty" onClearFilters={() => applyQuery(base)}/></View>
           : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
           : <View style={{flex: 1}}>
-            <WindowedGrid ref={grid} testID="reading-books-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={cardWidth} itemHeight={cardHeight}
-              gap={gap} rowGap={rowGap} gutter={theme.gutter} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
+            <WindowedGrid ref={grid} testID={list ? 'reading-books-list' : 'reading-books-grid'} collection={collection} getKey={nativeLibraryEntryKey}
+              itemWidth={list ? rowWidth : cardWidth} itemHeight={list ? 70 : cardHeight}
+              gap={list ? 0 : gap} rowGap={list ? 0 : rowGap} gutter={theme.gutter} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
               onVisibleRange={changedRange}
-              renderPlaceholder={() => <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
+              renderPlaceholder={() => list ? <View style={{width: rowWidth, height: 70, backgroundColor: theme.colors.raised}}/>
+                : <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
               renderItem={(entry: ContentEntry) => {
+                const open = () => {if (lease) openBook(lease, entry);};
+                if (list) return <ReadingListRow entry={entry} width={rowWidth} runtime={runtime} onOpen={open}/>;
                 const text = homeCardText(entry, false, runtime.text);
                 return <PosterCard title={text.title} caption={text.caption} width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} visible
-                  testID={`reading-book-${entry.id}`} onNavigate={() => {if (lease) openBook(lease, entry);}}/>;
+                  testID={`reading-book-${entry.id}`} onNavigate={open}/>;
               }}/>
             {alphabet && page?.positionIndex && page.total !== undefined ? <AlphabetRail positionIndex={page.positionIndex}
               total={page.total} firstVisible={visible.first} lastVisible={visible.last} testID="reading-books-alphabet"
@@ -186,4 +206,20 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
       : <Text style={[browseType(theme, 14, 500), {color: theme.colors.textTertiary, padding: 20}]}>{defaultI18n.t('status.loading')}</Text>}
     {filters && !docked ? <LibraryFilters draft={filters} source={state} runtime={runtime} owner={owner} labels={labels} onClose={closeFilters}/> : null}
   </View>;
+}
+
+/** One Books list row: the item's own cover and the same real title and caption
+ * the card draws. A format, page count or reading position appears only when the
+ * browse page itself carries it, so nothing here is inferred from the file. */
+function ReadingListRow({entry, width, runtime, onOpen}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void}) {
+  const theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle || text.title;
+  return <Focusable accessibilityRole="button" accessibilityLabel={title} focusKind="row" onPress={onOpen} testID={`reading-list-${entry.id}`}
+    style={{width, height: 70, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12}}>
+    <MediaArt kind="poster" source={runtime.artwork(entry.posterUrl)} width={36} height={54} style={{borderRadius: 5}}/>
+    <View style={{flex: 1, minWidth: 0, gap: 3}}>
+      <Text numberOfLines={1} style={[browseType(theme, 15, 600), {color: theme.colors.text}]}>{title}</Text>
+      <Parts parts={text.caption} style={[browseType(theme, 12.5, 400), {color: theme.colors.textSecondary}]}/>
+    </View>
+    <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, bottom: 0, height: 1, backgroundColor: theme.colors.line}}/>
+  </Focusable>;
 }
