@@ -13,7 +13,9 @@ const react = {...React, default: React}, theme = {isTV: true, colors: {}, type:
 const controls = {Button: 'Button', TextField: 'TextField'};
 const themed = {useTheme: () => theme, nativeType: () => ({})};
 const {NativeFileInfoContent} = await screenModule(new URL('../src-next/screens/watch/FileInfoContent.tsx', import.meta.url), {
-  react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
+  react, 'react-native': {Platform: {select: (options: Record<string, unknown>) => options.ios ?? options.default}, ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}}, Text: 'Text', View: 'View'},
+  'react-native-svg': {default: 'Svg', Defs: 'Defs', RadialGradient: 'RadialGradient', Rect: 'Rect', Stop: 'Stop'},
+  '../../../../../packages/i18n/src': {defaultI18n},
   '../../kit/controls': controls, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': themed,
 });
 const {NativeWatchOverlays} = await screenModule(new URL('../src-next/screens/watch/WatchOverlays.tsx', import.meta.url), {

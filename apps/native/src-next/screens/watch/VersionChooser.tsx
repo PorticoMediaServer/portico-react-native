@@ -49,7 +49,7 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
               <Rect width="100%" height="100%" fill="url(#watch-versions-panel)"/>
             </Svg></View>
             <Text style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{title}</Text>
-            <Text numberOfLines={2} style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 31.9}, theme.textScale), {color: theme.colors.text, marginTop: 10, marginBottom: 20}]}>{name}</Text>
+            <Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 31.9}, theme.textScale), {color: theme.colors.text, marginTop: 10, marginBottom: 20}]}>{name}</Text>
             <View style={{flex: 1, marginHorizontal: -24, paddingHorizontal: 24}}>{body}</View>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('title.ok'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('action.play')}</Text>
               <View style={{width: 16}}/><View style={{width: 16}}/>{key(t('action.back'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>

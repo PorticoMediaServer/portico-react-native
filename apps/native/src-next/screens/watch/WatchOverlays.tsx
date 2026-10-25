@@ -33,9 +33,9 @@ function FileInfoSurface({value, presenters}: {value: NativeWatchOverlay; presen
         <View pointerEvents="box-none" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
           <FocusBoundary modal testID="watch-file-info-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 900, paddingTop: 64, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
             <PanelBackground/>
-            <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 33}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.overlays.fileInfo')}</Text>
-            <Text numberOfLines={2} style={[nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 48}, theme.textScale), {color: theme.colors.text, marginTop: 18}]}>{named(value.capture.entry)}</Text>
-            <View style={{flex: 1, marginTop: 30}}>{value.content}</View>
+            <Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 33}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.overlays.fileInfo')}</Text>
+            <Text style={[nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 48}, theme.textScale), {color: theme.colors.text, marginTop: 18}]}>{named(value.capture.entry)}</Text>
+            <View style={{flex: 1, marginTop: 14}}>{value.content}</View>
             <View style={{marginTop: 24, height: 72, alignItems: 'flex-start'}}>{action}</View>
           </FocusBoundary>
         </View>

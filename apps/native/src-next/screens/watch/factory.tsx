@@ -160,7 +160,10 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       return readNativeFileInfo(ports.api, ports.scope, {libraryId: captured.entry.libraryId!, itemId: captured.entry.id}, offered, {t: defaultI18n.t}, ports.isTV, signal);
     });
     if (!info || !current(captured)) return;
-    ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>, {info,
+    ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} disc={info.disc} identity={{series: captured.entry.show?.name,
+      code: captured.entry.kind === 'episode' && captured.entry.seasonNumber !== undefined && captured.entry.episodeNumber !== undefined
+        ? defaultI18n.t('next.kit.episodeCode', {season: captured.entry.seasonNumber, episode: captured.entry.episodeNumber}) : undefined}}
+      onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>, {info,
       changed: async () => {if (current(captured)) await Promise.all([...controllers.values()].filter(controller => titleKey(controller.entry) === titleKey(captured.entry)).map(async controller => {
         const state = controller.getSnapshot();
         if (state.detail?.data) await controller.detail.refresh();

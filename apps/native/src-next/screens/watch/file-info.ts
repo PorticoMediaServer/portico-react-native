@@ -7,6 +7,8 @@ import {fileInfoModel, type FileFacts, type ManageAction, type TextEnvironment} 
 export const nativeFileInfoMergeGroups: Readonly<Partial<Record<string, SearchGroup>>> = Object.freeze({movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs', album: 'albums', artist: 'artists', book: 'books', author: 'authors'});
 
 export type NativeFileInfoLocation = Readonly<{id: string; versionId: string; path?: string; actions: readonly ManageAction[]}>;
+/** The measured disc title behind one asset: a probed number and its chapter count. */
+export type NativeFileInfoDisc = Readonly<{id: string; titleNumber: number; chapterCount: number}>;
 
 /** Exact catalog token equality only; Options owns groups, never FileInfo partIndex/shape/count. */
 export function nativeFileInfoGroups(files: readonly TitleFile[], options: PlaybackOptions, itemId: string) {
@@ -62,7 +64,13 @@ export async function readNativeFileInfo(api: DetailApi, scope: DetailScope, tar
   const locations: readonly NativeFileInfoLocation[] | undefined = model.owner ? groups.flatMap(({version, members}) => members.map(file => ({
     id: file.id, versionId: version.id, path: file.path, actions: model.owner!.locations.find(location => location.id === version.id)?.actions ?? [],
   }))) : undefined;
-  return Object.freeze({model, locations, groups: Object.freeze(groups), scope: first.scope, revision: first.revision, kind: first.kind,
+  // The asset's own probed disc title, where the server measured one. A multipart
+  // version has no single title, and the server omits it; never infer one.
+  const disc: readonly NativeFileInfoDisc[] = groups.flatMap(({version, members}) => {
+    const facts = version.disc ?? (members.length === 1 ? members[0]?.disc : undefined);
+    return facts ? [Object.freeze({id: version.id, titleNumber: facts.titleNumber, chapterCount: facts.chapterCount})] : [];
+  });
+  return Object.freeze({model, locations, disc: Object.freeze(disc), groups: Object.freeze(groups), scope: first.scope, revision: first.revision, kind: first.kind,
     files: Object.freeze(files), manage: first.manage});
 }
 
