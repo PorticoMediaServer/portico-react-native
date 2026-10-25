@@ -172,7 +172,8 @@ export class NativePlayOn {
       if (this.bound(attempt, connection)) this.options.reportError(error);
       return false;
     });
-    if (!this.bound(attempt, connection)) {this.controller?.cancel(); return;}
+    // A stale predecessor belongs to an older attempt; it must not cancel the new one.
+    if (!this.bound(attempt, connection)) return;
     const now = playback.getSnapshot(), stillLocal = now.dock.local;
     if (!playing || !stillLocal || !sameFence(stillLocal.fence, fence)) {
       this.publish({sending: false, phase: playing ? 'idle' : 'failed', open: true,
@@ -216,7 +217,7 @@ export class NativePlayOn {
    * attempt and the receiver playback id it started with. */
   private async poll(attempt: number, connection: string): Promise<void> {
     const controller = this.controller, sessionId = this.receiverPlaybackId;
-    if (this.polling || !controller || !sessionId || !this.bound(attempt, connection, sessionId)) {if (!this.bound(attempt, connection)) this.stopPolling(); return;}
+    if (this.polling || !controller || !sessionId || !this.bound(attempt, connection, sessionId)) return;
     this.polling = true;
     try {
       const session = await controller.refreshRemote();
@@ -275,10 +276,12 @@ export class NativePlayOn {
     if (!controller || !this.remoteBound(remoteId)) return;
     // While it is still asking or preparing, Stop cancels the request: nothing has moved.
     if (controller.getSnapshot().phase !== 'done') {this.attempt++; controller.cancel(); this.publish({sending: false, phase: 'idle', message: undefined}); return;}
-    const attempt = this.attempt, connection = this.connection;
+    const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
+    const accepted = await controller.stop().catch(() => false);
+    if (!this.bound(attempt, connection, sessionId)) return;
+    // A refused stop leaves the title where it is: no stopped bar and no Continue here.
+    if (!accepted) return;
     this.stopPolling();
-    await controller.stop().catch(() => {});
-    if (!this.bound(attempt, connection)) return;
     const current = this.state.remote;
     if (current) this.publish({remote: {...current, playing: false, stopped: true, allows: NONE}});
     await this.push('stopped', false, attempt, connection);
@@ -288,8 +291,10 @@ export class NativePlayOn {
   continueHere = async (remoteId?: string): Promise<void> => {
     const adapter = this.options.playback(), current = this.state.remote;
     if (!adapter || !current || !this.remoteBound(remoteId)) return;
+    const attempt = this.attempt, connection = this.connection;
     try {await adapter.continueHere?.(current.id);} catch (error) {if (this.options.current()) this.options.reportError(error);}
-    this.clearRemote();
+    // A later send while the restore was in flight keeps its own remote.
+    if (this.bound(attempt, connection) && this.state.remote?.id === current.id) this.clearRemote();
   };
   dismiss = async (remoteId?: string): Promise<void> => {
     const adapter = this.options.playback(), current = this.state.remote;

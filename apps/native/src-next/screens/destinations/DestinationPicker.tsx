@@ -1,7 +1,7 @@
-import React, {useSyncExternalStore} from 'react';
+import React, {useState, useSyncExternalStore} from 'react';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {CollectionPicker, PlaylistPicker, type PickerEntry, type PickerResult} from '../../kit/selection';
-import type {NativeLoadedDestinations} from './loaded-destinations';
+import type {NativeLoadedDestinations} from '../search/loaded-destinations';
 
 /** The drawn playlist/collection picker (select.html frames 20–22), mounted on the
  * bounded destination controller: the same controller, chosen destination and
@@ -18,6 +18,7 @@ export type NativeDestinationPickerProps = Readonly<{
 
 export function NativeDestinationPicker({controller, kind, open, selectionLabel, count, artwork, onOpenChange}: NativeDestinationPickerProps) {
   useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const [creating, setCreating] = useState(false), [name, setName] = useState('');
   const snapshot = controller.snapshot();
   const saved = snapshot.playlists, personal = snapshot.collections;
   const selected = snapshot.chosen?.kind === kind ? snapshot.chosen.id : undefined;
@@ -45,7 +46,8 @@ export function NativeDestinationPicker({controller, kind, open, selectionLabel,
     : personal.error ? presentError(personal.error, 'saved', {operation: 'load'}).body : undefined;
   const props = {
     open, onOpenChange, count, selectionLabel, entries, query: '', onQueryChange: () => {}, showFind: false,
-    creating: false, onCreatingChange: () => {}, name: '', onNameChange: () => {}, onCreateAndAdd: () => {},
+    creating, onCreatingChange: setCreating, name, onNameChange: setName,
+    onCreateAndAdd: (value: string) => {void controller.create(value).catch(() => {});},
     onAdd: (id: string) => {void controller.choose(kind, id).catch(() => {});},
     onRetry: () => {void controller.retry().catch(() => {});},
     hasNext: kind === 'playlist' ? saved.pagination.next.length > 0 : !!personal.nextCursor,

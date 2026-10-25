@@ -145,6 +145,22 @@ export class NativeLoadedDestinations {
       this.attemptedCollection = false;
     } else throw unavailable();
   }
+  /** A new playlist holding exactly the captured leaves, in their picked order. */
+  create = (name: string) => this.run(async () => {
+    if (this.chosen) throw unavailable();
+    const trimmed = name.trim().slice(0, 200);
+    if (!trimmed) throw unavailable();
+    await this.eligibility('playlist');
+    await this.playlist.mutate({action: 'create', name: trimmed, itemIds: this.collectionItems});
+    this.assertCurrent();
+    const state = this.playlist.getSnapshot();
+    if (state.mutationError || state.pending.length) throw state.mutationError ?? unavailable();
+    const id = state.lastReceipt?.playlistId;
+    if (!id) throw unavailable();
+    this.chosen = {kind: 'playlist', id};
+    this.completed = this.collectionItems.length;
+    this.changed();
+  });
   retry = () => this.run(async () => {
     if (!this.chosen) throw unavailable();
     await this.eligibility(this.chosen.kind); await this.append();

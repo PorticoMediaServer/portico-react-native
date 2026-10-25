@@ -20,7 +20,7 @@ import {nativeScreenServices} from '../native-screen-services';
 import {nativeSearchEntryKey, type NativeSearchDestination} from './model';
 import type {NativeSearchSelectionPort} from './types';
 import {NativeLoadedDestinations} from './loaded-destinations';
-import {NativeDestinationPicker} from './DestinationPickerSheet';
+import {NativeDestinationPicker} from '../destinations/DestinationPicker';
 
 const leaf = (entry: SearchEntry): entry is ContentEntry => ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind);
 const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
