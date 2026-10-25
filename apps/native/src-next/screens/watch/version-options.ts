@@ -1,6 +1,12 @@
 import type {AudioStream, PlaybackOptions, VideoStream} from '../../../../../packages/client-core/src/playback-v1/types';
 import {formatVideoBytes, videoAudioFormatName, videoPictureName, videoTrackWords} from '../../../../../packages/client-core/src/video-track-labels';
 import type {I18n} from '../../../../../packages/i18n/src';
+import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
+import type {DiscTitles} from './disc-titles';
+
+export type NativeVersionRow = Readonly<{id: string; heading: string; detail: string;
+  /** Present when the row is one of a physical version's other titles. */
+  disc?: Readonly<{versionId: string; revision: string; title: Readonly<{id: string; revision: string}>}>}>;
 
 export type NativeVersionNames = Readonly<{
   picture: (video: VideoStream) => string;
@@ -15,7 +21,7 @@ export function nativeVersionNames(t: I18n['t'], locale: string): NativeVersionN
 /** Native-only §21/§23 row composition. Options order is also File info's
  * authoritative group order. No ordinal, container, bitrate or selection tags.
  * Menu eligibility (>=2) is separate from failure exclusion (possibly one). */
-export function nativeVersionChoices(options: PlaybackOptions, itemId: string, names: NativeVersionNames, failedVersionId?: string) {
+export function nativeVersionChoices(options: PlaybackOptions, itemId: string, names: NativeVersionNames, failedVersionId?: string): readonly NativeVersionRow[] {
   if (options.itemId !== itemId || new Set(options.versions.map(version => version.id)).size !== options.versions.length) return [];
   return options.versions.filter(version => version.id !== failedVersionId).map(version => {
     const picture = version.video[0] ? names.picture(version.video[0]) : '';
@@ -26,4 +32,17 @@ export function nativeVersionChoices(options: PlaybackOptions, itemId: string, n
     return Object.freeze({id: version.id, heading: edition ?? picture,
       detail: [edition ? picture : undefined, audio ? names.audio(audio) : undefined, names.size(version.sizeBytes)].filter(Boolean).join(', ')});
   });
+}
+
+/** A disc's own other titles, listed in Versions under their physical version as
+ * frame 16 and 18 draw them: the title by its number with its chapters and length,
+ * and the opaque id and revision the server takes for that one title. The main
+ * title is the version row itself, so it is not repeated. */
+export function nativeDiscTitleChoices(drawn: DiscTitles, versionId: string, t: I18n['t']): readonly NativeVersionRow[] {
+  if (drawn.versionId !== versionId) return [];
+  return drawn.titles.filter(title => !title.main && title.ready && !!title.revision).map(title => Object.freeze({
+    id: `${versionId}:${title.id}`, heading: t('next.overlays.discTitle', {number: title.number}),
+    detail: [t('next.overlays.discChapters', {count: title.chapterCount}), durationText(Math.round(title.durationMs / 1000), t)].join(' · '),
+    disc: Object.freeze({versionId, revision: drawn.revision, title: Object.freeze({id: title.id, revision: title.revision!})}),
+  }));
 }

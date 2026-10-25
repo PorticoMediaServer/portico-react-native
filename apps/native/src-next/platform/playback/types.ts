@@ -41,6 +41,9 @@ export type NativePlaybackChannelStart = Readonly<{sourceId: string; channelId: 
 }>;
 export type NativePlaybackVersionSelection = Readonly<{
   authority: PlaybackAuthority; options: PlaybackOptions; versionId: string;
+  /** The exact disc title to play on that physical version, when the choice is one
+   * of its other titles. Absent plays the version as it is. */
+  discTitle?: Readonly<{id: string; revision: string}>;
   /** The real chooser/route/entry lifetime. Output-fence checks remain runtime-owned. */
   lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
   /** Exact source when the menu opened, including an explicitly absent source. */
