@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useSyncExternalStore} from 'react';
+import React, {useLayoutEffect, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
@@ -25,6 +25,7 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   controller: NativeReadSeries; route: SeriesRoute; comic: boolean; runtime: NativeShellRuntime; onBack: () => void;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  const [paneWidth, setPaneWidth] = useState<number>(), [heroHeight, setHeroHeight] = useState(0), [collapsed, setCollapsed] = useState(false);
   useLayoutEffect(() => {
     if (!controller.arm()) return;
     void controller.load().catch(() => {});
@@ -38,29 +39,48 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   const exactCount = !overview && state.phase === 'ready' && state.nextCursor === undefined ? state.items.length : undefined;
   const total = overview?.total ?? exactCount;
   const cover = runtime.artwork(first?.coverUrl), tint = generatedCoverTint(title);
-  const columns = theme.platform === 'phone' ? 3 : 5, gap = 16;
-  const width = Math.max(96, Math.min(220, (dimensions.width - theme.gutter * 2 - gap * (columns - 1)) / columns));
-  const height = width * 4 / 3;
+  // The volumes grid fills its own pane (the shell rail is outside it) and the drawn
+  // phone page puts three portrait covers across with 10 pt between columns.
+  const columns = theme.platform === 'phone' ? 3 : 5, columnGap = 10, rowGap = 16;
+  const width = Math.max(96, Math.min(220, ((paneWidth ?? dimensions.width) - theme.gutter * 2 - columnGap * (columns - 1)) / columns));
+  const height = width * 3 / 2;
   const progression = continuedRow ? Math.max(0, Math.min(1, continuedRow.progress.location.progression)) : undefined;
   const readLabel = continued ? t('next.cards.read')
     : comic && first?.series?.number !== undefined ? t('next.reader.readVolume', {number: defaultI18n.number(first.series.number, {maximumFractionDigits: 20})})
       : t('next.reader.read');
   const stack = state.items.slice(0, 3);
-  return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
+    const next = Math.round(event.nativeEvent.layout.width);
+    if (next > 0 && next !== paneWidth) setPaneWidth(next);
+  }}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(first?.coverUrl) ? <AmbientArt source={runtime.ambient(first?.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
       <View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.ink, opacity: .5}}/>
     </View>
-    <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
-      style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>
+    {/* phone-read 4/4c: past the hero the drawn page pins a bar with the way back
+        and the series name; before that the same back button floats over the art. */}
+    <View pointerEvents={collapsed ? 'auto' : 'box-none'} style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+      paddingTop: insets.top + 6, height: insets.top + 50, backgroundColor: collapsed ? theme.colors.ink : 'transparent',
+      borderBottomWidth: collapsed ? 1 : 0, borderBottomColor: theme.colors.line}}>
+      <View pointerEvents="box-none" style={{height: 44, paddingHorizontal: 10, justifyContent: 'center'}}>
+        <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack} style={{height: 44, width: 44}}/>
+        {collapsed ? <View pointerEvents="none" style={{position: 'absolute', left: 64, right: 64, height: 44, justifyContent: 'center'}}>
+          <Text numberOfLines={1} style={[browseType(theme, 17, 700), {textAlign: 'center', color: theme.colors.text}]}>{title}</Text>
+        </View> : null}
+      </View>
+    </View>
     <ScrollView contentContainerStyle={{paddingTop: Math.max(96, insets.top + 56), paddingBottom: insets.bottom + 48}}
       onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+        setCollapsed(current => {const next = heroHeight > 0 && contentOffset.y > heroHeight - 50; return next === current ? current : next;});
         if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.more().catch(() => {});}}
       scrollEventThrottle={64} showsVerticalScrollIndicator={false}>
       {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/> : null}
       {state.phase !== 'ready' && state.phase !== 'error' ? <SkeletonBlock width="100%" height={360}/> : null}
       {state.phase === 'ready' ? <View style={{width: '100%', maxWidth: 900, alignSelf: 'center'}}>
-        <View style={{alignItems: 'center', paddingHorizontal: 20}}>
+        <View style={{alignItems: 'center', paddingHorizontal: 20}} onLayout={event => {
+          const next = Math.round(event.nativeEvent.layout.height);
+          if (next > 0 && next !== heroHeight) setHeroHeight(next);
+        }}>
           <View style={{width: 280, height: 214}}>
             {stack.length ? stack.map((item, index) => {
               const left = stack.length === 1 ? 76 : stack.length === 2 ? 36 + index * 80 : [4, 72, 146][index]!;
@@ -94,7 +114,7 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
           {overview ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{t('next.reader.seriesReadCount', {read: defaultI18n.number(overview.completed), count: defaultI18n.number(overview.total)})}</Text>
             : exactCount !== undefined ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(exactCount)}</Text> : null}
         </View>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap, paddingHorizontal: 20, paddingTop: 2}}>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap, rowGap, paddingHorizontal: 20, paddingTop: 2}}>
           {state.items.map(item => <VolumeCard key={item.id} item={item} width={width} height={height} comic={comic} theme={theme} runtime={runtime}
             progression={continuedRow?.item.id === item.id ? progression : undefined}
             onOpen={() => {void controller.open(item).catch(runtime.reportError);}}/>)}
