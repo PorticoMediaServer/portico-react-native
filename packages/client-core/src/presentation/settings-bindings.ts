@@ -20,6 +20,7 @@ const bindings:Readonly<Record<string,SettingsBinding>>={
  'metadata.artworkSize':{form:'metadata',key:'artworkMaxEdge',codec:'artwork-size'},
  'device.player':{form:'device',key:'playerEngine',codec:'player-engine'},
  'device.receive':{form:'device',key:'receiveFromDevices',codec:'boolean'},
+ 'device.lossNotices':{form:'device',key:'lossNotices',codec:'boolean'},
  'audioSubtitles.surround':{form:'device',key:'forceStereo',codec:'surround'},
  'quality.disableHdr':{form:'device',key:'disableHdr',codec:'boolean'},
  'quality.tvSupports':{form:'device',key:'tvSupports',fields:{hdr:'tvHdr',surround:'tvSurround'},codec:'tv-support'},
@@ -46,6 +47,11 @@ const bindings:Readonly<Record<string,SettingsBinding>>={
  'general.updateFeed':{form:'runtime',key:'updates.feedUrl'},
  'updates.channel':{form:'runtime',key:'updates.releaseChannel'},
  'streaming.allowConversion':{form:'runtime',key:'conversionMode'},
+ // The drawn Conversion location is one stored directory: "separate" writes no
+ // path, "memory" writes the platform's RAM file system, and the child folder
+ // row writes the chosen one. The three-way choice is projected by the page
+ // from the capacity facts, never stored as a second setting.
+ 'streaming.transcodeFolder':{form:'runtime',key:'temporaryDirectory'},
  'streaming.outputFormat':{form:'runtime',key:'outputFormat'},
  'streaming.musicAwayQuality':{form:'runtime',key:'musicAwayQuality',codec:'music-quality-choice'},
  'streaming.downloadQuality':{form:'runtime',key:'downloadMaxQuality',codec:'video-quality-choice'},
@@ -187,11 +193,6 @@ const source69PreferenceBindings:Readonly<Record<string,SettingsBinding>>={
  'appearance.notificationDot':{form:'preferences',key:'notifications.badges',scope:'profile-server'},
  'quality.home':{form:'preferences',key:'quality.home',scope:'profile-device-class',codec:'video-quality-choice'},
  'quality.remote':{form:'preferences',key:'quality.remote',scope:'profile-device-class',codec:'video-quality-choice'},
- // The drawn row is quality.mobileData; the server stores quality.mobile (one phone value).
- 'quality.mobileData':{form:'preferences',key:'quality.mobile',scope:'profile-device-class',codec:'video-quality-choice'},
- // The shared structure names the same row by its stored key.
- 'quality.mobile':{form:'preferences',key:'quality.mobile',scope:'profile-device-class',codec:'video-quality-choice'},
- 'quality.downloadQuality':{form:'preferences',key:'quality.downloads',scope:'profile-device-class',codec:'video-quality-choice'},
  'quality.directPlay':{form:'preferences',key:'delivery.directPlay',scope:'profile-device-class'},
  'quality.directStream':{form:'preferences',key:'delivery.directStream',scope:'profile-device-class'},
  'quality.transcode':{form:'preferences',key:'delivery.transcode',scope:'profile-device-class'},

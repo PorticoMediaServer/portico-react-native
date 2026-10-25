@@ -42,7 +42,7 @@ export function createNativeBookRenderer(context: NativeShellBootstrapContext): 
       const back = () => {if (current()) context.navigation.back(context.authority());};
       const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open(entry.kind === 'book' ? {kind: 'book', entry} : {kind: 'audiobook', entry}, context.authority());};
       return route.kind === 'book'
-        ? <BookScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} onBack={back}/>
+        ? <BookScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>
         : <AuthorSeriesScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
     },
     dispose: () => {

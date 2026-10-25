@@ -18780,6 +18780,9 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "artworkFallbackUrl": {
+        "type": "string"
+      },
       "artworkRoles": {
         "items": {
           "type": "string"
@@ -33207,11 +33210,17 @@ export const schemas = {
           },
           "temporaryDirectory": {
             "properties": {
+              "fallback": {
+                "type": "boolean"
+              },
               "freeBytes": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
                 "nullable": true,
                 "type": "integer"
+              },
+              "memoryPath": {
+                "type": "string"
               },
               "path": {
                 "type": "string"
@@ -33223,7 +33232,9 @@ export const schemas = {
             "required": [
               "path",
               "ready",
-              "freeBytes"
+              "freeBytes",
+              "fallback",
+              "memoryPath"
             ],
             "type": "object"
           },
@@ -114624,6 +114635,9 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "artworkFallbackUrl": {
+        "type": "string"
+      },
       "artworkRoles": {
         "items": {
           "type": "string"
@@ -115082,6 +115096,12 @@ export const schemas = {
         "maximum": 9007199254740991,
         "minimum": -9007199254740991,
         "type": "integer"
+      },
+      "defaultLanguage": {
+        "type": "string"
+      },
+      "defaultRegion": {
+        "type": "string"
       },
       "includeAdult": {
         "type": "boolean"
@@ -179002,6 +179022,9 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "artworkFallbackUrl": {
+        "type": "string"
+      },
       "artworkRoles": {
         "items": {
           "type": "string"
@@ -179688,6 +179711,9 @@ export const schemas = {
           "jobs"
         ],
         "type": "object"
+      },
+      "artworkFallbackUrl": {
+        "type": "string"
       },
       "artworkRoles": {
         "items": {
@@ -196012,6 +196038,12 @@ export const schemas = {
         "minimum": -9007199254740991,
         "type": "integer"
       },
+      "defaultLanguage": {
+        "type": "string"
+      },
+      "defaultRegion": {
+        "type": "string"
+      },
       "expectedRevision": {
         "maximum": 9007199254740991,
         "minimum": -9007199254740991,
@@ -196089,6 +196121,12 @@ export const schemas = {
         "maximum": 9007199254740991,
         "minimum": -9007199254740991,
         "type": "integer"
+      },
+      "defaultLanguage": {
+        "type": "string"
+      },
+      "defaultRegion": {
+        "type": "string"
       },
       "includeAdult": {
         "type": "boolean"
@@ -212879,11 +212917,17 @@ export const schemas = {
           },
           "temporaryDirectory": {
             "properties": {
+              "fallback": {
+                "type": "boolean"
+              },
               "freeBytes": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
                 "nullable": true,
                 "type": "integer"
+              },
+              "memoryPath": {
+                "type": "string"
               },
               "path": {
                 "type": "string"
@@ -212895,7 +212939,9 @@ export const schemas = {
             "required": [
               "path",
               "ready",
-              "freeBytes"
+              "freeBytes",
+              "fallback",
+              "memoryPath"
             ],
             "type": "object"
           },

@@ -1921,6 +1921,7 @@ export const enUS = {
   'title.lifespan': '{born} – {died}',
   'title.nothingHere': 'Nothing here yet',
   'title.resumeChapter': 'Resume {chapter}',
+  'title.bookInSeries': ', book {number}',
   'title.chapterCount': '{count, plural, one {# chapter} other {# chapters}}',
   'title.discs': 'Discs',
   'title.disc': 'Disc {number}',

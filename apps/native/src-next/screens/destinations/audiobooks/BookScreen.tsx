@@ -64,14 +64,21 @@ function ChapterRows({controller, entries, current, progress, runtime, tv}: {
 /** The drawn phone (41a) and TV (43) book page. Real catalog entity, chapters,
  * resume and container finished mark; author/series links are text until their
  * pages exist, and nothing is invented for a missing fact. */
-export function BookScreen({controller, entry, runtime, actions, onBack}: {
-  controller: NativeAudiobookController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; onBack?: () => void;
+export function BookScreen({controller, entry, runtime, actions, openEntry, onBack}: {
+  controller: NativeAudiobookController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions;
+  /** Opens an author or series destination the book's own projection names. */
+  openEntry?: (entry: ContentEntry) => void; onBack?: () => void;
 }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets();
   const entity = snapshot.entity ?? entry, tv = theme.isTV;
   const chapters = snapshot.sections.find(section => section.id === 'chapters')?.entries ?? [];
   const parts = snapshot.sections.find(section => section.id === 'files')?.entries ?? [];
   const rows = chapters.length ? chapters : parts;
+  // collections 41/43: the projection's own Author & series entries carry the real
+  // author and book_series navigation ids; a link exists only when the server sent one.
+  const context = snapshot.sections.find(section => section.id === 'context')?.entries ?? [];
+  const seriesEntry = context.find(value => value.kind === 'book_series');
+  const authorEntry = context.find(value => value.kind === 'author');
   const progress = entity.bookProgress;
   const current = progress?.chapter?.index;
   const progressRatio = progress?.positionMs !== undefined && progress.durationMs ? progress.positionMs / progress.durationMs : progress?.partPositionMs !== undefined && progress.durationMs ? progress.partPositionMs / progress.durationMs : undefined;
@@ -100,9 +107,20 @@ export function BookScreen({controller, entry, runtime, actions, onBack}: {
       <View style={tv ? {width: 1920, height: 1120} : {alignItems: 'center', paddingHorizontal: 20}}>
         <View style={tv ? {position: 'absolute', left: 200, top: 150} : undefined}><Cover runtime={runtime} path={entity.posterUrl} size={tv ? 480 : 232}/></View>
         <View style={tv ? {position: 'absolute', left: 760, top: 150, width: 1000} : {alignItems: 'center', marginTop: 20, width: '100%'}}>
-          {entity.series?.[0] ? <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center'}]}>{entity.series[0].name}{entity.series[0].position ? ` · ${entity.series[0].position}` : ''}</Text> : null}
+          {entity.series?.[0] || seriesEntry ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: tv ? 'flex-start' : 'center', flexWrap: 'wrap'}}>
+            {seriesEntry && openEntry
+              ? <Focusable focusId="book-series-link" accessibilityRole="link" accessibilityLabel={seriesEntry.title} onPress={() => openEntry(seriesEntry)} style={{paddingVertical: 2}}>
+                {({focused}) => <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong, textDecorationLine: focused ? 'underline' : 'none'}]}>{entity.series?.[0]?.name ?? seriesEntry.title}</Text>}
+              </Focusable>
+              : <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong}]}>{entity.series?.[0]?.name}</Text>}
+            {entity.series?.[0]?.position ? <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong}]}>{t('title.bookInSeries', {number: entity.series[0].position})}</Text> : null}
+          </View> : null}
           <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? 88 : 30, 800, -.04), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: tv ? 10 : 6}]}>{entity.displayTitle ?? entity.title}</Text>
-          {entity.author ? <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{entity.author}</Text> : null}
+          {entity.author || authorEntry ? (authorEntry && openEntry
+            ? <Focusable focusId="book-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{marginTop: 8, paddingVertical: 2}}>
+              {({focused}) => <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{entity.author ?? authorEntry.title}</Text>}
+            </Focusable>
+            : <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{entity.author}</Text>) : null}
           <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: tv ? 'flex-start' : 'center', columnGap: 18, rowGap: 6, marginTop: 10}}>
             {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, tv ? 22 : 13, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
           </View>

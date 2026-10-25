@@ -260,14 +260,6 @@ const accountPages: readonly AuthoredPage[] = [
       {id: 'limits', title: 'settings.section.qualityLimits', rows: [
         pref('quality.home', 'settings.row.qualityHome', {type: 'choice', choices: qualityChoices}, {scope: 'deviceClass', help: 'settings.help.qualityHome'}),
         pref('quality.remote', 'settings.row.qualityAway', {type: 'choice', choices: qualityChoices}, {scope: 'deviceClass', help: 'settings.help.qualityAway'}),
-        // The same saved default where the connection is cellular; only a phone has one.
-        pref('quality.mobile', 'next.settingsSpec.account.quality.groups.0.rows.2.label', {type: 'choice', choices: qualityChoices},
-          {scope: 'deviceClass', help: 'next.settingsSpec.account.quality.groups.0.rows.2.help', platforms: ['phone']}),
-      ]},
-      {id: 'downloads', title: 'next.settingsSpec.account.quality.groups.1.title', platforms: ['phone', 'web'], needs: c => !!c.downloads, rows: [
-        // The saved default a download starts from; a file's own sheet can still choose another.
-        pref('quality.downloadQuality', 'next.settingsSpec.account.quality.groups.1.rows.0.label', {type: 'choice', choices: qualityChoices},
-          {scope: 'deviceClass', help: 'next.settingsSpec.account.quality.groups.1.rows.0.help'}),
       ]},
       {id: 'method', rows: [
         // One choice in place of three four-way policies; it writes a combination that makes sense.
