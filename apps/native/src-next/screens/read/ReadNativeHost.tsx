@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {NativeModules, View} from 'react-native';
+import {NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
 import {createReadingHost, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
 import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
@@ -8,6 +8,7 @@ import {nativeRouteCrypto} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
+import {usePlatformPosture} from '../../platform/platformPosture';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
 import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
 
@@ -30,6 +31,12 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   };
   const closeRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const theme = useTheme(), view = useRef<WebView>(null), host = useRef<ReturnType<typeof createReadingHost>>(undefined);
+  const dimensions = useWindowDimensions(), posture = usePlatformPosture();
+  // foldable6/tablet-read5: only a real vertical crease for this exact window may
+  // request the two-page spread; an absent report keeps the ordinary one page.
+  const crease = posture.status === 'available' && posture.window?.width === dimensions.width && posture.window.height === dimensions.height
+    ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.left <= value.bounds.right && value.bounds.right <= dimensions.width)?.bounds : undefined;
+  const creaseRef = useRef(crease); creaseRef.current = crease;
   const callbacks = useRef({onBack, onOpenSettings, active}); callbacks.current = {onBack, onOpenSettings, active};
   const [state, setState] = useState<Readonly<{url?: string; failed?: boolean}>>({}), [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -63,7 +70,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
       if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
-      host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot,
+      host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
         initialProgress, initialContentsTarget: target.contentsTarget,
@@ -77,6 +84,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     return () => {if (closeRef.current === dispose) closeRef.current = undefined; void dispose().catch(() => {});};
   }, [context, target, preferences, retry]);
   useEffect(() => {host.current?.setActive(active);}, [active, state.url]);
+  useEffect(() => {host.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.url]);
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active ? 1 : 0}}>
     {state.failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
