@@ -17,6 +17,7 @@ import type {NativeWatchHostBindings} from './WatchHost';
 import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
+import {NativeWatchPostPlay} from './PostPlayScreen';
 import {createNativeWatchPanelNames} from './panel-names';
 
 export type NativeWatchEntryMenu = Readonly<{
@@ -59,6 +60,7 @@ export function nativeWatchChromeFacts(source: NativePlaybackRuntimeSnapshot, na
 export function createNativeWatchModule(context: NativeShellBootstrapContext, bindings: NativeWatchModuleBindings) {
   if (!context.current() || !context.session()) throw new Error('native_watch_authority_required');
   const authority = context.authority(), viewer = context.session()!.viewer;
+  const detailScope = {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])};
   const options = new NativeWatchPanelOptions(context.api, context.playback);
   const copy = bindings.copy ?? {sessionLead: defaultI18n.t('player.opt.temporaryChanges'), sessionDefaults: defaultI18n.t('player.opt.defaultsUnchanged'), audioContinues: defaultI18n.t('player.opt.hearingContinues')};
   let disposed = false;
@@ -90,10 +92,14 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     panel: host => <NativeWatchPanels context={host} options={options} playback={context.playback} names={bindings.names ?? createNativeWatchPanelNames(host.runtime.text)} copy={copy}
       reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo ?? (value => <NativePlaybackInfoPanel context={value} read={screens.readPlaybackInfo} renderError={bindings.title.renderError}/>)} episodes={bindings.episodes}/>,
     content: host => screens.watch.body(host),
+    postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId}
+      current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
+      onClose={() => {if (current()) void context.playback.stop(host.fence).catch(host.runtime.reportError);}} onOpen={entry => {if (current()) bindings.title.navigate(entry);}}
+      reportError={host.runtime.reportError}/> : null,
     presentation: bindings.presentation,
   };
   const screens = createNativeWatchScreens({...bindings, api: context.api,
-    scope: {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])},
+    scope: detailScope,
     authority, current: context.authority, isCurrent: current, subscribeCurrent: context.subscribeAuthority,
     navigation: context.navigation, playback: context.playback, watch: context.watch, isTV: Platform.isTV, player});
   const entryMenu: NativeWatchEntryMenu = Object.freeze({

@@ -32,6 +32,8 @@ export type NativeWatchHostBindings = Readonly<{
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   panel: (context: NativeWatchHostContext) => React.ReactNode;
+  /** A title that ended with nothing queued after it: its own end screen. */
+  postPlay?: (context: NativeWatchHostContext) => React.ReactNode;
   /** Shell owns status/navigation application; Watch supplies canonical facts. */
   presentation?: (layout: PlayerPresentation | undefined) => void;
   scrubbing?: boolean;
@@ -86,7 +88,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // Tabletop controls live below the actual top surface. In book mode edge
   // chrome avoids the crease while transport remains centred in its full pane.
   const chromePane = layout.mode === 'tabletop' ? layout.controls : layout.surface;
-  const content = <>
+  const postPlay = isTV && bindings.postPlay && !panelOpen && source.playback.phase === 'ended' && !(source.queue.view?.next.available === true)
+    ? bindings.postPlay(context) : undefined;
+  const content = postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
