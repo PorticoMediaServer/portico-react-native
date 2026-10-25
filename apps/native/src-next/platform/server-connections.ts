@@ -236,12 +236,28 @@ const nativeEnvironment = {
   discover: async (signal: AbortSignal) =>
     (await browseNearby('servers', signal)) as readonly DiscoveryRoute[],
 };
+/** Read the existing protected record once, unchanged. Only route-source shape
+ * crosses the diagnostic boundary; never an origin, pin, envelope or credential. */
+function observedRouteStorage(storage: ConnectionEnvironment['storage']): ConnectionEnvironment['storage'] {
+  return {
+    read: async () => {
+      try {
+        const record = await storage.read();
+        homeActionDiagnostics.routeMemory({routeSource: !record ? 'none' : record.hosted ? 'account' : 'local',
+          signedCurrent: !!record?.routes.current, signedPrevious: !!record?.routes.previous,
+          pairedCount: record?.routes.paired.length ?? 0, lastGood: !!record?.routes.lastGood});
+        return record;
+      } catch (error) {homeActionDiagnostics.error('route-memory', error); throw error;}
+    },
+    change: (update, beforeCommit) => storage.change(update, beforeCommit),
+  };
+}
 /** Capture one server for the whole runtime. A later switch never retargets its refresh writes. */
 export function nativeServerEnvironment(serverId: string, admission?: NewServerConnection): ConnectionEnvironment {
-  return {...nativeEnvironment, fetcher: nativeServerFetch(serverId), storage: nativeAppSessions.connectionStorage(serverId, admission)};
+  return {...nativeEnvironment, fetcher: nativeServerFetch(serverId), storage: observedRouteStorage(nativeAppSessions.connectionStorage(serverId, admission))};
 }
 export function nativeSelectedConnectionEnvironment(): ConnectionEnvironment {
-  return {...nativeEnvironment, storage: nativeAppSessions.selectedStorage()};
+  return {...nativeEnvironment, storage: observedRouteStorage(nativeAppSessions.selectedStorage())};
 }
 
 let activeApi: HttpLocalApi | undefined,

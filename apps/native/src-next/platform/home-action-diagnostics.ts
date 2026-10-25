@@ -10,6 +10,7 @@ const routeRules = [
   ['GET', 'get_home_row'],
   ['GET', 'get_me'],
   ['GET', 'get_capabilities'],
+  ['POST', 'prove_network_identity'],
   ['GET', 'get_playback_options'],
   ['PUT', 'put_device_capabilities'],
   ['GET', 'get_listening_preferences'],
@@ -61,6 +62,16 @@ const codes = new Set([
   'forbidden',
   'access_refused',
   'identity_mismatch',
+  'route_unavailable',
+  'certificate_unverified',
+  'certificate_untrusted',
+  'identity_code_needed',
+  'invalid_identity',
+  'invalid_signature',
+  'invalid_address',
+  'clocks_disagree',
+  'route_stale',
+  'random_unavailable',
   'not_found',
   'unavailable',
   'unsupported',
@@ -96,13 +107,14 @@ const origins = new Set([
   'home-assembly',
   'assembly-error',
   'restore-error',
+  'route-memory',
   'home-registration',
   'artwork-error',
   'native-http',
   'app-render',
   'library-menu',
 ]);
-type ErrorOrigin = 'assembly-error' | 'restore-error' | 'home-registration' | 'artwork-error' | 'app-render';
+type ErrorOrigin = 'assembly-error' | 'restore-error' | 'route-memory' | 'home-registration' | 'artwork-error' | 'app-render';
 type ActionOrigin = 'home-card' | 'home-assembly';
 type Operation = 'primary-play' | 'menu';
 type Stage = 'enter' | 'guard-refused' | 'unoffered' | 'dispatch';
@@ -120,6 +132,12 @@ type SafeRecord = {
   request?: number;
   route?: SafeRoute;
   status?: number;
+  elapsedMs?: number;
+  routeSource?: 'none' | 'local' | 'account';
+  signedCurrent?: boolean;
+  signedPrevious?: boolean;
+  pairedCount?: number;
+  lastGood?: boolean;
   code?: string;
   class?: string;
   frames?: readonly (readonly [number, number])[];
@@ -192,6 +210,8 @@ export function createHomeActionDiagnostics(
     if (id === undefined) {id = ++referenceSequence; references.set(value, id);}
     return id;
   };
+  const started = new WeakMap<Ticket, number>();
+  const elapsed = (ticket: Ticket) => Math.max(0, Math.min(60_000, Date.now() - (started.get(ticket) ?? Date.now())));
   const write = (origin: string, record: SafeRecord) => {
     try {
       const count = counts.get(origin) ?? 0;
@@ -225,6 +245,15 @@ export function createHomeActionDiagnostics(
           ...(typeof method === 'function' ? {menuRef: reference(method)} : {}),
           own: !!descriptor, enumerable: descriptor?.enumerable === true, callable: typeof method === 'function'});
       } catch { /* Diagnostics cannot change rendering, even for a hostile descriptor. */ }
+    },
+    routeMemory(value: {routeSource: 'none' | 'local' | 'account'; signedCurrent: boolean; signedPrevious: boolean; pairedCount: number; lastGood: boolean}): void {
+      try {
+        if (!['none', 'local', 'account'].includes(value.routeSource) || !Number.isSafeInteger(value.pairedCount)
+          || value.pairedCount < 0 || value.pairedCount > 32 || typeof value.signedCurrent !== 'boolean'
+          || typeof value.signedPrevious !== 'boolean' || typeof value.lastGood !== 'boolean') return;
+        write('route-memory', {operation: 'saved-route-summary', routeSource: value.routeSource,
+          signedCurrent: value.signedCurrent, signedPrevious: value.signedPrevious, pairedCount: value.pairedCount, lastGood: value.lastGood});
+      } catch { /* passive */ }
     },
     action(
       origin: ActionOrigin,
@@ -266,6 +295,7 @@ export function createHomeActionDiagnostics(
           route: rule.route,
         });
         tickets.add(ticket);
+        started.set(ticket, Date.now());
         write('native-http', {operation: 'dispatch', ...ticket});
         return ticket;
       } catch {
@@ -279,6 +309,7 @@ export function createHomeActionDiagnostics(
             operation: 'response',
             ...ticket,
             status: statusOf(status),
+            elapsedMs: elapsed(ticket),
           });
       } catch {
         /* passive */
@@ -291,6 +322,7 @@ export function createHomeActionDiagnostics(
             operation: 'rejected',
             ...ticket,
             ...safeError(error),
+            elapsedMs: elapsed(ticket),
           });
       } catch {
         /* passive */
