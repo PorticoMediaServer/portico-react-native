@@ -22,7 +22,7 @@ const EPISODE_WORDS=['builder.episodes.none','builder.episodes.inOrder','builder
 export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChannelsGroup;runtime:NativeShellRuntime;isCurrent:()=>boolean}) {
   const {editor,fields,presets}=group,state=useSyncExternalStore(editor.subscribe,editor.getSnapshot,editor.getSnapshot),presetState=useSyncExternalStore(presets.subscribe,presets.getSnapshot,presets.getSnapshot),theme=useTheme(),insets=useSafeAreaInsets(),t=runtime.text.t as typeof defaultI18n.t;
   const [tried,setTried]=useState(false),[conditionsValid,setConditionsValid]=useState(true),[hoursEditing,setHoursEditing]=useState(false);
-  const validation=useMemo(()=>({conditions:true,hours:true}),[editor]);
+  const validation=useMemo(()=>({source:editor,conditions:true,hours:true}),[editor]);
   const config=state.config,rule=config?.rules.find(value=>value.id===config.defaultRuleId),libraryIds=rule?.query.libraryIds,locked=state.busy||state.pending;
   useEffect(()=>{if(isCurrent()&&state.phase==='editing'&&!presets.getSnapshot().loaded)void presets.load();},[group,presets,isCurrent,state.phase]);
   useEffect(()=>{if(isCurrent()&&libraryIds)void fields.select(libraryIds);},[fields,isCurrent,libraryIds]);
