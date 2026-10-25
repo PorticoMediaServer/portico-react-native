@@ -1,12 +1,11 @@
+import {NativeMessages} from './troubleshooting/Messages';
 import {useSettingsRequestScope} from '../use-settings-request-scope';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {ConsoleClient, type FeedbackReport, type FeedbackStatus} from '../../../../../../packages/client-core/src/console';
-import {logCategories, logLevels, parseLogPage, parseLogSettings, type LogCategory, type LogLevel, type LogRecord} from '../../../../../../packages/client-core/src/server-administration';
 import {feedbackCategoryName, feedbackStatusName} from '../../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {sentence, when} from '../../../../../../packages/client-core/src/server-admin/console-words';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
-import {routePath} from '../../../../../../packages/contracts/src/routes';
 import {deleteClientReport, listClientReports, readClientReport, type ClientReport} from '../../../../../../packages/client-core/src/client-reports';
 import {readCatalogueFailures, type CatalogueFailures} from '../../../../../../packages/client-core/src/catalogue-failures';
 import {CAPABILITY_BEHIND_PRESENCE, CAPABILITY_ROWS, capabilityReasonId, parseCapabilities, type ServerCapability} from '../../../../../../packages/client-core/src/server-admin/capabilities';
@@ -22,18 +21,15 @@ import {BottomSheet} from '../../../kit/overlays/BottomSheet';
 import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {StateView} from '../../../kit/states';
-import {alpha, shellType} from '../../../kit/shell/visual';
+import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 
 type ViewerRole = 'owner' | 'administrator' | 'member';
 type Translate = typeof defaultI18n.t;
-const LOG_LIMIT = 200;
 const STATUSES: readonly FeedbackStatus[] = ['open', 'in-progress', 'resolved', 'closed'];
 
-const logTime = (at: string) => new Date(at).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'});
-const levelWord = (level: LogLevel) => `${level[0]!.toUpperCase()}${level.slice(1)}`;
 
 function useRead<T>(read: () => Promise<T>, deps: readonly unknown[]) {
   const [state, setState] = useState<{data?: T; error?: unknown; loading: boolean}>({loading: true});
@@ -64,7 +60,7 @@ export function NativeServerTroubleshooting({ports, runtime, compactHeader = fal
       {!compactHeader && <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.troubleshooting')}</Text>}
       <Tabs testID="server-troubleshooting-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.troubleshooting')}
         items={[{value: 'messages', label: t('web.logs.messages')}, {value: 'feedback', label: openReports ? `${t('server.feedbackTab')} ${openReports}` : t('server.feedbackTab')}, {value: 'reports', label: t('server.reportsTab')}, {value: 'support', label: t('server.support')}]}/>
-      {tab === 'messages' && <MessagesTab api={api} ports={ports} runtime={runtime} t={t}/>}
+      {tab === 'messages' && <NativeMessages ports={ports} runtime={runtime}/>}
       {tab === 'feedback' && <FeedbackTab consoleClient={consoleClient} reports={reports.data?.items ?? []} loading={reports.loading} error={reports.error} runtime={runtime} t={t} reload={reports.reload}/>}
       {tab === 'reports' && <ReportsTab api={api} authority={authority} runtime={runtime} t={t}/>}
       {tab === 'support' && <SupportTab api={api} consoleClient={consoleClient} t={t}/>}
@@ -72,79 +68,6 @@ export function NativeServerTroubleshooting({ports, runtime, compactHeader = fal
   </View>;
 }
 
-function MessagesTab({ports, runtime, t}: {api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
-  const {api, lifetime} = useSettingsRequestScope(ports.context);
-  const theme = useTheme();
-  const [debugUntil, setDebugUntil] = useState<number>(), [debugBusy, setDebugBusy] = useState(false), [debugProblem, setDebugProblem] = useState<string>();
-  const [now, setNow] = useState(() => Date.now());
-  const readDebug = useCallback(() => {
-    if (!lifetime.current()) return;
-    void api.request<unknown>(routePath('get_admin_logs_settings')).then(raw => {
-      if (!lifetime.current()) return;
-      const settings = parseLogSettings((raw as {result?: unknown}).result ?? raw);
-      setDebugUntil(settings.debugWindowUntil ? Date.parse(settings.debugWindowUntil) : undefined);
-    }).catch(() => {});
-  }, [api, lifetime]);
-  useEffect(() => {readDebug(); const timer = setInterval(() => {if (lifetime.current()) setNow(Date.now());}, 30_000); return () => clearInterval(timer);}, [readDebug, lifetime]);
-  const setDebug = (on: boolean) => {
-    setDebugBusy(true); setDebugProblem(undefined);
-    void api.request(routePath('post_admin_logs_debug_window'), 'POST', {operationId: ports.requestId(), minutes: on ? 30 : 0})
-      .then(() => readDebug(), error => setDebugProblem(presentError(error, 'server-console').body)).finally(() => setDebugBusy(false));
-  };
-  const recording = debugUntil !== undefined && debugUntil > now;
-  const [level, setLevel] = useState<LogLevel | ''>(''), [category, setCategory] = useState<LogCategory | ''>('');
-  const [picking, setPicking] = useState<'level' | 'category'>();
-  const read = useRead(() => {
-    const query = new URLSearchParams({limit: String(LOG_LIMIT)});
-    if (level) query.set('level', level);
-    if (category) query.set('category', category);
-    return api.request<unknown>(`/v1/admin/logs?${query.toString()}`).then(parseLogPage);
-  }, [level, category]);
-  const items: readonly LogRecord[] = read.data?.items ?? [];
-  const levelText = level ? t('web.logs.levelAndAbove', {level: levelWord(level)}) : t('web.logs.allLevels');
-  const categoryText = category ? t(`server.logCategory.${category}` as MessageId) : t('web.logs.everything');
-  const levelItems: readonly MenuEntry[] = [
-    {id: 'all', label: t('web.logs.allLevels'), selected: level === '', onSelect: () => {setLevel(''); setPicking(undefined);}},
-    ...logLevels.map((value): MenuEntry => ({id: value, label: t('web.logs.levelAndAbove', {level: levelWord(value)}), selected: level === value, onSelect: () => {setLevel(value); setPicking(undefined);}})),
-  ];
-  const categoryItems: readonly MenuEntry[] = [
-    {id: 'all', label: t('web.logs.everything'), selected: category === '', onSelect: () => {setCategory(''); setPicking(undefined);}},
-    ...logCategories.map((value): MenuEntry => ({id: value, label: t(`server.logCategory.${value}` as MessageId), selected: category === value, onSelect: () => {setCategory(value); setPicking(undefined);}})),
-  ];
-  return <View style={{marginTop: 14}} testID="server-troubleshooting-messages">
-    <View style={{borderRadius: 14, padding: 14, backgroundColor: theme.colors.raised, marginBottom: 16}} testID="server-messages-detail-window">
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-        <View style={{flex: 1, minWidth: 0}}>
-          <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{t('settings.server.detailWindow')}</Text>
-          <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textSecondary, marginTop: 2}]}>{recording && debugUntil ? t('settings.server.detailWindow.until', {time: defaultI18n.time(debugUntil)}) : t('settings.server.detailWindow.help')}</Text>
-        </View>
-        <Button size="compact" variant={recording ? 'glass' : 'primary'} loading={debugBusy} onPress={() => setDebug(!recording)}>{t(recording ? 'settings.server.detailWindow.stop' : 'settings.server.detailWindow.start')}</Button>
-      </View>
-      {debugProblem ? <Text accessibilityRole="alert" style={[shellType(12.5, 600), {color: theme.colors.record, marginTop: 6}]}>{debugProblem}</Text> : null}
-    </View>
-    <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('web.logs.messages')}</Text>
-    <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.logs.messagesLede')}</Text>
-    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12}}>
-      <Button size="compact" variant="glass" icon="i-updown" onPress={() => setPicking('level')}>{levelText}</Button>
-      <Button size="compact" variant="glass" icon="i-updown" onPress={() => setPicking('category')}>{categoryText}</Button>
-      <Button size="compact" variant="glass" icon="i-refresh" loading={read.loading} onPress={read.reload}>{t('web.selection.refresh')}</Button>
-    </View>
-    {read.error !== undefined && !read.data ? <StateView {...runtime.error(read.error, read.reload)}/> : null}
-    <View style={{marginTop: 12, borderRadius: 12, overflow: 'hidden', backgroundColor: alpha(theme.colors.ink, .55), borderWidth: 1, borderColor: theme.colors.lineSoft}}>
-      {read.loading && !items.length ? <Text style={[shellType(13, 500), {color: theme.colors.textTertiary, padding: 14}]}>{t('web.logs.loadingMessages')}</Text> : null}
-      {!read.loading && !items.length ? <Text style={[shellType(13, 500), {color: theme.colors.textTertiary, padding: 14}]}>{t('web.logs.noMessages')}</Text> : null}
-      {items.map((row, index) => <View key={row.sequence} style={{paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: index ? 1 : 0, borderTopColor: theme.colors.lineSoft}}>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, rowGap: 2}}>
-          <Text style={[shellType(11.5, 600), {color: theme.colors.textTertiary}]}>{logTime(row.at)}</Text>
-          <Text style={[shellType(11.5, 800), {color: row.level === 'error' ? theme.colors.record : row.level === 'warn' ? theme.colors.amber : theme.colors.accentStrong}]}>{levelWord(row.level)}</Text>
-          <Text style={[shellType(11.5, 600), {color: theme.colors.textTertiary}]}>{t(`server.logCategory.${row.category}` as MessageId)}</Text>
-        </View>
-        <Text style={[shellType(13, 400, 18), {color: theme.colors.text, marginTop: 2}]}>{row.message}</Text>
-      </View>)}
-    </View>
-    <Menu open={Boolean(picking)} onOpenChange={open => {if (!open) setPicking(undefined);}} presentation="sheet" testID="server-messages-filter" title={picking === 'category' ? t('feedback.category') : t('web.logs.level')} items={picking === 'category' ? categoryItems : levelItems}/>
-  </View>;
-}
 
 function FeedbackTab({consoleClient, reports, loading, error, runtime, t, reload}: {consoleClient: ConsoleClient; reports: readonly FeedbackReport[]; loading: boolean; error?: unknown; runtime: NativeShellRuntime; t: Translate; reload: () => void}) {
   const theme = useTheme();
