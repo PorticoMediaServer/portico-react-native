@@ -208,6 +208,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
           onAddToPlaylist={theme.isTV && runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence)
             ? () => runtime.listeningPlaylist?.open(nowPlaying.playback.fence) : undefined}
+          queuePolicy={theme.isTV ? runtime.listeningQueuePolicy : undefined}
           signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
           lyrics={lyricsOffered && lyricsTarget && runtime.lyrics && nowPlaying ? <NowPlayingLyrics read={runtime.lyrics} target={lyricsTarget}
             positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}

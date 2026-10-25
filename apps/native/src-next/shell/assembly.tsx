@@ -1,5 +1,6 @@
 import {NativeTVReceiver} from '../screens/settings-live/NativeTVReceiver';
 import {createNativeListeningPlaylist} from './listening-playlist';
+import {createNativeListeningQueuePolicy} from './listening-queue-policy';
 import {NativeHomeEmpty} from '../screens/home/HomeEmpty';
 import React, {type RefObject} from 'react';
 import {BackHandler, Platform, View} from 'react-native';
@@ -271,12 +272,14 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     revision: () => context.navigation.getSnapshot().revision, playback: () => runtime?.playback, t: defaultI18n.t});
   const musicNavigation = createNativeMusicDiscoverNavigation(context, () => runtime);
   const listeningPlaylist = Platform.isTV ? createNativeListeningPlaylist(context) : undefined;
+  const listeningQueuePolicy = Platform.isTV ? createNativeListeningQueuePolicy(context) : undefined;
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
       railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
     subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
     listeningPlaylist,
+    listeningQueuePolicy,
     actions: {
       navigate: entry => {if (currentHome()) open(nativeEntryRoute(entry));},
       play: (entry, target) => {
@@ -386,6 +389,6 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     mixes,
     musicDiscover: musicNavigation.open,
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; listeningPlaylist?.dispose(); musicNavigation.dispose(); mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; listeningPlaylist?.dispose(); listeningQueuePolicy?.dispose(); musicNavigation.dispose(); mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };
 }

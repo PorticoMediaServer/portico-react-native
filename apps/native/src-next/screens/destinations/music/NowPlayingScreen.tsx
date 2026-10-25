@@ -21,6 +21,7 @@ import {NowPlayingQueue} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import {NativeListeningNotice} from './ListeningNotice';
 import {TVNowPlayingScreen} from './TVNowPlayingScreen';
+import type {NativeListeningQueuePolicy} from '../../../shell/listening-queue-policy';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -49,6 +50,7 @@ export type NowPlayingScreenProps = Readonly<{
   onAction: (command: DockCommand) => void;
   onQueuePlay?: (queueId: string, entryId: string, revision: string) => void;
   onAddToPlaylist?: () => void;
+  queuePolicy?: NativeListeningQueuePolicy;
   onClose: () => void;
   /** music-plus (MC-8): the committed plan plus the engine's own current-song facts. */
   signal?: MusicSignalView;

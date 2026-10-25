@@ -18,15 +18,17 @@ import {NativeListeningNotice} from './ListeningNotice';
 import {NowPlayingQueue} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import type {NowPlayingScreenProps} from './NowPlayingScreen';
+import {useTVQueuePolicy} from './TVQueuePolicy';
 
 /** tv7: one authored 1920×1080 canvas, including the queue. The window never
  * switches this television to the tablet composition at a lower render size. */
-export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, onClose, signal, notice,
+export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, onClose, signal, notice,
   reportError = () => {}, testID = 'now-playing', lyrics, equalizerCopy}: NowPlayingScreenProps & {equalizerCopy: NativeEqualizerCopy}) {
   const theme = useTheme(), t = defaultI18n.t, id = useId(), canvas = shellLayout(width, height, true);
   const [panel, setPanel] = useState<'signal' | 'eq' | 'lyrics' | null>(null), [more, setMore] = useState(false);
   const signalRef = useRef<View>(null), moreRef = useRef<View>(null), lyricsRef = useRef<View>(null);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
+  const policy = useTVQueuePolicy({fence: occupant.playback.fence, queue, policy: queuePolicy, reportError, testID});
   const restoreFrame = useRef<number | undefined>(undefined), latest = useRef({panel, fence: occupant.playback.fence});
   latest.current = {panel, fence: occupant.playback.fence};
   const closeEqualizer = () => {
@@ -94,7 +96,8 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
           </View>
         </MusicFocusRegion>
         <MusicFocusRegion id={`${id}.transport`} entry="toggle" orientation="horizontal" edges={{up: `${id}.progress`, down: actionsRegion, right: queueRegion}}
-          style={{marginTop: 28, width: 500, height: 96, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 34}}>
+          style={{marginTop: 28, width: 500, height: 96, flexDirection: 'row', justifyContent: policy.shuffle ? 'space-between' : 'center', alignItems: 'center', gap: policy.shuffle ? 0 : 34}}>
+          {policy.shuffle}
           <Button testID={`${testID}-previous`} variant="glass" iconOnly icon="i-prev" iconSize={34} style={{height: 72, width: 72, borderRadius: 36}}
             accessibilityLabel={t('player.previous')} disabled={!p.capabilities.previous} onPress={() => act('previous')}/>
           <Button focusId="toggle" testID={`${testID}-toggle`} variant="primary" iconOnly icon={playback.playing ? 'i-pause' : 'i-play'} iconSize={44}
@@ -102,6 +105,7 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
             disabled={playback.playing ? !p.capabilities.pause : !p.capabilities.play} onPress={() => act(playback.playing ? 'pause' : 'play')}/>
           <Button testID={`${testID}-next`} variant="glass" iconOnly icon="i-next" iconSize={34} style={{height: 72, width: 72, borderRadius: 36}}
             accessibilityLabel={t('player.next')} disabled={!p.capabilities.next} onPress={() => act('next')}/>
+          {policy.repeat}
         </MusicFocusRegion>
         {actionsRegion && <MusicFocusRegion id={actionsRegion} entry={lyrics ? 'lyrics' : onAddToPlaylist ? 'playlist' : 'more'} orientation="horizontal" edges={{up: `${id}.transport`, right: queueRegion}}
           style={{marginTop: 38, flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>
