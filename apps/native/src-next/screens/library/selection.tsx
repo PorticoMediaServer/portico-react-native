@@ -297,7 +297,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
         selected: live() && !!keyOf(entry) && selectedKeys().includes(keyOf(entry)!),
         onToggle: () => {if (live()) toggle(key);}, onEnter: () => {if (live()) toggle(key);}};
     },
-    render: (artwork?: (path?: string) => React.ReactNode) => <LibrarySelectionBars store={store} artwork={artwork ?? (() => null)}>,
+    render: (artwork?: (path?: string) => React.ReactNode) => <LibrarySelectionBars store={store} artwork={artwork ?? (() => null)}/>,
   };
   const off = [activation.subscribe(() => {if (!visible()) reset(); emit();}), context.subscribeAuthority(() => {reset(); emit();})];
   return Object.freeze({...port, dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
