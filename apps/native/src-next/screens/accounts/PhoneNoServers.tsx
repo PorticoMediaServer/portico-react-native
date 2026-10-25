@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {parseJoinLink} from '../../../../../packages/client-core/src/join-link';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {ColourBackdrop} from '../../kit/artwork';
 import {Button, TextField} from '../../kit/controls';
@@ -13,6 +14,8 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
 }) {
   const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
+  const link = parseJoinLink(invitation);
+  const changeInvitation = (raw: string) => {setInvitation(raw); const target = parseJoinLink(raw); if (target) setAddress(target.server);};
   return <View testID="phone-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
@@ -23,11 +26,11 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
         {error}
       </View>
       <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
-        <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.join')}</Text>
-        <TextField label={t('services.start.invitation')} value={invitation} onChangeText={setInvitation} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
-        <TextField label={t('accounts.signIn.address')} value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
+        <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('web.directJoin.title')}</Text>
+        <TextField label={t('accounts.signIn.address')} value={link?.server ?? address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy && !link}/>
+        <TextField label={t('services.start.invitation')} placeholder={t('web.directJoin.codePlaceholder')} value={invitation} onChangeText={changeInvitation} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.directJoin.entryBody')}</Text>
-        <Button disabled={busy || !invitation.trim()} onPress={() => onJoin(invitation, address)}>{t('services.start.joinAction')}</Button>
+        <Button disabled={busy || !invitation.trim()} onPress={() => onJoin(invitation, address)}>{t('action.continue')}</Button>
       </View>
       <View style={{gap: 10}}>
         <Button variant="glass" disabled={busy} onPress={onFind}>{t('connection.discovery.find')}</Button>
