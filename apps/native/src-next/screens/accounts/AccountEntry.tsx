@@ -34,6 +34,7 @@ import type {ResetFileLocation} from '../../../../../packages/client-core/src/ac
 import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneNoServers} from './PhoneNoServers';
+import {TVNoServers} from './TVNoServers';
 import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
 import {PhoneMovePassword} from './PhoneMovePassword';
 import {PhoneMoveCode} from './PhoneMoveCode';
@@ -888,13 +889,14 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
     primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
-  if (!Platform.isTV && stage === 'servers' && directoryList === 'ready' && servers.length === 0) {
+  if (stage === 'servers' && directoryList === 'ready' && servers.length === 0) {
     const source = operation.current, attempt = directoryAttempt.current, scope = accountScope.current;
     const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && operation.current === source
       && directoryAttempt.current === attempt && accountScope.current === scope
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope?.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
-    return <PhoneNoServers busy={busy} error={status} onBack={() => {if (current()) back();}}
+    const EmptyDirectory = Platform.isTV ? TVNoServers : PhoneNoServers;
+    return <EmptyDirectory isCurrent={current} busy={busy} error={status} onBack={() => {if (current()) back();}}
       onJoin={(raw, origin) => {
         if (!current() || busyRef.current || acting.current) return;
         const link = NativeServerSignIn.parseInvitationEntry(raw, origin);
