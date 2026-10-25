@@ -2,7 +2,7 @@ import React from 'react';
 import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import {Platform, type View} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import {sameFence} from '../../../../../packages/player-core/src';
+import {sameFence, type SkipMode} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {qualityOptionSelected} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -72,9 +72,16 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
     return value / 1000;
   };
+  // The same Settings keys the runtime's automatic skip reads; an unreadable value
+  // behaves as the player's own default, which asks.
+  const skipModes = (): Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>> => {
+    const values = context.preferences().effective;
+    const read = (key: string): SkipMode => values[key] === 'auto' ? 'auto' : values[key] === 'off' ? 'off' : 'ask';
+    return {intro: read('playback.introSkip'), recap: read('playback.recapSkip'), credits: read('playback.creditsSkip')};
+  };
   const player: NativeWatchHostBindings = {
     chrome: (source, runtime) => ({...nativeWatchChromeFacts(source, bindings.names ?? createNativeWatchPanelNames(runtime.text)), skipBackSeconds: skipSeconds(source, 'playback.skipBackMs'),
-      skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError,
+      skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError, skipModes: skipModes(),
       onMinimize: fence => {if (current()) {const transition = context.playback.dock.collapse(fence); if (transition) void context.playback.onTransition(transition).catch(runtime.reportError);}},
       ...(context.playback.cast ? {onCast: fence => {if (current()) void context.playback.cast?.(fence).catch(runtime.reportError);}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),

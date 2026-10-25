@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} f
 import {Text, View, useTVEventHandler} from 'react-native';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
-import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
+import {sameFence, activeSegment, skipTarget, skipsAutomatically, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
 import {playbackIdentity, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -34,6 +34,8 @@ export type NativeWatchChromeProps = Readonly<{
   skipBackSeconds: number;
   skipForwardSeconds: number;
   onMinimize: (fence: PlaybackFence) => void;
+  /** The viewer's Settings choice per segment kind; the engine already applies `auto`. */
+  skipModes: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
   onPanel?: (panel: NativeWatchPanel, fence: PlaybackFence) => void;
   /** TV4 keeps only identity/seek dimmed behind the authored overlay. */
   tvPanelRight?: number;
@@ -65,6 +67,32 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
   const visible = current() && state.visible;
   const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-controls' && focus.childId === 'watch-seek';
+  // tv-player 3: the prompt offers the segment the viewer is in, and an unattended
+  // skip leaves a six-second note whose Undo goes back to where the skip happened.
+  const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
+  const segments: readonly SegmentMarker[] = markers.flatMap(marker => marker.type === 'intro' || marker.type === 'recap' || marker.type === 'credits'
+    ? [{id: marker.id, kind: marker.type, startSeconds: marker.startMs / 1000, endSeconds: marker.endMs / 1000, automaticSafe: marker.automaticSafe}] : []);
+  const dismissed = useRef<Set<string>>(new Set());
+  const [notice, setNotice] = useState<{kind: SegmentMarkerKind; fromSeconds: number}>();
+  const seen = useRef(source.playback.positionSeconds), undoLine = useSharedValue(1);
+  useEffect(() => {
+    const at = source.playback.positionSeconds, from = seen.current;
+    seen.current = at;
+    if (at === from) return;
+    const skipped = segments.find(marker => skipsAutomatically(marker, props.skipModes) && from >= marker.startSeconds && from < marker.endSeconds
+      && at >= skipTarget(marker, source.playback.duration) - .5);
+    if (!skipped) return;
+    dismissed.current.add(skipped.id);
+    setNotice({kind: skipped.kind, fromSeconds: from});
+  }, [source.playback.positionSeconds, source.playback.duration, segments, props.skipModes]);
+  useEffect(() => {
+    if (!notice) return;
+    undoLine.value = 1;
+    undoLine.value = withTiming(0, {duration: UNDO_SECONDS * 1000});
+    const timer = setTimeout(() => setNotice(undefined), UNDO_SECONDS * 1000);
+    return () => {clearTimeout(timer); cancelAnimation(undoLine);};
+  }, [notice, undoLine]);
+  const undoLineStyle = useAnimatedStyle(() => ({width: `${undoLine.value * 100}%`}));
   useEffect(() => {
     if (!seekFocused) {setLanding(undefined); return;}
     setReturnAt(source.playback.positionSeconds);
@@ -93,6 +121,9 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   });
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (current()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
+  const offered = visible && !state.panel && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
+  const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
+  const skipSegment = (marker: SegmentMarker) => {dismissed.current.add(marker.id); setNotice(undefined); if (current()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
   const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
@@ -208,5 +239,27 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
       </FocusRegion>
     </Animated.View>
+    {theme.isTV && (prompt || notice) && <View pointerEvents="box-none" style={{position: 'absolute', right: 96, bottom: 284}}>
+      <FocusRegion id="watch-skip" orientation="horizontal" entry="watch-skip-action">
+        <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>
+        {notice
+          ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 28, paddingLeft: 30, paddingRight: 16, paddingVertical: 16, borderRadius: 22, backgroundColor: 'rgba(9,19,27,.8)',
+            boxShadow: '0 24px 60px -18px rgba(0,0,0,.85), inset 0 0 0 1px rgba(237,245,250,.1)'}}>
+            <View style={{gap: 8}}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                <Icon name="i-check" size={26} color={theme.colors.accentStrong}/>
+                <Text style={{fontFamily: 'Manrope-Bold', fontSize: 24, fontWeight: '700', color: theme.colors.text}}>{t('player.skipped', {kind: notice.kind})}</Text>
+              </View>
+              <View style={{height: 3, width: 240, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
+                <Animated.View style={[{height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
+              </View>
+            </View>
+            <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant="glass" size="hero" hasTVPreferredFocus icon="i-back" onPress={() => {const from = notice.fromSeconds; setNotice(undefined);
+              if (current()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
+          </View>
+          : <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size="hero" hasTVPreferredFocus icon="i-next" onPress={() => skipSegment(prompt!)}>{t('player.skip', {kind: prompt!.kind})}</Button>}
+        </View>
+      </FocusRegion>
+    </View>}
   </View>;
 }
