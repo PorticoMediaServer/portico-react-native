@@ -80,6 +80,7 @@ const state = {
   registrations: new Map(),
   events: new Map(),
   appState: new Set(),
+  tvMenuEnabled: false,
   back: new Set(),
   modules: {},
   frames: new Map(),
@@ -122,6 +123,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
  export const Share={share(){throw Error('Unexpected native Share operation in Home fixture')}};
  export const Platform={OS:'android',isTV:false,isPad:false,Version:36,constants:{Manufacturer:'test'}};
+ export const TVEventControl={enableTVMenuKey:()=>{S.tvMenuEnabled=true;},disableTVMenuKey:()=>{S.tvMenuEnabled=false;}};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
  export const BackHandler={addEventListener:(_,listener)=>{S.back.add(listener);return{remove:()=>S.back.delete(listener)}}},AccessibilityInfo={isReduceMotionEnabled:async()=>true,addEventListener:()=>({remove(){}}),announceForAccessibility(){}};
