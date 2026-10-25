@@ -1,7 +1,7 @@
 import React, {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {downloadBytes, downloadReasonMessage, parseDownloadBatch, type DownloadOptionsView} from '../../../../../packages/client-core/src/downloads';
+import {downloadBytes, downloadReasonMessage, parseDownloadBatch, parseDownloadOptions, type DownloadOptionsView} from '../../../../../packages/client-core/src/downloads';
 import type {ReadingClient} from '../../../../../packages/client-core/src/reading';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
@@ -14,7 +14,7 @@ import {createNativeDownloadsDevice} from './device';
 import {getNativeDownloadSnapshot, closeNativeDownload, type NativeDownloadRequest} from './request';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 
-type Version = Readonly<{sourceId: string; format: string; size: number; inventoryAvailable: boolean}>;
+type Version = Readonly<{sourceId: string; format: string; size: number; inventoryAvailable: boolean; policy: DownloadOptionsView}>;
 type Opening = {current: () => boolean; retire: () => void; dispose: () => void; pending: boolean; lease: ReturnType<typeof createNativeDownloadsDevice>; versions: readonly Version[]; abort: AbortController};
 type Family = {retired: boolean; active?: Opening};
 type State = Readonly<{opening?: Opening; versions?: readonly Version[]; policy?: DownloadOptionsView; busy?: string; error?: unknown}>;
@@ -28,7 +28,8 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   if (rendered.current !== family) {rendered.current.retired = true; rendered.current.active?.retire(); rendered.current = family;}
   const [state, setState] = useState<State>({}), [retry, setRetry] = useState(0);
   useLayoutEffect(() => {
-    if (!request.itemId || !nativePublicationReadsAvailable()) return;
+    const itemId = request.itemId;
+    if (!itemId || !nativePublicationReadsAvailable()) return;
     const viewer = context.session()?.viewer; if (!viewer) return;
     const lifetime = nativeDestinationLifetime(context), route = context.navigation.getSnapshot();
     const abort = new AbortController(), lease = createNativeDownloadsDevice(context);
@@ -41,18 +42,33 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
       dispose: () => {opening.retire(); if (disposed) return; disposed = true; offAuthority(); offRoute(); offDevice(); client?.dispose(); lease.dispose();}};
     family.active = opening;
     offDevice = lease.device.subscribe(() => {if (current()) setState(value => value.opening === opening ? {...value} : value);});
-    client = context.api.reading({viewer, isCurrent: current, signal: abort.signal});
+    const reader = context.api.reading({viewer, isCurrent: current, signal: abort.signal});
+    client = reader;
     setState({opening});
-    void Promise.all([client.versions(request.itemId, abort.signal), lease.service.options(request.itemId, abort.signal), lease.device.open()]).then(([versions, policy]) => {
+    void (async () => {
+      const [versions] = await Promise.all([reader.versions(itemId, abort.signal), lease.device.open()]);
       if (!current()) return;
-      opening.versions = Object.freeze(versions.versions.map(value => Object.freeze({...value})));
-      setState({opening, versions: opening.versions, policy});
-    }, error => {if (current()) setState({opening, error});});
+      const supported = versions.versions.filter(value => value.format === 'epub' || value.format === 'pdf' || value.format === 'cbz');
+      const rows: Version[] = []; let next = 0;
+      await Promise.all(Array.from({length: Math.min(4, supported.length)}, async () => {
+        while (next < supported.length) {
+          const index = next++, version = supported[index]; if (!version || !current()) return;
+          const raw = await context.api.request<unknown>(`/v1/items/${encodeURIComponent(itemId)}/download-options?versionId=${encodeURIComponent(version.sourceId)}`, 'GET', undefined, abort.signal);
+          if (!current()) return;
+          const policy = parseDownloadOptions(raw, itemId);
+          if (policy.source.bytes !== version.size || policy.source.available && policy.source.container !== version.format) throw new Error('reading_source_changed');
+          rows[index] = Object.freeze({...version, policy});
+        }
+      }));
+      if (!current()) return;
+      opening.versions = Object.freeze(rows); setState({opening, versions: opening.versions, policy: rows[0]?.policy});
+    })().catch(error => {if (current()) setState({opening, error});});
     return () => {opening.dispose(); if (family.active === opening) family.active = undefined;};
   }, [context, request, family, retry]);
   const close = (opening: Opening | undefined) => {if (!opening) {if (!family.retired && family.active === undefined && context.current()) closeNativeDownload(request); return;} if (family.active !== opening || !opening.current()) return; opening.retire(); closeNativeDownload(request);};
-  const choose = async (opening: Opening, version: Version, policy: DownloadOptionsView) => {
-    if (!opening.current() || opening.pending || !opening.versions.includes(version) || !version.inventoryAvailable || !['epub', 'pdf', 'cbz'].includes(version.format) || !policy.policy.allowDownloads || !Number.isSafeInteger(version.size) || version.size < 1 || version.size > 2 ** 31) return;
+  const choose = async (opening: Opening, version: Version) => {
+    const policy = version.policy;
+    if (!opening.current() || opening.pending || !opening.versions.includes(version) || !version.inventoryAvailable || !['epub', 'pdf', 'cbz'].includes(version.format) || !policy.policy.allowDownloads || !policy.source.available || !policy.options.some(value => value.quality === 'original' && value.available) || !Number.isSafeInteger(version.size) || version.size < 1 || version.size > 2 ** 31) return;
     const device = opening.lease.device.getSnapshot();
     if (!device.ready || version.size > device.freeBytes || policy.storage.remainingBytes !== null && policy.storage.remainingBytes !== undefined && version.size > policy.storage.remainingBytes) return;
     opening.pending = true; setState(value => value.opening === opening && opening.current() ? {...value, busy: version.sourceId, error: undefined} : value);
@@ -80,10 +96,10 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
       {shown.error !== undefined && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
         primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (shown.opening?.current() && !shown.opening.pending) setRetry(value => value + 1);}}}/>}
       {shown.versions?.filter(value => value.format === 'epub' || value.format === 'pdf' || value.format === 'cbz').map(version => {
-        const opening = shown.opening, policy = shown.policy;
-        const available = !!opening && !!policy && version.inventoryAvailable && policy.policy.allowDownloads && version.size > 0 && !shown.busy && version.size <= opening.lease.device.getSnapshot().freeBytes && (policy.storage.remainingBytes === undefined || policy.storage.remainingBytes === null || version.size <= policy.storage.remainingBytes);
+        const opening = shown.opening, policy = version.policy;
+        const available = !!opening && !!policy && version.inventoryAvailable && policy.policy.allowDownloads && policy.source.available && policy.options.some(value => value.quality === 'original' && value.available) && version.size > 0 && !shown.busy && version.size <= opening.lease.device.getSnapshot().freeBytes && (policy.storage.remainingBytes === undefined || policy.storage.remainingBytes === null || version.size <= policy.storage.remainingBytes);
         return <Focusable key={version.sourceId} testID={`reading-download-${version.sourceId}`} accessibilityRole="button" disabled={!available} focusKind="row" focusRadius={12}
-          onPress={() => {if (opening && policy) void choose(opening, version, policy);}}
+          onPress={() => {if (opening && policy) void choose(opening, version);}}
           style={{minHeight: 64, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: available ? 1 : .5, backgroundColor: theme.colors.raised}}>
           <View><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{version.format.toUpperCase()}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></View>
           <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(shown.busy === version.sourceId ? 'downloads.adding' : 'action.download')}</Text>
