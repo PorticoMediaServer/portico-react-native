@@ -1,4 +1,4 @@
-import {createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
+import {createNativeEqualizerSettingsRenderer, createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
 import {nativeShellRoutes, type NativeRouteFactory} from './route-registry';
 
 /** One registration for the phone and TV entries. The Settings family owns the
@@ -8,3 +8,5 @@ const dashboardFactory: NativeRouteFactory = context => createNativeServerDashbo
 
 nativeShellRoutes.registerDestination('settings', settingsFactory);
 nativeShellRoutes.registerRoute('server-dashboard', dashboardFactory);
+
+nativeShellRoutes.registerRoute('settings-equalizer', context => createNativeEqualizerSettingsRenderer(context));
