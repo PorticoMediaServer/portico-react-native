@@ -349,7 +349,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
     },
     mixes: createNativeMusicMixes({request: (path, method, body, signal) => context.api.request(path, method, body, signal),
-      authority: () => context.authority(), playback: () => runtime?.playback, t: runtime?.text.t ?? defaultI18n.t, isCurrent: () => alive && context.current()}),
+      authority: () => context.authority(), viewerAuthority: () => context.session()?.viewer.authority, playback: () => runtime?.playback, t: runtime?.text.t ?? defaultI18n.t, isCurrent: () => alive && context.current()}),
     musicDiscover: () => {if (context.current()) open({kind: 'music-discover'});},
     onArtworkError: error => reportError(error, 'artwork-error'),
     dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},

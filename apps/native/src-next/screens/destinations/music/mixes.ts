@@ -19,6 +19,8 @@ export type NativeMusicMixesPort = Readonly<{
 type Options = Readonly<{
   request: (path: string, method: 'GET', body: undefined, signal: AbortSignal) => Promise<unknown>;
   authority: () => ShellAuthority;
+  /** The viewer's own authority for this session; a mix response is scoped to it. */
+  viewerAuthority: () => 'local' | 'hosted' | undefined;
   playback: () => NativeShellPlaybackAdapter | undefined;
   t: I18n['t'];
   isCurrent: () => boolean;
@@ -54,7 +56,7 @@ export function createNativeMusicMixes(options: Options): NativeMusicMixesPort {
         const response = decodeGetMusicMixesResponse(await options.request(routePath('get_music_mixes'), 'GET', undefined, controller.signal));
         if (!current() || ticket !== generation || controller.signal.aborted) throw retired();
         const authority = options.authority();
-        if (response.scope.serverId !== authority.serverId || response.scope.authority !== authority.authority
+        if (response.scope.serverId !== authority.serverId || response.scope.authority !== options.viewerAuthority()
           || response.scope.accountId !== authority.accountId || response.scope.profileId !== authority.profileId) throw invalid();
         if (new Set(response.data.mixes.map(mix => mix.id)).size !== response.data.mixes.length) throw invalid();
         publish({phase: 'ready', rows: rows(response.data.mixes)});
