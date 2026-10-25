@@ -105,13 +105,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation, isTV, panelOpen]);
   const measuredCurrent = useCallback(() => ({authority: current(), fence: playback.getSnapshot().fence, window: Dimensions.get('window')}), [current, playback]);
   if (!expanded || !fence || !layout?.surface) return null;
-  // phone-player 3: sideways, the panel floats 12 from the edges at 356 wide
-  // instead of the tablet's flush 380 column; the host owns that drawn inset.
-  const phonePanel = !isTV && layout.mode === 'full-window' && window.width < 900 && !!layout.panel
-    ? {x: Math.max(0, window.width - 408), y: 12, width: Math.min(356, window.width), height: Math.max(0, window.height - 24)} : undefined;
   const context: NativeWatchHostContext = {source, fence, layout, state, runtime,
     renderer: {width: television?.canvas.width ?? window.width, height: television?.canvas.height ?? window.height, scale: television?.canvas.scale ?? 1,
-      panel: television?.panel ?? phonePanel ?? (layout.mode === 'watch' ? layout.content : layout.panel)},
+      panel: television?.panel ?? (layout.mode === 'watch' ? layout.content : layout.panel)},
     closePanel: () => {controls.closePanel(fence);}, backPanel: () => {controls.back(fence);}, openPanel: panel => {controls.open(panel, fence);}, rememberPanel: offset => controls.rememberPanel(fence, offset)};
   // Tabletop controls live below the actual top surface. In book mode edge
   // chrome avoids the crease while transport remains centred in its full pane.
