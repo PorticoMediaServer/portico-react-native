@@ -40,6 +40,7 @@ async function surfaceFixture(os = 'android') {
     // fixture misuse rather than a silently missing member.
     queue: {playEntry: () => {throw new Error('queue.playEntry is not configured in this surface fixture');}},
   };
+  const dynamicRange = await screenModule(new URL('../src-next/platform/playback/dynamic-range-matching.ts', import.meta.url), {react, 'react-native': {Platform: {OS: os, isTV: true}, NativeModules: {PorticoPlaybackModule: {}}}});
   const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.tsx', import.meta.url), {
     react: {...React, default: React},
     'react-native': {
@@ -53,6 +54,7 @@ async function surfaceFixture(os = 'android') {
     '../../../../../packages/client-core/src/playback-v1/options': {CapabilityPublisher: class {async publish() {}}},
     '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
     '../../../../../packages/client-core/src/presentation/service-text': {serviceText: (key: string) => key},
+    './dynamic-range-matching': dynamicRange,
     './engine-choice': {chooseEngine() {}, parseEngineFeatures: () => ({})},
     './engine-media': {planEngineOf() {}, requiredSubtitleRendering() {}},
     './capability-document': {deviceCapabilityDocument: () => ({})},

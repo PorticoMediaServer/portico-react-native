@@ -1,3 +1,7 @@
+import * as playerCore from '../../../packages/player-core/src/index.ts';
+import * as upNext from '../../../packages/client-core/src/up-next.ts';
+import {channelSeconds} from '../../../packages/client-core/src/playback/linear-protocol.ts';
+import {playbackIdentity} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -9,18 +13,23 @@ import * as registryModule from '../src-next/kit/focus/registry.ts';
 import * as hostRefModule from '../src-next/kit/focus/useHostRef.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 
+const gesture = () => {const value: Record<string, unknown> = {}; for (const key of ['enabled', 'runOnJS', 'activeOffsetY', 'failOffsetX', 'onEnd']) value[key] = () => value; return value;};
+const focusRegistry = registryModule.createFocusRegistry();
 let event: (event: {eventType: string; eventKeyAction: number}) => void;
 let isTV = true;
 const motion = {timing: () => ({duration: 0})};
 const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', useTVEventHandler: (handler: typeof event) => {event = handler;}},
   'react-native-reanimated': {default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
+  'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'GestureDetector'},
+  '../../../../../packages/client-core/src/up-next': upNext, '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds},
+  './UpNextCard': {NativeUpNextCard: 'UpNextCard'}, '../../kit/artwork': {Artwork: 'Artwork'},
   'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Path: 'Path', Rect: 'Rect', Stop: 'Stop', Text: 'SvgText'},
-  '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity() {}},
+  '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String}, '../../../../../packages/i18n/src': {defaultI18n},
-  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/Icon': {Icon: 'Icon'},
+  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => focusRegistry}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {body: {}, bodyStrong: {}, caption: {}}})},
-  '../../kit/useMotion': {useMotion: () => motion}, './controls': {NativeWatchControls}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
+  '../../kit/useMotion': {useMotion: () => motion, useReducedMotion: () => true}, './controls': {NativeWatchControls}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
 });
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'version', entryId: 'entry', generation: 1});
 

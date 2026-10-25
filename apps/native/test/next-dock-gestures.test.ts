@@ -1,3 +1,6 @@
+import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
+import {nativeEqualizer} from '../platform/equalizer.ts';
+import {listeningNoticeKey} from '../../../packages/client-core/src/audio-effects.ts';
 import test, {mock} from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -100,9 +103,17 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const refresh = () => {const local = dock.getSnapshot().local; snapshot = {authority, dock: dock.getSnapshot(), fence: local?.fence,
     subject: {}, playback: {duration: 100, phase: paused ? 'paused' : 'playing'}, capabilities: {play: true, pause: true, stop: true, seek: true, previous: false, next: false, cast: false}};};
   refresh();
+  const signalFacts = await screenModule(new URL('../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {react, 'react-native': native});
+  const signalView = await screenModule(new URL('../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     ...common, '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme},
     '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},
+    '../kit/dock/model': model,
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen'},
+    '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
+    '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'ListeningNotice'},
+    '../screens/destinations/music/MusicSignal': signalView, '../screens/destinations/music/signal-facts': signalFacts,
+    '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': {listeningNoticeKey},
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock: () => async (command: any) => {actions.push(command);}},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
     './model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)}, './playback': {nativeShellBackTransition: () => undefined},

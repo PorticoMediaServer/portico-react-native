@@ -1,3 +1,4 @@
+import {subtitleReason} from '../../../packages/client-core/src/subtitles.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -19,6 +20,7 @@ const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watc
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {bodyStrong: {}, caption: {}}})},
   './track-identity': {nativeWatchTracks}, './panel-model': {nativeWatchPanelRows},
   './subtitle-timing': {nativeWatchSubtitleTiming},
+  '../../../../../packages/client-core/src/subtitles': {subtitleReason},
 });
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', accountId: 'a', profileId: 'p', controllerId: 'c', controllerEpoch: 'e', commandLaneId: 'l', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'v2', entryId: 'entry', generation: 3});
 const options = parseOptions({itemId: 'item', versions: [{id: 'v2', audio: [{id: 'first', default: true}, {id: 'chosen'}], subtitles: [{id: 'first', default: true}, {id: 'chosen'}]}], qualities: [{mode: 'original'}, {mode: 'automatic'}]});

@@ -126,7 +126,12 @@ export const AccessibilityInfo = {
 };
 
 /** Logical viewport for the next theme's pure projection tests. */
-export const useWindowDimensions = () => ({width: 390, height: 844, scale: 1, fontScale: 1});
+const logicalWindow = Object.freeze({width: 390, height: 844, scale: 1, fontScale: 1});
+export const Dimensions = {get: name => {
+  if (name !== 'window' && name !== 'screen') throw new Error('unknown_dimension');
+  return logicalWindow;
+}};
+export const useWindowDimensions = () => logicalWindow;
 
 export const useTVEventHandler = () => {};
 export const TVEventHandler = {addListener: handler => new NativeEventEmitter().addListener('onHWKeyEvent', handler)};

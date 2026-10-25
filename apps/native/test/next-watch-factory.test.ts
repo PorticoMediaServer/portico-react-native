@@ -1,3 +1,5 @@
+import {episodeLabel} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
+import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
@@ -25,13 +27,21 @@ const detailStub = {DetailService: class {snapshot: any = {phase: 'idle', data: 
   getSnapshot = () => this.snapshot; subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   mutate = async (intent: unknown) => {mutations.push(intent);}; dispose = () => {this.snapshot = {phase: 'idle', data: null};};}};
 const mutations: unknown[] = [];
+const episodeAtoms = {react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 800, height: 600})},
+  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/Icon': {Icon: 'Icon'},
+  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', TextField: 'TextField'},
+  '../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../kit/theme': {useTheme: () => ({colors: {}, type: {}})}};
+const seasons = await screenModule(new URL('../src-next/screens/watch/SeasonsSheet.tsx', import.meta.url), episodeAtoms);
+const episodes = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {...episodeAtoms,
+  '../../../../../packages/client-core/src/presentation/kit-model': {episodeLabel},
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText}, './SeasonsSheet': seasons});
 const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
   react, '../../../../../packages/client-core/src/playback-v1/options': {PlaybackOptionsClient},
   '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http},
   '../../../../../packages/client-core/src/detail': detailStub,
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo}, './playback-info': {readNativePlaybackInfo},
-  './track-identity': {nativeWatchTracks},
+  './track-identity': {nativeWatchTracks}, './EpisodePanel': episodes,
   './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
   './version-destination': {NativeVersionChooserController}, './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
   './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},

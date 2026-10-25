@@ -1,3 +1,7 @@
+import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
+import * as signalPath from '../../src-next/screens/destinations/music/signal-path-model.ts';
+import {nativeEqualizer} from '../../platform/equalizer.ts';
+import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects.ts';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {compileFunction} from 'node:vm';
@@ -76,6 +80,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     React.useLayoutEffect(() => {ref?.({tag: 71}); return () => ref?.(null);}, [ref]);
     return null;
   };
+  const dynamicRange = await screenModule(new URL('../../src-next/platform/playback/dynamic-range-matching.ts', import.meta.url), {react, 'react-native': {Platform: {OS: 'android', isTV: true}, NativeModules: {PorticoPlaybackModule: {}}}});
   const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../../src-next/platform/playback/native.tsx', import.meta.url), {
     react, 'react-native': {...native, AppState: {addEventListener: () => ({remove() {}})}, Dimensions: {get: () => ({width: 1920, height: 1080})},
       NativeEventEmitter: class {addListener() {return {remove() {}};}}, NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'request'}},
@@ -83,6 +88,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     '../../../../../packages/client-core/src/playback-v1/options': {CapabilityPublisher: class {async publish() {}}},
     '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
     '../../../../../packages/client-core/src/presentation/service-text': {serviceText: key => key},
+    './dynamic-range-matching': dynamicRange,
     './engine-choice': {chooseEngine() {}, parseEngineFeatures: () => ({})}, './engine-media': {planEngineOf() {}, requiredSubtitleRendering() {}},
     './capability-document': {deviceCapabilityDocument: () => ({})}, './NativeListeningAdapter': {},
     '../../../platform/offline-downloads': {offlineDownloads},
@@ -91,8 +97,15 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
   const adapter = createNativeShellPlaybackAdapter({appVersion: 'test', api: {},
     session: () => ({viewer: {authority: 'local', profileId: 'profile'}}), authority: () => runtime.getSnapshot().authority,
     subscribeSettings: () => () => {}, settings: () => ({engine: 'native'})});
+  const signalFacts = await screenModule(new URL('../../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {react, 'react-native': native});
+  const signalView = await screenModule(new URL('../../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {...common,
     '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme}, '../kit/focus': {focusTestID: () => 'playback'}, './tv-focus': {tvFocusIds: () => ({surface: () => 'playback'})},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen'},
+    '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
+    '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'ListeningNotice'},
+    '../screens/destinations/music/MusicSignal': signalView, '../screens/destinations/music/signal-facts': signalFacts,
+    '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': {listeningNoticeKey},
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock},
     '../kit/dock/model': model,
     '../kit/dock/model.ts': model,
