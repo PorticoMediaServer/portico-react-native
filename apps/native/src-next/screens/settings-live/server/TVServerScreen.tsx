@@ -13,6 +13,7 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import {tvFocusIds} from '../../../shell/tv-focus';
 import {publicTVHandoffAddress} from '../../../tv/auth/TVHandoff';
 import {TVRemoteAccessPanel} from './TVRemoteAccessPanel';
+import {TVServerPageMenu} from './TVServerPageMenu';
 import {createTVServerReader} from './tv-server-reader';
 import {NativeScreenLifetime} from '../lifetime';
 import {ownerLibraryCounts, ownerLibraryKind, ownerLibraryState} from '../owner-libraries/presentation';
@@ -21,9 +22,9 @@ import {Screen, useScreenEntry} from '../Screen';
 
 /** TV36: GET-only library directory. No mutation service is exposed to a control.
  * Composition admits only the owner's primary profile; the lifetime fences every read. */
-export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialPage?: 'libraries' | 'remote'}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [page, setPage] = useState<'libraries' | 'remote'>('libraries');
+  const [page, setPage] = useState<'libraries' | 'remote'>(initialPage);
   const lifetime = useMemo(() => new NativeScreenLifetime(ports.context), [ports]);
   const service = useMemo(() => new LibraryManagementService({
     api: createTVServerReader(ports.context, lifetime),
@@ -32,7 +33,7 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
   const state = useSyncExternalStore(service.subscribe, service.getSnapshot).directory;
   const ids = useMemo(() => tvFocusIds(lifetime.authority), [lifetime]);
   const column = ids.surface('server.settings.pages'), rows = ids.surface(`server.settings.${page}`);
-  const enter = useScreenEntry({regionId: column, childId: 'libraries'}, lifetime.current);
+  const enter = useScreenEntry({regionId: column, childId: initialPage}, lifetime.current);
   useEffect(() => {
     const retire = () => service.cancel();
     lifetime.signal.addEventListener('abort', retire, {once: true});
@@ -45,21 +46,8 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
   return <Screen style={{paddingTop: 56}}>
     <ServerBand viewerRole="owner" audience="owner"/>
     <View style={{flex: 1, flexDirection: 'row', gap: 80}}>
-      <View style={{width: 480}}>
-        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginLeft: 20, marginBottom: 24}]}>{t('next.shell.serverSettings')}</Text>
-        <ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner" variant="group" style={{padding: 20}}/>
-        <FocusRegion id={column} entry="libraries" orientation="vertical" edges={{left: ids.rail, right: rows}} onLayout={enter}>
-          <Focusable focusId="dashboard" focusKind="row" accessibilityRole="button" accessibilityLabel={t('next.shell.dashboard')} onPress={() => ports.context.navigation.open({kind: 'server-dashboard'}, lifetime.authority)} style={{minHeight: 50, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 16}}>
-            <Icon name="i-pulse" size={24}/><Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t('next.shell.dashboard')}</Text>
-          </Focusable>
-          <Focusable focusId="libraries" focusKind="row" accessibilityRole="button" onPress={() => setPage('libraries')} accessibilityState={{selected: page === 'libraries'}} accessibilityLabel={t('settings.server.libraries')} style={{minHeight: 50, paddingHorizontal: 20, borderRadius: 14, backgroundColor: page === 'libraries' ? `${theme.colors.accent}29` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 16}}>
-            <Icon name="i-folder" size={24} color={theme.colors.accentStrong}/><Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t('settings.server.libraries')}</Text>
-          </Focusable>
-          <Focusable focusId="remote" focusKind="row" accessibilityRole="button" onPress={() => setPage('remote')} accessibilityState={{selected: page === 'remote'}} accessibilityLabel={t('settings.server.remote')} style={{minHeight: 50, paddingHorizontal: 20, borderRadius: 14, backgroundColor: page === 'remote' ? `${theme.colors.accent}29` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 16}}>
-            <Icon name="i-globe" size={24}/><Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t('settings.server.remote')}</Text>
-          </Focusable>
-        </FocusRegion>
-      </View>
+      <TVServerPageMenu role="owner" page={page} serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
+        onSelect={next => {if (next === 'dashboard') ports.context.navigation.open({kind: 'server-dashboard'}, lifetime.authority); else setPage(next);}}/>
       <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
         <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner"/></View>
         <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : 'settings.server.remote')}</Text>

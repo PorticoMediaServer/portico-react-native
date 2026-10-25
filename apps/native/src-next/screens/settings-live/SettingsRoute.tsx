@@ -53,7 +53,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;
         if (allowed === 'denied') return fallback;
         if (allowed === 'administrator' || !Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
-        return <NativeTVServerScreen ports={ports} runtime={runtime}/>;
+        return <NativeTVServerScreen key={route.page ?? 'libraries'} ports={ports} runtime={runtime} initialPage={route.page}/>;
       },
       dispose,
     } satisfies NativeRouteRenderer,
