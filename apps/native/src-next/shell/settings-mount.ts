@@ -1,3 +1,4 @@
+import {createNativeLibrarySettingsRenderer} from '../screens/settings-live/owner-libraries/LibrarySettingsRoute';
 import {createNativeTVServerSettingsRenderer, createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
 import {nativeShellRoutes, type NativeRouteFactory} from './route-registry';
 
@@ -10,3 +11,4 @@ nativeShellRoutes.registerDestination('settings', settingsFactory);
 nativeShellRoutes.registerRoute('server-dashboard', dashboardFactory);
 
 nativeShellRoutes.registerRoute('server-settings', context => createNativeTVServerSettingsRenderer(context));
+nativeShellRoutes.registerRoute('library-settings', context => createNativeLibrarySettingsRenderer(context));
