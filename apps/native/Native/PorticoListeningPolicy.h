@@ -14,6 +14,13 @@ static inline bool PorticoListeningMayPlay(bool owner,bool terminal,bool interru
 static inline bool PorticoListeningTimerExpired(double wallMS,double mono,double deadlineMS,double monoLimit) {
  return isfinite(deadlineMS)&&deadlineMS>0&&(wallMS>=deadlineMS||mono>=monoLimit);
 }
+/** The old long-pause trigger selects no hidden amount. Return only the
+ * positive displacement of the chosen profile amount, clamped at the start. */
+static inline double PorticoAudiobookResumeDisplacement(double elapsed,double position,double choiceMS) {
+ if(!isfinite(elapsed)||elapsed<300||!isfinite(position)||position<=0||
+   !(choiceMS==0||choiceMS==5000||choiceMS==15000||choiceMS==30000))return 0;
+ return fmin(position,choiceMS/1000);
+}
 #ifdef __OBJC__
 #import <Foundation/Foundation.h>
 static inline BOOL PorticoPolicyNumber(id value,double minimum,double maximum) {
@@ -30,6 +37,15 @@ static inline BOOL PorticoListeningPreferencesValid(id value) {
  if(value==NSNull.null)return YES;
  if(![value isKindOfClass:NSDictionary.class]||[value count]!=2||!PorticoBookRate(value[@"bookRate"])||!PorticoPolicyNumber(value[@"passoutMinutes"],0,120)||![@[@0,@30,@60,@90,@120] containsObject:value[@"passoutMinutes"]])return NO;
  return YES;
+}
+/** This is a separate private bridge projection; the server's closed listening
+ * preference response still contains only bookRate and passoutMinutes. */
+static inline BOOL PorticoAudiobookPreferencesValid(id value) {
+ if(!value)return YES;
+ if(![value isKindOfClass:NSDictionary.class]||[value count]!=3)return NO;
+ return PorticoPolicyNumber(value[@"skipBackMs"],10000,60000)&&[@[@10000,@15000,@30000,@60000] containsObject:value[@"skipBackMs"]]
+  &&PorticoPolicyNumber(value[@"skipForwardMs"],15000,90000)&&[@[@15000,@30000,@60000,@90000] containsObject:value[@"skipForwardMs"]]
+  &&PorticoPolicyNumber(value[@"resumeRewindMs"],0,30000)&&[@[@0,@5000,@15000,@30000] containsObject:value[@"resumeRewindMs"]];
 }
 static inline BOOL PorticoListeningEffectsValid(id value) {
  if(![value isKindOfClass:NSDictionary.class]||!PorticoPolicyBool(value[@"gapless"])||!PorticoPolicyNumber(value[@"crossfadeSeconds"],0,12)||![@[@"off",@"track",@"album"] containsObject:value[@"normalization"]])return NO;

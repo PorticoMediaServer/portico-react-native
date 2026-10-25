@@ -85,7 +85,7 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
   useTVEventHandler(event => {
     if (!expanded || event.eventKeyAction === 1) return;
     if (event.eventType === 'down') fold();
-    else if (seekFocused && (event.eventType === 'left' || event.eventType === 'right')) seek(playbackPosition(occupant) + (event.eventType === 'left' ? -p.skipBackSeconds : p.skipBackSeconds));
+    else if (seekFocused && (event.eventType === 'left' || event.eventType === 'right')) seek(playbackPosition(occupant) + (event.eventType === 'left' ? -p.skipBackSeconds : p.skipForwardSeconds ?? p.skipBackSeconds));
   });
   // TV never has a minimized video surface or a phone's sender controls.
   if (occupant.mode !== 'music' && occupant.mode !== 'audiobook') return null;
@@ -124,7 +124,7 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
       </View>
       <Focusable testID={controlID(testID, 'seek')} accessibilityRole="adjustable" accessibilityLabel={t('player.position')} focusRadius={8} disabled={!visible || !p.capabilities.seek || !bounds}
         accessibilityValue={{min: bounds?.start, max: bounds?.end, now: playbackPosition(occupant), text: clockText(playbackPosition(occupant))}}
-        accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => seek(playbackPosition(occupant) + (event.nativeEvent.actionName === 'decrement' ? -p.skipBackSeconds : p.skipBackSeconds))}
+        accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => seek(playbackPosition(occupant) + (event.nativeEvent.actionName === 'decrement' ? -p.skipBackSeconds : p.skipForwardSeconds ?? p.skipBackSeconds))}
         onFocus={() => setSeekFocused(true)} onBlur={() => setSeekFocused(false)} onLongPressAction={fold} onLayout={event => {seekWidth.current = event.nativeEvent.layout.width;}}
         onPress={event => {if (bounds) seek(bounds.start + Math.max(0, Math.min(1, event.nativeEvent.locationX / seekWidth.current)) * (bounds.end - bounds.start));}}
         style={{height: 8, borderRadius: 8, marginTop: 28, backgroundColor: alpha(theme.colors.text, .2)}}>

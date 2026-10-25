@@ -157,6 +157,7 @@ export class NativePlaybackRuntime {
     this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
     this.queue = new V1QueuePlayer({http: this.http, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
       transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
+      audiobookPreferences: () => this.o.settings().audiobook ?? {skipBackMs:15000,skipForwardMs:30000,resumeRewindMs:0},
       retainQueueIds: () => this.retainedQueueIds()});
     // Video completion remains held for the later player. Music follows the server's real policy.
     this.queue.setCompletionPolicy(({kind}) => audioKind(kind) ? 'advance' : 'hold');
@@ -232,7 +233,7 @@ export class NativePlaybackRuntime {
     this.offs.push(this.queue.connect());
     this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.publish(); }));
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
-    this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
+    this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { this.queue.listening.refreshAudiobookPreferences(); this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
     this.offs.push(this.choices.subscribe(() => {
       // Source binding resets these choices while changed() is still selecting
       // the next source. That path applies once after the new source is ready.
