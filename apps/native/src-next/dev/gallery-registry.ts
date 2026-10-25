@@ -15,12 +15,11 @@ export function galleriesForPlatform(galleries: readonly Gallery[], platform: Ga
  * `window=1` draws the selected gallery full-window for a pixel capture, with no catalogue chrome. */
 export function kitSelectionFromURL(value: string | null): {gallery?: string; window?: boolean} | undefined {
   if (!value) return;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'portico:' || url.hostname !== 'kit' || !['', '/'].includes(url.pathname)) return;
-    const gallery = url.searchParams.get('gallery');
-    return gallery ? (url.searchParams.get('window') === '1' ? {gallery, window: true} : {gallery}) : {};
-  } catch {return;}
+  // Match the raw grammar shared with Android's DEBUG filter before parsing can
+  // normalise credentials, ports, encoded aliases, fragments or duplicate keys.
+  const match = /^portico:\/\/kit\/?(?:\?gallery=([A-Za-z0-9_-]{1,128})(?:&(window)=1)?)?$/.exec(value);
+  if (!match || match[0] !== value) return;
+  return match[1] ? (match[2] ? {gallery: match[1], window: true} : {gallery: match[1]}) : {};
 }
 
 /** Each family owns dev/families/<family>/*.gallery.tsx; registration never edits this file. */
