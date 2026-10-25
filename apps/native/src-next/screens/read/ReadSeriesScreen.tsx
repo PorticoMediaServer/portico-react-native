@@ -6,6 +6,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingItem} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -99,6 +100,11 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
           {authors.length || total !== undefined ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: 4, marginTop: 10}}>
             {authors.length ? <Text numberOfLines={2} style={[browseType(theme, 13, 700), {color: theme.colors.text, textAlign: 'center'}]}>{defaultI18n.list(authors)}</Text> : null}
             {total !== undefined ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(comic ? 'next.reader.volumeCount' : 'next.kit.books', {count: total})}</Text> : null}
+          </View> : null}
+          {comic && (state.direction === 'rtl' || state.direction === 'ltr') ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10, paddingHorizontal: 8, paddingVertical: 3,
+            borderRadius: 12, borderWidth: 1, borderColor: alpha(theme.colors.text, .24)}}>
+            <Icon name={state.direction === 'rtl' ? 'i-rtl' : 'i-ltr'} size={13} color={theme.colors.textSecondary}/>
+            <Text style={[browseType(theme, 11.5, 600), {color: theme.colors.textSecondary}]}>{t(state.direction === 'rtl' ? 'next.reader.directionRtl' : 'next.reader.directionLtr')}</Text>
           </View> : null}
         </View>
         <View style={{paddingHorizontal: 20, marginTop: 18}}>

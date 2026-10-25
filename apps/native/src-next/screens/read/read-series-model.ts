@@ -13,6 +13,8 @@ export type NativeReadSeriesState = Readonly<{
   overview?: ReadingSeriesOverview;
   /** The one real continue row for this series, when it exists. */
   continued?: ReadingContinueItem;
+  /** The first available volume's declared reading direction, when it publishes one. */
+  direction?: 'ltr' | 'rtl' | 'vertical';
   error?: unknown;
   /** A later page failed; the volumes already loaded stay on screen. */
   moreError?: unknown;
@@ -113,8 +115,31 @@ export class NativeReadSeries {
         // The series still lists without a continue row.
       }
       if (flight !== this.flight || !this.current()) return;
+      // One authorized preview of the volume the page would read gives its real
+      // declared direction (ComicInfo.xml and only that). It is closed before
+      // the page can become ready, and a close refusal fails the page rather
+      // than publishing a projection the server still holds open.
+      const previewItem = continued?.item ?? page.items.find(value => value.inventoryAvailable);
+      let direction: 'ltr' | 'rtl' | 'vertical' | undefined;
+      if (previewItem) {
+        try {
+          const session = await client.open({itemId: previewItem.id, sourceId: previewItem.sourceId}, signal);
+          let closeError: unknown;
+          try {
+            const declared = session.manifest.metadata.direction;
+            if (declared === 'ltr' || declared === 'rtl' || declared === 'vertical') direction = declared;
+          } finally {try {await session.close();} catch (error) {closeError = error;}}
+          if (flight !== this.flight || !this.current()) return;
+          if (closeError) {this.publish({phase: 'error', items: [], error: closeError}); return;}
+        } catch (error) {
+          if (cancelled(error)) return;
+          // No direction is drawn when the preview cannot be opened.
+        }
+      }
+      if (flight !== this.flight || !this.current()) return;
       this.publish({phase: 'ready', items: page.items, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {}),
-        ...(page.overview ? {overview: page.overview} : {}), ...(continued ? {continued} : {})});
+        ...(page.overview ? {overview: page.overview} : {}), ...(continued ? {continued} : {}),
+        ...(direction ? {direction} : {})});
     } catch (error) {
       if (flight !== this.flight || !this.current() || cancelled(error)) return;
       this.publish({phase: 'error', items: [], error});
