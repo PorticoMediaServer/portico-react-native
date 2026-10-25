@@ -46,6 +46,7 @@ test('TV Saved tabs have a mounted content target and return edges for every tab
     if (directory) {
       assert.equal(tabs.props.contentRegionId, directory.props.regionId);
       assert.equal(directory.props.enabled, true);
+      assert.deepEqual(directory.props.edges, {up: ids.savedTabs, left: ids.rail});
       visible = false;
       assert.equal(render().find(node => node.type === 'SavedTVDirectory').props.enabled, false);
       continue;

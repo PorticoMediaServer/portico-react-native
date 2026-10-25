@@ -7,7 +7,7 @@ import type {PlaylistCard, PlaylistListFilter} from '../../../../../packages/cli
 import {Chip, Focusable} from '../../kit/controls';
 import {AmbientArt, CoverMosaic, MediaArt} from '../../kit/artwork';
 import {CardFrame} from '../../kit/cards/primitives';
-import {FocusRegion} from '../../kit/focus';
+import {FocusRegion, type FocusEdges} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -30,12 +30,13 @@ export type NativeSavedTVDirectoryProps = Readonly<{
   libraries: readonly Library[];
   enabled: boolean;
   regionId: string;
+  edges?: FocusEdges;
   select: (route: Readonly<{view: NativeSavedTVDirectoryView; sort?: string; direction?: 'asc' | 'desc'; filter?: PlaylistListFilter}>) => void;
   openPlaylist: (card: PlaylistCard) => void;
   openResource: (resource: PersonalResource) => void;
 }>;
 
-export function SavedTVDirectory({view, destination, runtime, libraries, enabled, regionId, select, openPlaylist, openResource}: NativeSavedTVDirectoryProps) {
+export function SavedTVDirectory({view, destination, runtime, libraries, enabled, regionId, edges, select, openPlaylist, openResource}: NativeSavedTVDirectoryProps) {
   const theme = useTheme();
   const snapshot = React.useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const saved = snapshot.saved, personal = snapshot.personal;
@@ -66,7 +67,7 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
         title={t(view === 'playlists' ? 'web.saved.empty.playlists' : view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views')}
         body={t(view === 'playlists' ? 'web.saved.empty.playlistsBody' : view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}/>
       : <ScrollView contentContainerStyle={{paddingHorizontal: theme.gutter, paddingBottom: 40}}>
-        <FocusRegion id={regionId} entry={first ? tileId(view, first) : undefined} orientation="vertical" enabled={enabled}
+        <FocusRegion id={regionId} entry={first ? tileId(view, first) : undefined} orientation="vertical" enabled={enabled} edges={edges}
           style={{flexDirection: 'row', flexWrap: 'wrap', gap: 34}}>
           {view === 'playlists' ? playlists.map(card => <SavedTVPlaylistTile key={card.id} card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/>)
             : view === 'collections' ? resources.map(resource => <SavedTVCollectionTile key={resource.id} resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/>)
