@@ -151,6 +151,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));
   const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries).filter(homeRowHasContent).map(row => theme.isTV ? pages.present(row) : row) : [];
+  // The server publishes every Home row as a deferred descriptor with its real title and
+  // shape, then the row previews hydrate one at a time. Draw only the descriptors whose
+  // preview has not arrived yet as bounded skeletons; no card, count or focus target.
+  const pendingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries).filter(row => row.deferred === true && !homeRowHasContent(row)).slice(0, theme.isTV ? 3 : 2) : [];
   const previousRows = useRef<readonly HomeRow[]>([]);
   const occupied = theme.isTV && (registry.isRegionActive(ids.spotlight) || previousRows.current.some(row => registry.isRegionActive(ids.row(row.id))));
   const rows = theme.isTV ? tvHomeRows(previousRows.current, incomingRows, rowId => registry.isRegionActive(ids.row(rowId)), occupied) : incomingRows;
@@ -297,11 +301,28 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
               current={current}/>{context.waiting && <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}</View>}/>}
       </View></HomeWindow>;
     })}
+    {pendingRows.map(row => <HomePendingRow key={`pending:${row.id}`} row={row} labels={labels} viewportWidth={viewportWidth}/>)}
     {runtime.mixes ? <HomeRegion><MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')} onOpen={runtime.musicDiscover}/></HomeRegion> : null}
     <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={theme.isTV ? {paddingHorizontal: theme.gutter, paddingVertical: 24} : {marginTop: 34, marginHorizontal: 24, alignItems: 'center', gap: 12}}><Button focusId="customize" variant={theme.isTV ? 'text' : 'glass'} size={theme.isTV ? 'compact' : undefined} icon={theme.isTV ? undefined : 'i-sliders'} style={theme.isTV ? undefined : {height: 48, paddingHorizontal: 22}} onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button>
       {!theme.isTV && <Text style={[nativeType({size: 13, weight: 400, tracking: 0, lineHeight: 19.5}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('next.home.customizeDescription')}</Text>}
     </View></HomeRegion>
   </Animated.ScrollView>;
+}
+
+/** A deferred row is real descriptor data, not a Home response: its title, shape and
+ * policy are already known, while its preview is still being read. Skeletons stay
+ * non-focusable, so focus only ever lands on a card that actually arrived. */
+function HomePendingRow({row, labels, viewportWidth}: {row: HomeRow; labels: Parameters<typeof serverTextLabel>[0]; viewportWidth: number}) {
+  const theme = useTheme(), presentation = homeRowPresentation(row), title = serverTextLabel(labels, presentation.title);
+  const wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
+  const width = wide ? theme.spec.card.width.wide[theme.platform] : square ? theme.spec.card.width.square[theme.platform] : theme.spec.card.width.poster[theme.platform];
+  const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : width * 1.5 + (theme.isTV ? 80 : 48);
+  const gap = theme.isTV ? 28 : 10, count = Math.max(1, Math.ceil(Math.max(0, viewportWidth - theme.gutter) / (width + gap)) + 1);
+  return <View testID={`home-pending-${row.id}`} style={{marginBottom: theme.isTV ? 30 : 18}}>
+    <View style={{paddingHorizontal: theme.gutter, marginBottom: theme.isTV ? 22 : 12}}><Text style={[theme.type.rowHeading, {color: theme.colors.text}]}>{title}</Text></View>
+    <View style={{flexDirection: 'row', gap, paddingLeft: theme.gutter, overflow: 'hidden'}}>{Array.from({length: count}, (_, index) =>
+      <SkeletonBlock key={index} width={width} height={height} radius={theme.isTV ? 14 : 8} shine={index === 0}/>)}</View>
+  </View>;
 }
 
 function HomeRegion({focus, children}: {focus?: Omit<FocusRegionProps, 'children'>; children: React.ReactNode}) {
