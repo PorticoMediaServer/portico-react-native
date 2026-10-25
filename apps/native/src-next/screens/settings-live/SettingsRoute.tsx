@@ -1,4 +1,5 @@
 import React from 'react';
+import {Platform} from 'react-native';
 import {AdminSessionsClient} from '../../../../../packages/client-core/src/playback-v1/admin-sessions';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {ConsoleClient} from '../../../../../packages/client-core/src/console';
@@ -8,6 +9,7 @@ import {NativeScreenLifetime} from './lifetime';
 import {createBoundNativeSettingsController} from './settings-controller';
 import {nativeDevicePreferences} from './device-preference-consumer';
 import {NativeDashboardController, type NativeDashboardAdmission} from './dashboard-controller';
+import {NativeTVServerScreen} from './server/TVServerScreen';
 import {NativeSettingsScreen} from './SettingsScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
 import {createNativeSettingsPorts, nativeSettingsRequestId} from './settings-ports';
@@ -44,6 +46,20 @@ function createComposition(context: NativeShellBootstrapContext) {
       },
       dispose,
     } satisfies NativeRouteRenderer,
+    serverSettings: {
+      render: (route, runtime) => {
+        lifetime.assert();
+        if (route.kind !== 'server-settings') throw new Error('native_server_settings_route_mismatch');
+        // The TV list currently implements the owner's Libraries page. Administrators
+        // retain the existing real Dashboard; members and secondary profiles fall back.
+        const allowed = admission();
+        const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;
+        if (allowed === 'denied') return fallback;
+        if (allowed === 'administrator' || !Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
+        return <NativeTVServerScreen ports={ports} runtime={runtime}/>;
+      },
+      dispose,
+    } satisfies NativeRouteRenderer,
     dashboard: {
       render: (route, runtime) => {
         lifetime.assert();
@@ -62,4 +78,8 @@ export function createNativeSettingsRenderer(context: NativeShellBootstrapContex
 
 export function createNativeServerDashboardRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   return createComposition(context).dashboard;
+}
+
+export function createNativeTVServerSettingsRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
+  return createComposition(context).serverSettings;
 }

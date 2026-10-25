@@ -26,7 +26,7 @@ export function nativeAccountMenu(account: DirectSnapshot, open: (route: NativeS
     {id: 'together', label: t('entry.group.together'), icon: 'i-people' as const, route: {kind: 'together' as const}, onPress: () => open({kind: 'together'})},
     ...(!tv ? [{id: 'settings', label: t('settings.title'), icon: 'i-settings' as const, route: {kind: 'shell' as const, destination: {kind: 'settings' as const}}, onPress: () => open({kind: 'shell', destination: {kind: 'settings'}})}] : []),
   ];
-  const dashboard: NativeShellRoute = {kind: 'server-dashboard'};
+  const dashboard: NativeShellRoute = tv ? {kind: 'server-settings'} : {kind: 'server-dashboard'};
   return Object.freeze({accountLine: account.account.username, viewerRole,
     actions: Object.freeze(entries.filter(entry => available(entry.route)).map(({route: _route, ...action}) => action)),
     ...((viewerRole === 'owner' || viewerRole === 'administrator') && available(dashboard) ? {serverAction: {id: 'server', label: t(tv ? 'next.shell.serverSettings' : 'settings.server.dashboard'), icon: 'i-server' as const, onPress: () => open(dashboard)}} : {}),
