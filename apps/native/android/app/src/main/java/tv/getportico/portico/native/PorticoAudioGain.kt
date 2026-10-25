@@ -151,8 +151,6 @@ internal class PorticoMusicPipeline(
 ) {
   private val queue = PorticoGainQueue(gain)
   private val stage = PorticoRateStage()
-  private var lastTimeUs = 0L
-  private var lastCount = 0
   private var sourceEncoding = C.ENCODING_PCM_16BIT
   private var targetEncoding = C.ENCODING_PCM_16BIT
   private var channels = 0
@@ -176,7 +174,7 @@ internal class PorticoMusicPipeline(
     // Media3 sink, so a Smart route decision stays unknown rather than assumed supportive.
     val openRate = stage.configure(sampleRate, channels, targetEncoding, sampleRateMode(),
         preferredSampleRate(), sampleRate, null)
-    PorticoAudioSampleRate.resetSinkOpen()
+    PorticoAudioSampleRate.resetConfigured()
     val delegate = converted(format, sourceEncoding)
     return if (openRate > 0 && openRate != sampleRate) delegate.buildUpon().setSampleRate(openRate).build() else delegate
   }
@@ -185,11 +183,17 @@ internal class PorticoMusicPipeline(
              deliver: (ByteBuffer, Long, Int) -> Boolean): Boolean {
     val scaled = queue.bufferFor(buffer, sourceEncoding, targetEncoding, channels, sampleRate,
         presentationTimeUs, encodedAccessUnitCount)
-    lastTimeUs = presentationTimeUs; lastCount = encodedAccessUnitCount
-    val outgoing = stage.process(scaled, presentationTimeUs, encodedAccessUnitCount)
-    if (!deliver(outgoing, presentationTimeUs, encodedAccessUnitCount)) return false
-    queue.accepted(); stage.accepted()
-    if (PorticoAudioSampleRate.sinkOpenSampleRate == 0) PorticoAudioSampleRate.sinkOpenSampleRate = stage.openedRate
+    // The stage owns time and count from here: a retried buffer returns the same piece, so the
+    // delegate sees one stable timestamp rather than the input buffer's start each attempt.
+    val piece = stage.process(scaled, presentationTimeUs, encodedAccessUnitCount)
+    if (!deliver(piece.deliverable(), piece.timeUs, piece.count)) return false
+    queue.accepted()
+    stage.accepted(piece)
+    // The delegate was configured at this rate after a buffer was accepted. It can still fall
+    // back silently, so this is a request fact only; the observed output rate stays unknown.
+    if (PorticoAudioSampleRate.configuredSampleRate == 0) {
+      PorticoAudioSampleRate.configuredSampleRate = stage.openedRate
+    }
     return true
   }
 
@@ -201,13 +205,15 @@ internal class PorticoMusicPipeline(
     return if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
   }
 
-  fun takeTail(): ByteBuffer? = stage.takeTail()
+  /** The retained end-of-stream tail, or null when there is none. */
+  fun takeTail(): PorticoRateStage.Piece? = stage.takeTail()
 
-  fun acceptedTail(buffer: ByteBuffer, accepted: Boolean) {if (accepted) stage.accepted(buffer)}
+  fun acceptedTail(piece: PorticoRateStage.Piece, accepted: Boolean) {
+    if (accepted) stage.accepted(piece)
+  }
 
-  /** The last presentation time a buffer carried, for the EOS tail. */
-  fun tailTimeUs(): Long = stage.tailTimeUs()
-  fun tailCountBuffers(): Int = stage.tailCountBuffers()
+  /** True once the tail has been accepted, so the delegate may be told the stream ended. */
+  fun tailFinished(): Boolean = stage.tailAccepted
 
   fun flush() { queue.clear(); gain.reset(); stage.flush() }
 
@@ -243,17 +249,17 @@ internal class PorticoMusicSink(
   override fun flush() {
     super.flush()
     pipeline.flush()
-    PorticoAudioSampleRate.resetSinkOpen()
+    PorticoAudioSampleRate.resetConfigured()
   }
 
   override fun playToEndOfStream() {
-    // Deliver the resampler's retained tail; the delegate's finish waits until it accepts it, and
-    // a refusal keeps the same buffer for the next attempt instead of dropping the tail.
+    // Deliver the resampler's retained tail. The delegate is only told the stream ended after it
+    // accepts that tail; a refusal keeps the same piece (buffer, time, count) for the next call.
     val tail = pipeline.takeTail()
     if (tail != null) {
-      val accepted = super.handleBuffer(tail, pipeline.tailTimeUs(), pipeline.tailCountBuffers())
+      val accepted = super.handleBuffer(tail.deliverable(), tail.timeUs, tail.count)
       pipeline.acceptedTail(tail, accepted)
-      if (!accepted) return
+      if (!accepted || !pipeline.tailFinished()) return
     }
     super.playToEndOfStream()
   }
@@ -261,7 +267,7 @@ internal class PorticoMusicSink(
   override fun reset() {
     super.reset()
     pipeline.reset()
-    PorticoAudioSampleRate.resetSinkOpen()
+    PorticoAudioSampleRate.resetConfigured()
   }
 
   override fun getFormatSupport(format: Format): Int {

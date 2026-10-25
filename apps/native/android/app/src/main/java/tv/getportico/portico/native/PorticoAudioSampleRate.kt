@@ -21,20 +21,26 @@ import android.media.AudioTrack
  *   open on the current route; `AudioTrack.getSampleRate()` is the configured source rate and
  *   is *not* proof of the physical output or DAC rate, and no bit-perfect state is inferred.
  *
- * Smart: the file's rate when the routed device lists it, else the device's preferred rate.
+ * Smart: the file's rate when the routed device lists it or the route is unknown, the device's
+ * preferred rate only when the route is known and lacks the file's rate.
  * Strict: the file's rate; refused only when the routed device's own list is known and lacks it.
  * Off: the device's preferred rate, whatever the file is.
+ *
+ * This file holds the decision and the reported facts; the sink itself is configured by
+ * [PorticoRateStage] inside the media3 adapter, which cannot read its routed AudioTrack.
  */
 object PorticoAudioSampleRate {
   const val SMART = "smart"
   const val STRICT = "strict"
   const val OFF = "off"
 
-  /** The listener's chosen mode and the rate the sink last opened at for the current item.
-   * Set only by the sink on a successful open; cleared by its flush/reset and on a mode change. */
+  /** The listener's chosen mode and the rate the sink last *asked* its delegate to open at.
+   * The delegate may fall back silently, so this is a request fact: the observed output rate stays
+   * 0/unknown and nothing here can claim a match. Cleared when the stream is flushed or reset and
+   * when the mode changes, because those retire the open it described. */
   @Volatile var mode: String = SMART
-  @Volatile var sinkOpenSampleRate: Int = 0
-  fun resetSinkOpen() { sinkOpenSampleRate = 0 }
+  @Volatile var configuredSampleRate: Int = 0
+  fun resetConfigured() { configuredSampleRate = 0 }
 
   /** What the routed device says about itself. Unknown and arbitrary are different facts. */
   data class RouteFacts(
@@ -108,13 +114,15 @@ object PorticoAudioSampleRate {
   }
 
   /** Observed facts for the bridge and the signal path, in the native contract's own names.
-   * `openedSampleRate` is 0 and `openedSampleRateKnown` false until the sink can report the
-   * session it actually opened; `modeImplemented` stays false until it opens at the chosen rate. */
-  fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int): Map<String, Any> {
+   * `outputSampleRate` is 0 and `openedSampleRateKnown` false until the sink can report the session
+   * it actually opened; `modeImplemented` stays false until it opens at the chosen rate.
+   * `configuredSampleRate` is what the sink asked its delegate for — a request, not an observation. */
+  fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int, configuredSampleRate: Int = 0): Map<String, Any> {
     val route = routeFacts(context, routed)
     return mapOf(
         "sampleRateMatching" to parse(mode),
         "requestedSampleRate" to sourceRate,
+        "configuredSampleRate" to configuredSampleRate,
         "outputSampleRate" to openedSampleRate,
         "routeDeviceId" to route.deviceId,
         "routeDeviceType" to route.deviceType,
