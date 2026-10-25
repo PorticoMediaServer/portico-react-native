@@ -45,7 +45,7 @@ export function createNativeWatchPanelNames(text: TextEnvironment): NativeWatchP
       const inForce = source.session?.presentation.quality;
       const option = source.options?.qualities.find(value => qualityOptionSelected(value, inForce));
       const label = option
-        ? qualityControlModel({choice: option.mode === 'fixed' || option.mode === 'limit' ? {kind: 'fixed', height: option.maxHeight} : {kind: option.mode}}, 'viewer', text).optionName
+        ? option.mode === 'cd-quality' ? defaultI18n.t('quality.cdQuality') : qualityControlModel({choice: option.mode === 'fixed' || option.mode === 'limit' ? {kind: 'fixed', height: option.maxHeight} : {kind: option.mode}}, 'viewer', text).optionName
         : undefined;
       return [plan.mode === 'direct' ? defaultI18n.t('player.quality.playingOriginal') : defaultI18n.t('player.quality.converting', {quality: label ?? defaultI18n.t('player.opt.automatic')}),
         ...(plan.streams.some(stream => stream.reasons.includes('transcoding_disabled')) ? [defaultI18n.t('player.quality.conversionOff')] : [])];

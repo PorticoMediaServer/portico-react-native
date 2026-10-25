@@ -1,6 +1,7 @@
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {playbackInfoProjection, type PlaybackComparisonProjection, type PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
-import type {PlaybackInfo, PlaybackLoss, PlaybackReplacement} from '../../../../../packages/client-core/src/playback-v1/playback-info';
+import type {PlaybackInfo, PlaybackReplacement} from '../../../../../packages/client-core/src/playback-v1/playback-info';
+type PlaybackLoss = PlaybackInfo['losses'][number];
 import {playbackFence, sameFence, type PlaybackFence, type QueuePlaybackFence} from '../../../../../packages/player-core/src';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime} from '../../platform/playback/types';
 

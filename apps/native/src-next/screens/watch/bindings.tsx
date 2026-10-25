@@ -35,7 +35,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
     manageFile: presenters.manageFile, openFileInfo: presenters.openFileInfo, openMenu: presenters.openMenu,
     openVersions: presenters.openVersions, startVersion: context.playback.startVersion,
     renderOverlays: runtime => <><NativeWatchOverlays presenters={presenters} runtime={runtime} common={common}/>{playlist.render(runtime)}
-      <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} posterUrl={runtime.playback.getSnapshot().entry?.posterUrl}
+      <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} posterUrl={context.playback.getSnapshot().entry?.posterUrl}
         onLinkTV={() => {const authority = context.authority(); if (context.current() && context.navigation.open({kind: 'servers'}, authority)) playOnClose(runtime);}}/></>,
     ...(external ? {onPictureInPicture: (fence: Parameters<NativeWatchExternalRequests['request']>[0]) => {void external.request(fence);}} : {}),
     dispose: () => {external?.dispose(); presenters.dispose(); playlist.dispose();},
