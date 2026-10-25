@@ -224,7 +224,7 @@ export class NativeAnnotationJournal {
     next: Omit<NativeAnnotationOperation, 'unresolved'>, expectedLocalRevision: number, assert?: () => void): Promise<number> =>
     this.add(identity, source, next, assert, true, expectedLocalRevision);
   /** Remember the last server page this device saw, so a later offline open can show it. */
-  cache = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, revision: number, entries: readonly ReadingAnnotation[]): Promise<void> => {
+  cache = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, revision: number, entries: readonly ReadingAnnotation[], assert?: () => void): Promise<void> => {
     if (!integer(revision)) return;
     let kept: ReadingAnnotation[] = [];
     let size = 0;
@@ -243,8 +243,9 @@ export class NativeAnnotationJournal {
       const groups = [...base.groups];
       if (at < 0) groups.push(group); else groups[at] = group;
       const next: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
-      return bytes(next) > MAX_RECORD_BYTES ? null : next;
-    });
+      // An optional cache must never erase this profile's existing pending edits to fit.
+      return bytes(next) > MAX_RECORD_BYTES ? current ?? null : next;
+    }, assert);
   };
   /** Retire only operations that still are the exact ones the pass examined. A newer local
    * edit made during the pass keeps its place, and an unresolved operation keeps its payload. */

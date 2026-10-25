@@ -84,7 +84,7 @@ export class NativeAnnotationSync {
   private capture(): Identity | undefined {
     const session = this.context.session();
     if (!session || !this.context.current()) return undefined;
-    return Object.freeze({sessionFamilyId: session.sessionFamilyId, viewer: Object.freeze({...session.viewer}), authority: this.context.authority()});
+    return Object.freeze({sessionFamilyId: session.sessionFamilyId, viewer: Object.freeze({...session.viewer}), authority: Object.freeze({...this.context.authority()})});
   }
   /** Fresh authorization for this exact profile and session family, checked before every write. */
   private fresh(identity: Identity): boolean {
@@ -94,51 +94,83 @@ export class NativeAnnotationSync {
       && live.viewer.authority === identity.viewer.authority && live.viewer.serverId === identity.viewer.serverId
       && live.viewer.accountId === identity.viewer.accountId && live.viewer.profileId === identity.viewer.profileId;
   }
-  /** Read the whole bounded annotation set for the open source, pinned to its revision. */
-  private async pages(session: ReadingSession, signal: AbortSignal): Promise<PageState> {
-    let cursor = '', revision: number | undefined, entries: ReadingAnnotation[] = [];
+  private assertFresh(identity: Identity): void {
+    if (!this.fresh(identity)) throw new ReadingError('cancelled');
+  }
+  /** Only the annotations method is needed; the source and lifetime stay captured by the caller. */
+  private async pages(session: Pick<NativeAnnotationLivePort, 'annotations'>, source: NativeAnnotationGroup['source'],
+    signal: AbortSignal, assert: () => void): Promise<PageState> {
+    let cursor = '', revision: number | undefined;
+    const entries: ReadingAnnotation[] = [], ids = new Set<string>(), cursors = new Set<string>();
     for (let page = 0; page < PAGE_LIMIT; page++) {
-      const out = await session.annotations(cursor, cursor ? revision : undefined, signal);
+      assert();
+      const out = await session.annotations(cursor, revision, signal);
+      assert();
+      if (out.sourceId !== source.sourceId || out.sourceRevision !== source.sourceRevision) throw new ReadingError('source_changed');
+      if (revision !== undefined && out.revision !== revision) throw new ReadingError('conflict');
       revision = out.revision;
-      entries = [...entries, ...out.entries];
-      if (entries.length > SET_LIMIT) throw new ReadingError('invalid_document');
-      if (!out.nextCursor) break;
-      cursor = out.nextCursor;
+      if (entries.length + out.entries.length > SET_LIMIT) throw new ReadingError('invalid_document');
+      for (const entry of out.entries) {
+        if (ids.has(entry.id)) throw new ReadingError('invalid_document');
+        ids.add(entry.id);entries.push(entry);
+      }
+      if (!out.nextCursor) return {revision, entries};
+      if (cursors.has(out.nextCursor)) throw new ReadingError('invalid_document');
+      cursors.add(out.nextCursor);cursor = out.nextCursor;
     }
-    return {revision: revision ?? 0, entries};
+    // A bounded prefix is never a complete annotation set or cache/merge base.
+    throw new ReadingError('invalid_document');
   }
   /** Returns true when transport failure means the whole pass should stop and wait for a reconnect. */
   private async syncGroup(identity: Identity, group: NativeAnnotationGroup, live?: NativeAnnotationLivePort): Promise<boolean> {
     const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(new ReadingError('cancelled')), GROUP_DEADLINE_MS);
     const signal = deadline.signal;
+    const journalIdentity: NativeAnnotationIdentity = nativeAnnotationIdentity(identity.viewer);
+    const retire = () => deadline.abort(new ReadingError('cancelled'));
+    this.life.signal.addEventListener('abort', retire, {once: true});
+    if (this.life.signal.aborted) retire();
+    let releaseSource = () => {};
     let client: ReadingClient | undefined, session: NativeAnnotationLivePort | undefined, owned: ReadingSession | undefined;
     const reuse = !!live && !live.signal.aborted && live.manifest.canAnnotate === true
       && typeof live.annotations === 'function' && typeof live.mutateAnnotation === 'function'
       && live.manifest.sourceId === group.source.sourceId && live.manifest.revision === group.source.sourceRevision;
+    const assertCurrent = () => {
+      this.assertFresh(identity);
+      if (signal.aborted || session?.signal.aborted) throw new ReadingError('cancelled');
+    };
     const mark = async (reason: NativeAnnotationUnresolved) => {
       const resolutions: NativeAnnotationResolution[] = group.operations.map(operation => ({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved', reason}));
-      if (this.fresh(identity)) await this.journal.resolve(identity, group.source, resolutions, () => this.fresh(identity));
+      assertCurrent();
+      await this.journal.resolve(journalIdentity, group.source, resolutions, assertCurrent);
+      assertCurrent();
     };
     try {
+      assertCurrent();
       if (reuse) session = live;
       else {
         client = this.context.api.reading({viewer: identity.viewer, isCurrent: () => this.fresh(identity), signal});
         const versions = await client.versions(group.source.itemId, signal);
-        if (!this.fresh(identity)) return true;
+        assertCurrent();
         if (!versions.versions.some(value => value.sourceId === group.source.sourceId)) {
           await mark('stale-source'); // No such downloadable/current source for this item.
           return false;
         }
         session = owned = await client.open({itemId: group.source.itemId, sourceId: group.source.sourceId}, signal);
       }
+      assertCurrent();
+      const sourceSignal = session.signal;
+      sourceSignal.addEventListener('abort', retire, {once: true});
+      releaseSource = () => sourceSignal.removeEventListener('abort', retire);
+      if (sourceSignal.aborted) retire();
+      assertCurrent();
       const manifest = session.manifest;
       if (manifest.itemId !== group.source.itemId || manifest.sourceId !== group.source.sourceId) {await mark('source-changed'); return false;}
       if (manifest.revision !== group.source.sourceRevision) {await mark('source-changed'); return false;} // Replaced source: keep the captured quote, never re-anchor.
       if (manifest.canAnnotate !== true) {await mark('refused'); return false;}
-      let state = await this.pages(session, signal);
+      let state = await this.pages(session, group.source, signal, assertCurrent);
       // Keep the last server page this device saw so an offline open of the same source can
       // show it beside queued edits; the cache is a convenience, never a record of truth.
-      await this.journal.cache(identity, group.source, state.revision, state.entries);
+      await this.journal.cache(journalIdentity, group.source, state.revision, state.entries, assertCurrent);
       for (const operation of group.operations) {
         if (!this.fresh(identity) || signal.aborted) return true;
         let decision = nativeAnnotationDecision(state, operation);
@@ -148,15 +180,16 @@ export class NativeAnnotationSync {
             : {...operation.content!, operation: 'upsert' as const, expectedRevision: state.revision};
           try {
             const saved = await session.mutateAnnotation(mutation, signal);
+            assertCurrent();
             if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
-            state = await this.pages(session, signal);
-            await this.journal.cache(identity, group.source, state.revision, state.entries);
+            state = await this.pages(session, group.source, signal, assertCurrent);
+            await this.journal.cache(journalIdentity, group.source, state.revision, state.entries, assertCurrent);
             decision = {kind: 'resolved'};
           } catch (error) {
             if (signal.aborted || !this.fresh(identity) || (error instanceof ReadingError && error.code === 'cancelled')) return true;
             if (displaced(error)) {
               // One fresh read may explain the displacement; the payload is unchanged.
-              state = await this.pages(session, signal);
+              state = await this.pages(session, group.source, signal, assertCurrent);
               const again = nativeAnnotationDecision(state, operation);
               if (again.kind !== 'apply') decision = again;
               else {
@@ -164,8 +197,10 @@ export class NativeAnnotationSync {
                   ? {operation: 'delete' as const, id: operation.id, expectedRevision: state.revision}
                   : {...operation.content!, operation: 'upsert' as const, expectedRevision: state.revision};
                 try {
-                  await session.mutateAnnotation(retry, signal);
-                  state = await this.pages(session, signal);
+                  const saved = await session.mutateAnnotation(retry, signal);
+                  assertCurrent();
+                  if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
+                  state = await this.pages(session, group.source, signal, assertCurrent);
                   decision = {kind: 'resolved'};
                 } catch (second) {
                   if (signal.aborted || !this.fresh(identity) || (second instanceof ReadingError && second.code === 'cancelled')) return true;
@@ -180,9 +215,12 @@ export class NativeAnnotationSync {
             }
           }
         }
-        if (decision.kind !== 'apply' && this.fresh(identity)) {
-          await this.journal.resolve(identity, group.source, [{id: operation.id, observedAt: operation.observedAt, ...decision}], () => this.fresh(identity));
-        }
+        assertCurrent();
+        const resolution: NativeAnnotationResolution = decision.kind === 'resolved'
+          ? {id: operation.id, observedAt: operation.observedAt, outcome: 'resolved'}
+          : {id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved', reason: decision.reason};
+        await this.journal.resolve(journalIdentity, group.source, [resolution], assertCurrent);
+        assertCurrent();
       }
     } catch (error) {
       if (this.fresh(identity) && !signal.aborted && error instanceof ReadingError && (error.code === 'not_permitted' || error.code === 'invalid_document')) {
@@ -191,9 +229,12 @@ export class NativeAnnotationSync {
       if (this.fresh(identity) && !signal.aborted) this.publish({...this.state, phase: 'error', error});
       return !signal.aborted && this.fresh(identity); // Transport/offline: stop the pass and keep every remaining operation.
     } finally {
-      clearTimeout(timer);
-      if (owned && !signal.aborted) await owned.close().catch(() => {});
-      client?.dispose();
+      clearTimeout(timer);releaseSource();this.life.signal.removeEventListener('abort', retire);
+      // Close only our preview, with the original client's authority checks still intact.
+      // Never close the reused live reader, and never skip local retirement on a deadline.
+      const cleanup = new AbortController(), closeTimer = setTimeout(() => cleanup.abort(), 2000);
+      try {if (owned) await owned.close(cleanup.signal).catch(() => {});}
+      finally {clearTimeout(closeTimer);client?.dispose();}
     }
     return false;
   }
@@ -203,20 +244,24 @@ export class NativeAnnotationSync {
     if (this.running) return this.running;
     const identity = this.capture();
     if (!identity) return Promise.resolve();
+    const journalIdentity: NativeAnnotationIdentity = nativeAnnotationIdentity(identity.viewer);
     const run = (async () => {
       this.publish({...this.state, phase: 'syncing'});
       try {
-        const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer));
+        const groups = await this.journal.list(journalIdentity);
         for (const group of groups) {
           if (!this.fresh(identity)) break;
           if (await this.syncGroup(identity, group, live)) break;
         }
         if (!this.fresh(identity)) {this.publish({phase: 'idle', queued: 0, unresolved: 0}); return;}
-        const remaining = await this.journal.list(nativeAnnotationIdentity(identity.viewer));
+        const remaining = await this.journal.list(journalIdentity);
+        this.assertFresh(identity);
         const counts = nativeAnnotationJournalCounts(remaining);
         this.publish({phase: 'idle', ...counts});
       } catch (error) {
-        const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer)).catch(() => []);
+        if (!this.fresh(identity)) {this.publish({phase: 'idle', queued: 0, unresolved: 0}); return;}
+        const groups = await this.journal.list(journalIdentity).catch(() => []);
+        if (!this.fresh(identity)) {this.publish({phase: 'idle', queued: 0, unresolved: 0}); return;}
         const counts = nativeAnnotationJournalCounts(groups);
         this.publish({phase: 'error', ...counts, error});
       }
