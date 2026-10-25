@@ -293,7 +293,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
             <ProfileActionRow testID="profile-forget-devices" label={t('profile.forgetDevices')} onPress={() => {setProblem(''); setNotice(''); setForgetProfile(active);}}/>
           </View>
           {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 8}]}>{problem}</Text> : null}
-          {notice ? <Text accessibilityRole="status" style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{notice}</Text> : null}
+          {notice ? <Text accessibilityLiveRegion="polite" style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{notice}</Text> : null}
         </View> : null}
         </>}
         {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
@@ -312,9 +312,9 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
       <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={setPinAgain} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
     </Dialog>
     <Dialog open={!!removePin} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setRemovePin(undefined);}}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}/>
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}><View/></Dialog>
     <Dialog open={!!forgetProfile} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setForgetProfile(undefined);}}} title={t('profile.forgetDevices')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setForgetProfile(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}/>
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setForgetProfile(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}><View/></Dialog>
     {limitsProfile && lease ? <ProfileLimitsSheet profile={limitsProfile} lease={lease} identityFor={identityForLimits} onClose={() => setLimitsProfile(undefined)} onSaved={() => {setNotice(t('limits.saved', {name: limitsProfile.name})); setLimitsProfile(undefined);}}/> : null}
   </>;
 }
