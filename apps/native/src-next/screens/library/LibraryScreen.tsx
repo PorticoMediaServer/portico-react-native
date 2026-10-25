@@ -16,8 +16,8 @@ import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, ViewTog
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
 import {WindowedGrid, AlphabetRail, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
-import {StateView} from '../../kit/states';
-import {useTheme} from '../../kit/theme';
+import {GridSkeleton, SkeletonBlock, StateView, showSkeleton} from '../../kit/states';
+import {useTheme, type Theme} from '../../kit/theme';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
@@ -151,7 +151,7 @@ export function LibraryResultCount({phone, style, children, controls}: {phone: b
 /** The actual library route, independently retained below a title page. The
  * initial TV card is a real producer entity, never an index or placeholder. */
 export function LibraryScreen(props: NativeLibraryScreenProps) {
-  const {destination, runtime, activation, directory, libraries, actions} = props, theme = useTheme(), registry = useFocusRegistry();
+  const {destination, runtime, activation, directory, libraries, actions} = props, theme = useTheme(), registry = useFocusRegistry(), dimensions = useWindowDimensions();
   useSyncExternalStore(actions.menuState?.subscribe ?? noSubscribe, actions.menuState?.getSnapshot ?? (() => 0));
   const entryRequest = useMemo(() => createDestinationEntryFocus(registry), [registry]);
   const [entered, setEntered] = useState(false), onEntered = useCallback(() => setEntered(true), []);
@@ -160,6 +160,15 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   useEffect(() => {void destination.load().catch(runtime.reportError); void directory.load().catch(runtime.reportError);}, [destination, directory, runtime]);
+  // The drawn loading page waits the kit's own skeleton delay before drawing shapes; the
+  // header and tabs are already known, the count and posters are the only missing facts.
+  const loading = (state.phase === 'loading' || state.phase === 'idle') && !state.collection;
+  const [loadingElapsed, setLoadingElapsed] = useState(0);
+  useEffect(() => {
+    if (!loading) {setLoadingElapsed(0); return;}
+    const started = Date.now(), timer = setInterval(() => setLoadingElapsed(Date.now() - started), 120);
+    return () => clearInterval(timer);
+  }, [loading, state.library.id, state.tab.id]);
   // tv-focus 46: a library with no titles yet draws one action, never an empty grid.
   const empty = state.phase === 'ready' && state.unfilteredTotal?.total === 0;
   const emptyRegion = `${ids.libraryTabs(state.library.id)}.empty`;
@@ -212,6 +221,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
             onLeave={() => {if (!empty) setEmptyHeld(false);}}/>
         </View>}
       </View>
+      : loading ? <LibraryLoading theme={theme} width={dimensions.width} height={dimensions.height} elapsedMs={loadingElapsed}/>
       : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)}/>
       : state.tab.shows === 'rows' ? <ScrollView>
         {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
@@ -227,6 +237,24 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
         </ScrollView>
       </View>)}</ScrollView> : null}
     {props.selection?.render()}
+  </View>;
+}
+
+/** The drawn loading page: the real header and tabs are already above it, and the
+ * count and posters are the only unknown shapes. Skeleton positions use the same
+ * grid geometry as the loaded page, so nothing jumps when the first page lands. */
+function LibraryLoading({theme, width, height, elapsedMs}: {theme: Theme; width: number; height: number; elapsedMs: number}) {
+  const tv = theme.isTV, columns = tv ? 7 : 3, gap = tv ? 32 : 10;
+  const cardWidth = tv ? 200 : Math.floor((width - 62) / 3);
+  const contentWidth = tv ? Math.max(0, width - theme.gutter - 72) : Math.max(0, width - 32);
+  return <View testID="library-loading" style={{flex: 1, overflow: 'hidden'}}>
+    {showSkeleton(elapsedMs) && <View style={{paddingHorizontal: tv ? theme.gutter : 16, marginTop: tv ? 24 : 10, marginBottom: tv ? 22 : 12}}>
+      <SkeletonBlock width={tv ? 160 : 80} height={tv ? 22 : 11} radius={tv ? 11 : 6}/>
+    </View>}
+    <View style={{paddingHorizontal: tv ? theme.gutter : 16}}>
+      <GridSkeleton testID="library-loading-grid" elapsedMs={elapsedMs} scrollOffset={0} viewportHeight={Math.max(0, height - (tv ? 300 : 240))}
+        width={contentWidth} columns={columns} cardWidth={cardWidth} gap={gap} rowGap={tv ? 40 : 22} totalCount={columns * 3}/>
+    </View>
   </View>;
 }
 
