@@ -1083,7 +1083,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       onJoin={() => {if (current() && !busyRef.current) openInvitationEntry();}}
       onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
       rows={offlineRows} scope={scope} revision={attempt} isCurrent={current} busy={busy} activeId={target?.id}
-      retryIn={target ? retryIn : undefined} onRetry={id => {if (!current()) return; const row = captured.find(value => value.id === id); if (row) connectDirectory(row);}}
+      retryIn={target ? retryIn : undefined} retryProgress={target ? (retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1)) : undefined}
+      onRetry={id => {if (!current()) return; const row = captured.find(value => value.id === id); if (row) connectDirectory(row);}}
       onBack={() => {if (current()) back();}} onRefresh={() => {if (current()) {cancelDirectory(); void run(directory);}}}/>;
   }
   if (stage === 'servers' && target && directoryView === 'unreachable' && !singleTVFailure) {

@@ -5,6 +5,7 @@ import {ColourBackdrop} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
+import {CountdownRing} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {useTVBusyEntryRevision} from '../../tv/auth/entry-revision';
@@ -13,7 +14,7 @@ import {PhoneOfflineServers} from './PhoneOfflineServers';
 
 type Props = {rows: readonly DirectoryRow[]; scope: object | undefined; revision: number; isCurrent: () => boolean;
   onDownloads?: () => void; username?: string; onSettings?: () => void; onJoin?: () => void; onFind?: () => void;
-  busy: boolean; retryIn?: number; activeId?: string; onRetry: (id: string) => void; onBack: () => void; onRefresh: () => void};
+  busy: boolean; retryIn?: number; retryProgress?: number; activeId?: string; onRetry: (id: string) => void; onBack: () => void; onRefresh: () => void};
 type Ticket = {live: boolean; scope: object};
 /** Actual directory observations only. The parent owns one serialized connection
  * and its existing captured-issuer retry timer; this view never starts a session. */
@@ -32,7 +33,7 @@ export function TVOfflineServers(props: Props) {
       onDownloads={props.onDownloads ? action(props.onDownloads) : undefined}
       onSettings={props.onSettings ? action(props.onSettings) : undefined} onJoin={props.onJoin ? action(props.onJoin) : undefined} onFind={props.onFind ? action(props.onFind) : undefined} onRefresh={action(props.onRefresh)} onBack={action(props.onBack)}/>;
   }
-  return <FocusProvider><TVOfflineList rows={props.rows} busy={props.busy} activeId={props.activeId} retryIn={props.retryIn}
+  return <FocusProvider><TVOfflineList rows={props.rows} busy={props.busy} activeId={props.activeId} retryIn={props.retryIn} retryProgress={props.retryProgress}
     onRetry={props.onRetry} onRefresh={props.onRefresh} onBack={props.onBack} current={current}/></FocusProvider>;
 }
 
@@ -41,8 +42,8 @@ export function TVOfflineServers(props: Props) {
  * action as the drawn entry. A retry — that row's own, the automatic one, or
  * Refresh — disables and detaches every control, so the list asks for that entry
  * again when the pending run ends. */
-function TVOfflineList({rows, busy, activeId, retryIn, current, onRetry, onRefresh, onBack}: {
-  rows: readonly DirectoryRow[]; busy: boolean; activeId?: string; retryIn?: number; current: () => boolean;
+function TVOfflineList({rows, busy, activeId, retryIn, retryProgress, current, onRetry, onRefresh, onBack}: {
+  rows: readonly DirectoryRow[]; busy: boolean; activeId?: string; retryIn?: number; retryProgress?: number; current: () => boolean;
   onRetry: (id: string) => void; onRefresh: () => void; onBack: () => void;
 }) {
   const t = defaultI18n.t, theme = useTheme(), first = rows[0];
@@ -72,7 +73,10 @@ function TVOfflineList({rows, busy, activeId, retryIn, current, onRetry, onRefre
             onPress={() => {if (current() && !busy) onRetry(row.id);}}>{t('web.chooser.tryAgain')}</Button>
         </View>)}
       </FocusRegion>
-      {retryIn !== undefined && !busy && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.chooser.checkingAgain', {seconds: retryIn})}</Text>}
+      {retryIn !== undefined && !busy && <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 18}}>
+        <CountdownRing progress={retryProgress}/>
+        <Text style={[nativeType({size: 24, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{t('web.chooser.checkingAgain', {seconds: retryIn})}</Text>
+      </View>}
       <Text style={[nativeType({size: 22, lineHeight: 33, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 6, maxWidth: 1100}]}>{t('accounts.tvOffline.help')}</Text>
       <View style={{flexDirection: 'row', gap: 24}}>
         <Button variant="text" disabled={busy} onPress={() => {if (current()) onRefresh();}}>{t('accounts.servers.refresh')}</Button>
