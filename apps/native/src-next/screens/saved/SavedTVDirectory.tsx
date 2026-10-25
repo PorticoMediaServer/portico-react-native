@@ -47,7 +47,7 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   const sorts = view === 'playlists' ? saved?.projection?.sorts ?? [] : [];
   const error = snapshot.error ?? saved?.error ?? personal?.error, loading = snapshot.phase === 'loading' && !saved?.projection && !personal?.resources.length;
   const count = view === 'playlists' ? (saved?.projection?.sections[0]?.totalCount ?? playlists.length) : resources.length;
-  const countText = view === 'playlists' ? savedItemCount(count) : view === 'collections' ? savedCollectionCount(count) : savedViewCount(count);
+  const countText = view === 'playlists' ? t('next.saved.playlistCount', {count}) : view === 'collections' ? savedCollectionCount(count) : savedViewCount(count);
   // collections.html 15-17: the page starts at 200 and ends 96 from the right, so six 236 tiles
   // (34 apart) or three 520 saved-view tiles (32 apart) fit the frame's row exactly.
   const columns = view === 'views' ? {columnGap: 32, rowGap: 36} : {columnGap: 34, rowGap: 44};
@@ -84,18 +84,36 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
 
 function tileId(view: NativeSavedTVDirectoryView, id: string) {return `saved-tv-${view}-${id}`;}
 
+/** collections.html 15 puts a pinned playlist's bookmark on its mosaic and the day it changed
+ * beside its count; a server that sends neither draws neither. */
+function changedDay(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return undefined;
+  const now = new Date(), at = new Date(date.getFullYear(), date.getMonth(), date.getDate()), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((today.getTime() - at.getTime()) / 86400000);
+  if (days === 0) return t('saved.today');
+  if (days === 1) return t('relative.yesterday');
+  return defaultI18n.date(date, 'dayMonth');
+}
+
 function SavedTVPlaylistTile({card, runtime, onOpen}: {card: PlaylistCard; runtime: NativeShellRuntime; onOpen: () => void}) {
-  const theme = useTheme(), covers = (card.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source);
+  const theme = useTheme(), covers = (card.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source), day = changedDay(card.lastChanged);
   return <CardFrame testID={tileId('playlists', card.id)} focusId={tileId('playlists', card.id)} title={card.title} width={236} onNavigate={onOpen}>
     {() => <View style={{width: 236}}>
-      <View style={{width: 236, height: 236, borderRadius: 14, overflow: 'hidden'}}>
+      <View style={{width: 236, height: 236, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
         <CoverMosaic covers={covers} shape="square" width={236} height={236} visible/>
+        {card.pinned === true && <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{position: 'absolute', left: 12, top: 12, width: 40, height: 40, borderRadius: 20,
+          alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(7,16,24,.8)'}}>
+          <Icon name="i-bookmark-f" size={20} color={theme.colors.accentStrong}/>
+        </View>}
       </View>
       <Text numberOfLines={1} style={[browseType(theme, 24, 700), {color: theme.colors.textSecondary, marginTop: 14}]}>{card.title}</Text>
-      <View style={{flexDirection: 'row', gap: 8, marginTop: 3}}>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3}}>
         {!!savedItemCount(card.count) && <Text numberOfLines={1} style={[browseType(theme, 20), {color: theme.colors.textTertiary}]}>{savedItemCount(card.count)}</Text>}
-        {!!card.subtitle && <Text numberOfLines={1} style={[browseType(theme, 20), {color: theme.colors.textTertiary}]}>{card.subtitle}</Text>}
+        {!!day && <><View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.textTertiary}}/><Text numberOfLines={1} style={[browseType(theme, 20), {color: theme.colors.textTertiary}]}>{day}</Text></>}
       </View>
+      {!!card.subtitle && <Text numberOfLines={1} style={[browseType(theme, 20), {color: theme.colors.textTertiary, marginTop: 3}]}>{card.subtitle}</Text>}
     </View>}
   </CardFrame>;
 }

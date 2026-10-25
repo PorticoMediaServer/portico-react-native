@@ -25,9 +25,8 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
   const caption = tv ? {size: 20, top: 3} : phone ? {size: 12, top: 2} : {size: 13, top: 2};
   const at = tv ? {left: 18, right: 18, bottom: 16} : phone ? {left: 10, right: 10, bottom: 9} : {left: 14, right: 14, bottom: 12};
   const gradient = `mix${row.id.replace(/[^a-zA-Z0-9]/g, '')}`;
-  // Frame 15's artist line ends "and more"; the row carries only a yes/no, and the bare key is
-  // not published yet, so the fragment is left out rather than inventing a count.
-  const artists = defaultI18n.list(row.artists.map(artist => artist.name), 'and');
+  // Frame 15's artist line ends with the bare "and more" the catalogue now carries.
+  const artists = defaultI18n.list([...row.artists.map(artist => artist.name), ...(row.more ? [t('music.mixesAndMore')] : [])], 'and');
   return <Focusable focusId={`music-mix:${row.id}`} testID={`music-mix:${row.id}`} focusKind="card" focusRadius={radius}
     accessibilityRole="button" accessibilityLabel={t('music.mix.name', {name: row.name})} onPress={onPlay} style={{width, marginRight: tv ? 28 : phone ? 12 : 16}}>
     <View style={{width, height: width, borderRadius: radius, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
@@ -79,11 +78,16 @@ export function MusicMixesRow({port, artwork, reportError, title = t('music.mixe
     void port.play(row, caller.lifetime).catch(error => reportError(error));
   };
   const heading = theme.isTV ? theme.type.rowHeading : browseType(theme, 20, 800, -.02);
+  const sub = browseType(theme, theme.isTV ? 20 : 13, 400);
   return <View testID="music-mixes-row" style={{marginTop: theme.isTV ? 30 : theme.layoutMode === 'phone' ? 28 : 26}}>
     {onOpen ? <Focusable focusId="music-mixes-open" testID="music-mixes-open" accessibilityRole="button" accessibilityLabel={title} onPress={onOpen}
-      style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12}}>
+      style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
       <Text style={[heading, {color: theme.colors.text}]}>{title}</Text>
-    </Focusable> : <Text style={[heading, {marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, color: theme.colors.text}]}>{title}</Text>}
+      <Text style={[sub, {color: theme.colors.textTertiary}]}>{t('music.mixesFromListening')}</Text>
+    </Focusable> : <View style={{marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
+      <Text style={[heading, {color: theme.colors.text}]}>{title}</Text>
+      <Text style={[sub, {color: theme.colors.textTertiary}]}>{t('music.mixesFromListening')}</Text>
+    </View>}
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16)}}>
       {snapshot.rows.map(row => <MusicMixCard key={row.id} row={row} artwork={artwork} width={theme.isTV ? 300 : theme.platform === 'tablet' ? 210 : 186} onPlay={() => play(row)}/>)}
     </ScrollView>
