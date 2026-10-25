@@ -56,6 +56,8 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     '../../platform/portico-sign-in': {}, '../../platform/server-connections': {browseNearby: async () => []},
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {}, 'react-native-qrcode-svg': {default: 'QR'},
     './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
+    './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
+    './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'},
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;
