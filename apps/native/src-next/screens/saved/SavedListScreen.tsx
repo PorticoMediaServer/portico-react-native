@@ -52,7 +52,7 @@ export function SavedListScreen({route, destination, activation, runtime, action
     : (projection?.sections ?? []).flatMap(section => section.entries.flatMap(entry => entry.kind === 'playlist' || entry.kind === 'playlist_entry' ? [] : [entry]));
   const error = snapshot.error ?? saved?.error ?? personal?.error;
   const loading = snapshot.phase === 'loading' && !projection && !personal?.entries.length;
-  const sorts = projection?.sorts ?? [], filters = projection?.filters ?? [];
+  const sorts = useMemo(() => projection?.sorts ?? [], [projection?.sorts]), filters = projection?.filters ?? [];
   const title = t(route.view === 'watchlist' ? 'saved.tab.watchlist' : route.view === 'favorites' ? 'saved.tab.favorites' : 'saved.tab.history');
   const columns = theme.isTV ? 7 : 3, gap = theme.isTV ? 26 : 10, gutter = theme.isTV ? 100 : theme.gutter;
   const width = ((theme.isTV ? 1920 : dimensions.width) - gutter * 2 - gap * (columns - 1)) / columns;
