@@ -18,6 +18,7 @@ import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
+import {useDestinationEntryFocus} from '../useEntryFocus';
 import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
@@ -165,6 +166,15 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const publishedFilters = (snapshot.posters?.filters ?? snapshot.squares?.filters ?? []).flatMap(filter => filter.options)
     .filter(option => (savedListFilters as readonly string[]).includes(option.id));
   const quickFilters = publishedFilters.filter(option => option.id !== 'all');
+  // tv-more1/3 and collections 15: the page opens on its first title or tile; an empty page
+  // keeps the tab as the entry (SavedTVTabs), so focus never lands nowhere.
+  const firstPlaylist = (snapshot.playlists?.sections ?? []).flatMap(section => section.entries).find(entry => entry.kind === 'playlist');
+  const firstChild = tab === 'watchlist' || tab === 'favorites'
+    ? (posters[0] ? `saved-poster-${posters[0].id}` : squares[0] ? `saved-square-${squares[0].id}` : undefined)
+    : tab === 'history' ? (snapshot.entries[0] ? `saved-history-${snapshot.entries[0].id}` : undefined)
+      : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
+        : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
+  useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>

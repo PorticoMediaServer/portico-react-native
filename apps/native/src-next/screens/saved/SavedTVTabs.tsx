@@ -30,7 +30,9 @@ export function SavedTVTabs({destination, reportError, authority, activation, co
   const theme = useTheme(), active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const source = useSyncExternalStore(destination.subscribe, destination.getSnapshot), value = source.route?.view ?? 'watchlist';
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
-  useDestinationEntryFocus(active, {regionId: ids.savedTabs, childId: 'watchlist'});
+  // The shown tab is the fallback entry only; the landing below takes the first card/tile when
+  // there is one (tv-more1/3 and collections 15).
+  useDestinationEntryFocus(active, {regionId: ids.savedTabs, childId: value});
   useEffect(() => {if (active.visible && !source.route) void destination.select({view: 'watchlist'}).catch(reportError);}, [active.visible, destination, reportError, source.route]);
   const choose = (view: NativeSavedTVTab) => {if (activation.getSnapshot().visible) void destination.select({view}).catch(reportError);};
   return <LibraryHeader testID="native-saved-tv-header" name={defaultI18n.t('saved.title')} switcher={undefined}>
