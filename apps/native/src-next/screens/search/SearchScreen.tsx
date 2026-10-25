@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {FlatList, Keyboard, ScrollView, Text, View, useWindowDimensions} from 'react-native';
+import {FlatList, Keyboard, ScrollView, Text, View, useWindowDimensions, type TextInput} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -40,7 +40,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const activeRoute = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
-  const scroll = useRef<ScrollView>(null), grid = useRef<FlatList<SearchEntry>>(null), [focused, setFocused] = useState(false), [elapsed, setElapsed] = useState(0);
+  const scroll = useRef<ScrollView>(null), grid = useRef<FlatList<SearchEntry>>(null), input = useRef<TextInput>(null), focusedOnEntry = useRef(false), [focused, setFocused] = useState(false), [elapsed, setElapsed] = useState(0);
   const groups = useMemo(() => orderedSearchGroups(state.groups), [state.groups]);
   const typed = state.text.trim().length > 0;
   const empty = typed && state.search.phase === 'ready' && state.groups.every(group => group.status === 'success' && group.totalCount === 0);
@@ -52,6 +52,14 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
     if (!activeRoute.visible || initialized.current) return;
     initialized.current = true; run(destination.refreshHistory()); run(explore.load());
   }, [activeRoute.visible, destination, explore, run]);
+  useEffect(() => {
+    // tablet10: choosing Search from the rail or sidebar opens the page with its field focused.
+    if (!activeRoute.visible) {focusedOnEntry.current = false; return;}
+    if (focusedOnEntry.current || theme.isTV || theme.platform === 'phone') return;
+    focusedOnEntry.current = true;
+    const frame = requestAnimationFrame(() => input.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [activeRoute.visible, theme.isTV, theme.platform]);
   useEffect(() => selection?.register(state.search, state.groups), [selection, state.groups, state.search]);
   useEffect(() => theme.isTV ? undefined : runtime.registerScrollToTop({kind: 'search'}, () => {
     scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion});
@@ -77,7 +85,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const fields = <View style={{paddingTop: Math.max(typed || focused ? 56 : 58, insets.top), backgroundColor: theme.colors.ink}}>
     {!typed && !focused && <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 12}]}>{t('web.shell.search')}</Text>}
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16}}>
-      <View style={{flex: 1}}><TextField testID="search-input" focusId="search-input" variant="search" leadingIcon="i-search" value={state.text}
+      <View style={{flex: 1}}><TextField ref={input} testID="search-input" focusId="search-input" variant="search" leadingIcon="i-search" value={state.text}
         cursorColor={theme.colors.accentStrong} selectionColor={theme.colors.accentStrong}
         onChangeText={destination.setText.bind(destination)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         accessibilityLabel={t('web.shell.search')} placeholder={t('web.search.placeholder')} returnKeyType="search" autoCapitalize="none" autoCorrect={false}
