@@ -27,7 +27,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   const authority = nativeDestinationLifetime(context), feedback = nativeScreenServices(context);
   const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: SearchEntry; group: SearchGroup}>();
   let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false;
-  let pending: AbortController | undefined;
+  let pending: AbortController | undefined, batchGeneration = 0;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const keyFor = (snapshot: SearchSnapshot) => snapshot.phase === 'ready' && snapshot.data
     ? JSON.stringify([snapshot.generation, snapshot.data.scope.viewerFence, snapshot.data.revision, snapshot.data.query]) : '';
@@ -37,6 +37,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     return role === undefined || role === 'local';
   };
   const reset = () => {
+    batchGeneration++;
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
     model?.dispose(); model = undefined; windows.clear(); token = ''; emit();
   };
@@ -87,19 +88,27 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     } catch (error) {if (current()) feedback.reportError(error, 'search');}
     finally {if (pending === controller) {pending = undefined; emit();}}
   };
-  const selectLoaded = async () => {
-    reconcile();
-    if (pending || !model || !visible()) return;
-    const captured = token;
+  const distinctLeaves = () => {
     const rows = source.getSnapshot().groups.filter(group => group.status === 'success').flatMap(group =>
       group.items.filter(leaf).map(entry => ({group: group.id, entry})));
-    const unique = [...new Map(rows.map(row => [JSON.stringify([row.entry.libraryId, row.entry.kind, row.entry.id]), row])).values()];
+    return [...new Map(rows.map(row => [JSON.stringify([row.entry.libraryId, row.entry.kind, row.entry.id]), row])).values()];
+  };
+  const selectLoaded = async () => {
+    reconcile();
+    const batch = ++batchGeneration;
+    pending?.abort(); pending = undefined;
+    if (!model || !visible()) return;
+    const captured = token, currentModel = model, route = context.navigation.getSnapshot().revision;
+    const current = () => batchGeneration === batch && visible() && token === captured && model === currentModel
+      && context.navigation.getSnapshot().revision === route && keyFor(source.getSnapshot().search) === captured;
+    const unique = distinctLeaves();
     if (unique.length > 256) {feedback.reportError(unavailable(), 'search'); return;}
     for (const row of unique) {
-      if (!visible() || token !== captured) return;
+      if (!current()) return;
       const registered = windows.get(nativeSearchEntryKey(row.group, row.entry));
-      if (registered && model?.getSnapshot().selectedKeys.includes(registered.key)) continue;
+      if (registered && currentModel.getSnapshot().selectedKeys.includes(registered.key)) continue;
       await pick(row.group, row.entry);
+      if (!current()) return;
     }
   };
   const execute = async (action: 'play' | 'playNext' | 'playLater') => {
@@ -133,11 +142,11 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     pending?.abort(); emit();
   };
   const off = [source.subscribe(reconcile), activation.subscribe(reconcile), context.subscribeAuthority(reconcile),
-    context.navigation.subscribe(() => {pending?.abort(); reconcile();}), context.playback.subscribe(queueChanged)];
+    context.navigation.subscribe(() => {batchGeneration++; pending?.abort(); reconcile();}), context.playback.subscribe(queueChanged)];
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
-    getSnapshot: () => revision, loadedCount: () => source.getSnapshot().groups.filter(group => group.status === 'success').reduce((count, group) => count + group.items.filter(leaf).length, 0), snapshot: () => model?.getSnapshot(), busy: () => !!pending, queueControl,
-    clear: () => {pending?.abort(); model?.clear();}, selectLoaded, execute};
+    getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), busy: () => !!pending, queueControl,
+    clear: () => {batchGeneration++; pending?.abort(); model?.clear();}, selectLoaded, execute};
   const port: NativeSearchSelectionPort = {
     register: () => {reconcile(); return () => {};},
     item: (group, entry) => {
