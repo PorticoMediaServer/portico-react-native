@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View, useWindowDimensions} from 'react-native';
 import {ReadingError} from '../../../../../packages/client-core/src';
 import type {BrowseNode, BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
@@ -11,7 +11,7 @@ import type {BrowseLabels} from '../../kit/browse';
 import {BrowseToolbar, FilteredEmpty} from '../../kit/browse';
 import {Button, Chip} from '../../kit/controls';
 import {PosterCard} from '../../kit/cards';
-import {WindowedGrid} from '../../kit/layout';
+import {AlphabetRail, WindowedGrid, type WindowedGridHandle} from '../../kit/layout';
 import {StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -45,6 +45,8 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>();
   const [paneWidth, setPaneWidth] = useState<number>();
+  const [visible, setVisible] = useState({first: 0, last: 0});
+  const grid = useRef<WindowedGridHandle>(null);
   const [lease, setLease] = useState<BooksLease>();
   const held = useRef<BooksLease>(), command = useRef<object>();
   // Every commit installs the lease for the route this grid is laid out under;
@@ -125,12 +127,23 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
       .finally(() => {if (command.current === ticket) command.current = undefined;});
   };
   // The grid fills the actual pane: the shell rail and the docked Filters pane
-  // are already outside it, so the window width would overshoot every row.
+  // are already outside it, so the window width would overshoot every row. The
+  // drawn A-Z rail keeps its own 52 pt clear while it is shown.
   const docked = dimensions.width > dimensions.height, width = paneWidth ?? dimensions.width;
   const pane = filters && docked ? filterWidth : 0;
-  const columns = Math.max(2, Math.min(5, Math.floor((width - theme.gutter * 2 - pane) / 168)));
-  const gap = 16, cardWidth = Math.max(120, Math.floor((width - theme.gutter * 2 - gap * (columns - 1) - pane) / columns));
+  // tablet-read#1b draws the A-Z rail beside the Books grid, beside the docked
+  // Filters too; it is shown while the server publishes letters for this sort.
+  const alphabet = !!page?.positionIndex && page.total !== undefined && sort?.field === 'title' && sort.direction === 'asc';
+  const gap = 16, right = alphabet ? 52 : theme.gutter, room = Math.max(0, width - theme.gutter - right - pane);
+  const columns = Math.max(2, Math.min(5, Math.floor(room / 168)));
+  const cardWidth = Math.max(120, Math.floor((room - gap * (columns - 1)) / columns));
   const cardHeight = cardWidth * 1.5 + 48;
+  // Stable identity: the grid re-runs its range callback when this prop changes,
+  // and an unchanged range must not publish a new object.
+  const changedRange = useCallback((first: number, last: number) => {
+    setVisible(current => current.first === first && current.last === last ? current : {first, last});
+    destination.remember(first, 0);
+  }, [destination]);
   return <View style={{flex: 1}} onLayout={event => {
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
@@ -148,15 +161,20 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
         {total === 0 ? (filtered
           ? <View style={{flex: 1}}><FilteredEmpty testID="reading-books-filtered-empty" onClearFilters={() => applyQuery(base)}/></View>
           : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
-          : <WindowedGrid testID="reading-books-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={cardWidth} itemHeight={cardHeight}
-            gap={gap} rowGap={20} gutter={theme.gutter} rightGutter={theme.gutter} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
-            onVisibleRange={first => destination.remember(first, 0)}
-            renderPlaceholder={() => <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
-            renderItem={(entry: ContentEntry) => {
-              const text = homeCardText(entry, false, runtime.text);
-              return <PosterCard title={text.title} caption={text.caption} width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} visible
-                testID={`reading-book-${entry.id}`} onNavigate={() => {if (lease) openBook(lease, entry);}}/>;
-            }}/>}
+          : <View style={{flex: 1}}>
+            <WindowedGrid ref={grid} testID="reading-books-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={cardWidth} itemHeight={cardHeight}
+              gap={gap} rowGap={20} gutter={theme.gutter} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
+              onVisibleRange={changedRange}
+              renderPlaceholder={() => <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
+              renderItem={(entry: ContentEntry) => {
+                const text = homeCardText(entry, false, runtime.text);
+                return <PosterCard title={text.title} caption={text.caption} width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} visible
+                  testID={`reading-book-${entry.id}`} onNavigate={() => {if (lease) openBook(lease, entry);}}/>;
+              }}/>
+            {alphabet && page?.positionIndex && page.total !== undefined ? <AlphabetRail positionIndex={page.positionIndex}
+              total={page.total} firstVisible={visible.first} lastVisible={visible.last} testID="reading-books-alphabet"
+              onJump={index => grid.current?.scrollToIndex(index)} height={480} style={{position: 'absolute', right: 2, top: 16}}/> : null}
+          </View>}
         {filters && docked ? <View style={{width: filterWidth, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: theme.colors.ink}}>
           <LibraryFilters docked draft={filters} source={state} runtime={runtime} owner={owner} labels={labels} onClose={closeFilters}/>
         </View> : null}
