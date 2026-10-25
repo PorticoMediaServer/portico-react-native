@@ -158,7 +158,6 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const liveEdge = linear ? channelSeconds(linear.media.liveEdgeUs) : undefined;
   const behindLive = liveEdge === undefined ? 0 : Math.max(0, liveEdge - source.playback.positionSeconds);
   const audioTracks = source.options?.versions.find(version => version.id === source.session?.versionId)?.audio.length ?? source.options?.versions[0]?.audio.length ?? 0;
-  const liveNumber = linear && /^\d{1,6}$/.test(linear.channel.channelId) ? linear.channel.channelId : undefined;
   const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 3).map(word => word[0]!.toUpperCase()).join('');
   const channelMark = linear ? (linear.media.logoUrl
     ? <Artwork source={props.artwork?.(linear.media.logoUrl)} width={64} height={64} style={{borderRadius: 15, overflow: 'hidden', marginRight: 24}}/>
@@ -220,7 +219,6 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
             <View style={{flexDirection: 'row', alignItems: 'center', minWidth: 0}}>
               <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.text, flexShrink: 0}]}>{linear.name}</Text>
-              {liveNumber && <Text style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, marginLeft: 12, color: theme.colors.textSecondary}]}>{liveNumber}</Text>}
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 18}}>
                 <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.record}}/>
                 <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('next.kit.live')}</Text>
@@ -252,7 +250,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
             {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 22, marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}
             <View style={{flex: 1}}/>
-            {linear && behindLive > 5
+            {linear && behindLive > 5 && props.goLive
               ? <Focusable focusId="watch-go-live" testID="watch-go-live" accessibilityRole="button" focusable={visible} disabled={!visible}
                   onPress={() => {if (current() && props.goLive) {controls.reveal(fence); props.goLive(fence);}}}
                   style={{height: 48, paddingHorizontal: 20, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
@@ -270,7 +268,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             </View>
             : <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
               <View style={{flex: 1}}>{linear
-                ? (props.onGuide ? <Focusable focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => props.onGuide!()}
+                ? (props.onGuide ? <Focusable focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => {if (current() && props.onGuide) props.onGuide();}}
                     style={{height: 64, paddingHorizontal: 26, borderRadius: 32, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
                     <Icon name="i-list" size={28} color={theme.colors.text}/><Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.live.guide')}</Text>
                   </Focusable> : null)
