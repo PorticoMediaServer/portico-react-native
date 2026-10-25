@@ -59,6 +59,8 @@ export type SettingsCapabilities = Readonly<{
   audioEffects?: boolean;
   /** This device's audio engine can match the output rate to the file (Smart/Strict/Off). Absent: it cannot. */
   sampleRateMatching?: boolean;
+  /** This device has its own equalizer screen and device-local store. Absent: it has none. */
+  equalizer?: boolean;
   /** This build has mpv as a second player beside the device's own, so there is a player to choose (the capability document then has an `mpv` engine). Absent or false: there is not (the web never has). */
   playerEngines?: boolean;
   /** This device can hand sound to a receiver undecoded (the capability document lists `audioPassthrough`). */
@@ -98,7 +100,7 @@ export type CompositeId =
 export type SettingsActionId = 'signOut' | 'resetRecommendations' | 'linkTV' | 'customizeHome';
 export type SettingsCustomId =
   | 'identity' | 'profiles' | 'password' | 'twoStep' | 'devices' | 'porticoAccount' | 'servers'
-  | 'subtitlePreview' | 'deviceName' | 'downloadsStorage' | 'about' | 'accessTokens' | 'privacyNote' | 'remoteControls'
+  | 'subtitlePreview' | 'deviceName' | 'downloadsStorage' | 'equalizer' | 'about' | 'accessTokens' | 'privacyNote' | 'remoteControls'
   // The Server heading's panels: each is drawn natively by the client.
   | 'server.nowPlaying' | 'server.alerts' | 'server.health' | 'server.activity' | 'server.statistics'
   | 'server.playHistory'
@@ -297,6 +299,7 @@ const accountPages: readonly AuthoredPage[] = [
         pref('music.crossfadeMs', 'pref.label.music.crossfadeMs', {type: 'choice', choices: [{value: 0, label: 'pref.value.music.crossfadeMs.0'}, ...seconds(2, 4, 6, 8, 10, 12)]}, {help: 'pref.help.music.crossfadeMs', needs: c => c.audioEffects !== false}),
         toggle('music.smoothTransitions', 'next.settingsSpec.account.music.groups.0.rows.1.children.0.label', {help: 'next.settingsSpec.account.music.groups.0.rows.1.children.0.help', enableWhen: {key: 'music.crossfadeMs', in: [2000, 4000, 6000, 8000, 10000, 12000]}, needs: c => c.audioEffects !== false}),
         toggle('music.gapless', 'pref.label.music.gapless', {help: 'settings.help.gapless', needs: c => c.audioEffects !== false}),
+        custom('equalizer', 'next.settingsSpec.account.music.groups.0.rows.3.label', {platforms: ['phone', 'tv'], needs: c => c.equalizer === true}),
       ]},
       {id: 'lyrics', title: 'next.settingsSpec.account.music.groups.1.title', rows: [
         toggle('playback.showSyncedLyrics', 'settings.row.lyrics', {help: 'settings.help.lyrics'}),
@@ -317,6 +320,18 @@ const accountPages: readonly AuthoredPage[] = [
           {value: '320', label: 'next.settingsSpec.account.music.groups.3.rows.0.control.options.2.label'},
           {value: '96', label: 'next.settingsSpec.account.music.groups.3.rows.0.control.options.3.label'},
         ]}, {scope: 'deviceClass'}),
+        pref('music.qualityMobile', 'next.settingsSpec.account.music.groups.3.rows.1.label', {type: 'choice', choices: [
+          {value: 'original', label: 'next.settingsSpec.account.music.groups.3.rows.1.control.options.0.label'},
+          {value: 'cd-quality', label: 'next.settingsSpec.account.music.groups.3.rows.1.control.options.1.label'},
+          {value: '320', label: 'next.settingsSpec.account.music.groups.3.rows.1.control.options.2.label'},
+          {value: '96', label: 'next.settingsSpec.account.music.groups.3.rows.1.control.options.3.label'},
+        ]}, {scope: 'deviceClass', platforms: ['phone']}),
+        pref('music.qualityDownloads', 'next.settingsSpec.account.music.groups.3.rows.2.label', {type: 'choice', choices: [
+          {value: 'original', label: 'next.settingsSpec.account.music.groups.3.rows.2.control.options.0.label'},
+          {value: 'cd-quality', label: 'next.settingsSpec.account.music.groups.3.rows.2.control.options.1.label'},
+          {value: '320', label: 'next.settingsSpec.account.music.groups.3.rows.2.control.options.2.label'},
+          {value: '96', label: 'next.settingsSpec.account.music.groups.3.rows.2.control.options.3.label'},
+        ]}, {scope: 'deviceClass', platforms: ['phone']}),
       ]},
       {id: 'advancedSound', title: 'next.settingsSpec.account.music.advanced.groups.0.title', advanced: true, rows: [
         // One device-local engine value, never an account preference (23 Oct ruling).
@@ -491,6 +506,14 @@ const serverPages: readonly AuthoredPage[] = [
     ]},
   {id: 'streaming', title: 'settings.server.playback', icon: 'transcode', sections: [
     panel('status', 'server.transcodeStatus'),
+    {id: 'away', title: 'next.settingsSpec.server.streaming.groups.0.title', rows: [
+      setting('runtime', 'musicAwayQuality', 'next.settingsSpec.server.streaming.groups.0.rows.1.label', {type: 'choice', choices: [
+        {value: 'original', label: 'next.settingsSpec.server.streaming.groups.0.rows.1.control.options.0.label'},
+        {value: 'cd-quality', label: 'next.settingsSpec.server.streaming.groups.0.rows.1.control.options.1.label'},
+        {value: '320', label: 'next.settingsSpec.server.streaming.groups.0.rows.1.control.options.2.label'},
+        {value: '96', label: 'next.settingsSpec.server.streaming.groups.0.rows.1.control.options.3.label'},
+      ]}),
+    ]},
     {id: 'transcoding', title: 'settings.server.transcoding', description: 'web.transcoding.conversionLede', rows: [
       on('runtime', 'transcodingEnabled', 'settings.server.allowConverting', 'web.transcoding.allowTranscodingHelp'),
       setting('runtime', 'hardwareBackend', 'settings.server.hardware', {type: 'choice', choices: choices('settings.server.hardware', ['auto', 'software', 'videotoolbox', 'vaapi', 'qsv', 'nvenc', 'amf'])}, {help: 'settings.server.hardwareHelp'}),
@@ -635,8 +658,8 @@ const serverPages: readonly AuthoredPage[] = [
     panel('state', 'server.stateFolder'),
   ]},
   {id: 'general', title: 'settings.server.general', icon: 'server', sections: [
-    {id: 'identity', title: 'web.general.identity', rows: [
-      setting('runtime', 'name', 'web.general.serverName', {type: 'text', maxLength: 100}, {help: 'web.general.serverNameHelp'}),
+    {id: 'identity', title: 'next.settingsSpec.server.general.groups.0.title', rows: [
+      setting('runtime', 'name', 'web.general.serverName', {type: 'text', maxLength: 100}, {help: 'next.settingsSpec.server.general.groups.0.rows.0.help'}),
       custom('server.identity'),
     ]},
     panel('updates', 'server.updates', 'settings.server.updates'),
