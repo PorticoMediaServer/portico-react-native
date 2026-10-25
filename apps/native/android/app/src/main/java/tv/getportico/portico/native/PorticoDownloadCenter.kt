@@ -463,6 +463,17 @@ internal object PorticoDownloadCenter {
     return if (file.isFile) file else "missing_file"
   }
 
+  /** Resolve only an exact ready owned download; never a caller supplied path. */
+  fun publication(identifier: String, owner: String, digest: String): Pair<File, () -> Boolean>? {
+    val entry = entries[identifier] ?: return null
+    fun current(): Boolean = try {
+      entries[identifier] === entry && entry["state"] == "ready" && entry["sha256"] == digest && org.json.JSONObject(entry["meta"] as? String ?: "{}").optString("owner") == owner
+    } catch (_: Exception) {false}
+    if (!current()) return null
+    val file = file(identifier) as? File ?: return null
+    return Pair(file, ::current)
+  }
+
   fun durationSeconds(file: File): Double = try {
     val reader = MediaMetadataRetriever()
     try { reader.setDataSource(file.path); (reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDoubleOrNull() ?: 0.0) / 1000.0 } finally { reader.release() }
