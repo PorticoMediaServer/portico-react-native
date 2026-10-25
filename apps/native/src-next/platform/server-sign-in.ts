@@ -20,6 +20,7 @@ import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
 import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
+import {rememberNativeSignInHint} from './sign-in-ended';
 import {requestOwnerResetFile, verifyOwnerResetFile} from '../../../../packages/client-core/src/account-reset';
 import {createNativeSetupClaim} from './setup-claim';
 import {nativeSetupDraft} from './setup-draft';
@@ -52,6 +53,7 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
+  private readonly expectedTarget?: Readonly<{serverId: string; fingerprint: string}>;
   private ownerResetReady = false;
   private ownerResetGrant?: Extract<DirectSignIn, {kind: 'signed-in'}>;
   private hostedSetup?: ReturnType<typeof createNativeSetupClaim>;
@@ -59,7 +61,8 @@ export class NativeServerSignIn {
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
   private memberMove?: {dispose: () => void};
   private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
-  constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean} = {}) {
+  constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean; expectedTarget?: Readonly<{serverId: string; fingerprint: string}>} = {}) {
+    this.expectedTarget = options.expectedTarget ? Object.freeze({...options.expectedTarget}) : undefined;
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
   }
@@ -72,6 +75,10 @@ export class NativeServerSignIn {
     this.assertCurrent();
     if (!this.api || !this.server) throw mismatch();
     return routeOrigin(this.api.baseUrl);
+  }
+  assertSignInTarget(serverId: string, fingerprint: string) {
+    this.assertCurrent(); const pin = this.api?.getRouteConnection()?.pin;
+    if (!pin || this.server?.id !== serverId || pin.serverId !== serverId || pin.fingerprint !== fingerprint) throw mismatch();
   }
   needsIdentityCode() {this.assertCurrent(); return !!this.pendingIdentity && pendingCertificate(this.pendingIdentity.origin) === this.pendingIdentity;}
   confirmIdentityCode(code: string) {return this.run(async () => {
@@ -96,6 +103,7 @@ export class NativeServerSignIn {
         this.pendingIdentity = captured; return undefined;
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
+      if (this.expectedTarget && (server.id !== this.expectedTarget.serverId || server.signIn !== 'local' || server.setupRequired)) throw mismatch();
       this.server = server; return server;
     });
   }
@@ -105,7 +113,7 @@ export class NativeServerSignIn {
       const server = this.server, origin = this.probe.getSnapshot().origin;
       if (!server?.setupRequired || !origin || this.api) throw mismatch();
       const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
-      if (pin.serverId !== server.id) throw mismatch();
+      if (pin.serverId !== server.id || this.expectedTarget && (pin.serverId !== this.expectedTarget.serverId || pin.fingerprint !== this.expectedTarget.fingerprint)) throw mismatch();
       assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
       this.admission = await this.owner.admission('local'); this.assertCurrent();
       const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
@@ -216,7 +224,7 @@ export class NativeServerSignIn {
       const server = this.server, origin = this.probe.getSnapshot().origin;
       if (!server || server.setupRequired || server.signIn !== 'portico' || !origin || this.api) throw mismatch();
       const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
-      if (pin.serverId !== server.id) throw mismatch();
+      if (pin.serverId !== server.id || this.expectedTarget && (pin.serverId !== this.expectedTarget.serverId || pin.fingerprint !== this.expectedTarget.fingerprint)) throw mismatch();
       assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
       const captured = await this.owner.admission('local'); this.assertCurrent();
       const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
@@ -279,7 +287,7 @@ export class NativeServerSignIn {
       const server = this.server, origin = this.probe.getSnapshot().origin;
       if (!server || !origin || server.signIn !== 'local') throw Object.assign(new Error('sign_in_kind_portico'), {code: 'sign_in_kind_portico'});
       const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
-      if (pin.serverId !== server.id) throw mismatch();
+      if (pin.serverId !== server.id || this.expectedTarget && (pin.serverId !== this.expectedTarget.serverId || pin.fingerprint !== this.expectedTarget.fingerprint)) throw mismatch();
       assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
       return pin;
     });
@@ -287,7 +295,8 @@ export class NativeServerSignIn {
   confirmLocal(pin: ServerPin) {
     return this.run(async () => {
       const server = this.server, origin = this.probe.getSnapshot().origin;
-      if (!server || !origin || server.signIn !== 'local' || pin.serverId !== server.id || this.api) throw mismatch();
+      if (!server || !origin || server.signIn !== 'local' || pin.serverId !== server.id || this.api
+        || this.expectedTarget && (pin.serverId !== this.expectedTarget.serverId || pin.fingerprint !== this.expectedTarget.fingerprint)) throw mismatch();
       this.admission = await this.owner.admission('local'); this.assertCurrent();
       const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
       this.api = connected.api; this.assertCurrent();
@@ -363,6 +372,7 @@ export class NativeServerSignIn {
   signInLocal(username: string, password: string) {
     return this.run(async () => {
       if (this.server?.signIn !== 'local' || !this.api || this.account || !this.admission) throw mismatch();
+      if (this.expectedTarget) this.assertSignInTarget(this.expectedTarget.serverId, this.expectedTarget.fingerprint);
       return this.consume(await directSignIn(this.api, username, password, this.controller.signal));
     });
   }
@@ -618,6 +628,11 @@ export class NativeServerSignIn {
     try {
     const previous = await this.owner.remember(this.api, session, this.admission, this.hosted, this.current);
     this.issued.delete(session.sessionFamilyId); this.setupIssuers.delete(session.sessionFamilyId); this.complete = true;
+    if (this.snapshot && this.server) {
+      const pin = this.api.getRouteConnection()?.pin;
+      if (pin) await rememberNativeSignInHint({serverId: pin.serverId, accountId: session.viewer.accountId, familyId: session.sessionFamilyId,
+        fingerprint: pin.fingerprint, origin: this.api.baseUrl, serverName: this.server.name, username: this.snapshot.account.username, signIn: this.server.signIn}).catch(() => {});
+    }
     const temporary = this.account; this.account = undefined;
     const cleanup = await Promise.allSettled([this.owner.retireReplacedServerSession(previous), temporary ? this.retire(temporary) : Promise.resolve()]);
     if (cleanup.some(value => value.status === 'rejected')) throw Object.assign(new Error('native_session_revocation_pending'), {code: 'session_revocation_pending'});
