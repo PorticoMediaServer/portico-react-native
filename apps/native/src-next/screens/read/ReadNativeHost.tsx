@@ -9,6 +9,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
+import {readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
 
 type Target = Readonly<{itemId: string; sourceId: string}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
@@ -68,7 +69,13 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), onPress: () => setRetry(value => value + 1)}}/>
       : state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
         originWhitelist={['*']} onShouldStartLoadWithRequest={request => readerNavigationAllowed(state.url!, request.url, request.isTopFrame)}
-        onMessage={event => {if (readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) host.current?.receive(event.nativeEvent.data);}}
+        injectedJavaScriptBeforeContentLoaded={__DEV__ ? readerStartupProbe : undefined}
+        injectedJavaScriptBeforeContentLoadedForMainFrameOnly
+        onMessage={event => {if (readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) {
+          if (__DEV__) {const diagnostic = readerStartupDiagnostic(event.nativeEvent.url, event.nativeEvent.data);
+            if (diagnostic) {console.warn('portico_reader_startup', JSON.stringify(diagnostic)); return;}}
+          host.current?.receive(event.nativeEvent.data);
+        }}}
         renderError={() => <></>} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
         allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
