@@ -70,7 +70,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
-  const invitationIntent = useRef<ReturnType<typeof NativeServerSignIn.parseInvitationLink> | undefined>(undefined);
+  const invitationIntent = useRef<ReturnType<typeof NativeServerSignIn.parseInvitationEntry> | undefined>(undefined);
   const endedTarget = useRef<Readonly<{serverId: string; fingerprint: string}> | undefined>(undefined);
   const identityOrigin = useRef<string | undefined>(undefined);
   const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [retryIn, setRetryIn] = useState(20), [appActive, setAppActive] = useState(AppState.currentState === 'active'), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
@@ -366,7 +366,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite) return;
       const controller = next.createLocalInvitation(), ticket = {source: next, controller, active: true}; invitationOpening.current = ticket;
       stageRef.current = 'invitation-code'; setStage('invitation-code');
-      const preview = await controller.preview('portico://join#code=' + encodeURIComponent(invite.code) + '&server=' + encodeURIComponent(invite.server) + (invite.id ? '&id=' + encodeURIComponent(invite.id) : ''));
+      const preview = await controller.preview(invite.raw);
       if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite || invitationOpening.current !== ticket || !ticket.active) return;
       invitationIntent.current = undefined; setInvitationPreview(preview); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setUsername(''); setName('');
       stageRef.current = 'invitation-local'; setStage('invitation-local'); return;
@@ -796,9 +796,9 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope?.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
     return <PhoneNoServers busy={busy} error={status} onBack={() => {if (current()) back();}}
-      onJoin={raw => {
+      onJoin={(raw, origin) => {
         if (!current() || busyRef.current || acting.current) return;
-        const link = NativeServerSignIn.parseInvitationLink(raw.trim());
+        const link = NativeServerSignIn.parseInvitationEntry(raw, origin);
         if (!link) {setError(Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'})); return;}
         cancelDirectory(); invitationIntent.current = Object.freeze({...link}); setPassword(''); setCode(''); setAddress(link.server);
         stageRef.current = 'address'; setStage('address'); void run(() => inspect(link.server));

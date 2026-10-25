@@ -1,30 +1,44 @@
 import React, {useState} from 'react';
-import {Text, View} from 'react-native';
+import {ScrollView, Text, View} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {StateLayout} from '../../kit/states';
+import {ColourBackdrop} from '../../kit/artwork';
 import {Button, TextField} from '../../kit/controls';
-import {useTheme} from '../../kit/theme';
+import {nativeType, useTheme} from '../../kit/theme';
 
-/** Empty directory only: discovery still proves a server through AccountEntry. */
+/** Empty directory only: discovery and invitation entry still prove their server. */
 export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin}: {
   busy: boolean; error?: React.ReactNode; onFind: () => void; onRefresh: () => void;
-  onJoin: (link: string) => void; onShare: () => void; onSignOut: () => void; onBack?: () => void;
+  onJoin: (invitation: string, address: string) => void; onShare: () => void; onSignOut: () => void; onBack?: () => void;
 }) {
-  const [invitation, setInvitation] = useState('');
-  const theme = useTheme(), t = defaultI18n.t;
-  return <StateLayout testID="phone-no-servers" icon="i-server" title={t('web.hostedAccount.noServers')}
-    body={t('web.chooser.noneBody')} beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{error}
-      <TextField label={t('services.start.invitation')} value={invitation} onChangeText={setInvitation} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
-      <Button variant="glass" disabled={busy || !invitation.trim()} onPress={() => onJoin(invitation)}>{t('services.start.joinAction')}</Button>
-    </View>}
-    primaryAction={{id: 'find-server', label: t('connection.discovery.find'), disabled: busy, onPress: onFind}}
-    secondaryAction={{id: 'refresh-directory', label: t('accounts.servers.refresh'), disabled: busy, onPress: onRefresh}}
-    detailsAction={onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: onBack} : undefined}>
-    <View style={{alignSelf: 'stretch', gap: 12, marginTop: 24}}>
-      <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.setup')}</Text>
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.phoneSetupBody')}</Text>
-      <Button variant="glass" disabled={busy} onPress={onShare}>{t('services.start.shareLink')}</Button>
+  const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
+  const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
+  return <View testID="phone-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    <ColourBackdrop shape="top"/>
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
+      {onBack && <Button variant="text" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
+      <View style={{gap: 12}}>
+        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700}, theme.textScale), {color: theme.colors.text}]}>{t('web.hostedAccount.noServers')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.noneBody')}</Text>
+        {error}
+      </View>
+      <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
+        <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.join')}</Text>
+        <TextField label={t('services.start.invitation')} value={invitation} onChangeText={setInvitation} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
+        <TextField label={t('accounts.signIn.address')} value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.directJoin.entryBody')}</Text>
+        <Button disabled={busy || !invitation.trim()} onPress={() => onJoin(invitation, address)}>{t('services.start.joinAction')}</Button>
+      </View>
+      <View style={{gap: 10}}>
+        <Button variant="glass" disabled={busy} onPress={onFind}>{t('connection.discovery.find')}</Button>
+        <Button variant="text" disabled={busy} onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
+      </View>
+      <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
+        <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.setup')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.phoneSetupBody')}</Text>
+        <Button variant="glass" disabled={busy} onPress={onShare}>{t('services.start.shareLink')}</Button>
+      </View>
       <Button variant="text" disabled={busy} onPress={onSignOut}>{t('accounts.signOut.portico')}</Button>
-    </View>
-  </StateLayout>;
+    </ScrollView>
+  </View>;
 }

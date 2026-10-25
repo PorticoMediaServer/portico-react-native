@@ -2,6 +2,7 @@ import {ApiError} from '../../../../packages/client-core/src';
 import {PeopleInvitationsClient, type PublicInvitation} from '../../../../packages/client-core/src/direct-account';
 import type {ProfileAPI} from '../../../../packages/client-core/src/profile-management';
 import {parseShortInvitationCode} from '../../../../packages/client-core/src/short-invitation-code';
+import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {parseJoinLink} from '../../../../packages/client-core/src/join-link';
 import {passwordStrength} from '../../../../packages/client-core/src/password-strength';
 
@@ -12,7 +13,13 @@ const cancelled = () => Object.assign(new Error('invitation_retired'), {name: 'A
 
 /** A memory-only recipient for an already proved, local-sign-in server. */
 export class NativeLocalInvitation<T> {
-  static parseLink(raw: string) {return parseJoinLink(raw);}
+  static parseEntry(raw: string, address: string): Readonly<{raw: string; server: string; id?: string}> | undefined {
+    const input = raw.trim(), link = parseJoinLink(input);
+    if (link) return Object.freeze({raw: input, server: link.server, ...(link.id ? {id: link.id} : {})});
+    const shortCode = parseShortInvitationCode(input);
+    if (!shortCode) return undefined;
+    try {return Object.freeze({raw: shortCode, server: routeOrigin(address.trim())});} catch {return undefined;}
+  }
   private readonly ports: Ports<T>;
   private readonly abort = new AbortController();
   private readonly client: PeopleInvitationsClient;
