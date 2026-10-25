@@ -6,7 +6,7 @@ import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, re
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
 import {COMMON_LANGUAGES, languageName, MAX_LANGUAGES} from '../../../../../packages/client-core/src/presentation/language-list';
 import {localeChoices} from '../../../../../packages/client-core/src/presentation/region-choices';
-import {catalogue, defaultI18n, enUS} from '../../../../../packages/i18n/src';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import {resetRecommendations} from '../../../../../packages/client-core/src/recommendation-feedback';
 import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
@@ -274,7 +274,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}</View>
-    </View>{managementURL && section.id === 'who' && <ManagementCard url={managementURL}/>}</React.Fragment>)}
+    </View>{managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {page.sections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
     <Dialog testID="settings-action-confirm" open={confirmation !== undefined} onOpenChange={open => {if (!open && !actionBusy) setConfirmation(undefined);}} initialFocusRef={cancel}
@@ -296,14 +296,14 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
 
 /** tv-more24: the frame's QR card, inline on the profile page. The public URL and its
  * displayed form come from the accounts handoff so no credential or code can enter it. */
-function ManagementCard({url}: {url: string}) {
-  const theme = useTheme(), address = publicTVHandoffAddress(url), t = defaultI18n.t;
+function ManagementCard({url, text}: {url: string; text: NativeShellRuntime['text']}) {
+  const theme = useTheme(), address = publicTVHandoffAddress(url), t = text.t;
   return <View testID="settings-management-handoff" style={{flexDirection: 'row', alignItems: 'center', gap: 36, paddingVertical: 26, paddingHorizontal: 30,
     borderRadius: 18, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: `${theme.colors.line}B3`, marginBottom: 30}}>
     <View style={{width: 224, height: 224, padding: 12, borderRadius: 14, backgroundColor: theme.colors.white}}><QRCode value={address.url} size={200}/></View>
     <View style={{flex: 1}}>
       <Text style={[shellType(28, 700, 36.4), {color: theme.colors.text, marginBottom: 14}]}>{t('account.tvHandoffTitle')}</Text>
-      <Text style={[shellType(22, 400, 33), {color: theme.colors.textSecondary}]}>{stateSentenceParts(catalogue(defaultI18n.locale)['settings.openOnWeb'] ?? enUS['settings.openOnWeb'], {url: address.display}, ['url']).map((part, index) => <Text key={index}
+      <Text style={[shellType(22, 400, 33), {color: theme.colors.textSecondary}]}>{stateSentenceParts(t('settings.openOnWeb', {url: '{url}'}), {url: address.display}, ['url']).map((part, index) => <Text key={index}
         style={part.strong ? {color: theme.colors.text, fontWeight: '700'} : undefined}>{part.text}</Text>)}</Text>
     </View>
   </View>;
