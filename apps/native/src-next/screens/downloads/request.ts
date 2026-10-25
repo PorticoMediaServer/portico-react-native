@@ -13,6 +13,9 @@ export type NativeDownloadRequest = Readonly<{
   container?: Readonly<{kind: NativeDownloadContainerKind; id: string}>;
   /** The real control the page raised this from, for an anchored presentation. */
   anchorRef?: RefObject<View | null>;
+  /** The original page lifetime. A later route or viewer cannot take over the
+   * intent, its version choice or its preparation. */
+  lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 }>;
 
 let current: NativeDownloadRequest | undefined;

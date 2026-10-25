@@ -1,8 +1,11 @@
+import type {RefObject} from 'react';
+import type {View} from 'react-native';
 import {ReadingError, type LocalSession, type ReadingClient, type ReadingItem, type ReadingListMembership, type ReadingManifest, type ReadingProgress, type ReadingReadMark} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeRouteCrypto} from '../../platform/server-connections';
+import {askNativeDownload} from '../downloads/request';
 import {nativeReadOrigin, openNativeRead, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
 
 export type NativeReadVersion = Awaited<ReturnType<ReadingClient['versions']>>['versions'][number];
@@ -165,7 +168,8 @@ export class NativeReadBook {
     this.command = ticket;
     try {
       const next = await this.reading().setMyList(this.item.id, {operationId: nextOperationId(), expectedRevision: membership.revision, listed: !membership.listed}, life.signal);
-      if (this.current() && this.state.phase === 'ready') this.publish({...this.state, listed: next});
+      if (this.life !== life || this.command !== ticket || !this.current() || this.state.phase !== 'ready' || this.state.listed !== membership) return false;
+      this.publish({...this.state, listed: next});
       return true;
     } finally {if (this.command === ticket) this.command = undefined;}
   };
@@ -177,9 +181,22 @@ export class NativeReadBook {
     this.command = ticket;
     try {
       const next = await this.reading().setReadMark(this.item.id, {operationId: nextOperationId(), expectedRevision: mark.revision, read: !mark.read}, life.signal);
-      if (this.current() && this.state.phase === 'ready') this.publish({...this.state, read: next});
+      if (this.life !== life || this.command !== ticket || !this.current() || this.state.phase !== 'ready' || this.state.read !== mark) return false;
+      this.publish({...this.state, read: next});
       return true;
     } finally {if (this.command === ticket) this.command = undefined;}
+  };
+  /** Raise the real download intent only from this page's exact rendered
+   * manifest and lifetime; a retained button cannot take a successor's sheet. */
+  download = (manifest: ReadingManifest, anchorRef: RefObject<View | null>): boolean => {
+    const origin = this.origin, life = this.life;
+    if (!origin || !life || !this.current() || this.state.phase !== 'ready' || this.state.manifest !== manifest) return false;
+    if (manifest.itemId !== this.item.id || manifest.sourceId !== this.state.sourceId) return false;
+    askNativeDownload({
+      title: manifest.metadata.title || this.item.title, itemId: this.item.id, reading: true, anchorRef,
+      lifetime: Object.freeze({signal: life.signal, isCurrent: () => this.life === life && this.current()}),
+    });
+    return true;
   };
   /** Only a saved position for this exact source revision of the rendered
    * manifest is a resume; the page passes the manifest it drew. */

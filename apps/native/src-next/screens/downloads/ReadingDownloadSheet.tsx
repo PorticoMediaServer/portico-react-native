@@ -14,9 +14,10 @@ import {useTheme} from '../../kit/theme';
 import {createNativeDownloadsDevice} from './device';
 import {getNativeDownloadSnapshot, closeNativeDownload, type NativeDownloadRequest} from './request';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
+import {linkNativeAbortSignals} from '../../platform/abort-signals';
 
 type Version = Readonly<{sourceId: string; format: string; size: number; inventoryAvailable: boolean; policy: DownloadOptionsView}>;
-type Opening = {current: () => boolean; retire: () => void; dispose: () => void; pending: boolean; lease: ReturnType<typeof createNativeDownloadsDevice>; versions: readonly Version[]; abort: AbortController};
+type Opening = {current: () => boolean; retire: () => void; dispose: () => void; pending: boolean; lease: ReturnType<typeof createNativeDownloadsDevice>; versions: readonly Version[]; abort: AbortController; signal: AbortSignal};
 type Family = {retired: boolean; active?: Opening};
 type State = Readonly<{opening?: Opening; versions?: readonly Version[]; policy?: DownloadOptionsView; busy?: string; error?: unknown}>;
 
@@ -34,27 +35,32 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
     const viewer = context.session()?.viewer; if (!viewer) return;
     const lifetime = nativeDestinationLifetime(context), route = context.navigation.getSnapshot();
     const abort = new AbortController(), lease = createNativeDownloadsDevice(context);
+    const requestLifetime = request.lifetime;
+    const linked = requestLifetime ? linkNativeAbortSignals([abort.signal, requestLifetime.signal]) : undefined;
+    const signal = linked?.signal ?? abort.signal;
     let alive = true, disposed = false, client: ReadingClient | undefined; let offDevice = () => {};
-    const current = () => alive && !family.retired && family.active === opening && rendered.current === family && !abort.signal.aborted && lifetime.current() && getNativeDownloadSnapshot() === request && context.navigation.getSnapshot().revision === route.revision && context.navigation.getSnapshot().route === route.route;
+    const current = () => alive && !family.retired && family.active === opening && rendered.current === family && !signal.aborted && lifetime.current()
+      && (!requestLifetime || (!requestLifetime.signal.aborted && requestLifetime.isCurrent()))
+      && getNativeDownloadSnapshot() === request && context.navigation.getSnapshot().revision === route.revision && context.navigation.getSnapshot().route === route.route;
     const stop = () => {if (!current()) abort.abort();};
     const offAuthority = context.subscribeAuthority(stop), offRoute = context.navigation.subscribe(stop);
-    const opening: Opening = {current, pending: false, lease, versions: Object.freeze([]), abort,
-      retire: () => {if (!alive) return; alive = false; abort.abort();},
+    const opening: Opening = {current, pending: false, lease, versions: Object.freeze([]), abort, signal,
+      retire: () => {if (!alive) return; alive = false; abort.abort(); linked?.dispose();},
       dispose: () => {opening.retire(); if (disposed) return; disposed = true; offAuthority(); offRoute(); offDevice(); client?.dispose(); lease.dispose();}};
     family.active = opening;
     offDevice = lease.device.subscribe(() => {if (current()) setState(value => value.opening === opening ? {...value} : value);});
-    const reader = context.api.reading({viewer, isCurrent: current, signal: abort.signal});
+    const reader = context.api.reading({viewer, isCurrent: current, signal});
     client = reader;
     setState({opening});
     void (async () => {
-      const [versions] = await Promise.all([reader.versions(itemId, abort.signal), lease.device.open()]);
+      const [versions] = await Promise.all([reader.versions(itemId, signal), lease.device.open()]);
       if (!current()) return;
       const supported = versions.versions.filter(value => value.format === 'epub' || value.format === 'pdf' || value.format === 'cbz');
       const rows: Version[] = []; let next = 0;
       await Promise.all(Array.from({length: Math.min(4, supported.length)}, async () => {
         while (next < supported.length) {
           const index = next++, version = supported[index]; if (!version || !current()) return;
-          const raw = await context.api.request<unknown>(`/v1/items/${encodeURIComponent(itemId)}/download-options?versionId=${encodeURIComponent(version.sourceId)}`, 'GET', undefined, abort.signal);
+          const raw = await context.api.request<unknown>(`/v1/items/${encodeURIComponent(itemId)}/download-options?versionId=${encodeURIComponent(version.sourceId)}`, 'GET', undefined, signal);
           if (!current()) return;
           const policy = parseDownloadOptions(raw, itemId);
           if (policy.source.bytes !== version.size || policy.source.available && policy.source.container !== version.format) throw new Error('reading_source_changed');
@@ -76,7 +82,7 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
     try {
       const operationId = 'reading_' + Array.from(nativeRouteCrypto.random(16), byte => byte.toString(16).padStart(2, '0')).join('');
       if (!opening.current()) return;
-      const raw = await context.api.request<unknown>('/v1/downloads/preparations', 'POST', {operationId, mediaId: request.itemId, versionId: version.sourceId, quality: 'original'}, opening.abort.signal);
+      const raw = await context.api.request<unknown>('/v1/downloads/preparations', 'POST', {operationId, mediaId: request.itemId, versionId: version.sourceId, quality: 'original'}, opening.signal);
       if (!opening.current()) return;
       const result = parseDownloadBatch(raw);
       const preparation = result.items.find(value => value.itemId === request.itemId && value.versionId === version.sourceId && value.quality === 'original');
