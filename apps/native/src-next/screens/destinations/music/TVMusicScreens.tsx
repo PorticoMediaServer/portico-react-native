@@ -9,6 +9,7 @@ import {Button, Chip} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {browseType} from '../../../kit/browse/presentation';
+import {FocusItem, FocusRegion} from '../../../kit/focus';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
@@ -57,14 +58,14 @@ function SectionHeading({title, detail, left, top, width}: {title: string; detai
   </View>;
 }
 
-function ActionBar({controller, entry, runtime, actions, focusId, style, onPlaylist}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; focusId: string; style: React.ComponentProps<typeof View>['style']; onPlaylist?: () => void}) {
+function ActionBar({controller, entry, runtime, actions, focusId, style, onPlaylist, entryFocus = true}: {controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; focusId: string; style: React.ComponentProps<typeof View>['style']; onPlaylist?: () => void; entryFocus?: boolean}) {
   const theme = useTheme(), play = useRef<NativeView>(null), more = useRef<NativeView>(null);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const run = (work: Promise<unknown>) => { void work.catch(runtime.reportError); };
   const label = entry.kind === 'album' ? t('music.playAlbum', {album: entry.title}) : t('music.playArtist', {artist: entry.title});
   const shuffleLabel = entry.kind === 'album' ? t('title.shuffle') : t('music.shuffleArtist', {artist: entry.title});
   return <View style={[{flexDirection: 'row', alignItems: 'center', gap: 18, zIndex: 3}, style]}>
-    <Button ref={play} testID={`music-play-${encodeURIComponent(entry.id)}`} focusId={focusId} hasTVPreferredFocus variant="primary" icon="i-play" onPress={() => run(controller.play())} accessibilityLabel={label}>{t('entry.play')}</Button>
+    <Button ref={play} testID={`music-play-${encodeURIComponent(entry.id)}`} focusId={focusId} hasTVPreferredFocus={entryFocus} variant="primary" icon="i-play" onPress={() => run(controller.play())} accessibilityLabel={label}>{t('entry.play')}</Button>
     <Button testID={`music-shuffle-${encodeURIComponent(entry.id)}`} variant="glass" icon="i-shuffle" onPress={() => run(controller.play(undefined, true))} accessibilityLabel={shuffleLabel}>{t('title.shuffle')}</Button>
     <Button testID={`music-favorite-${encodeURIComponent(entry.id)}`} variant="glass" iconOnly icon={snapshot.favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(snapshot.favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites')}
       accessibilityState={{checked: snapshot.favorite}} onPress={() => run(controller.toggleFavorite())}/>
@@ -83,20 +84,24 @@ function songRow(entry: ContentEntry, index: number, runtime: NativeShellRuntime
     artwork: artwork ? <Artwork source={artwork} width={56} height={56} style={{borderRadius: 8, overflow: 'hidden'}}/> : undefined});
 }
 
-function TrackList({songs, runtime, controller, actions, playingId, variant, style}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']}) {
+function TrackList({songs, runtime, controller, actions, playingId, variant, style, focusPrefix}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string}) {
   const run = (work: Promise<unknown>) => { void work.catch(runtime.reportError); };
   return <View style={style}>
-    {songs.map((song, index) => <TrackRow key={song.id} row={songRow(song, index, runtime, playingId)} variant={variant} selection={noSelection}
-      onPlay={() => run(controller.play(song.id))} onMore={() => actions.menu(song)}/>)}
+    {songs.map((song, index) => {
+      const row = <TrackRow key={focusPrefix ? undefined : song.id} row={songRow(song, index, runtime, playingId)} variant={variant} selection={noSelection}
+        onPlay={() => run(controller.play(song.id))} onMore={() => actions.menu(song)}/>;
+      // Only a list that lives in a focus region needs a stable identity of its own.
+      return focusPrefix ? <FocusItem key={song.id} focusId={`${focusPrefix}-${song.id}`}>{row}</FocusItem> : row;
+    })}
   </View>;
 }
 
-function AlbumCard({album, runtime, actions, openEntry, width = 200, caption}: {album: MusicAlbumRow; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; width?: number; caption: string}) {
+function AlbumCard({album, runtime, actions, openEntry, width = 200, caption, focusId, preferred = false}: {album: MusicAlbumRow; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; width?: number; caption: string; focusId?: string; preferred?: boolean}) {
   const anchor = useRef<NativeView>(null);
   const artwork = runtime.artwork(album.posterUrl);
   const entry: ContentEntry = useMemo(() => Object.freeze({id: album.id, libraryId: album.libraryId, kind: 'album', title: album.title,
     ...(album.artist ? {artist: album.artist} : {}), ...(album.year ? {year: album.year} : {})}), [album]);
-  return <SquareCard width={width} title={album.title} caption={factLine(caption)} artwork={artwork} menuAnchorRef={anchor}
+  return <SquareCard width={width} focusId={focusId} hasTVPreferredFocus={preferred} title={album.title} caption={factLine(caption)} artwork={artwork} menuAnchorRef={anchor}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, anchor)} moreExpanded={actions.isMenuOpen(entry)}/>;
 }
 
@@ -175,13 +180,28 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
         <View style={{position: 'absolute', left: 200, top: 352, flexDirection: 'row', alignItems: 'center', gap: 26, flexWrap: 'wrap', width: 940, zIndex: 2}}>
           {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, 24, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
         </View>
-        <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} style={{position: 'absolute', left: 200, top: 420}}/>
+        {/* tv-more8 opens on the album; with no album the first song is the entry, and with
+            neither there is nothing but Play, so only then does Play keep the opening focus. */}
+        <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} style={{position: 'absolute', left: 200, top: 420}}
+          entryFocus={albums.length === 0 && snapshot.songs.length === 0}/>
         <SectionHeading title={t('music.topSongs')} left={200} top={612}/>
-        <TrackList songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" style={{position: 'absolute', left: 182, top: 666, width: 900, zIndex: 2}}/>
+        {/* tv-more8: Left goes to the songs and Right comes back; the rows keep their own real
+            identities. With no album to open on, this region takes the page's opening focus. */}
+        <FocusRegion id={`music-artist-${entry.id}.songs`} entry={snapshot.songs[0] ? `music-artist-song-${snapshot.songs[0].id}` : undefined}
+          order={snapshot.songs.map(song => `music-artist-song-${song.id}`)} orientation="vertical" edges={{right: `music-artist-${entry.id}.albums`}}
+          hasTVPreferredFocus={albums.length === 0 && snapshot.songs.length > 0}
+          style={{position: 'absolute', left: 182, top: 666, width: 900, zIndex: 2}}>
+          <TrackList songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" focusPrefix="music-artist-song"/>
+        </FocusRegion>
         <SectionHeading title={t('music.albums')} left={1240} top={612}/>
-        <View style={{position: 'absolute', left: 1240, top: 672, width: 584, flexDirection: 'row', flexWrap: 'wrap', gap: 32, zIndex: 2}}>
-          {albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
-        </View>
+        {/* The albums column wraps two across, so Up, Down, Left and Right follow the drawn
+            geometry; only Left is pinned, into the songs. */}
+        <FocusRegion id={`music-artist-${entry.id}.albums`} entry={albums[0] ? `music-artist-album-${albums[0].id}` : undefined}
+          order={albums.map(album => `music-artist-album-${album.id}`)} edges={{left: `music-artist-${entry.id}.songs`}}
+          style={{position: 'absolute', left: 1240, top: 672, width: 584, flexDirection: 'row', flexWrap: 'wrap', gap: 32, zIndex: 2}}>
+          {albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} focusId={`music-artist-album-${album.id}`}
+            preferred={album.id === albums[0]?.id && albums.length > 0} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
+        </FocusRegion>
       </View>
       <View style={{width: 1624, marginLeft: 200, paddingTop: 40, gap: 34}}>
         {otherReleases.map(group => <View key={group.id}>
