@@ -1,4 +1,5 @@
 import React from 'react';
+import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Text, View} from 'react-native';
 import {ProfileFace, type ArtworkSource} from '../../../kit/artwork';
 import {SessionCard} from '../../../kit/cards';
@@ -96,7 +97,7 @@ export function OwnerCompactRow({entry, index, t, onMenu}: {entry: OwnerStreamEn
   const qualifier = view.qualifier;
   const note = view.note;
   const progress = view.progress;
-  return <Focusable testID={`owner-stream-row-${view.id}`} accessibilityRole="button" accessibilityLabel={`${view.title}, ${username}${profile ? `, ${profile}` : ''}, ${view.viewer.device}`}
+  return <Focusable testID={`owner-stream-row-${view.id}`} accessibilityRole="button" accessibilityLabel={defaultI18n.list([view.title, username, ...(profile ? [profile] : []), view.viewer.device])}
     onPress={onMenu} focusKind="row" focusRadius={14}
     style={state => ({height: OWNER_COMPACT_ROW_PX, paddingLeft: 14, paddingRight: 8, backgroundColor: state.pressed ? alpha(theme.colors.text, .05) : 'transparent'})}>
     <View style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12}}>

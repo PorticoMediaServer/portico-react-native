@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import fixture from './owner-dashboard.fixture.json';
 import {useWindowDimensions, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {AdminSession, StreamAction} from '../../../../../../packages/client-core/src/playback-v1/types';
@@ -36,31 +37,9 @@ type ScaleRow = Readonly<{
   year?: number; episode?: Readonly<{season: number; number: number; name: string}>; artist?: string; album?: string;
 }>;
 // The first ten are the frames' own order: a problem first, then the conversions newest first, then the most recent starts.
-const scaleOrder: readonly ScaleRow[] = [
-  {user: 'alex_m', profile: 'Alex', device: 'Pixel 8', title: 'Barbie', year: 2023, action: 'direct', startedMinutes: 0, problem: 'buffering', position: 4_390_000, duration: 6_900_000},
-  {user: 'jordan', profile: 'Kids', device: 'Bedroom TV', title: 'Inside Out', year: 2015, action: 'transcode', startedMinutes: 1, position: 2_400_000, duration: 5_700_000},
-  {user: 'dana', profile: 'Dana', device: 'Fire TV', title: 'Reacher', episode: {season: 2, number: 5, name: 'Burial'}, action: 'transcode', startedMinutes: 3, position: 620_000, duration: 3_000_000},
-  {user: 'tomas.v', profile: 'Tomas', device: 'Galaxy Tab', title: 'The Dark Knight', year: 2008, action: 'transcode', startedMinutes: 4, position: 3_600_000, duration: 9_100_000},
-  {user: 'priya.n', profile: 'priya.n', device: 'iPhone', title: 'Spirited Away', year: 2001, action: 'transcode', startedMinutes: 6, position: 3_225_000, duration: 7_500_000},
-  {user: 'iris_h', profile: 'Iris', device: 'Chromecast', title: 'Avatar', year: 2009, action: 'transcode', startedMinutes: 10, position: 2_100_000, duration: 9_500_000},
-  {user: 'kofi', profile: 'Kofi', device: 'Roku', title: 'Alien', year: 1979, action: 'transcode', startedMinutes: 14, position: 5_700_000, duration: 8_200_000},
-  {user: 'sam_k', profile: 'Sam', device: 'Living room TV', title: 'The Last of Us', episode: {season: 1, number: 3, name: 'Long, Long Time'}, action: 'direct', startedMinutes: 5, position: 1_915_000, duration: 4_560_000},
-  {user: 'demo', profile: 'demo', device: 'Firefox on a Mac', title: 'Come Together (2019 Mix)', artist: 'The Beatles', album: 'Abbey Road (2019 Mix)', action: 'direct', startedMinutes: 7, position: 190_000, duration: 260_000},
-  {user: 'nana_r', profile: 'Nana', device: 'Kitchen iPad', title: 'World Tonight', action: 'direct', startedMinutes: 11, position: 3_800_000, duration: 7_600_000},
-  {user: 'mira_s', profile: 'Mira', device: 'Apple TV', title: 'Back to the Future', year: 1985, action: 'direct', startedMinutes: 12, position: 2_400_000, duration: 6_900_000},
-  {user: 'theo', profile: 'Theo', device: 'Chrome on a PC', title: 'Breaking Bad', episode: {season: 2, number: 4, name: 'Down'}, action: 'direct', startedMinutes: 13, paused: true, position: 1_200_000, duration: 2_800_000},
-  {user: 'hana.k', profile: 'Hana', device: 'Safari on a Mac', title: 'The Office', episode: {season: 3, number: 7, name: 'Branch Closing'}, action: 'direct', startedMinutes: 15, position: 900_000, duration: 1_500_000},
-];
+const scaleOrder = fixture.scaleOrder as readonly ScaleRow[];
 const scaleNames = ['luis_p', 'ben_w', 'ayo', 'noor_a', 'finn', 'cleo_b', 'omar.h', 'ruth', 'yuki_t', 'eli_g', 'petra', 'ivan_d', 'zoe.m', 'hugo', 'lena_b', 'sasha', 'rafa_o', 'maya.j', 'cole', 'tess_n', 'arjun', 'bea_r', 'quinn', 'dev_s', 'wren', 'nico_f', 'amara', 'jonah_k', 'pia', 'seb_l', 'lucia.r', 'otto', 'dahlia_w', 'gus', 'rina_p'];
-const scaleTitles: readonly Readonly<{title: string; year?: number; episode?: Readonly<{season: number; number: number; name: string}>; artist?: string; album?: string}>[] = [
-  {title: 'Blade Runner', year: 1982}, {title: 'Game of Thrones', episode: {season: 1, number: 9, name: 'Baelor'}}, {title: 'Aliens', year: 1986},
-  {title: 'Solo Leveling', episode: {season: 1, number: 5, name: 'A Pretty Good Day'}}, {title: 'Dark Matter', episode: {season: 1, number: 3, name: 'The Box'}},
-  {title: 'One Piece', episode: {season: 20, number: 812, name: 'The Hero'}}, {title: '12 Angry Men', year: 1957}, {title: 'MobLand', episode: {season: 1, number: 2, name: 'The Line'}},
-  {title: 'Avengers: Endgame', year: 2019}, {title: 'Attack on Titan', episode: {season: 2, number: 3, name: 'Southwestward'}}, {title: 'Lioness', episode: {season: 1, number: 5, name: 'Truth'}},
-  {title: 'Dreams', artist: 'Fleetwood Mac', album: 'Rumours'}, {title: 'The Gentlemen', episode: {season: 1, number: 4, name: 'A Whole New World'}}, {title: 'Backrooms', year: 2026},
-  {title: 'Baby Be Mine', artist: 'Michael Jackson', album: 'Thriller'}, {title: 'Severance', episode: {season: 1, number: 6, name: 'Hide and Seek'}}, {title: 'Hunter x Hunter', episode: {season: 2, number: 34, name: 'The End'}},
-  {title: 'Alone Again', artist: 'The Weeknd', album: 'After Hours'},
-];
+const scaleTitles = fixture.scaleTitles;
 const scaleDevices = ['iPhone', 'Living room TV', 'Apple TV', 'Pixel 8', 'Chrome on a PC', 'Safari on a Mac', 'Fire TV', 'Roku', 'Galaxy Tab', 'Kitchen iPad', 'Bedroom TV', 'Chromecast', 'Android TV', 'Firefox on a PC'];
 
 function scaleSession(index: number): AdminSession {
