@@ -1,9 +1,11 @@
 import {NativeModules} from 'react-native';
 import {MFARequiredError, parseAccountReturn, parseNativeAccountContinuation,
   type HostedAccountClient, type IdentityProvider, type IdentityTransaction, type NativeAccountContinuation, type Registration} from '../../../../packages/client-core/src/hosted-security';
+import {CodedError} from '../../../../packages/client-core/src/server-messages';
 import {ApiError, type HostedSession} from '../../../../packages/client-core/src';
 import {routePath as hostedPath, routeBody as hostedBody} from '../../../../packages/contracts/src/hosted/routes';
 import {nativeAccounts} from './accounts';
+import {linkNativeAbortSignals} from './abort-signals';
 import {hostedUrl} from './account-authority';
 
 /** Root 43: the one typed early outcome the signup form may put on the username
@@ -23,6 +25,13 @@ export class NativePorticoSignIn {
   private continuation?: NativeAccountContinuation;
   private transaction?: IdentityTransaction;
   private registration?: Registration;
+  /** The original provider attempt's own binding identity: its mode at start (native
+   * Apple versus a browser return) and the completion code that attempt was bound
+   * with. Never inferred later from a provider name or capability. */
+  private providerAttempt?: Readonly<{transactionId: string; nativeApple: boolean; completionCode?: string; continuationBinding: string}>;
+  /** Set the moment a confirmed username refusal needs a rotated proof; kept if the
+   * refresh fails so the next completion must refresh this same original first. */
+  private providerRefresh?: IdentityTransaction;
   private authenticating = false;
   private nativeApple = false;
   private readonly off = nativeAccounts.onCancel(() => this.dispose());
@@ -78,6 +87,10 @@ export class NativePorticoSignIn {
     const nativeApple = provider === 'apple' && this.nativeApple;
     const start = await this.api().start(provider, {mode: 'login', requestId: await this.bridge.newRequestId(), nativeApple,
       ...(!nativeApple ? {completion: 'code' as const} : {})}, this.abort.signal); this.check();
+    const binding = this.continuation?.binding;
+    if (!binding) throw new Error('native_continuation_missing');
+    this.providerAttempt = Object.freeze({transactionId: start.transactionId, nativeApple, continuationBinding: binding});
+    this.providerRefresh = undefined;
     await this.checkpoint({transactionId: start.transactionId, completionCode: undefined});
     this.check();
     if (nativeApple) {
@@ -86,16 +99,83 @@ export class NativePorticoSignIn {
     } else {
       if (this.bridge.canOpenBrowser !== true || !start.authorizationUrl) throw new Error('native_provider_unavailable');
       const returned = parseAccountReturn(await this.bridge.openBrowser(start.authorizationUrl, start.transactionId), start.transactionId, hostedUrl); this.check();
+      this.providerAttempt = Object.freeze({transactionId: start.transactionId, nativeApple: false, completionCode: returned.completionCode, continuationBinding: binding});
       await this.checkpoint({completionCode: returned.completionCode});
       this.transaction = await this.api().transaction(start.transactionId, this.abort.signal, returned.completionCode) ?? undefined;
     }
     this.check(); if (!this.transaction) throw new Error('native_provider_incomplete');
     return this.transaction;
   }
-  finishProvider(username?: string, displayName?: string, factor?: string) {
-    const transaction = this.transaction; if (!transaction) throw new Error('native_provider_incomplete');
-    return this.authenticate(signal => this.api().complete(transaction.transactionId,
-      {username, displayName, factor, onboardingToken: transaction.onboardingToken}, signal));
+  /** Only a confirmed failed public-username insert rotates the onboarding proof.
+   * Read that SAME transaction through the continuation's own completion binding —
+   * never the browser's latest — and adopt it only when it is provably the same
+   * sign-in with a fresh, unexpired proof; otherwise retire it and refuse. */
+  private async refreshProvider(original: IdentityTransaction, signal: AbortSignal, caller?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) {
+    const attempt = this.providerAttempt;
+    if (!attempt || attempt.transactionId !== original.transactionId) throw new CodedError('account_changed', 'native_provider_changed');
+    // A browser attempt is bound by its completion code; the original native-Apple
+    // attempt has none (NativeCompletion=false) and is still bound by id + session.
+    if (!attempt.nativeApple && !attempt.completionCode) throw new CodedError('account_changed', 'native_provider_binding_missing');
+    const callerLive = () => !caller || (caller.isCurrent() && !caller.signal.aborted);
+    const current = () => !this.abort.signal.aborted && !signal.aborted && callerLive() && this.isCurrent() && this.transaction === original
+      && this.providerAttempt === attempt && this.continuation?.binding === attempt.continuationBinding
+      && this.continuation?.completionCode === attempt.completionCode;
+    if (!current()) throw new CodedError('cancelled', 'native_provider_changed');
+    // The rotation GET is cancelled with the same lifetimes it is guarded by.
+    const linked = linkNativeAbortSignals([this.abort.signal, signal, caller?.signal]);
+    try {
+      const fresh = await this.api().transaction(original.transactionId, linked.signal, attempt.completionCode);
+      if (!current()) throw new CodedError('cancelled', 'native_provider_changed');
+      if (!fresh || fresh.transactionId !== original.transactionId || fresh.provider !== original.provider || fresh.mode !== 'login'
+        || !fresh.needsUsername || !fresh.contactVerified || !['onboarding', 'verified'].includes(fresh.status)
+        || fresh.verifiedEmail !== original.verifiedEmail || fresh.expiresAt !== original.expiresAt || !(Date.parse(fresh.expiresAt) > Date.now())
+        || !fresh.onboardingToken || fresh.onboardingToken === original.onboardingToken) {
+        this.transaction = undefined;
+        throw new CodedError('account_changed', 'native_provider_changed');
+      }
+      this.transaction = fresh; this.providerRefresh = undefined;
+    } finally {linked.dispose();}
+  }
+  async finishProvider(username?: string, displayName?: string, factor?: string,
+    caller?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) {
+    // The caller's own lifetime is linked into every step, so a form that has left
+    // can neither complete nor start a proof refresh from its internal catch.
+    const callerLive = () => !caller || (caller.isCurrent() && !caller.signal.aborted);
+    // A marker left by a failed rotation is honoured before any new completion, so
+    // the now-invalid token is never replayed and no extra completion is sent.
+    const pending = this.providerRefresh;
+    if (pending) await this.refreshProvider(pending, this.abort.signal, caller);
+    const transaction = this.transaction, attempt = this.providerAttempt;
+    if (!transaction) throw new Error('native_provider_incomplete');
+    try {
+      // The instance's own lifetime and the form's are linked into the wire request,
+      // and the response is rechecked against that original caller, attempt and
+      // transaction BEFORE the session is handed to credential adoption.
+      const accepted = await this.authenticate(async signal => {
+        const linked = linkNativeAbortSignals([this.abort.signal, caller?.signal, signal]);
+        try {
+          if (!callerLive()) throw new CodedError('cancelled', 'native_provider_changed');
+          const session = await this.api().complete(transaction.transactionId, {username, displayName, factor, onboardingToken: transaction.onboardingToken}, linked.signal);
+          if (!callerLive() || this.abort.signal.aborted || this.transaction !== transaction || this.providerAttempt !== attempt) {
+            throw new CodedError('cancelled', 'native_provider_changed');
+          }
+          return session;
+        } finally {linked.dispose();}
+      });
+      this.providerRefresh = undefined;
+      return accepted;
+    } catch (error) {
+      // Only the explicit confirmed username refusal may rotate the proof; a generic
+      // conflict, a transport failure or an uncertain completion keeps its replay.
+      if (error instanceof ApiError && error.status === 409 && error.code === 'username_unavailable'
+        && !this.abort.signal.aborted && this.transaction === transaction) {
+        // The marker stays if this caller has gone or the rotation fails; the next
+        // completion refreshes this same original first and never replays the token.
+        this.providerRefresh = transaction;
+        if (callerLive()) await this.refreshProvider(transaction, this.abort.signal, caller);
+      }
+      throw error;
+    }
   }
   async sendContact(address: string) {
     if (!this.transaction) throw new Error('native_provider_incomplete');
@@ -113,5 +193,5 @@ export class NativePorticoSignIn {
     if (!this.registration) throw new Error('native_registration_missing');
     return this.authenticate(signal => this.api().verifyRegistration(this.registration!.registrationId, {code}, signal));
   }
-  dispose() {if (this.abort.signal.aborted) return; this.abort.abort(); this.bridge?.cancel(); this.off(); if (this.authenticating) nativeAccounts.cancel();}
+  dispose() {if (this.abort.signal.aborted) return; this.abort.abort(); this.bridge?.cancel(); this.off(); this.providerAttempt = undefined; this.providerRefresh = undefined; if (this.authenticating) nativeAccounts.cancel();}
 }
