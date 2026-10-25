@@ -3,6 +3,7 @@ import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {SavedEntry, SavedProjection, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {SelectionModel, selectionKey, selectionFourthAction, readCatalogueSelectionItem, playCatalogueSelection, enqueueCatalogueSelection, createCataloguePersonalSelection,
   type SelectionContext, type SelectionItem} from '../../../../../packages/client-core/src/selection-model';
 import {mediaSelectionKey} from '../../../../../packages/client-core/src/media-selection';
@@ -23,26 +24,23 @@ import {NativeDestinationPicker} from '../destinations/DestinationPicker';
 
 /** The two authorized Saved projections and their change signal: everything this selection
  * reads from a destination. The phone hub is one source; the TV Saved destination is adapted
- * into the same shape, so both screens share one selection owner with no second store. */
-/** The projection facts this selection reads. Both the phone hub's saved projection and the TV
- * landing's SavedProjection carry them, so one selection source serves both screens without a
- * cast or a second source. */
-export type NativeSavedSelectionProjection = Readonly<{
-  scope: Readonly<{viewerFence: string; entityId: string}>;
-  revision: Readonly<{catalog: string | number; viewer: string | number}>;
-  sections: readonly Readonly<{id: string; entries: readonly ContentEntry[]}>[];
-}>;
+ * into the same shape, so both screens share one selection owner with no second store.
+ * The projections are the canonical Saved mirror's own; this owner copies neither their
+ * sections nor their entry union, so the parser stays the one authority for both screens. */
 export type NativeSavedSelectionSource = Readonly<{
   getSnapshot: () => Readonly<{phase: string;
-    myList: Readonly<{projection?: NativeSavedSelectionProjection; route?: Readonly<{view?: string}>}>;
-    favorites: Readonly<{projection?: NativeSavedSelectionProjection; route?: Readonly<{view?: string}>}>}>;
+    myList: Readonly<{projection?: SavedProjection | null; route?: SavedRoute | null}>;
+    favorites: Readonly<{projection?: SavedProjection | null; route?: SavedRoute | null}>}>;
   subscribe: (listener: () => void) => () => void;
-  snapshot: () => Readonly<{busy: boolean}>;
 }>;
 type SelectionSnapshot = ReturnType<NativeSavedSelectionSource['getSnapshot']>;
 import type {NativeSavedSelectionPort} from './SavedScreen';
 
-const leaf = (entry: ContentEntry): entry is ContentEntry => ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind);
+/** Exactly the AV leaves this owner may select, edit or delete. The Saved mirror's
+ * entries also carry playlists and Reading group cards; this partition excludes
+ * every other shape instead of casting one of them to a ContentEntry. */
+const leaf = (entry: SavedEntry): entry is ContentEntry => entry.kind === 'movie' || entry.kind === 'episode'
+  || entry.kind === 'song' || entry.kind === 'audiobook_file';
 const unavailable = () => Object.assign(new Error('catalogue-selection-unavailable'), {code: 'catalogue-selection-unavailable'});
 
 /** Selection on the Saved hub, over the canonical myList/favorites projections the
@@ -90,12 +88,12 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     model = new SelectionModel(captured, {maxWindows: 256, maxRegisteredItems: 256}); token = next;
     stopModel = model.subscribe(emit); emit();
   };
-  /** Enter the actual current selection context with nothing chosen. It is refused
-   * without the page's visible current projection, exactly like the existing actions. */
-  const start = (rendered: {myList: {projection?: NativeSavedSelectionProjection}; favorites: {projection?: NativeSavedSelectionProjection}}) => {
+  /** Enter the actual current selection context with nothing chosen. The rendered
+   * page must still be the hub's live My List snapshot; a successor page refuses. */
+  const start = (rendered: SavedSnapshot) => {
     if (!visible()) return;
     const now = destination.getSnapshot();
-    if (now.phase !== 'ready' || now.myList.projection !== rendered.myList.projection || now.favorites.projection !== rendered.favorites.projection) return;
+    if (now.phase !== 'ready' || now.myList !== rendered) return;
     reconcile();
     if (!model) return;
     started = true; emit();
@@ -138,7 +136,7 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
   };
   const loaded = () => {
     const snapshot = destination.getSnapshot();
-    return lists(snapshot).flatMap(({list}) => (list.projection?.sections ?? []).flatMap(section => section.entries.filter((entry): entry is ContentEntry => 'kind' in entry && leaf(entry as ContentEntry))));
+    return lists(snapshot).flatMap(({list}) => (list.projection?.sections ?? []).flatMap(section => section.entries.filter(leaf)));
   };
   const selectLoaded = async (rendered?: ReturnType<SelectionModel['getSnapshot']>) => {
     if (personal || destinations || !rendered || model?.getSnapshot() !== rendered || !visible()) return;

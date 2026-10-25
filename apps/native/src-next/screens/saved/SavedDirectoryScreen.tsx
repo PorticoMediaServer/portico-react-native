@@ -20,7 +20,7 @@ import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSavedViewDestination} from './view-model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
-import {savedItemCount, savedLibraryName, savedMosaicPaths, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
+import {savedItemCount, savedLibraryName, personalMosaic, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
 import type {NativeSavedViewSummaries} from './state';
 import type {NativeSavedDirectoryCommands, SavedDirectoryCommandLease} from './directory-commands';
 
@@ -175,7 +175,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
           : empty('web.saved.empty.playlists', 'web.saved.empty.playlistsBody'))
         : resources.length ? (tablet ? <View onLayout={event => setPaneWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginHorizontal: theme.gutter, marginTop: 6}}>
           {resources.map(resource => {
-            const paths = route.view === 'views' ? savedMosaicPaths(resource) : resource.artworkPaths ?? [];
+            const paths = route.view === 'views' ? personalMosaic(resource) : resource.artworkPaths ?? [];
             const target: DirectoryTarget = {resource, lease: active};
             return <View key={resource.id} style={{width: tileWidth}}>
               <SavedDirectoryTile id={`resource-${resource.id}`} title={resource.name}
@@ -189,7 +189,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
             </View>;
           })}</View>
           : <View style={{marginTop: 6}}>{resources.map(resource => {
-            const paths = route.view === 'views' ? savedMosaicPaths(resource) : resource.artworkPaths ?? [];
+            const paths = route.view === 'views' ? personalMosaic(resource) : resource.artworkPaths ?? [];
             return <SavedDirectoryRow key={resource.id} id={`resource-${resource.id}`} title={resource.name}
               caption={route.view === 'collections' ? [savedTitleCount(resource.entryCount)] : [resource.definition ? savedLibraryName(libraries, resource.definition.libraryId) : undefined,
                 savedViewCount(resource.entryCount)]} note={route.view === 'collections' ? savedVisibility(resource)

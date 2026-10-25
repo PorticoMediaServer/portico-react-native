@@ -26,7 +26,7 @@ import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 const t = defaultI18n.t;
-const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry';
+const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry' && entry.kind !== 'reading_group';
 export type NativeSavedActions = Readonly<{
   menuState?: NativeEntryMenuState;
   openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
@@ -167,7 +167,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: theme.gutter}}>
           <Chip ref={filterRef} testID="saved-my-list-filters" icon="i-filter" onPress={() => setFilterOpen(true)} accessibilityLabel={t('next.browse.native.filters')}>{t('next.browse.native.filters')}</Chip>
           <Chip ref={sortRef} testID="saved-my-list-sort" icon="i-sort" trailingIcon="i-down" onPress={() => setSortOpen(true)} accessibilityLabel={t('next.browse.native.sort')}>{t('next.browse.native.sort')}</Chip>
-          {selection?.start && <Chip testID="saved-my-list-select" icon="i-check" onPress={() => selection.start?.(snapshot)} accessibilityLabel={t('next.selection.select')}>{t('next.selection.select')}</Chip>}
+          {selection?.start && <Chip testID="saved-my-list-select" icon="i-check" onPress={() => selection.start?.(snapshot.myList)} accessibilityLabel={t('next.selection.select')}>{t('next.selection.select')}</Chip>}
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto'}}>
             <Focusable testID="saved-my-list-grid" accessibilityLabel={t('next.browse.native.grid')} accessibilityState={{selected: !listMode}} onPress={() => setListMode(false)} focusRadius={8}
               style={{width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: !listMode ? theme.colors.raisedBright : undefined}}>
