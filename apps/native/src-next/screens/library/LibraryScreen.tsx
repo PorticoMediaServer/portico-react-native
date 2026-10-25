@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
 import {BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type TextStyle} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -18,6 +19,7 @@ import {Icon} from '../../kit/Icon';
 import {WindowedGrid, AlphabetRail, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
 import {GridSkeleton, SkeletonBlock, StateView, showSkeleton} from '../../kit/states';
 import {useTheme, type Theme} from '../../kit/theme';
+import {useMotion} from '../../kit/useMotion';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
@@ -164,6 +166,29 @@ export function LibraryMediumHeader({name, switcher, menu, selection, ambient, w
   </View>;
 }
 
+/** tablet5: the 420 pt panel slides in from the right over the dimmed grid and
+ * leaves the same way. It keeps the draft alive until the exit lands, then the
+ * route disposes exactly that draft. Timings are the kit's side-panel pair
+ * (320 in, 240 out); reduced motion keeps only the fade. */
+function LibraryFiltersOverPanel({open, width, onDismiss, onExited, children}: {
+  open: boolean; width: number; onDismiss: () => void; onExited: () => void; children?: ReactNode;
+}) {
+  const theme = useTheme(), motion = useMotion(), progress = useSharedValue(0);
+  const exited = useRef(onExited); exited.current = onExited;
+  useEffect(() => {progress.value = withTiming(open ? 1 : 0, {...motion.timing('slow', open ? 'out' : 'in'), duration: motion.reduce ? 0 : open ? 320 : 240});}, [open, motion, progress]);
+  useEffect(() => {if (open) return; const timer = setTimeout(() => exited.current(), motion.reduce ? 0 : 240); return () => clearTimeout(timer);}, [open, motion.reduce]);
+  const pane = useAnimatedStyle(() => ({transform: [{translateX: (1 - progress.value) * width}], opacity: motion.reduce ? progress.value : 1}));
+  const scrim = useAnimatedStyle(() => ({opacity: progress.value * .62}));
+  return <View style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation}}>
+    <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: '#03080c'}, scrim]}>
+      <Pressable accessible={false} onPress={onDismiss} style={StyleSheet.absoluteFill}/>
+    </Animated.View>
+    <Animated.View testID="library-filters-over" accessibilityViewIsModal importantForAccessibility="yes"
+      style={[{position: 'absolute', top: 0, bottom: 0, right: 0, width, maxWidth: '100%', backgroundColor: theme.colors.raised,
+        shadowColor: '#000', shadowOffset: {width: -20, height: 0}, shadowOpacity: .6, shadowRadius: 40}, pane]}>{children}</Animated.View>
+  </View>;
+}
+
 /** The pivot strip: it scrolls on a phone because Music and Audiobooks have more
  * pivots than fit (phone-app 15a), and stays one drawn row on TV. */
 export function LibraryTabs({items, selected, enabled, disabled, regionId, leftEdge, downEdge, phone, gutter, onSelect, onFocusTab}: {
@@ -207,25 +232,41 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const summaries = useSyncExternalStore(directory.subscribe, directory.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
+  // One classification for the header, the grid and its skeleton: the drawn
+  // tablet layout is medium below 1024 and expanded from 1024, whatever the
+  // theme calls the platform at that width.
+  const shellPhone = dimensions.width < 600 || dimensions.width < 1024 && dimensions.height < 600;
+  const tabletLayout = !theme.isTV && !shellPhone;
+  const expanded = dimensions.width >= 1024;
+  const shellWidth = shellPhone || theme.isTV ? 0 : expanded ? 248 : 84;
+  const contentWidth = areaWidth || Math.max(0, dimensions.width - shellWidth);
   // tablet4/5: the filter panel is a split view on expanded and a panel over the
   // grid on medium, so the route owns the draft that both the pane and the grid read.
   const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
-  const filterOpening = useRef(0), filtersRef = useRef<NativeLibraryFilterDraft>();
+  const filterOpening = useRef(0), filtersRef = useRef<NativeLibraryFilterDraft>(), [overClosing, setOverClosing] = useState(false);
   const filterState = useSyncExternalStore(filterDraft?.subscribe ?? noSubscribe, filterDraft?.getSnapshot ?? noFilterSnapshot);
   const openFilters = useCallback(() => {
     filtersRef.current?.dispose(); filterOpening.current++;
     const next = destination.createFilters();
-    filtersRef.current = next; setFilterDraft(next);
+    filtersRef.current = next; setFilterDraft(next); setOverClosing(false);
   }, [destination]);
   // A retained close can arrive after a newer draft replaced this one. Only the
   // draft the caller actually owns is disposed and cleared, so an old panel never
   // erases its successor.
+  // Leaving the route drops the panel at once; the drawn over-panel gets its exit
+  // motion first, and only the draft it actually owns is disposed when it lands.
+  const dropFilters = useCallback((subject?: NativeLibraryFilterDraft) => {
+    const current = filtersRef.current;
+    if (!current || subject && current !== subject) return;
+    filtersRef.current = undefined; current.dispose(); setFilterDraft(undefined); setOverClosing(false);
+  }, []);
   const closeFilters = useCallback((subject?: NativeLibraryFilterDraft) => {
     const current = filtersRef.current;
     if (!current || subject && current !== subject) return;
-    filtersRef.current = undefined; current.dispose(); setFilterDraft(undefined);
-  }, []);
-  useEffect(() => {if (!active.visible) closeFilters(filtersRef.current);}, [active.visible, closeFilters]);
+    if (tabletLayout && !expanded) {setOverClosing(true); return;}
+    dropFilters(current);
+  }, [dropFilters, expanded, tabletLayout]);
+  useEffect(() => {if (!active.visible) dropFilters(filtersRef.current);}, [active.visible, dropFilters]);
   useEffect(() => () => {filtersRef.current?.dispose(); filtersRef.current = undefined;}, []);
   const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   useEffect(() => {void destination.load().catch(runtime.reportError); void directory.load().catch(runtime.reportError);}, [destination, directory, runtime]);
@@ -261,14 +302,6 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const tabs = <LibraryTabs items={libraryTabs(state.library.kind)} selected={state.tab.id} enabled={active.visible} phone={theme.platform === 'phone'} gutter={theme.isTV || theme.platform === 'phone' ? undefined : dimensions.width >= 1024 ? 32 : 28}
     disabled={theme.isTV && active.intent === 'enter' && !entered} regionId={ids.libraryTabs(state.library.id)} leftEdge={ids.rail} downEdge={emptyShown ? emptyRegion : undefined}
     onSelect={id => {void destination.load(id).catch(runtime.reportError);}} onFocusTab={id => {void destination.load(id).catch(runtime.reportError);}}/>;
-  // One classification for the header, the grid and its skeleton: the drawn
-  // tablet layout is medium below 1024 and expanded from 1024, whatever the
-  // theme calls the platform at that width.
-  const shellPhone = dimensions.width < 600 || dimensions.width < 1024 && dimensions.height < 600;
-  const tabletLayout = !theme.isTV && !shellPhone;
-  const expanded = dimensions.width >= 1024;
-  const shellWidth = shellPhone || theme.isTV ? 0 : expanded ? 248 : 84;
-  const contentWidth = areaWidth || Math.max(0, dimensions.width - shellWidth);
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV || expanded ? 'chevron' : 'name'}/>;
   const latestArtwork = summaries.libraries.find(library => library.id === state.library.id)?.summary.latestArtwork;
   const source = latestArtwork ? runtime.ambient(latestArtwork) : undefined;
@@ -359,12 +392,8 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
       {docked && <View testID="library-filters-dock" style={{width: libraryFiltersDockWidth, backgroundColor: theme.colors.raised,
         borderLeftWidth: 1, borderLeftColor: alpha(theme.colors.text, .07)}}>{panel}</View>}
     </View>
-    {over && <View style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation}}>
-      <Pressable accessible={false} onPress={() => closeFilters(filtersRef.current)} style={[StyleSheet.absoluteFill, {backgroundColor: alpha('#03080c', .62)}]}/>
-      <View testID="library-filters-over" accessibilityViewIsModal importantForAccessibility="yes"
-        style={{position: 'absolute', top: 0, bottom: 0, right: 0, width: libraryFiltersOverWidth, maxWidth: '100%', backgroundColor: theme.colors.raised,
-          shadowColor: '#000', shadowOffset: {width: -20, height: 0}, shadowOpacity: .6, shadowRadius: 40}}>{panel}</View>
-    </View>}
+    {over && filterDraft && <LibraryFiltersOverPanel open={!overClosing} width={libraryFiltersOverWidth} onDismiss={() => closeFilters(filterDraft)}
+      onExited={() => dropFilters(filterDraft)}>{panel}</LibraryFiltersOverPanel>}
     {sheet}
   </View>;
 }
