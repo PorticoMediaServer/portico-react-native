@@ -160,9 +160,8 @@ RCT_EXPORT_MODULE()
  if(result){if(resolve)resolve(result);}else if(reject)reject(code,code,nil);
 }
 - (void)invalidate {
- atomic_store(&_closed,true);
  PorticoDocumentPickRequest *request;
- @synchronized(self){request=_request;}
+ @synchronized(self){atomic_store(&_closed,true);request=_request;}
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self finish:request result:nil code:@"cancelled" terminal:YES];});return;}
  [self finish:request result:nil code:@"cancelled" terminal:YES];
 }
