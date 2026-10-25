@@ -72,6 +72,10 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
           {label(t('web.hostedAccount.signedInOn', {date: defaultI18n.date(row.createdAt)}))}
           {row.status !== 'active' && label(t('web.hostedAccount.ended'))}
         </View>)}
+        {state.page === 'devices' && state.phase === 'ready' && <View style={{flexDirection: 'row', gap: 12}}>
+          <Button variant="glass" disabled={!state.sessionsPrevious} onPress={() => {if (current()) void source?.pageSessions('previous');}}>{t('web.hostedAccount.newer')}</Button>
+          <Button variant="glass" disabled={!state.sessionsNext} onPress={() => {if (current()) void source?.pageSessions('next');}}>{t('web.hostedAccount.older')}</Button>
+        </View>}
         {state.notifications?.length === 0 && label(t('web.account.notif.empty'))}
         {state.notifications?.filter(row => ['server_offline', 'new_device', 'account_export_ready', 'security_event', 'signing_key_expiring'].includes(row.kind) && (row.kind !== 'server_offline' || !!row.server?.name)
           && (row.kind !== 'new_device' || !!row.detail.name) && (row.kind !== 'account_export_ready' || !!row.detail.exportId)).map(row => <View key={row.id} style={{padding: 16, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised}}>
