@@ -61,6 +61,8 @@ export type NativeShellBootstrapContext = Readonly<{
   watch: NativeWatchOutlet;
   account: DirectSnapshot;
   libraries: () => readonly Library[];
+  /** Fresh authenticated directory, committed only inside this restored viewer. */
+  readLibraries?: (signal: AbortSignal) => Promise<readonly Library[]>;
   navigation: NativeShellNavigation;
 }>;
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
@@ -201,7 +203,15 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
       appVersion: installed.appVersion, serverName: server.name, current,
-      get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation};
+      get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation,
+      readLibraries: async requestSignal => {
+        assertCurrent();
+        const result = parseLibraryList(await readers.request(routePath('get_libraries'), 'GET', undefined, requestSignal));
+        assertCurrent(); if (requestSignal.aborted) throw cancelled();
+        const selected = await readNativeSelectedViewer(); assertCurrent();
+        if (requestSignal.aborted || !selected || selected.serverUrl !== original.serverUrl || !sameViewer(selected.session, session!)) throw cancelled();
+        libraries = Object.freeze(result.items); publish(); return libraries;
+      }};
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),

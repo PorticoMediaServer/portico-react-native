@@ -30,6 +30,20 @@ export class LastLibraryMemory {
     return write;
   }
   private key(scope: ShellScope): string {return 'next.last-library.v1:' + scopeKey(scope);}
+  /** A Music choice is retained independently of the last library of any kind. */
+  async readMusic(scope: ShellScope): Promise<string | undefined> {
+    const key = 'next.last-music-library.v1:' + scopeKey(scope);
+    await this.pending.get(key);
+    return this.storage.change(key, raw => ({record: raw, value: validId(raw) ? raw : undefined}));
+  }
+  rememberMusic(scope: ShellScope, libraryId: string): Promise<void> {
+    if (!validId(libraryId)) return Promise.reject(new Error('invalid_library_identity'));
+    const key = 'next.last-music-library.v1:' + scopeKey(scope);
+    const write = (this.pending.get(key) ?? Promise.resolve()).catch(() => {}).then(() => this.storage.change(key, () => ({record: libraryId, value: undefined})));
+    this.pending.set(key, write);
+    void write.finally(() => {if (this.pending.get(key) === write) this.pending.delete(key);}).catch(() => {});
+    return write;
+  }
   async read(scope: ShellScope): Promise<string | undefined> {
     const key = this.key(scope);
     await this.pending.get(key);

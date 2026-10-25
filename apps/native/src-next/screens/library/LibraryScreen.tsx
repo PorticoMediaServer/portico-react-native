@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
-import {BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type TextStyle} from 'react-native';
+import {BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent, type StyleProp, type TextStyle} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
@@ -8,6 +8,8 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {BrowseNode} from '../../../../../packages/client-core/src/browse';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
+import {MusicMixesRow} from '../destinations/music/MusicMixesRow';
+import {TVMusicDiscover} from '../destinations/music/TVMusicDiscover';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {AmbientArt, Artwork} from '../../kit/artwork';
@@ -70,6 +72,8 @@ export type NativeLibraryScreenProps = Readonly<{
   actions: NativeLibraryActions;
   selection?: NativeLibrarySelectionPort;
   owner: boolean;
+  /** Home's Mixes More opens this library's Discover and lands on the Mixes row. */
+  mixAnchor?: boolean;
 }>;
 const noSubscribe = () => () => {};
 const noSelection = () => undefined;
@@ -244,8 +248,20 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   // tablet4/5: the filter panel is a split view on expanded and a panel over the
   // grid on medium, so the route owns the draft that both the pane and the grid read.
   const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
+  const discoverScroll = useRef<ScrollView>(null), mixAnchored = useRef(false), mixAnchorY = useRef<number | undefined>(undefined);
   const filterOpening = useRef(0), filtersRef = useRef<NativeLibraryFilterDraft>(), [overClosing, setOverClosing] = useState(false);
   const filterState = useSyncExternalStore(filterDraft?.subscribe ?? noSubscribe, filterDraft?.getSnapshot ?? noFilterSnapshot);
+  useEffect(() => {if (active.intent !== 'restore') mixAnchored.current = false;}, [state.library.id, active.revision, active.intent]);
+  const scrollToMixes = () => {
+    const mixes = runtime.mixes?.getSnapshot();
+    if (!props.mixAnchor || mixAnchored.current || !active.visible || active.intent === 'restore'
+      || mixAnchorY.current === undefined || mixes?.phase !== 'ready' || !mixes.rows.length) return;
+    mixAnchored.current = true;
+    discoverScroll.current?.scrollTo({y: Math.max(0, mixAnchorY.current - 8), animated: false});
+  };
+  const anchorMixes = (event: LayoutChangeEvent) => {
+    mixAnchorY.current = event.nativeEvent.layout.y; scrollToMixes();
+  };
   const openFilters = useCallback(() => {
     filtersRef.current?.dispose(); filterOpening.current++;
     const next = destination.createFilters();
@@ -335,7 +351,10 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     }} onMarkAll={actions.markAll && state.collection ? markAll : undefined}/>;
   const select = selection && <Button testID="library-select-header" variant="text" size="compact" icon="i-check" style={{height: 44}} onPress={selection.start}>{defaultI18n.t('next.selection.select')}</Button>;
   const screenGutter = tabletLayout ? expanded ? 32 : 28 : theme.gutter;
-  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient}>{tabs}</LibraryHeader>
+  const songCount = state.library.kind === 'music' ? summaries.libraries.find(library => library.id === state.library.id)?.summary.counts.find(part => part.kind === 'song') : undefined;
+  const musicCount = songCount && <Text style={[browseType(theme, 22, 400), {marginLeft: 'auto', color: theme.colors.textTertiary}]}>
+    {defaultI18n.t(songCount.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: songCount.count, pivot: 'songs'})}</Text>;
+  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient} menu={musicCount}>{tabs}</LibraryHeader>
     : theme.platform === 'phone' ? <LibraryCompactHeader switcher={switcher} menu={menu} wash={washed}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</LibraryCompactHeader>
     : expanded ? <LibraryExpandedHeader name={state.library.name} switcher={switcher} menu={menu} ambient={ambient} selection={select}>{tabs}</LibraryExpandedHeader>
@@ -376,9 +395,12 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
           </View>
           : loading ? <LibraryLoading theme={theme} width={theme.isTV ? dimensions.width : contentWidth} height={dimensions.height} tablet={tabletLayout} expanded={expanded} elapsedMs={loadingElapsed}/>
           : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)}/>
-          : state.tab.shows === 'rows' ? <ScrollView>
+          : theme.isTV && state.library.kind === 'music' && state.tab.id === 'discover' ? <TVMusicDiscover
+            destination={destination} state={state} runtime={runtime} active={active} anchor={props.mixAnchor} onEntered={onEntered}
+            renderEntry={(entry, onFocus) => <LibraryCard entry={entry} width={200} runtime={runtime} actions={actions} focusId={entry.id} disabled={!active.visible} onFocus={onFocus}/>}/>
+          : state.tab.shows === 'rows' ? <ScrollView ref={discoverScroll}>
             {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
-            {state.discover.appended.map(section => <View key={section.id}>
+            {state.discover.appended.map((section, index) => <View key={section.id}>
             <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: screenGutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
             <ScrollView horizontal scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: screenGutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}
               onScroll={event => {
@@ -388,7 +410,14 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
               }}>
               {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
             </ScrollView>
-          </View>)}</ScrollView> : null}
+            {!theme.isTV && state.library.kind === 'music' && index === 0 && runtime.mixes ? <View onLayout={anchorMixes}>
+              <MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
+            </View> : null}
+          </View>)}
+            {!theme.isTV && state.library.kind === 'music' && !state.discover.appended.length && runtime.mixes ? <View onLayout={anchorMixes}>
+              <MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
+            </View> : null}
+          </ScrollView> : null}
       </View>
       {docked && <View testID="library-filters-dock" style={{width: libraryFiltersDockWidth, backgroundColor: theme.colors.raised,
         borderLeftWidth: 1, borderLeftColor: alpha(theme.colors.text, .07)}}>{panel}</View>}

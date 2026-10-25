@@ -10,7 +10,6 @@ import {PhoneAlbumScreen, PhoneArtistScreen} from './PhoneMusicScreens';
 import {createMusicPlaylistPicker, type MusicPlaylistPickerHandle} from './MusicPlaylistPicker';
 import {nativeDownloadRequest} from '../../watch/download-request';
 import {askNativeDownload} from '../../downloads/request';
-import './MusicDiscoverRoute';
 
 type Page = Readonly<{key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
 

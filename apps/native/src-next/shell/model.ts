@@ -8,7 +8,7 @@ export type ShellDestination = Readonly<
   | {kind: 'home' | 'libraries' | 'live' | 'saved' | 'settings'}
   /** An optional initial query seeds one ordinary Search route; the screen owns later edits. */
   | {kind: 'search'; query?: string}
-  | {kind: 'library'; libraryId: string}
+  | {kind: 'library'; libraryId: string; /** Open the authored Discover pivot; Home Mixes More uses it. */ tab?: 'discover'; /** Scroll to the profile Mixes row once its data mounts. */ anchor?: 'mixes'}
 >;
 export type ShellTab = Readonly<{id: 'home' | 'search' | 'libraries' | 'live' | 'saved'; icon: IconName; message: 'web.shell.home' | 'web.shell.search' | 'pins.libraries' | 'search.chip.liveTV' | 'saved.title'}>;
 

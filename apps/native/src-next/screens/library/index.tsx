@@ -9,6 +9,7 @@ import {LibraryScreen, type NativeLibraryActions, type NativeLibrarySelectionPor
 import {NativeLibraryDestination} from './model';
 import {NativeLibraryDirectory} from './directory';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
+import {libraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {NativeReadingLibraryScreen} from '../read/ReadingLibrary';
 import {createNativeLibraryPlaySelection} from './play-selection';
 import {createNativeTVLibraryNamingStore, nativeTVLibraryActions, nativeTVNamingPanelId, NativeTVLibrarySurface} from './tv-library';
@@ -26,7 +27,7 @@ export type NativeLibraryRendererPorts = Readonly<{
  * ID returns no screen here; the shell's authorized overview handles it. */
 export function createNativeLibraryRenderer(context: NativeShellBootstrapContext, ports: NativeLibraryRendererPorts): NativeRouteRenderer & {dispose: () => void} {
   const lifetime = nativeDestinationLifetime(context);
-  let disposed = false, selected: Readonly<{id: string; kind: string; name: string; destination: NativeLibraryDestination; actions: NativeLibraryActions; selection?: NativeLibrarySelectionPort}> | undefined;
+  let disposed = false, selected: Readonly<{id: string; kind: string; name: string; tab?: LibraryTabId; opening: object; destination: NativeLibraryDestination; actions: NativeLibraryActions; selection?: NativeLibrarySelectionPort}> | undefined;
   // TV owns exactly one extra surface for a Library route: the F-LIB-52 Save
   // view name keyboard. Other platforms keep their own sheet unchanged.
   let tvNaming: NativeTVLibraryNamingStore | undefined;
@@ -46,17 +47,20 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
         return <NativeReadingLibraryScreen key={id} context={context} runtime={runtime} libraryId={id} title={library.name} labels={ports.labels}
           onBack={() => runtime.onDestination({kind: 'libraries'})}/>;
       }
-      if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name) {
+      const openingTab = route.destination.tab === 'discover' ? libraryTab(library.kind, 'discover') : undefined;
+      if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name || selected.tab !== openingTab?.id
+        || openingTab && selected.opening !== route.destination) {
         retireSelected();
-        const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library,
+        const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, ...(openingTab ? {tab: openingTab} : {}),
           current: () => current() && context.libraries().some(value => value.id === id && value.kind === library.kind)});
         const actions = typeof ports.actions === 'function' ? ports.actions(destination) : ports.actions;
-        selected = {id, kind: library.kind, name: library.name, destination,
+        selected = {id, kind: library.kind, name: library.name, opening: route.destination, ...(openingTab ? {tab: openingTab.id} : {}), destination,
           actions: Platform.isTV ? nativeTVLibraryActions(actions, tvNamingStore(), destination) : actions,
           selection: ports.selection?.(destination)};
       }
       const page = <LibraryScreen key={id} destination={selected.destination} runtime={runtime} directory={directory} libraries={context.libraries()}
-        activation={ports.activation(id)} labels={ports.labels} actions={selected.actions} selection={selected.selection} owner={context.session()?.viewer.role === 'owner'}/>;
+        activation={ports.activation(id)} labels={ports.labels} actions={selected.actions} selection={selected.selection} owner={context.session()?.viewer.role === 'owner'}
+        mixAnchor={route.destination.anchor === 'mixes'}/>;
       return tvNaming ? <NativeTVLibrarySurface key={id} library={page} naming={tvNaming} panelId={nativeTVNamingPanelId(context.authority(), id)}/> : page;
     },
     dispose() {if (disposed) return; disposed = true; retireSelected(); tvNaming?.dispose(); tvNaming = undefined; directory.dispose();},

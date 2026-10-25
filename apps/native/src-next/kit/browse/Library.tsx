@@ -5,6 +5,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable} from '../controls';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {MenuRow, Popover} from '../overlays';
+import type {FocusRef} from '../overlays';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
 import {alpha, browseType} from './presentation';
@@ -50,9 +51,9 @@ export function StickyBrowseHeader({name, switcher, menu, ambient, children, onL
 }
 
 /** Its trigger can be the centred phone name, or only the chevron beside a large header. */
-export function LibrarySwitcher({libraries, value, onValueChange, open: suppliedOpen, onOpenChange, trigger = 'name', testID}: {
+export function LibrarySwitcher({libraries, value, onValueChange, open: suppliedOpen, onOpenChange, trigger = 'name', testID, returnFocusRef}: {
   libraries: readonly LibraryChoice[]; value: string; onValueChange: (id: string) => void;
-  open?: boolean; onOpenChange?: (open: boolean) => void; trigger?: 'name' | 'chevron'; testID?: string;
+  open?: boolean; onOpenChange?: (open: boolean) => void; trigger?: 'name' | 'chevron'; testID?: string; returnFocusRef?: FocusRef;
 }) {
   const theme = useTheme(), anchorRef = useRef<View>(null), [localOpen, setLocalOpen] = useState(false);
   const open = suppliedOpen ?? localOpen, current = libraries.find(library => library.id === value);
@@ -65,7 +66,7 @@ export function LibrarySwitcher({libraries, value, onValueChange, open: supplied
         <Icon name="i-down" size={theme.isTV ? 30 : trigger === 'chevron' ? 22 : 16} color={theme.isTV ? theme.colors.textTertiary : theme.colors.text} style={{transform: [{rotate: open ? '180deg' : '0deg'}]}}/>
       </View>
     </Focusable>
-    <Popover testID={testID ? `${testID}-surface` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.switchLibrary')} accessibilityLabel={t('next.browse.native.switchLibrary')} placement="bottom-center" width={theme.isTV ? 520 : 252} offset={4} modal backdropOpacity={.62}>
+    <Popover testID={testID ? `${testID}-surface` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={returnFocusRef ?? anchorRef} title={t('next.browse.native.switchLibrary')} accessibilityLabel={t('next.browse.native.switchLibrary')} placement="bottom-center" width={theme.isTV ? 520 : 252} offset={4} modal backdropOpacity={.62}>
       {libraries.filter(library => !theme.isTV || library.tv !== false).map(library => <MenuRow focusId={library.id} testID={testID ? `${testID}-library-${encodeURIComponent(library.id)}` : undefined} key={library.id} label={library.name} trailing={library.count} selected={library.id === value} accessibilityRole="radio" accessibilityState={{checked: library.id === value}} variant={theme.isTV ? 'tv' : 'compact'} onPress={() => {onValueChange(library.id); setOpen(false);}}/>)}
     </Popover>
   </>;

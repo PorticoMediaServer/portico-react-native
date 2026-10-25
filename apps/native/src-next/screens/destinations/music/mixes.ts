@@ -16,7 +16,8 @@ export type NativeMusicMixesPort = Readonly<{
   subscribeRevision: (listener: () => void) => () => void;
   getRevision: () => number;
   load: () => Promise<void>;
-  play: (row: NativeMusicMixRow, caller: MusicMixLifetime) => Promise<void>;
+  play: (row: NativeMusicMixRow, caller: MusicMixLifetime, shuffle?: boolean) => Promise<void>;
+  save: (row: NativeMusicMixRow, caller: MusicMixLifetime) => Promise<void>;
   /** The route and revision that committed the row drawing these cards; undefined off Home/Discover. */
   captureCaller: () => NativeMusicMixesCaller | undefined;
   /** The canonical controller's retirement, tied to the shell session that made it. */
@@ -89,7 +90,7 @@ export function createNativeMusicMixes(options: Options): NativeMusicMixesPort {
     getRevision: options.revision,
     load: () => controller.load(),
     captureCaller: () => disposed ? undefined : options.captureCaller(),
-    async play(row: NativeMusicMixRow, caller: MusicMixLifetime) {
+    async play(row: NativeMusicMixRow, caller: MusicMixLifetime, shuffle = false) {
       refresh();
       const mix = currentRows.get(row.id);
       // The drawn card must still be the controller's own current row, never a later one.
@@ -97,7 +98,13 @@ export function createNativeMusicMixes(options: Options): NativeMusicMixesPort {
       if (caller.signal.aborted || !caller.isCurrent()) throw retired();
       const port = options.playback()?.cataloguePlayback?.();
       if (!port) throw Object.assign(new Error('music_playback_unavailable'), {code: 'music_playback_unavailable'});
-      await controller.play(mix, port, caller);
+      await controller.play(mix, shuffle ? {playSegments: (segments, options) => port.playSegments(segments.map((segment, index) =>
+        index === 0 ? {...segment, order: {mode: 'shuffle' as const}} : segment), options)} : port, caller);
+    },
+    async save(row: NativeMusicMixRow, caller: MusicMixLifetime) {
+      refresh(); const mix = currentRows.get(row.id);
+      if (disposed || !mix || projected.get(mix) !== row || caller.signal.aborted || !caller.isCurrent()) throw retired();
+      await controller.save(mix, caller);
     },
     dispose: stop,
   });

@@ -23,6 +23,7 @@ import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
 import {sameAuthority} from './model';
+import {createNativeMusicDiscoverNavigation} from './music-discover-navigation';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import {isReadingLibraryKind} from '../screens/read/platform';
@@ -249,7 +250,11 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   if (viewerAuthority !== 'local' && viewerAuthority !== 'hosted') throw failure('native_music_authority_required');
   const musicPrincipal = Object.freeze({serverId: musicScope.serverId, authority: viewerAuthority, accountId: musicScope.accountId, profileId: musicScope.profileId});
   const mixesLife = new AbortController();
-  const mixesRoute = (route: NativeShellRoute) => route.kind === 'music-discover' || route.kind === 'shell' && route.destination.kind === 'home';
+  const mixesRoute = (route: NativeShellRoute) => {
+    if (route.kind !== 'shell') return false;
+    const destination = route.destination;
+    return destination.kind === 'home' || destination.kind === 'library' && context.libraries().some(library => library.id === destination.libraryId && library.kind === 'music');
+  };
   const captureMixesCaller = (): NativeMusicMixesCaller | undefined => {
     const navigation = context.navigation.getSnapshot(), authority = navigation.authority, revision = navigation.revision;
     if (!mixesRoute(navigation.route)) return undefined;
@@ -263,6 +268,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const mixes = createNativeMusicMixes({api: context.api, principal: musicPrincipal, requestId: feedback.requestId, signal: mixesLife.signal,
     isCurrent: () => alive && context.current(), captureCaller: captureMixesCaller, subscribeRevision: context.navigation.subscribe,
     revision: () => context.navigation.getSnapshot().revision, playback: () => runtime?.playback, t: defaultI18n.t});
+  const musicNavigation = createNativeMusicDiscoverNavigation(context, () => runtime);
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
       railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
@@ -341,6 +347,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         {Platform.isTV && <NativeTVReceiver context={context} runtime={runtime}/>}
         {(routes.renderRetained(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
         {active}
+        {musicNavigation.render()}
         {(routes.renderOverlays(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
       </View> : null;
     },
@@ -371,8 +378,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
     },
     mixes,
-    musicDiscover: () => {if (context.current()) open({kind: 'music-discover'});},
+    musicDiscover: musicNavigation.open,
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; musicNavigation.dispose(); mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };
 }
