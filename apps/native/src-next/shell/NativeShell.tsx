@@ -158,6 +158,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const sideWidth = layout.kind === 'desktop' && sidebarExpanded ? 248 : mediumRailMetrics.width;
   const homeBottom = sideNavigation ? 92 : barHeight, pageBottom = sideNavigation ? 16 : barHeight;
   const railDestination = snapshot.railDestination ?? destination;
+  const notifications = snapshot.account.actions.find(action => action.id === 'notifications');
   const content = <>
     <Animated.View style={[{flex: 1}, sideNavigation ? {paddingLeft: sideWidth} : null, pageStyle]}>
       {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled}/>
@@ -171,6 +172,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       : <>
         {sideNavigation && <MediumRail expanded={layout.kind === 'desktop' && sidebarExpanded} onToggle={layout.kind === 'desktop' ? toggleSidebar : undefined} serverName={snapshot.serverName} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
           serverAction={snapshot.account.serverAction && {id: snapshot.account.serverAction.id, label: snapshot.account.serverAction.label, onPress: snapshot.account.serverAction.onPress}}
+          notificationAction={notifications && {label: notifications.label, onPress: notifications.onPress}}
           profileRef={avatarRef} short={dimensions.height - insets.top - insets.bottom < 800}
           onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
           onProfile={() => setAccountOpen(true)}/>}
