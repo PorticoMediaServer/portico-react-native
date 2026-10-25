@@ -1,8 +1,10 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, View, useWindowDimensions} from 'react-native';
+import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
-import {resolvePlayerPresentation, playerControlsRevealDeadline, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
+import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
 import {usePlatformPosture} from '../../platform/platformPosture';
+import {useMotion} from '../../kit/useMotion';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import type {NativeWatchNotice} from './playback-info';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
@@ -59,6 +61,7 @@ type Props = Readonly<{
 const noNoticeSubscription = () => () => {};
 const noticesOn = () => true;
 const positioned = (pane: PlayerRect) => ({position: 'absolute' as const, left: pane.x, top: pane.y, width: pane.width, height: pane.height});
+const rectKey = (pane: PlayerRect | undefined) => pane ? `${pane.x},${pane.y},${pane.width},${pane.height}` : '';
 
 /** Persistent chrome sibling above Accounts' single Surface. A transparent
  * measured surface pane is the only native-slot producer, including letterbox.
@@ -107,6 +110,26 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     presentation?.(layout);
   }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation, isTV, panelOpen]);
   const measuredCurrent = useCallback(() => ({authority: current(), fence: playback.getSnapshot().fence, window: Dimensions.get('window')}), [current, playback]);
+  // foldable9: a fold, unfold, turn or panel change re-lays out in one pass and
+  // fades the chrome and pages once for 250ms (none with reduced motion). The
+  // picture is the persistent surface below, never part of this fade, and a
+  // television keeps its own presentation untouched.
+  const motion = useMotion(), paneFade = useSharedValue(1), lastLayout = useRef<string>();
+  const layoutKey = layout ? [layout.mode, rectKey(layout.surface), rectKey(layout.controls), rectKey(layout.content), rectKey(layout.details), rectKey(layout.panel)].join('|') : undefined;
+  useLayoutEffect(() => {
+    if (isTV) return;
+    // Turning reduced motion on mid-fade finishes the running fade at once, even
+    // though the layout itself has not changed.
+    if (motion.reduce) {cancelAnimation(paneFade); paneFade.value = 1;}
+    if (!layoutKey || lastLayout.current === layoutKey) {if (layoutKey) lastLayout.current = layoutKey; return;}
+    if (lastLayout.current === undefined) {lastLayout.current = layoutKey; return;}
+    lastLayout.current = layoutKey;
+    cancelAnimation(paneFade);
+    paneFade.value = 0;
+    paneFade.value = withTiming(1, {...motion.timing(), duration: playerPostureCrossFadeMs});
+  }, [layoutKey, motion, paneFade, isTV]);
+  useEffect(() => () => {cancelAnimation(paneFade);}, [paneFade]);
+  const paneFadeStyle = useAnimatedStyle(() => ({opacity: paneFade.value}));
   if (!expanded || !fence || !layout?.surface) return null;
   const context: NativeWatchHostContext = {source, fence, layout, state, runtime,
     renderer: {width: television?.canvas.width ?? window.width, height: television?.canvas.height ?? window.height, scale: television?.canvas.scale ?? 1,
@@ -119,7 +142,8 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // full-window player (phone-player 6); the upright watch page keeps its own page.
   const postPlay = bindings.postPlay && !panelOpen && (isTV || layout.mode === 'full-window') && source.playback.phase === 'ended'
     && !(source.queue.view?.next.available === true) ? bindings.postPlay(context) : undefined;
-  const content = postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
+  const content = <Animated.View testID="watch-panes" pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
+    {postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
     {layout.episodes && <View testID="watch-episodes-pane" style={positioned(layout.episodes)} pointerEvents="box-none">{bindings.episodes?.(context)}</View>}
@@ -131,10 +155,11 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
     {panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
-  </>;
+    </>}
+  </Animated.View>;
   return <View testID="watch-host" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
     <NativeWatchPicture authority={authority} fence={fence} outlet={outlet} current={measuredCurrent} style={positioned(layout.surface)}/>
     {television ? <View testID="watch-tv-canvas" pointerEvents="box-none" style={{position: 'absolute', left: television.canvas.left, top: television.canvas.top,
-      width: television.canvas.width, height: television.canvas.height, transformOrigin: 'top left', transform: [{scale: television.canvas.scale}]}}>{content}</View> : content.props.children}
+      width: television.canvas.width, height: television.canvas.height, transformOrigin: 'top left', transform: [{scale: television.canvas.scale}]}}>{content}</View> : content}
   </View>;
 }

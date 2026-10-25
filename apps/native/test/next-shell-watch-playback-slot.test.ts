@@ -243,10 +243,13 @@ test('actual WatchHost panel/control geometry reaches the persistent layer throu
   const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide, Dimensions: {get: () => wide}},
     '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
-    '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline},
+    '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
     '../../platform/platformPosture': {usePlatformPosture: () => posture},
     './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
     './tv-presentation': {nativeWatchTVPresentation},
+    'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
+      withTiming: (value: any) => value, cancelAnimation: () => {}},
+    '../../kit/useMotion': {useMotion: () => ({reduce: false, timing: () => ({duration: 0})})},
   });
   const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide},
