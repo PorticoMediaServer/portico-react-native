@@ -224,7 +224,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       startFailurePresentation: Platform.isTV,
       captureStartContext: () => {const original = navigation!.getSnapshot();return () => current() && navigation!.getSnapshot() === original;},
-      subscribeStartContext: listener => navigation!.subscribe(listener),
+      subscribeStartContext: listener => {
+        const off = navigation!.subscribe(listener);listeners.add(listener);
+        return () => {off();listeners.delete(listener);};
+      },
       ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),
       settings: () => {
         // The sample-rate match is this device's own engine value, never the profile's.

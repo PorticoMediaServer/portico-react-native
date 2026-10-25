@@ -45,6 +45,9 @@ import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
 import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
+/** No credentials: exact admission principal generation for one original start. */
+const startupPrincipal = (session: import('../../../../../packages/client-core/src/index').LocalSession | undefined) => session
+  ? JSON.stringify([session.sessionFamilyId, session.tokenGeneration, session.authorizationHorizon, session.deviceId ?? null, session.installationId ?? null]) : undefined;
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 /** The retained binding a native view reports, compared field by field. */
 const sameBindingFact = (fact: unknown, binding: NativeBinding): boolean => {
@@ -100,6 +103,7 @@ export class NativePlaybackRuntime {
   private startEpoch = 0;
   private startContext?: () => boolean;
   private startAdmission = false;
+  private startPrincipal?: string;
   private readonly startLife = new AbortController();
   private startFailure?: NativePlaybackStartFailure;
   private capacityWait?: NativePlaybackCapacityWait;
@@ -178,7 +182,7 @@ export class NativePlaybackRuntime {
     const captureCurrent = (request: V1Request) => {
       const epoch = this.startEpoch, context = this.startContext, guard = this.http.capture(request.signal);
       if (!context || !request.signal || !this.startAdmission) return;
-      return () => this.currentAuthority() && epoch === this.startEpoch && !request.signal!.aborted && context() && guard?.() !== false;
+      return () => this.currentAuthority() && this.startOperationCurrent(epoch) && !request.signal!.aborted && context() && guard?.() !== false;
     };
     const capacity = capacityRetryHttp({http: this.http, life: this.startLife.signal, captureCurrent,
       isCurrent: () => this.currentAuthority(), timers: options.timers, foreground: () => !visibility.hidden(), onVisible: visibility.onVisible,
@@ -317,6 +321,7 @@ export class NativePlaybackRuntime {
   private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
     this.startContext = this.o.captureStartContext?.();
+    this.startPrincipal = startupPrincipal(this.o.session());
     this.startFailure = undefined;this.capacityWait = undefined;this.startAdmission = false;
     this.externalController?.abort(); this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle';
     this.offlineLifetimeOff?.(); this.offlineLifetimeOff = undefined;
@@ -332,6 +337,10 @@ export class NativePlaybackRuntime {
     this.transitionEpoch = undefined; this.preparing = false;
     this.expandAtStart = undefined;
     return epoch;
+  }
+
+  private startOperationCurrent(epoch: number): boolean {
+    return epoch === this.startEpoch && this.startPrincipal !== undefined && startupPrincipal(this.o.session()) === this.startPrincipal;
   }
 
   /** The same exact Home document/route guard is supplied to its selection controller. */
@@ -369,7 +378,7 @@ export class NativePlaybackRuntime {
   private async playSelection(request: HomeSelectionPlaybackRequest, current: (context: SelectionContext) => boolean) {
     this.assertSelection(request.context, request.signal, current);
     const segments = selectionSegments(request.items, true), epoch = this.beginOperation();
-    const valid = () => epoch === this.startEpoch && this.selectionCurrent(request.context, request.signal, current);
+    const valid = () => this.startOperationCurrent(epoch) && this.selectionCurrent(request.context, request.signal, current);
     const scoped = this.selectionScope(request.signal, valid);
     try {
       this.connect();
@@ -392,7 +401,7 @@ export class NativePlaybackRuntime {
       if (!valid()) throw new Error('stale_selection_context');
       return {queue};
     } catch (error) {
-      if (epoch === this.startEpoch && this.currentAuthority()) { await this.queue.cancel(); this.playback.leave(); this.changed(); }
+      if (this.startOperationCurrent(epoch) && this.currentAuthority()) { await this.queue.cancel(); this.playback.leave(); this.changed(); }
       throw error;
     } finally {
       scoped.close();
@@ -541,7 +550,7 @@ export class NativePlaybackRuntime {
     const abort = () => controller.abort();
     caller?.signal.addEventListener('abort', abort, {once: true});
     if (caller?.signal.aborted) abort();
-    const current = () => this.active() && epoch === this.startEpoch && !controller.signal.aborted && callerCurrent();
+    const current = () => this.active() && this.startOperationCurrent(epoch) && !controller.signal.aborted && callerCurrent();
     const scoped = this.selectionScope(controller.signal, current);
     try {
       await this.queue.cancel(); if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
@@ -644,7 +653,7 @@ export class NativePlaybackRuntime {
     const admitted = () => !signal.aborted && this.currentAuthority() && isCurrent();
     const retired = () => Object.assign(new Error('native_catalogue_retired'), {name: 'AbortError'});
     if (!admitted()) throw retired();
-    const epoch = this.beginOperation(), valid = () => epoch === this.startEpoch && admitted();
+    const epoch = this.beginOperation(), valid = () => this.startOperationCurrent(epoch) && admitted();
     const scoped = this.selectionScope(signal, valid);
     const assertCurrent = () => {if (!valid()) throw retired();};
     try {
@@ -659,7 +668,7 @@ export class NativePlaybackRuntime {
       const queue = await this.queue.playSegments(segments, {...options, signal: scoped.signal, isCurrent: valid});
       assertCurrent(); return queue;
     } catch (error) {
-      if (epoch === this.startEpoch && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
+      if (this.startOperationCurrent(epoch) && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
       throw error;
     } finally {
       scoped.close();
@@ -702,7 +711,7 @@ export class NativePlaybackRuntime {
   startGroup = async (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
     const admitted = () => !input.signal.aborted && this.currentAuthority() && input.isCurrent();
     if (!admitted()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});
-    const epoch = this.beginOperation(), valid = () => epoch === this.startEpoch && admitted();
+    const epoch = this.beginOperation(), valid = () => this.startOperationCurrent(epoch) && admitted();
     const scoped = this.selectionScope(input.signal, valid);
     const assertCurrent = () => {if (!valid()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});};
     try {
@@ -717,7 +726,7 @@ export class NativePlaybackRuntime {
       await this.queue.playSegments([{source: {query: input.query}, ...(input.shuffle ? {order: {mode: 'shuffle' as const}} : {})}], {signal: scoped.signal, isCurrent: valid});
       assertCurrent();
     } catch (error) {
-      if (epoch === this.startEpoch && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
+      if (this.startOperationCurrent(epoch) && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
       throw error;
     } finally {
       scoped.close();
@@ -733,12 +742,12 @@ export class NativePlaybackRuntime {
     let epoch = this.startEpoch;
     const menu = ++this.versionMenuEpoch, lifetime = selection.lifetime;
     const authority = authorityKey(selection.authority), expected = selection.expectedFence ? playbackFence(selection.expectedFence) : undefined;
-    const versionId = selection.versionId;
+    const versionId = selection.versionId, principal = startupPrincipal(this.o.session());
     const sameSource = () => expected ? sameFence(this.snapshot.fence, expected) : this.snapshot.fence === undefined;
     // A captured output belongs to preflight. Once this command owns the queue intent,
     // the core's generation/adoption guard must allow its own newly accepted output.
     let dispatching = false;
-    const current = () => !lifetime.signal.aborted && lifetime.isCurrent() && this.currentAuthority() && epoch === this.startEpoch && menu === this.versionMenuEpoch && authority === authorityKey(this.bound) && (dispatching || sameSource());
+    const current = () => !lifetime.signal.aborted && lifetime.isCurrent() && this.currentAuthority() && principal !== undefined && startupPrincipal(this.o.session()) === principal && epoch === this.startEpoch && menu === this.versionMenuEpoch && authority === authorityKey(this.bound) && (!dispatching || this.startOperationCurrent(epoch)) && (dispatching || sameSource());
     if (!current()) return;
     if (!wireId(input.target.itemId) || !wireId(versionId) || selection.options.itemId !== input.target.itemId || selection.options.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
     const scoped = this.selectionScope(lifetime.signal, current);
@@ -765,8 +774,8 @@ export class NativePlaybackRuntime {
   };
 
   private async startOffered(input: NativePlaybackStart, offered: PlaybackOptions, capabilities: unknown, epoch: number, versionId?: string, lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> {
-    const current = () => this.active() && epoch === this.startEpoch && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false;
-    if (!current()) return;
+    const current = () => this.active() && this.startOperationCurrent(epoch) && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false;
+    if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
     if (offered.itemId !== input.target.itemId || !offered.versions.length) throw new Error(serviceText('queuePlayer.unsupported'));
     this.serverKinds = serverPlaybackV1Kinds(capabilities);
     this.transitions = serverSupportsQueueTransitions(capabilities);
@@ -775,14 +784,14 @@ export class NativePlaybackRuntime {
       this.remember(old);
       if (this.snapshot.fence && sameFence(old.fence, this.snapshot.fence)) this.playback.pause();
     }
-    if (!current()) return; // A synchronous pause subscriber may retire the chooser or start another item.
+    if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'}); // A synchronous pause subscriber may retire the chooser or start another item.
     this.preparing = true;this.startAdmission = true;
     this.entry = input.entry.id === input.target.itemId ? input.entry : undefined;
     this.subject = this.entry ? subjectOf(this.entry) : undefined;
     this.options = offered;
     this.expanded = !audioKind(offered.kind);
     try {
-      if (!current()) return;
+      if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
       await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined,
         {...lifetime, isCurrent: current, propagateError: true});
     } catch (error) {

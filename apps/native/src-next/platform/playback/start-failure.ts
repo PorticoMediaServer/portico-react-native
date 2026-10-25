@@ -10,6 +10,8 @@ import {routePath} from '../../../../../packages/contracts/src/routes.ts';
 export type NativePlaybackStartFailure = Readonly<{
   error: unknown; code: string; scope: 'account' | 'server' | 'unknown'; retryable: boolean;
   streamLimit?: AccountStreamLimit;
+  /** Exhaustion stops automation, not this original refusal or explicit action. */
+  readonly automaticRecoveryExhausted: boolean;
   isCurrent(): boolean;
   retry(): Promise<void>;
   cancel(): void;
@@ -53,8 +55,9 @@ export function startFailureHttp(input: Readonly<{
     const assert = () => {if (!current()) throw retired();};
     const uncurrent = input.subscribeCurrent(() => {current();});
     let mine: NativePlaybackStartFailure | undefined, automaticRetries = 0, firstRecovery: number | undefined, automaticPending = false;
-    let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retainedRefusal: V1Response | undefined;
     const consumed = new Set<string>();let refreshes = 0;
+    const exhausted = () => automaticRetries >= 5 || refreshes >= 20 || firstRecovery !== undefined && now() - firstRecovery >= 30_000;
     const foreground = () => input.visibility?.hidden() === false;
     const waitForForeground = async () => {
       while (!foreground()) {
@@ -72,14 +75,16 @@ export function startFailureHttp(input: Readonly<{
     try {
       for (;;) {
         assert();
+        let response: V1Response | undefined, error: PlaybackApiError, originalError: unknown;
         if (automaticPending) {
           await waitForForeground();
-          if (firstRecovery === undefined || now() - firstRecovery > 30_000) throw retired();
+          // Keep the real refusal visible if the automatic continuation expired
+          // while suspended. No new send, key or retry budget is manufactured.
+          if (firstRecovery === undefined || now() - firstRecovery >= 30_000) response = retainedRefusal;
           automaticPending = false;
         }
-        let response: V1Response | undefined, error: PlaybackApiError, originalError: unknown;
         try {
-          response = await input.http.send(captured);
+          response ??= await input.http.send(captured);
           // A late success still belongs to the original core, which can clean up
           // its admitted session. Never turn it into another start or a failure.
           if (response.status < 400 || !current() || response.status === 401) return response;
@@ -96,6 +101,7 @@ export function startFailureHttp(input: Readonly<{
           originalError = failure;error = new PlaybackApiError(0, 'server_unreachable', 'same_request');
         }
         assert();
+        if (response) retainedRefusal = response;
         if (response?.status === 403 && !['transcode_not_allowed', 'transcoding_disabled'].includes(error!.code)) return response;
         // A revision, identity or validation refusal must reach its existing owner;
         // retaining it would disguise a required refresh as a replayable start.
@@ -151,10 +157,7 @@ export function startFailureHttp(input: Readonly<{
           if (automatic) {
             if (!foreground()) throw retired();
             const at = now();firstRecovery ??= at;
-            if (automaticRetries >= 5 || at - firstRecovery > 30_000) throw retired();
-            // Includes time spent suspended between a read and admission. An
-            // automatic attempt must not wake hours later with a renewed budget.
-            recoveryTimer ??= setTimeout(() => controller.abort(), 30_000);
+            if (automaticRetries >= 5 || at - firstRecovery >= 30_000) {input.publish(failure);return;}
             automaticRetries++;
             automaticPending = true;
           }
@@ -166,13 +169,13 @@ export function startFailureHttp(input: Readonly<{
           if (!foreground() || epoch !== visibilityEpoch) {invalidate();return;}
           // A complete fresh account read after the original offered row's Stop
           // acknowledgement (or its newer ended event) is the capacity evidence.
-          if (supportsRecovery(remaining, [row])) resume(true);
+          if (supportsRecovery(remaining, [row])) resume(false);
           else publishSessions(remaining.items, remaining.streamLimit);
         };
         // Hints, reconnect, foreground and the existing ended-event path all use
         // one read/admission gate. Never issue a POST from an event callback.
         const invalidate = () => {
-          if (scope !== 'account' || !shown()) return;
+          if (scope !== 'account' || !shown() || exhausted()) return;
           dirty = true;
           if (!foreground() || busy || refreshing || scheduled || refreshes >= 20) return;
           scheduled = true;
@@ -193,8 +196,8 @@ export function startFailureHttp(input: Readonly<{
           consumed.add(id);return true;
         };
         const failure: NativePlaybackStartFailure = Object.freeze({error: originalError, code: error!.code, scope,
-          retryable: !playbackFailurePermanent(error!), get streamLimit() {return limit;}, isCurrent: shown,
-          async retry() {check();if (scope === 'account' || playbackFailurePermanent(error!)) throw retired();resume(false);},
+          retryable: !playbackFailurePermanent(error!), get streamLimit() {return limit;}, get automaticRecoveryExhausted() {return exhausted();}, isCurrent: shown,
+          async retry() {check();if (scope === 'account' && !exhausted() || playbackFailurePermanent(error!)) throw retired();resume(false);},
           cancel() {if (shown()) {controller.abort();input.cancelStart();}},
           async remote() {
             check();if (scope !== 'account' || busy || refreshing) throw retired();const ticket = ++readSerial, epoch = visibilityEpoch;
@@ -202,7 +205,7 @@ export function startFailureHttp(input: Readonly<{
             // One initial guarded reconciliation covers a release whose hint
             // preceded attachment/baseline. Subsequent attempts need a new real
             // trigger, rather than a failure -> mount -> POST recursion.
-            if (automaticRetries === 0 && rows.streamLimit && foreground() && epoch === visibilityEpoch && supportsRecovery(rows, [])) {
+            if (!exhausted() && automaticRetries === 0 && rows.streamLimit && foreground() && epoch === visibilityEpoch && supportsRecovery(rows, [])) {
               resume(true);return Object.freeze({items: rows.items, nextCursor: ''});
             }
             publishSessions(rows.items, rows.streamLimit);
@@ -248,6 +251,6 @@ export function startFailureHttp(input: Readonly<{
           });
         } finally {offEnded();offCapacity();offVisible?.();offResync?.();offStatus?.();sessionListeners.clear();}
       }
-    } finally {if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);joined.close();uncurrent();if (active === mine && mine) {active = undefined;input.publish(undefined);}}
+    } finally {joined.close();uncurrent();if (active === mine && mine) {active = undefined;input.publish(undefined);}}
   }};
 }
