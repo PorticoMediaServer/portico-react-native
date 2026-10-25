@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {BackHandler, Dimensions, Platform, Text, View} from 'react-native';
+import {BackHandler, Dimensions, NativeModules, Platform, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {ManagedProfilesClient, type ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
@@ -15,6 +15,8 @@ import {nativeAppSessions, subscribeNativeAppSessions} from '../../platform/app-
 import {nativeProfileSelection} from '../../platform/profile-selection';
 import {NativeProfileRecovery, temporaryRecoveryApi} from '../../platform/profile-recovery';
 import {hostedUrl} from '../../platform/account-authority';
+import {profileAvatarUpload, profilePictureSource} from '../../platform/profile-avatars';
+import type {ProfileAvatar} from '../../../../../packages/client-core/src/identity-restrictions';
 import {nativeNetworkFetch} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
@@ -61,6 +63,20 @@ type ProfileLease = Readonly<{
 }>;
 
 const profileAbort = () => Object.assign(new Error('profile_command_retired'), {name: 'AbortError'});
+const avatarPick = () => NativeModules.PorticoImagePicker;
+async function pickProfilePicture(lease: ProfileLease): Promise<{bytes: Uint8Array; contentType: string} | undefined> {
+  const picker = avatarPick();
+  if (!lease.current() || !picker || typeof picker.pick !== 'function') return undefined;
+  const result = await picker.pick();
+  if (!lease.current() || !result || typeof result !== 'object') return undefined;
+  const value = result as {base64?: unknown; contentType?: unknown; bytes?: unknown};
+  if (typeof value.base64 !== 'string' || typeof value.contentType !== 'string' || typeof value.bytes !== 'number'
+    || !/^image\/(jpeg|png|webp)$/.test(value.contentType) || !Number.isSafeInteger(value.bytes) || value.bytes < 1 || value.bytes > 4 * 1024 * 1024
+    || value.base64.length !== 4 * Math.ceil(value.bytes / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.base64)) return undefined;
+  const binary = globalThis.atob(value.base64);
+  if (binary.length !== value.bytes) return undefined;
+  return {bytes: Uint8Array.from(binary, character => character.charCodeAt(0)), contentType: value.contentType};
+}
 
 function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapContext; route: NativeShellRoute; onBack: () => void}) {
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
@@ -110,8 +126,23 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     },
   });
   const scopedManager = (ticket: {lease: ProfileLease; controller: AbortController}) => new ManagedProfilesClient(scopedTransport(ticket), {authority: 'local', accountId: context.account.account.id, serverId: context.account.serverId});
-  const scopedIdentity = (ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket));
-  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller})), [context, lease]);
+  const scopedRaw = (ticket: {lease: ProfileLease; controller: AbortController}) => ({
+    requestRaw: async (path: string, method: string, options: Readonly<{headers?: Readonly<Record<string, string>>; body?: unknown; signal?: AbortSignal}> = {}) => {
+      if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
+      const raw = await ticket.lease.lifetime.request(next => context.api.requestRaw(path, method, {...options, signal: next}), ticket.controller.signal);
+      if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
+      return raw;
+    },
+  });
+  const scopedIdentity = (ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket), profileAvatarUpload(scopedRaw(ticket)));
+  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller}), profileAvatarUpload(scopedRaw({lease: lease!, controller}))), [context, lease]);
+  const [avatars, setAvatars] = useState<readonly ProfileAvatar[]>([]);
+  useEffect(() => {
+    if (!lease || !lease.current()) return;
+    const controller = new AbortController(), identity = scopedIdentity({lease, controller});
+    void identity.avatars(controller.signal).then(found => {if (lease.current() && !controller.signal.aborted) setAvatars(found);}, () => {});
+    return () => controller.abort();
+  }, [context, lease]);
   useEffect(() => {alive.current = true; const session = context.session();
     if (session) selection.current = nativeProfileSelection(session.viewer.serverId, session.sessionFamilyId);
     return () => {alive.current = false; selection.current?.dispose();};
@@ -182,6 +213,13 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     finally {starting.current = false;}
   };
   const back = () => {activeTicket.current?.abort(); setPinDraft(''); setPinAgain(''); if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  const avatarSource = (profileId: string) => {
+    const avatar = avatars.find(value => value.profileId === profileId);
+    const picture = profilePictureSource(context.api, current?.accessToken, avatar, 90);
+    return picture && typeof picture === 'object' && 'uri' in picture && typeof picture.uri === 'string'
+      ? {uri: picture.uri, cacheKey: `avatar:${profileId}:${avatar?.version ?? 0}`, ...(picture.headers ? {headers: picture.headers as Readonly<Record<string, string>>} : {})}
+      : undefined;
+  };
   const submitRename = () => {
     const target = edit?.kind === 'rename' ? edit.profile : undefined;
     if (!target || !nameDraft.trim()) return;
@@ -226,7 +264,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
       beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
         <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
-        <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
+        <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
           selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
             if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
         {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={() => {setAddName(''); setProblem(''); setNotice(''); setAddOpen(true);}}>{t('profile.add')}</Button></View> : null}
@@ -234,6 +272,18 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
           <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{active.name}{' · '}{t(active.primary ? 'profile.main' : 'profile.current')}</Text>
           <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
             <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => {setNameDraft(active.name); setProblem(''); setNotice(''); setEdit({kind: 'rename', profile: active});}}/>
+            {typeof NativeModules.PorticoImagePicker?.pick === 'function' ? <ProfileActionRow testID="profile-picture" label={t(avatars.some(value => value.profileId === active.id) ? 'profile.changePicture' : 'profile.addPicture')} onPress={() => {
+              void runAction(async ({identity}) => {
+                const picked = await pickProfilePicture(lease!);
+                if (!picked) return;
+                await identity.uploadAvatar(active.id, picked.bytes, picked.contentType);
+                const next = await identity.avatars();
+                if (lease!.current()) setAvatars(next);
+              });
+            }}/> : null}
+            {avatars.some(value => value.profileId === active.id) ? <ProfileActionRow testID="profile-remove-picture" label={t('profile.removePicture')} onPress={() => {
+              void runAction(async ({identity}) => {await identity.removeAvatar(active.id); const next = await identity.avatars(); if (lease!.current()) setAvatars(next);});
+            }}/> : null}
             <ProfileActionRow testID="profile-pin" label={t(active.pinRequired ? 'profile.changePin' : 'profile.setPin')} onPress={() => {setPinDraft(''); setPinAgain(''); setProblem(''); setNotice(''); setEdit({kind: 'pin', profile: active});}}/>
             {active.pinRequired ? <ProfileActionRow testID="profile-remove-pin" label={t('profile.removePin')} onPress={() => {setProblem(''); setNotice(''); setRemovePin(active);}}/> : null}
             <ProfileActionRow testID="profile-limits" label={t('profile.limits')} description={t('profile.limitsHelp')} onPress={() => {setProblem(''); setNotice(''); setLimitsProfile(active);}}/>
