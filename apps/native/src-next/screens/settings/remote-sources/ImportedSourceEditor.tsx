@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Linking, Text} from 'react-native';
-import {s3SourceDraft, driveServiceAccountDraft, driveOAuthDraft, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
+import {s3SourceDraft, driveServiceAccountDraft, driveOAuthDraft, cloudTokenDraft, type CloudTokenFields, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
@@ -13,7 +13,7 @@ type FormTicket = {live: boolean; scope: object};
 
 /** Connection fields remain local write-only drafts. Never replay credentials. */
 export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel, onSaved, form = 'imported'}: {
-  controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive' | 'driveOAuth'; t: typeof defaultI18n.t;
+  controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive' | 'cloud' | 'driveOAuth'; t: typeof defaultI18n.t;
   isCurrent: () => boolean; onCancel: () => void; onSaved: (source: RemoteSource) => void;
 }) {
   const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedDraft = useRef<Readonly<{name: string; remote: string; config: string}> | undefined>(undefined);
@@ -52,8 +52,10 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const oauthInput = oauth.current, oauthToken = oauthInput?.token;
   const oauthResult = useMemo(() => form === 'driveOAuth' && oauthInput && oauthToken ? driveOAuthDraft({...drive,
     clientId: oauthInput.clientId, clientSecret: oauthInput.clientSecret, token: oauthToken}) : undefined, [form, drive, oauthInput, oauthToken]);
+  const [cloud, setCloud] = useState<CloudTokenFields>({provider: 'onedrive', token: '', folder: ''});
+  const cloudResult = useMemo(() => form === 'cloud' ? cloudTokenDraft(cloud) : undefined, [form, cloud]);
   const driveResult = useMemo(() => form === 'drive' ? driveServiceAccountDraft(drive) : undefined, [form, drive]);
-  const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : oauthResult?.ok ? oauthResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, oauthResult]);
+  const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : cloudResult?.ok ? cloudResult.draft : oauthResult?.ok ? oauthResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, oauthResult, cloudResult]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [tested, setTested] = useState<RcloneTestResult>();
   const [program, setProgram] = useState<RcloneProgram>(), [providers, setProviders] = useState<readonly string[]>([]);
   const draft = useMemo(() => Object.freeze({name, remote: form !== 'imported' ? built?.remote ?? '' : remote, config: form !== 'imported' ? built?.config ?? '' : config}), [name, remote, config, built, form]);
@@ -121,7 +123,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     flight.current = true;
     const ticket = Object.freeze({draft, revision: renderedRevision}); saveTicket.current = ticket;
     const guard = () => admitted() && saveTicket.current === ticket && revision.current === ticket.revision;
-    retireOAuth(); setClientSecret(''); setRedirect(''); setConfig(''); setS3(value => ({...value, accessKey: '', secretKey: ''})); setDrive(value => ({...value, keyJson: ''})); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
+    retireOAuth(); setClientSecret(''); setRedirect(''); setCloud(value => ({...value, token: ''})); setConfig(''); setS3(value => ({...value, accessKey: '', secretKey: ''})); setDrive(value => ({...value, keyJson: ''})); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
     try {await controller.configureImported(source, ticket.draft, guard); if (guard()) finish();}
     catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
     finally {if (saveTicket.current === ticket) saveTicket.current = undefined; if (form !== 'driveOAuth' || renderedForm?.live && activeForm.current === renderedForm) flight.current = false; if (admitted()) setBusy(false);}
@@ -134,7 +136,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     finally {if (form !== 'driveOAuth' || renderedForm?.live && activeForm.current === renderedForm) flight.current = false; if (admitted()) setBusy(false);}
   };
   const editable = !busy && !recovery && !snapshot.busy;
-  return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' || form === 'driveOAuth' ? 'next.remoteSources.connectDrive' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
+  return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' || form === 'driveOAuth' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
       : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t('next.remoteSources.saveAndContinue')}</Button>}>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{program?.available && program.version
@@ -155,6 +157,18 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
         onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setS3(previous => ({...previous, [key]: value,
           ...((key === 'endpoint' || key === 'accessKey') ? {secretKey: ''} : {})}));}}/>)}
       {!built && Object.values(s3).some(value => value !== '') && <Problem message={t('next.remoteSources.s3Invalid')}/>}
+    </> : form === 'cloud' ? <>
+      <Select label={t('next.remoteSources.cloudProvider')} value={cloud.provider} disabled={!editable} options={[
+        {value: 'onedrive', label: t('next.remoteSources.cloudOneDrive')}, {value: 'dropbox', label: t('next.remoteSources.cloudDropbox')},
+      ]} onValueChange={value => {if (flight.current || !admitted() || value !== 'onedrive' && value !== 'dropbox') return; invalidate(); setCloud(previous => ({...previous, provider: value, token: ''}));}}/>
+      <TextField label={t('next.remoteSources.cloudToken')} description={t('next.remoteSources.cloudTokenHelp')} value={cloud.token}
+        editable={editable} multiline autoCapitalize="none" autoCorrect={false} textContentType="none"
+        onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setCloud(previous => ({...previous, token: value}));}}/>
+      {cloud.token !== '' && cloudResult && !cloudResult.ok && <Problem message={t(({json: 'next.remoteSources.cloudTokenNotJson', token: 'next.remoteSources.cloudTokenMissing',
+        client: 'next.remoteSources.cloudTokenClient', google: 'next.remoteSources.cloudTokenGoogle', folder: 'next.remoteSources.cloudFolderInvalid'} as const)[cloudResult.reason])}/>}
+      <TextField label={t('next.remoteSources.cloudFolder')} description={t('next.remoteSources.cloudFolderHelp')} value={cloud.folder}
+        editable={editable} autoCapitalize="none" autoCorrect={false}
+        onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setCloud(previous => ({...previous, folder: value}));}}/>
     </> : form === 'driveOAuth' ? <>
       <TextField label={t('next.remoteSources.driveClientId')} value={clientId} editable={editable} autoCapitalize="none" autoCorrect={false}
         onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setClientId(value); setClientSecret('');}}/>
