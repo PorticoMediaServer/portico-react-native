@@ -15,7 +15,7 @@ import type {EngineSetting} from '../../platform/playback/engine-choice';
 import {originalMayNotPlay} from './original-opens';
 import {closeNativeDownload, getNativeDownloadSnapshot, subscribeNativeDownload, type NativeDownloadRequest} from './request';
 
-type ContainerOptions = Readonly<{quality: string; label: string; available: boolean; estimated: boolean; estimatedBytes: number; unavailableCount: number}>;
+type ContainerOptions = Readonly<{quality: string; label: string; available: boolean; estimated: boolean; estimatedBytes: number; unavailableCount: number; sameAsOriginal?: boolean}>;
 
 /** The phone's drawn download sheet (collections 31a/32a-c): the server's real
  * quality menu, the whole-container episode policy, the sizes it will be, the
@@ -86,7 +86,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
   </Focusable>;
   const titleOption = (option: DownloadQualityOption) => qualityRow({quality: option.quality, label: option.label, available: option.available,
     size: option.available ? option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes) : downloadReasonMessage(option.reason ?? ''),
-    note: [option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter(Boolean).join(' · ') || undefined,
+    note: [option.available && option.sameAsOriginal ? t('quality.sameAsOriginal') : undefined, option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter(Boolean).join(' · ') || undefined,
     meta: busy === option.quality ? t('downloads.adding') : undefined});
   const engine = ((): EngineSetting | undefined => {try {const value = nativeDeviceSettings(context).read('playerEngine'); return value === 'native' || value === 'mpv' ? value : 'automatic';} catch {return undefined;}})();
   const cannotOpen = !!view && originalMayNotPlay(view.source.container, {platform: Platform.OS === 'ios' ? 'apple' : 'android',
@@ -107,7 +107,8 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
         {!done && !container && !view && error === undefined && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.checking')}</Text>}
         {view && !blocked && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{view.options.map(titleOption)}</View>}
         {container && choices && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{choices.map(option => qualityRow({quality: option.quality, label: option.label, available: option.available && !!deviceId,
-          size: option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes), meta: busy === option.quality ? t('downloads.adding') : undefined}))}</View>}
+          size: option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes),
+          note: option.available && option.sameAsOriginal ? t('quality.sameAsOriginal') : undefined, meta: busy === option.quality ? t('downloads.adding') : undefined}))}</View>}
         {storage != null && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.spaceLeft', {size: downloadBytes(storage)})}</Text>}
       </>}
     </View>
