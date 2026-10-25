@@ -3,7 +3,7 @@ import {View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import type {HomeSelectionController} from '../../../../packages/client-core/src/home-selection/index';
-import type {SelectionActionReason} from '../../../../packages/client-core/src/selection-model/index';
+import {selectionFourthAction, type SelectionActionReason} from '../../../../packages/client-core/src/selection-model/index';
 import {SelectionBar, SelectionPhoneActionBar, type SelectionBarProps} from '../kit/selection';
 import {useTheme} from '../kit/theme';
 import type {NativeShellRuntime} from './runtime';
@@ -25,9 +25,7 @@ export function HomeSelectionBars({controller, runtime, ownerTag, reportError}: 
   const theme = useTheme(), insets = useSafeAreaInsets();
   const [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   if (!snapshot.selection.active) return null;
-  const summary = snapshot.selection.summary;
-  const fourthSlot = summary.count > 0 && summary.types.length === 1 && summary.types[0].kind === 'episode'
-    && summary.types[0].count === summary.count ? 'watched' : 'myList';
+  const fourthSlot = selectionFourthAction(snapshot.selection.summary) === 'mark-watched' ? 'watched' : 'myList';
   const props: SelectionBarProps = {testID: theme.isTV && runtime ? tvFocusIds(runtime.getSnapshot().authority).surface('selection-bar') : undefined, count: snapshot.selection.summary.count, selectionLabel: selectedItemsLabel(snapshot.selection.summary), selectAllLabel: t('next.home.native.selectRow'),
     onSelectAll: () => controller.selectRow(), onCancel: () => {setMenu(null); controller.clear();},
     onAction: action => {const command = nativeSelectionCommand(action); if (command) {setMenu(null); void controller.execute(command).catch(reportError);}},
