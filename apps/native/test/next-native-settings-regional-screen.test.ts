@@ -37,6 +37,7 @@ async function fixture() {
     '../destinations': {NativeTVKeyboard: 'NativeTVKeyboard'},
     '../destinations/useEntryFocus': {useDestinationEntryFocus: () => {}},
     './Screen': {Screen: 'Screen', useScreenEntry: () => undefined, useScreenBack: () => {}},
+    '../../tv/auth/TVHandoff': {publicTVHandoffAddress: (value: string) => ({url: value, display: value, pathname: '/settings/profile', search: ''})},
   });
   const preferences = parsePreferenceSnapshot({deviceClass: 'mobile', registryRevision: 'regional-screen', registry: {revision: 'regional-screen', fields: [{key: 'region.locale', type: 'locale', default: 'en-US', group: 'region', labelKey: 'preferences.region.locale', scopes: ['profile-server']}]} ,
     documents: ['profile-server', 'profile-device-class'].map(scope => ({scope, revision: 1, activeRevision: 1, digest: 'd'.repeat(64), values: {}})), effective: {'region.locale': 'en-US'}, effectiveSource: {'region.locale': 'default'}, clampedFields: []});

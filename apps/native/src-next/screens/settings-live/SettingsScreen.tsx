@@ -5,7 +5,7 @@ import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, re
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
 import {COMMON_LANGUAGES, languageName, MAX_LANGUAGES} from '../../../../../packages/client-core/src/presentation/language-list';
 import {localeChoices} from '../../../../../packages/client-core/src/presentation/region-choices';
-import {defaultI18n} from '../../../../../packages/i18n/src';
+import {catalogue, defaultI18n, enUS} from '../../../../../packages/i18n/src';
 import {resetRecommendations} from '../../../../../packages/client-core/src/recommendation-feedback';
 import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
@@ -15,6 +15,7 @@ import {SettingsRow, SettingsSearchResults, LanguageList, type LanguageOption} f
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {StateView} from '../../kit/states';
+import {stateSentenceParts} from '../../kit/states/sentence-parts';
 import {Dialog, Menu} from '../../kit/overlays';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
@@ -35,6 +36,8 @@ import {nativeRouteCrypto} from '../../platform/server-connections';
 import {NativeServerTroubleshooting} from './server/TroubleshootingPage';
 import {NativeServerStorage} from './server/StoragePage';
 import {NativeServerIntegrations} from './server/IntegrationsPage';
+import QRCode from 'react-native-qrcode-svg';
+import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
 
 /** Same icon normalization as settings.html: strip one leading i-, look up, fall back. */
 export function nativeSettingsIcon(name: string): IconName {
@@ -134,6 +137,13 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
 function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
+  // tv-more24: the TV hands anything that needs typing or a password to a phone or computer.
+  const settingsCapabilities = ports.settingsContext().capabilities;
+  const managesSignIn = settingsCapabilities.manageSignIn ?? (!!settingsCapabilities.localAccount && !settingsCapabilities.porticoMember);
+  const managementURL = (() => {
+    if (!(theme.isTV && page.id === 'profile' && managesSignIn)) return undefined;
+    try {return new URL('/settings/profile', ports.context.api.baseUrl).href;} catch {return undefined;}
+  })();
   // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
   const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string}>[]; apply: (value: string) => void}>>();
   const [languages, setLanguages] = useState<Readonly<{testID: string; title: string; help?: string; value: readonly LanguageOption[]; available: readonly LanguageOption[]; limit: number; apply: (value: readonly LanguageOption[]) => void}>>();
@@ -157,7 +167,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
   return <><FocusRegion id={region} entry={rowIds[0]} order={rowIds} orientation="vertical" edges={{left: column}}>
     {actionError !== undefined && <StateView {...runtime.error(actionError, () => setActionError(undefined))}/>}
-    {sections.map(section => <View key={section.id} style={{marginBottom: theme.isTV ? 30 : 24}}>
+    {sections.map(section => <React.Fragment key={section.id}><View style={{marginBottom: theme.isTV ? 30 : 24}}>
       {section.title && <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textTertiary, marginLeft: theme.isTV ? 24 : 0, marginBottom: 10}]}>{t(section.title)}</Text>}
       {section.description && <Text style={[shellType(theme.isTV ? 22 : 14), {color: theme.colors.textSecondary, marginBottom: 14}]}>{t(section.description)}</Text>}
       <View style={{backgroundColor: theme.colors.raised, borderRadius: theme.isTV ? 18 : 14}}>{section.rows.filter(visible).map((row, index) => {
@@ -166,7 +176,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         if (row.kind === 'server-setting') throw new Error('native_account_page_server_row');
         if (row.kind === 'action') {
           const target = nativeSettingsActionTarget(row.id);
-          return <SettingsRow key={id} testID={id} label={t(row.label)} description={row.help ? t(row.help) : undefined} first={index === 0} onPress={() => {
+          return <SettingsRow key={id} testID={id} destructive={row.destructive} label={t(row.label)} description={row.help ? t(row.help) : undefined} first={index === 0} onPress={() => {
             controller.lifetime.assert();
             if (target === 'linkTV') ports.accountActions.linkTV();
             else if (target === 'customizeHome') ports.context.navigation.open({kind: 'home-customize'}, ports.context.authority());
@@ -200,7 +210,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}</View>
-    </View>)}
+    </View>{managementURL && section.id === 'who' && <ManagementCard url={managementURL}/>}</React.Fragment>)}
     {page.sections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
     <Dialog testID="settings-action-confirm" open={confirmation !== undefined} onOpenChange={open => {if (!open && !actionBusy) setConfirmation(undefined);}} initialFocusRef={cancel}
@@ -218,4 +228,19 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       {languages && <LanguageList testID={languages.testID} label={languages.title} value={languages.value} available={languages.available} limit={languages.limit} onChange={languages.apply}/>}
     </Dialog>}
   </>;
+}
+
+/** tv-more24: the frame's QR card, inline on the profile page. The public URL and its
+ * displayed form come from the accounts handoff so no credential or code can enter it. */
+function ManagementCard({url}: {url: string}) {
+  const theme = useTheme(), address = publicTVHandoffAddress(url), t = defaultI18n.t;
+  return <View testID="settings-management-handoff" style={{flexDirection: 'row', alignItems: 'center', gap: 36, paddingVertical: 26, paddingHorizontal: 30,
+    borderRadius: 18, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: `${theme.colors.line}B3`, marginBottom: 30}}>
+    <View style={{width: 224, height: 224, padding: 12, borderRadius: 14, backgroundColor: theme.colors.white}}><QRCode value={address.url} size={200}/></View>
+    <View style={{flex: 1}}>
+      <Text style={[shellType(28, 700, 36.4), {color: theme.colors.text, marginBottom: 14}]}>{t('account.tvHandoffTitle')}</Text>
+      <Text style={[shellType(22, 400, 33), {color: theme.colors.textSecondary}]}>{stateSentenceParts(catalogue(defaultI18n.locale)['settings.openOnWeb'] ?? enUS['settings.openOnWeb'], {url: address.display}, ['url']).map((part, index) => <Text key={index}
+        style={part.strong ? {color: theme.colors.text, fontWeight: '700'} : undefined}>{part.text}</Text>)}</Text>
+    </View>
+  </View>;
 }
