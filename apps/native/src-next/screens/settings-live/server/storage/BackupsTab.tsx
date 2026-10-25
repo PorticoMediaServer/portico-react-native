@@ -14,6 +14,7 @@ import type {NativeSettingsLivePorts} from '../../ports';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
 import {NativeScreenLifetime, screenScopeEnded} from '../../lifetime';
 import {nativeStorageOwner} from './space-source';
+import {NativeBackupFolder} from './BackupFolder';
 import {NativeBackupProtection} from './BackupProtection';
 
 type Translate = typeof defaultI18n.t;
@@ -23,7 +24,7 @@ function createBackups(context: NativeShellBootstrapContext, operationId: () => 
   const api = {request: <T,>(path: string, method?: string, body?: unknown, caller?: AbortSignal): Promise<T> => current()
     ? lifetime.request(signal => context.api.request<T>(path, method, body, signal), caller) : Promise.reject(screenScopeEnded())};
   const source = new SettingsBackupSource(api, context.authority().serverId, current, () => {for (const listener of listeners) listener();}, operationId);
-  return {context, source, current, backupSubmitted: false, removeUncertain: false,
+  return {context, source, api, current, backupSubmitted: false, removeUncertain: false,
     subscribe: (listener: () => void) => {listeners.add(listener);return () => {listeners.delete(listener);};},
     failure: (error: unknown) => {if (isAuthenticationFailure(error)) {const owned = current();source.dispose();lifetime.dispose();if (owned) reportError(error);}},
     dispose: () => {source.dispose();lifetime.dispose();listeners.clear();}};
@@ -92,6 +93,7 @@ function Backups({group, t}: {group: Group; t: Translate}) {
   return <View style={{marginTop:22,gap:12}} testID="server-storage-backups">
     <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
     <Text style={[shellType(13,400,18),{color:theme.colors.textSecondary}]}>{t('web.maintenance.backupsLedePlain')}</Text>
+    {state.settings && <NativeBackupFolder source={source} settings={state.settings} api={group.api} current={group.current} failure={group.failure} t={t}/>}
     {state.settings && <NativeBackupProtection source={source} settings={state.settings} current={group.current} failure={group.failure} t={t}/>}
     {problem && <Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(uncertain ? 'error.unconfirmedChange' : 'error.unavailable')}</Text>}
     {running && <Text style={{color:theme.colors.textSecondary}}>{t('web.maintenance.backingUp')}{fraction === undefined ? '' : ` ${Math.round(fraction * 100)}%`}</Text>}
