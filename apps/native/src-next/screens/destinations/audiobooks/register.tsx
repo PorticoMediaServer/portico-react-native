@@ -5,6 +5,7 @@ import {nativeDestinationLifetime} from '../lifetime';
 import {createNativeEntryActions} from '../entry-actions';
 import {NativeAudiobookController} from './model';
 import {BookScreen} from './BookScreen';
+import {AuthorSeriesScreen} from './AuthorSeriesScreen';
 
 type Page = Readonly<{key: string; entry: ContentEntry; controller: NativeAudiobookController; actions: ReturnType<typeof createNativeEntryActions>}>;
 
@@ -14,12 +15,12 @@ export function createNativeBookRenderer(context: NativeShellBootstrapContext): 
   let pages = new Map<string, Page>(), disposed = false;
   const current = () => !disposed && lifetime.current();
   const close = (page: Page) => {page.actions.dispose(); page.controller.dispose();};
-  const pageFor = (route: {kind: 'book'; entry: ContentEntry}): Page | undefined => {
-    if (!current() || route.entry.kind !== 'book' || !route.entry.libraryId) return;
+  const pageFor = (route: {kind: 'book' | 'audiobook'; entry: ContentEntry}): Page | undefined => {
+    if (!current() || route.entry.kind !== 'book' && route.entry.kind !== 'author' && route.entry.kind !== 'book_series' || !route.entry.libraryId) return;
     const key = JSON.stringify([route.entry.libraryId, route.entry.id]);
     let page = pages.get(key);
     if (!page) {
-      const controller = new NativeAudiobookController({context, kind: 'book', libraryId: route.entry.libraryId, id: route.entry.id});
+      const controller = new NativeAudiobookController({context, kind: route.entry.kind as 'book' | 'author' | 'book_series', libraryId: route.entry.libraryId, id: route.entry.id});
       const actions = createNativeEntryActions(context, {current: () => current() && context.navigation.getSnapshot().route === route,
         contains: entry => controller.contains(entry), subscribe: controller.subscribe});
       page = Object.freeze({key, entry: route.entry, controller, actions});
@@ -35,11 +36,14 @@ export function createNativeBookRenderer(context: NativeShellBootstrapContext): 
   };
   const renderer: NativeRouteRenderer = {
     render: (route, runtime) => {
-      if (route.kind !== 'book') return null;
+      if (route.kind !== 'book' && route.kind !== 'audiobook') return null;
       const page = pageFor(route);
       if (!page) return null;
-      return <BookScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions}
-        onBack={() => {if (current()) context.navigation.back(context.authority());}}/>;
+      const back = () => {if (current()) context.navigation.back(context.authority());};
+      const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open(entry.kind === 'book' ? {kind: 'book', entry} : {kind: 'audiobook', entry}, context.authority());};
+      return route.kind === 'book'
+        ? <BookScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} onBack={back}/>
+        : <AuthorSeriesScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
     },
     dispose: () => {
       if (disposed) return;
@@ -52,3 +56,4 @@ export function createNativeBookRenderer(context: NativeShellBootstrapContext): 
 }
 
 nativeShellRoutes.registerRoute('book', createNativeBookRenderer);
+nativeShellRoutes.registerRoute('audiobook', createNativeBookRenderer);

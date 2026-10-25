@@ -21,7 +21,7 @@ class FakeLibraryContentService {
 
 async function controller(overrides: any = {}) {
   const starts: any[] = [], writes: any[] = [];
-  FakeLibraryContentService.page = {phase: 'ready', error: null, sections: [{id: 'chapters', entries: chapters}, {id: 'files', entries: []}],
+  FakeLibraryContentService.page = overrides.page ?? {phase: 'ready', error: null, sections: [{id: 'chapters', entries: chapters}, {id: 'files', entries: []}],
     projection: {entity, sections: [{id: 'chapters', entries: chapters}], listening}};
   const {NativeAudiobookController} = await screenModule(new URL('../src-next/screens/destinations/audiobooks/model.ts', import.meta.url), {
     react: {default: {}},
@@ -33,7 +33,7 @@ async function controller(overrides: any = {}) {
       setContainerState: async (_api: any, _kind: any, _id: any, input: any) => {writes.push(input); return {revision: 5, watched: input.watched};}},
   });
   const context = {api: {}, playback: {start: async (input: any) => {starts.push(input);}}};
-  const value = new NativeAudiobookController({context, kind: 'book', libraryId: 'books', id: 'book-1', ...overrides});
+  const value = new NativeAudiobookController({context, kind: overrides.kind ?? 'book', libraryId: overrides.libraryId ?? 'books', id: overrides.id ?? 'book-1'});
   return {value, starts, writes};
 }
 
@@ -65,6 +65,21 @@ test('start over starts the first real chapter at zero', async () => {
   await value.startOver();
   assert.equal(starts[0].entry.id, 'file-1:1');
   assert.deepEqual(starts[0].target, {itemId: 'file-1', startSeconds: 0});
+  value.dispose();
+});
+
+test('an author page uses the canonical book rows and resumes the book with progress', async () => {
+  const authorEntity = {id: 'author-1', libraryId: 'books', kind: 'author', title: 'Andy Weir', count: 1, duration: 5400, narrators: ['R. C. Bray']};
+  const book = {...entity, bookProgress: {bookId: 'book-1', itemId: 'file-1', partPositionMs: 500000, positionMs: 500000, durationMs: 5400000, remainingMs: 4900000}};
+  const page = {phase: 'ready', error: null, sections: [{id: 'books', entries: [book], totalCount: 1, nextCursor: '', start: 0}],
+    projection: {entity: authorEntity, sections: [{id: 'books', entries: [book], totalCount: 1, nextCursor: '', start: 0}]}};
+  const {value, starts} = await controller({kind: 'author', id: 'author-1', page});
+  await value.load();
+  assert.equal(value.getSnapshot().entity?.kind, 'author');
+  assert.equal(value.getSnapshot().entity?.count, 1);
+  assert.equal(value.contains({id: 'book-1', libraryId: 'books', kind: 'book', title: 'The Martian'}), true);
+  await value.resumeBook(book);
+  assert.deepEqual(starts[0].target, {itemId: 'file-1', startSeconds: 500});
   value.dispose();
 });
 

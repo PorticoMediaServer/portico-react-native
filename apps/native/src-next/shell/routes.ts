@@ -9,6 +9,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'title'; entry: ContentEntry}
   | {kind: 'music'; entry: ContentEntry}
   | {kind: 'book'; entry: ContentEntry}
+  | {kind: 'audiobook'; entry: ContentEntry}
   | {kind: 'person'; personId: string}
   | {kind: 'read'; itemId: string; sourceId: string}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
@@ -37,7 +38,8 @@ export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.free
  * entry keeps the existing title route exactly. */
 export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute =>
   entry.kind === 'album' || entry.kind === 'artist' ? Object.freeze({kind: 'music', entry})
-    : entry.kind === 'book' ? Object.freeze({kind: 'book', entry}) : titleRoute(entry);
+    : entry.kind === 'book' ? Object.freeze({kind: 'book', entry})
+      : entry.kind === 'author' || entry.kind === 'book_series' ? Object.freeze({kind: 'audiobook', entry}) : titleRoute(entry);
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
@@ -65,7 +67,7 @@ export function nativeDestinationActivation(navigation: NativeShellNavigation, d
 
 /** Highlight the title's actual authorized library while retaining its mounted origin for Back. */
 export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
-  const libraryId = snapshot.route.kind === 'title' || snapshot.route.kind === 'music' || snapshot.route.kind === 'book' ? snapshot.route.entry.libraryId : undefined;
+  const libraryId = snapshot.route.kind === 'title' || snapshot.route.kind === 'music' || snapshot.route.kind === 'book' || snapshot.route.kind === 'audiobook' ? snapshot.route.entry.libraryId : undefined;
   return libraryId && libraries.some(library => library.id === libraryId) ? {kind: 'library', libraryId} : snapshot.destination;
 }
 

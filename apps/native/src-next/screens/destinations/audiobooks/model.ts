@@ -37,7 +37,8 @@ export class NativeAudiobookController {
     return nativeDestinationLifetime(this.options.context).scope;
   }
   getSnapshot = (): AudiobookPage => this.state;
-  contains = (entry: ContentEntry): boolean => this.current() && (entry.id === this.options.id || this.chapters().some(value => value.id === entry.id));
+  contains = (entry: ContentEntry): boolean => this.current() && (entry.id === this.options.id || this.chapters().some(value => value.id === entry.id)
+    || this.books().some(value => value.id === entry.id));
   subscribe = (listener: () => void): (() => void) => {
     if (this.disposed) return () => {};
     this.listeners.add(listener);
@@ -89,6 +90,15 @@ export class NativeAudiobookController {
     if (!this.current() || !entry?.playback) return;
     const target = {...entry.playback, ...(startSeconds === undefined ? {} : {startSeconds})};
     await this.options.context.playback.start({entry, target});
+  };
+  private books(): readonly ContentEntry[] {
+    return this.service.getSnapshot().projection?.sections.find(section => section.id === 'books')?.entries ?? [];
+  }
+  resumeBook = (entry: ContentEntry): Promise<void> => {
+    const progress = entry.bookProgress;
+    if (!this.current() || !progress?.itemId) return Promise.resolve();
+    const startSeconds = (progress.positionMs ?? progress.partPositionMs) / 1000;
+    return this.options.context.playback.start({entry, target: {itemId: progress.itemId, startSeconds}});
   };
   private chapters(): readonly ContentEntry[] {
     return [...(chaptersOf(this.service.getSnapshot().projection)?.entries ?? []), ...(partsOf(this.service.getSnapshot().projection)?.entries ?? [])];
