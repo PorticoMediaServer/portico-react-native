@@ -43,7 +43,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const routes = nativeShellRoutes.bind(context);
   const feedback = nativeScreenServices(context);
   const scope = nativeHomeSelectionScope(session.viewer);
-  let alive = true, runtime: NativeShellRuntime | undefined;
+  let alive = true, runtime: NativeShellRuntime | undefined, musicDiscoverPending = false;
   const tvPageBack = new Map<string, () => boolean>();
   let tvRailBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void; spotlight: HomeSpotlight; index: number; context: string}>(), scroll = new Map<string, () => void>();
@@ -362,7 +362,16 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       })} : {...common, owner: false as const};
     },
     error: (error, retry, context = 'home') => feedback.error(error, retry, context),
-    reportError, onDestination: destination => open({kind: 'shell', destination}),
+    reportError,
+    onDestination: destination => {
+      const pending = musicDiscoverPending && context.navigation.getSnapshot().destination.kind === 'libraries';
+      musicDiscoverPending = false;
+      if (pending && destination.kind === 'library') {
+        const library = context.libraries().find(value => value.id === destination.libraryId);
+        if (library?.kind === 'music') {open({kind: 'shell', destination: {...destination, tab: 'discover', anchor: 'mixes'}}); return;}
+      }
+      open({kind: 'shell', destination});
+    },
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
@@ -371,7 +380,19 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
     },
     mixes,
-    musicDiscover: () => {if (context.current()) open({kind: 'music-discover'});},
+    musicDiscover: () => {
+      if (!context.current()) return;
+      // Native TV owns its composition; keep its current destination until that port lands.
+      if (Platform.isTV) {open({kind: 'music-discover'}); return;}
+      const music = context.libraries().filter(library => library.kind === 'music');
+      const openMusic = (id: string) => open({kind: 'shell', destination: {kind: 'library', libraryId: id, tab: 'discover', anchor: 'mixes'}});
+      const fallback = () => {if (!context.current()) return; if (music.length === 1) openMusic(music[0].id); else {musicDiscoverPending = music.length > 1; open({kind: 'libraries'});}};
+      if (!runtime) {fallback(); return;}
+      void runtime.memory.read(context.authority()).then(id => {
+        if (!context.current()) return;
+        if (id && music.some(library => library.id === id)) openMusic(id); else fallback();
+      }, () => {if (context.current()) fallback();});
+    },
     onArtworkError: error => reportError(error, 'artwork-error'),
     dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };
