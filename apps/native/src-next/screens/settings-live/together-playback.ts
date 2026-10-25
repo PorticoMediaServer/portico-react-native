@@ -4,7 +4,7 @@ import {contentEntryKind, type ContentEntry} from '../../../../../packages/clien
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
 import {encodedRoutePath} from '../../../../../packages/contracts/src/routes';
 import {playbackUserMessage} from '../../../../../packages/client-core/src/playback-messages';
-import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
+import {sameFence, sameScope, type PlaybackFence, type QueueScope} from '../../../../../packages/player-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority} from '../../shell/model';
 import {nativeTogetherSession} from './together-session';
@@ -22,17 +22,31 @@ export function bindNativeTVTogether(context: NativeShellBootstrapContext): () =
   const closePlayer = () => {if (!context.current() || !playerOpen || context.navigation.getSnapshot().route.kind !== 'together') return false;playerOpen = false;emitPresentation();return true;};
   let pendingCurrent: (() => boolean) | undefined;
   let disposed = false, follower: GroupFollower | undefined, pending: AbortController | undefined;
-  let local: {groupId: string; viewer: string; entryId: string; itemId: string; run: number; queueId: string; localEntry: string} | undefined;
+  let local: {groupId: string; viewer: string; entryId: string; itemId: string; run: number; queueId: string; localEntry: string; sessionId: string; scope: QueueScope} | undefined;
   const room = () => {const state = service.getSnapshot();return context.current() && (state.phase === 'live' || state.phase === 'reconnecting') ? state.group : undefined;};
-  const ownsLocal = () => {if (!context.current()) return false;const actual = playback.getSnapshot();return !!local && sameAuthority(actual.authority, context.authority())
-    && actual.playback.playbackRun === local.run && actual.playback.itemId === local.itemId && actual.fence?.kind === 'queue'
-    && actual.fence.queueId === local.queueId && actual.fence.entryId === local.localEntry;};
+  // The fence names a session/entry, not a queue. Borrow the queue identity only
+  // when this runtime's session, current queue and visible occurrence agree.
+  const boundOccurrence = () => {
+    if (!context.current()) return;
+    const actual = playback.getSnapshot(), fence = actual.fence, session = actual.session, queue = actual.queue.view?.queue;
+    if (actual.retired || !sameAuthority(actual.authority, context.authority()) || fence?.kind !== 'queue' || !session || !queue
+      || !sameScope(queue.scope, fence.playback.scope) || fence.playback.run !== actual.playback.playbackRun
+      || session.id !== fence.sessionId || session.presentation.generation !== fence.generation || session.versionId !== fence.sourceId
+      || session.itemId !== fence.itemId || actual.playback.itemId !== fence.itemId
+      || session.queue?.queueId !== queue.id || session.queue.entryId !== fence.entryId
+      || queue.currentEntryId !== fence.entryId || queue.currentPlaybackId !== session.id) return;
+    const entry = queue.entries.find(value => value.id === fence.entryId);
+    if (!entry || entry.hidden || entry.removed || entry.itemId !== fence.itemId) return;
+    return {actual, fence, queue};
+  };
+  const ownsLocal = (bound: ReturnType<typeof boundOccurrence>) => !!local && !!bound
+    && bound.actual.playback.playbackRun === local.run && bound.fence.itemId === local.itemId
+    && bound.queue.id === local.queueId && bound.fence.entryId === local.localEntry && bound.fence.sessionId === local.sessionId
+    && sameScope(bound.fence.playback.scope, local.scope);
   const matches = (fence?: PlaybackFence) => {
-    const group = room(), actual = playback.getSnapshot();
+    const group = room(), bound = boundOccurrence();
     return !!local && !!group && group.id === local.groupId && group.viewerMemberId === local.viewer && group.timeline.currentEntryId === local.entryId
-      && group.timeline.itemId === local.itemId && sameAuthority(actual.authority, context.authority()) && actual.playback.playbackRun === local.run
-      && actual.playback.itemId === local.itemId && actual.fence?.kind === 'queue' && actual.fence.queueId === local.queueId && actual.fence.entryId === local.localEntry
-      && (!fence || sameFence(fence, actual.fence));
+      && group.timeline.itemId === local.itemId && !!bound && ownsLocal(bound) && (!fence || sameFence(fence, bound.fence));
   };
   const command = async (fence: PlaybackFence, work: () => Promise<unknown>, fallback: () => Promise<void>) => {
     if (!matches(fence)) {await fallback();return;}
@@ -74,9 +88,10 @@ export function bindNativeTVTogether(context: NativeShellBootstrapContext): () =
         const entry: ContentEntry = {...item, kind: item.kind, playback: {itemId}};
         await playback.start({entry, target: {itemId, startSeconds: positionSeconds}, state: playing ? 'playing' : 'paused', lifetime: {signal: abort.signal, isCurrent: current}});
         if (!current()) return;
-        const value = playback.getSnapshot(), fence = value.fence;
-        if (fence?.kind !== 'queue' || value.playback.itemId !== itemId) return;
-        local = {...original, run: value.playback.playbackRun, queueId: fence.queueId, localEntry: fence.entryId};
+        const bound = boundOccurrence();
+        if (!bound || bound.fence.itemId !== itemId) return;
+        const {actual: value, fence, queue} = bound;
+        local = {...original, run: value.playback.playbackRun, queueId: queue.id, localEntry: fence.entryId, sessionId: fence.sessionId, scope: fence.playback.scope};
         direct.setRate(fence, Number(group.timeline.rate.numerator) / Number(group.timeline.rate.denominator));
       })().catch(error => {if (current() && !(error instanceof Error && error.name === 'AbortError')) service.notice(playbackUserMessage(error));});
     },
@@ -85,7 +100,7 @@ export function bindNativeTVTogether(context: NativeShellBootstrapContext): () =
     seek(seconds) {const value = playback.getSnapshot();if (matches() && value.fence) void direct.seek(value.fence, seconds).catch(() => {});},
     // This is the existing per-playback choice, not a saved preference. The
     // native runtime accepts only rates the actual bound engine supports.
-    setRate(rate) {const value = playback.getSnapshot();if (value.fence && (matches() || rate === 1 && ownsLocal())) direct.setRate(value.fence, rate);},
+    setRate(rate) {const value = playback.getSnapshot();if (value.fence && (matches() || rate === 1 && ownsLocal(boundOccurrence()))) direct.setRate(value.fence, rate);},
   };
   const update = () => {
     if (disposed) return;
@@ -93,7 +108,7 @@ export function bindNativeTVTogether(context: NativeShellBootstrapContext): () =
     if (pending && pendingCurrent?.() === false) pending.abort();
     if (local && (!group || group.id !== local.groupId || group.viewerMemberId !== local.viewer || group.timeline.currentEntryId !== local.entryId || group.timeline.itemId !== local.itemId)) {
       const value = playback.getSnapshot();
-      if (ownsLocal() && value.fence) {
+      if (ownsLocal(boundOccurrence()) && value.fence) {
         direct.setRate(value.fence, 1);
         // A private/unavailable next entry cannot leave the old group title playing.
         // Ending/leaving, however, carries on outside the group as drawn.
