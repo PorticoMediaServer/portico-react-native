@@ -77,6 +77,8 @@ function songRow(entry: ContentEntry, index: number, runtime: NativeShellRuntime
   const text = cardText({id: entry.id, kind: 'song', title: entry.displayTitle ?? entry.title, artist: entry.artist?.name, album: entry.album?.name, durationSeconds: entry.duration}, 'song-row', runtime.text);
   const artwork = runtime.artwork(entry.posterUrl);
   return Object.freeze({id: entry.id, text, number: entry.trackNumber ?? index + 1, playing: playingId === entry.id,
+    // tv-more6 draws a filled heart on the row of a song this viewer favorited.
+    ...(entry.favorite === true ? {favorite: true} : {}),
     artwork: artwork ? <Artwork source={artwork} width={56} height={56} style={{borderRadius: 8, overflow: 'hidden'}}/> : undefined});
 }
 
