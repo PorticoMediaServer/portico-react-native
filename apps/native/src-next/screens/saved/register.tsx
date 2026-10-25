@@ -17,6 +17,7 @@ import {createNativeSavedState} from './state';
 import {nativeSavedRouteTarget, openNativeSavedView, type NativeSavedRouteTarget} from './navigation';
 import type {NativeSavedDownloadsCopy} from './SavedDownloadCard';
 import {nativeScreenServices} from '../native-screen-services';
+import {createNativeSavedSelection} from './selection';
 
 const savedDownloadsCopy: NativeSavedDownloadsCopy = Object.freeze({downloading: 'next.saved.phone.downloading'});
 const onThisPhone: MessageId = 'next.saved.phone.onThisPhone';
@@ -30,6 +31,8 @@ type Entry = Readonly<{route: NativeSavedRouteTarget; key: number; view: RouteVi
 export function createNativeSavedModule(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const lifetime = nativeDestinationLifetime(context), state = createNativeSavedState(context), services = nativeScreenServices(context);
   const views = new Map<NativeSavedRouteTarget, Entry>();
+  let selection: ReturnType<typeof createNativeSavedSelection> | undefined;
+  const savedSelection = () => selection ??= createNativeSavedSelection(context, state.source, state.activation);
   let disposed = false, sequence = 0;
   const current = () => !disposed && lifetime.current();
   const retained = () => current() ? [...context.navigation.retainedRoutes(), context.navigation.getSnapshot().route] : [];
@@ -58,7 +61,7 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
       if (!current()) return null;
       if (route.kind !== 'shell' || route.destination.kind !== 'saved') return null;
       if (Platform.isTV) return null;
-      return <SavedScreen destination={state.source} runtime={runtime} device={state.offline} actions={state.actions} selection={undefined}
+      return <SavedScreen destination={state.source} runtime={runtime} device={state.offline} actions={state.actions} selection={savedSelection()}
         downloadsCopy={savedDownloadsCopy} onThisPhone={onThisPhone} activation={state.activation}/>;
     },
     renderRetained: runtime => {
@@ -71,6 +74,7 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      selection?.dispose(); selection = undefined;
       for (const entry of views.values()) entry.view.dispose();
       views.clear(); state.dispose();
     },
