@@ -96,6 +96,16 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
     </ScrollView>
     <BottomSheet open={advanced} onOpenChange={setAdvanced} title={t('next.settingsSpec.server.remote.advanced.groups.0.rows.0.label')} keyboardAvoiding>
       {remote && connectivity ? <ScrollView contentContainerStyle={{gap: 14, paddingBottom: 24}}>
+        <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
+          <Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{t('next.settingsSpec.server.remote.groups.1.rows.0.label')}</Text>
+          <Switch checked={connectivity.ownAddressEnabled === true} onCheckedChange={value => forms.connectivity.set(current => ({...current, ownAddressEnabled: value}))}/>
+        </View>
+        <TextField label={t('web.connectivity.customCertDomain')} value={connectivity.customCertificateDomain} editable={connectivity.ownAddressEnabled === true}
+          onChangeText={value => forms.connectivity.set(current => ({...current, customCertificateDomain: value}))}/>
+        <TextField label={t('web.connectivity.customCertPath')} value={connectivity.customCertificatePath} editable={connectivity.ownAddressEnabled === true}
+          onChangeText={value => forms.connectivity.set(current => ({...current, customCertificatePath: value}))}/>
+        <TextField label={t('web.connectivity.customCertKey')} value={connectivity.customCertificateKeyPath} editable={connectivity.ownAddressEnabled === true}
+          onChangeText={value => forms.connectivity.set(current => ({...current, customCertificateKeyPath: value}))}/>
         <TextField label={t('web.network.publicPort')} value={String(remote.publicPort)} keyboardType="number-pad"
           onChangeText={value => {const next = Number(value); if (Number.isInteger(next) && next >= 1 && next <= 65535) forms.remote.set(current => ({...current, publicPort: next}));}}/>
         <TextField label={t('web.network.gateway')} description={t('web.network.gatewayHelp')} value={remote.gateway}
