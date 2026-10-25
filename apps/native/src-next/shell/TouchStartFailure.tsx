@@ -12,7 +12,7 @@ import {CountdownRing} from '../kit/states';
 import {useTheme} from '../kit/theme';
 import type {NativeShellRuntime} from './runtime';
 
-type Opening = {owner: NativePlaybackStartFailure | NativePlaybackCapacityWait; active: boolean; busy?: string};
+type Opening = {owner: NativePlaybackStartFailure | NativePlaybackCapacityWait; active: boolean; action: number; busy?: string};
 
 /** A first-start refusal has no admitted picture or player chrome. Touch presents the
  * original retained operation; it never creates a Play request from the current selection. */
@@ -34,7 +34,7 @@ export function TouchStartFailure({failure, wait, runtime}: {
     ticket.owner === owner && rendered.current === ticket.owner && ticket.owner.isCurrent();
   useLayoutEffect(() => {
     if (!owner) return;
-    const ticket: Opening = {owner, active: true}; opening.current = ticket;
+    const ticket: Opening = {owner, active: true, action: 0}; opening.current = ticket;
     offered.current = [];setSessions(undefined);setError(undefined);setBusy(undefined);setReport(false);setSent(false);
     began.current = Date.now();setNow(Date.now());
     return () => {
@@ -71,16 +71,18 @@ export function TouchStartFailure({failure, wait, runtime}: {
   const cancel = () => {const ticket = opening.current; if (current(ticket)) ticket!.owner.cancel();};
   const close = () => {
     if (!current()) return;
-    if (report) {consent.current?.abort();setReport(false);if (opening.current) opening.current.busy = undefined;setBusy(undefined);}
+    if (report) {consent.current?.abort();setReport(false);if (opening.current) {opening.current.action++;opening.current.busy = undefined;}setBusy(undefined);}
     else cancel();
   };
   const run = (key: string, action: () => Promise<void> | void) => {
     const ticket = opening.current;
     if (!current(ticket) || ticket!.busy) return;
+    const command = ++ticket!.action;
+    const commandCurrent = () => current(ticket) && ticket!.action === command;
     ticket!.busy = key;setBusy(key);setError(undefined);
-    void Promise.resolve().then(() => {if (current(ticket)) return action();}).catch(reason => {
-      if (current(ticket) && !(reason instanceof Error && reason.name === 'AbortError')) setError(reason);
-    }).finally(() => {if (current(ticket)) {ticket!.busy = undefined;setBusy(undefined);}});
+    void Promise.resolve().then(() => {if (commandCurrent()) return action();}).catch(reason => {
+      if (commandCurrent() && !(reason instanceof Error && reason.name === 'AbortError')) setError(reason);
+    }).finally(() => {if (commandCurrent()) {ticket!.busy = undefined;setBusy(undefined);}});
   };
   const stop = (row: RemotePlaybackControls) => {
     if (!failure || failure !== owner || failure.scope !== 'account' || !offered.current.includes(row)) return;
