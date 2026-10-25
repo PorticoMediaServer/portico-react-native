@@ -28,13 +28,23 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
 }) {
   const theme = useTheme(), registry = useFocusRegistry();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const addView = useRef<View>(null), resetButton = useRef<View>(null);
+  const rowRefs = useRef(new Map<string, View>());
   const first = useRef<View>(null), reload = useRef<View>(null), cancelReset = useRef<View>(null);
   const picked = useRef<View>(null), scroller = useRef<ScrollView>(null), returning = useRef(false);
   const [reset, setReset] = useState(false), [choosing, setChoosing] = useState(false);
   const firstView = useRef<View>(null), viewEntryFocused = useRef(false);
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
   const [positions, setPositions] = useState<ReadonlyMap<string, number>>(new Map());
+  useEffect(() => {
+    const ids = new Set(state.rows.map(row => row.id));
+    const prune = (before: ReadonlyMap<string, number>) => {if ([...before.keys()].every(id => ids.has(id))) return before;return new Map([...before].filter(([id]) => ids.has(id)));};
+    setPositions(prune);setHeights(prune);
+  }, [state.rows]);
   const regionId = testID;
-  const back = () => {if (choosing) {setChoosing(false); return;} if (!controller.cancelPickup()) onClose();};
+  const blocked = state.phase !== 'ready' || state.pending || !!state.retry;
+  const returnToAdd = () => {setChoosing(false);requestAnimationFrame(() => {if (controller.isCurrent()) focusTarget(addView.current);});};
+  const back = () => {if (choosing) {returnToAdd();return;} if (!controller.cancelPickup()) onClose();};
   useEffect(() => {
     if (!choosing) {viewEntryFocused.current = false; return;}
     if (!theme.isTV || views?.loading || viewEntryFocused.current) return;
@@ -42,8 +52,8 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     return () => cancelAnimationFrame(frame);
   }, [choosing, theme.isTV, views?.items, views?.loading]);
   useEffect(() => {
-    if (!theme.isTV || state.phase !== 'ready') return;
-    const frame = requestAnimationFrame(() => focusTarget(state.showConflict ? reload.current : first.current));
+    if (!controller.isCurrent() || !theme.isTV || state.phase !== 'ready') return;
+    const frame = requestAnimationFrame(() => controller.isCurrent() && focusTarget(state.showConflict ? reload.current : first.current ?? addView.current));
     return () => cancelAnimationFrame(frame);
   }, [state.phase, state.showConflict, theme.isTV]);
   /** collections.html 29: the list comes back with the new row held, focused and in view, so Up
@@ -85,7 +95,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     const id = requestAnimationFrame(() => {
       const held = focusFrame.current;
       focusFrame.current = undefined;
-      if (!held || held.controller !== control || control.getSnapshot().pickedId !== pickedId) return;
+      if (!held || held.controller !== control || !control.isCurrent() || control.getSnapshot().pickedId !== pickedId) return;
       also?.();
       focusTarget(picked.current);
     });
@@ -104,12 +114,13 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
       const lifted = row.id === state.pickedId;
       const title = serverTextLabel(i18n, row.titleText, row.title);
       const detail = row.savedView ? summary(row.savedView) : serverTextLabel(i18n, row.availabilityText);
+      const measuredHeight = heights.get(row.id) ?? rowHeight;
       const originalY = positions.get(row.id), shift = lifted && targetY !== undefined && originalY !== undefined ? targetY - originalY : 0;
-      return <View key={row.id} onLayout={event => {const y = event.nativeEvent.layout.y; setPositions(before => {if (before.get(row.id) === y) return before; const next = new Map(before); next.set(row.id, y); return next;});}}
-        style={{height: rowHeight, zIndex: lifted ? 8 : undefined, ...(lifted ? {borderWidth: 2, borderStyle: 'dashed', borderColor: theme.colors.line} : {})}}><View style={{flexDirection: 'row', alignItems: 'center', height: rowHeight, gap: theme.isTV ? 18 : 10, position: lifted ? 'absolute' : undefined, left: lifted ? 0 : undefined, right: lifted ? 0 : undefined,
+      return <View key={row.id} onLayout={event => {const {y, height} = event.nativeEvent.layout;setHeights(before => {if (before.get(row.id) === height) return before;const next = new Map(before);next.set(row.id, height);return next;}); setPositions(before => {if (before.get(row.id) === y) return before; const next = new Map(before); next.set(row.id, y); return next;});}}
+        style={{minHeight: rowHeight, height: lifted ? measuredHeight : undefined, zIndex: lifted ? 8 : undefined, ...(lifted ? {borderWidth: 2, borderStyle: 'dashed', borderColor: theme.colors.line} : {})}}><View style={{flexDirection: 'row', alignItems: 'center', minHeight: rowHeight, paddingVertical: theme.isTV ? 6 : 4, gap: theme.isTV ? 18 : 10, position: lifted ? 'absolute' : undefined, left: lifted ? 0 : undefined, right: lifted ? 0 : undefined,
         backgroundColor: lifted ? theme.colors.raisedHigh : undefined, borderRadius: 14, transform: lifted ? [{translateY: shift}, {scale: 1.03}] : undefined}}>
         {theme.isTV && row.reorderable && <Focusable focusId={`${row.id}:handle`} testID={`${testID}-handle-${row.id}`} accessibilityRole="button"
-          accessibilityLabel={defaultI18n.t('next.home.layoutMoveAction')} disabled={state.pending || !!state.pickedId && !lifted}
+          accessibilityLabel={defaultI18n.t('next.home.layoutMoveAction')} disabled={blocked || !!state.pickedId && !lifted}
           focusKind="button" focusRadius={10} onPress={() => pickRow(row.id)}
           style={{width: 44, height: 50, alignItems: 'center', justifyContent: 'center'}}>
           <Icon name="i-grip" size={26} color={lifted ? theme.colors.text : theme.colors.textTertiary}/>
@@ -117,9 +128,9 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
         {theme.isTV && row.savedView && <View style={{width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .1)}}>
           <Icon name="i-filter" size={22} color={theme.colors.textSecondary}/>
         </View>}
-        <Focusable ref={lifted ? picked : index === 0 ? first : undefined} focusId={row.id} testID={`${testID}-row-${row.id}`}
-          disabled={state.pending || !!state.pickedId && !lifted} focusKind="row" focusRadius={16}
-          hasTVPreferredFocus={index === 0} accessibilityLabel={title} accessibilityState={{selected: lifted}}
+        <Focusable ref={node => {if (node) rowRefs.current.set(row.id, node);else rowRefs.current.delete(row.id);if (lifted) picked.current = node;if (index === 0) first.current = node;}} focusId={row.id} testID={`${testID}-row-${row.id}`}
+          disabled={blocked || !!state.pickedId && !lifted} focusKind="row" focusRadius={16}
+          hasTVPreferredFocus={index === 0 && !state.showConflict && !choosing} accessibilityLabel={title} accessibilityState={{selected: lifted}}
           onPress={() => pickRow(row.id)} onAccessibilityAction={event => {
             if (event.nativeEvent.actionName === 'increment' || event.nativeEvent.actionName === 'decrement') {
               if (!lifted) controller.pick(row.id);
@@ -128,35 +139,35 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
           }} accessibilityActions={row.reorderable ? [{name: 'increment', label: defaultI18n.t('home.customize.moveDown', {title})}, {name: 'decrement', label: defaultI18n.t('home.customize.moveUp', {title})}] : []}
           style={{flex: 1, minHeight: rowHeight, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 14, paddingLeft: theme.isTV ? 12 : 8}}>
           {!theme.isTV && <View><Icon name="i-grip" size={20} color={lifted ? theme.colors.text : theme.colors.textTertiary}/></View>}
-          <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 26 : 16, weight: theme.isTV ? 600 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: row.hidden ? theme.colors.textTertiary : theme.colors.text}]} numberOfLines={1}>{title}</Text>
+          <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 26 : 16, weight: theme.isTV ? 600 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: row.hidden ? theme.colors.textTertiary : theme.colors.text}]}>{title}</Text>
             {!!detail && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: theme.isTV ? 1 : 4}]}>{detail}</Text>}
           </View>
         </Focusable>
         {theme.isTV && row.savedView && <Focusable focusId={`${row.id}:remove`} testID={`${testID}-remove-${row.id}`} accessibilityRole="button"
-          accessibilityLabel={defaultI18n.t('home.customize.removeRow', {title})} disabled={state.pending || !!state.pickedId}
-          focusKind="button" focusRadius={21} onPress={() => controller.removeSavedView(row.id)}
+          accessibilityLabel={defaultI18n.t('home.customize.removeRow', {title})} disabled={blocked || !!state.pickedId}
+          focusKind="button" focusRadius={21} onPress={() => {const neighbor = state.rows[index + 1]?.id ?? state.rows[index - 1]?.id;if (controller.removeSavedView(row.id)) requestAnimationFrame(() => {if (controller.isCurrent()) focusTarget(neighbor ? rowRefs.current.get(neighbor) ?? addView.current : addView.current);});}}
           style={{width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center'}}>
           <Icon name="i-close" size={22} color={theme.colors.textTertiary}/>
         </Focusable>}
         {row.required ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 9, paddingRight: 18}}><Icon name="i-lock" size={theme.isTV ? 18 : 14} color={theme.colors.textTertiary}/><Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 400, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{copy.alwaysOn}</Text></View>
-          : row.hideable && <Switch focusId={`${row.id}:visibility`} checked={!row.hidden} disabled={state.pending || !!state.pickedId}
+          : row.hideable && <Switch focusId={`${row.id}:visibility`} checked={!row.hidden} disabled={blocked || !!state.pickedId}
             accessibilityLabel={defaultI18n.t('home.customize.showRow', {title})} onCheckedChange={() => controller.toggle(row.id)}/>}
       </View></View>;
     })}
     {state.pickedId && targetY !== undefined && <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, top: targetY - 3, height: 6, backgroundColor: theme.colors.accentStrong, borderRadius: 3}}/>}
-    {!state.pickedId && <Button focusId="add-view" variant="text" icon="i-plus" disabled={state.pending || !!state.pickedId} onPress={() => {if (views) setChoosing(true); onAddView();}}>{copy.addView}</Button>}
+    {!state.pickedId && <Button ref={addView} focusId="add-view" variant="text" icon="i-plus" disabled={blocked || !!state.pickedId} onPress={() => {if (views) setChoosing(true); onAddView();}}>{copy.addView}</Button>}
   </ScrollView>;
   const footer = choosing ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18}}>
     {views?.hasMore ? <Button variant="text" disabled={views.loading} onPress={views.loadMore}>{i18n.t('action.showMore')}</Button> : <View/>}
-    <Button variant="glass" onPress={() => setChoosing(false)}>{i18n.t('action.cancel')}</Button>
-  </View> : state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={controller.keepEditing}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
-    <Button focusId="reset" variant="glass" disabled={state.pending || !!state.pickedId} onPress={() => setReset(true)}>{i18n.t('action.resetToDefault')}</Button>
-    <Button focusId="save" disabled={state.pending || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
+    <Button variant="glass" onPress={returnToAdd}>{i18n.t('action.cancel')}</Button>
+  </View> : state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} disabled={state.pending || state.phase === 'loading'} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={() => {controller.keepEditing();if (controller.isCurrent()) focusTarget(first.current ?? addView.current);}}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
+    <Button ref={resetButton} focusId="reset" variant="glass" disabled={blocked || !!state.pickedId} onPress={() => setReset(true)}>{i18n.t('action.resetToDefault')}</Button>
+    <Button focusId="save" disabled={blocked || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
-  const body = choosing && views ? views.loading && !views.items.length ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} hasMore={views.hasMore} i18n={i18n} firstRef={firstView}
+  const body = choosing && views ? views.loading && !views.items.length ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices disabled={views.loading || blocked} summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} hasMore={views.hasMore} i18n={i18n} firstRef={firstView}
     onChoose={view => {if (!controller.addSavedView(view, theme.isTV)) return; if (theme.isTV) returning.current = true; setChoosing(false);}}/> : <>{(notice || noticeAction) && <View style={{paddingVertical: 12, gap: 8}}>{notice && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{notice}</Text>}{noticeAction && <Button variant="text" onPress={noticeAction.onPress}>{noticeAction.label}</Button>}</View>}{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
     <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
-  </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {void controller.save();})}{rows}</>;
+  </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {if (state.phase === 'error') void controller.load();else {const saving = state.retry === 'save';void controller.retry().then(done => {if (done && saving && controller.isCurrent()) onClose();});}})}{rows}</>;
   return <>
     {theme.isTV && state.pickedId && <View pointerEvents="none" style={{position: 'absolute', left: 200, right: 960, bottom: 56, flexDirection: 'row', justifyContent: 'center', gap: 28}}>
       {[['▲▼', copy.move], [defaultI18n.t('next.layout.ok'), copy.drop], [defaultI18n.t('action.back'), copy.putBack]].map(([key, label]) => <View key={key} style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Text style={[theme.type.captionStrong, {color: theme.colors.text, backgroundColor: theme.colors.raised, paddingHorizontal: 10, borderRadius: 6}]}>{key}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{label}</Text></View>)}
@@ -168,17 +179,17 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
       : <BottomSheet open onOpenChange={open => {if (!open) back();}} title={choosing ? defaultI18n.t('home.customize.addView') : copy.title} description={defaultI18n.t(choosing ? 'home.customize.chooseView' : 'home.customize.subtitle')}
         testID={testID} initialFocusRef={choosing ? firstView : first} footer={footer}>{body}</BottomSheet>}
     <Dialog open={reset} onOpenChange={setReset} title={defaultI18n.t('confirm.resetHome.title')} description={defaultI18n.t('confirm.resetHome.body')}
-      initialFocusRef={cancelReset} showClose={false} footer={<View style={{flexDirection: 'row', gap: 18}}>
+      initialFocusRef={cancelReset} returnFocusRef={resetButton} showClose={false} footer={<View style={{flexDirection: 'row', gap: 18}}>
         <Button ref={cancelReset} variant="glass" onPress={() => setReset(false)}>{defaultI18n.t('action.cancel')}</Button>
         <Button variant="glass" style={{backgroundColor: `${theme.colors.record}24`}} textStyle={{color: theme.colors.record}} onPress={() => {setReset(false); void controller.resetConfirmed();}}>{copy.reset}</Button>
       </View>}><View/></Dialog>
   </>;
 }
 
-export function HomeSavedViewChoices({views, hasMore, i18n, onChoose, firstRef, summary}: {views: readonly PersonalResource[]; hasMore?: boolean; summary: (view: PersonalResource) => string | undefined; firstRef?: React.RefObject<View | null>; i18n: Pick<I18n, 't'>; onChoose: (view: PersonalResource) => void}) {
+export function HomeSavedViewChoices({views, hasMore, i18n, onChoose, firstRef, summary, disabled}: {disabled?: boolean; views: readonly PersonalResource[]; hasMore?: boolean; summary: (view: PersonalResource) => string | undefined; firstRef?: React.RefObject<View | null>; i18n: Pick<I18n, 't'>; onChoose: (view: PersonalResource) => void}) {
   const theme = useTheme();
   const eligible = views.filter(view => view.kind === 'view' && view.status === 'ready' && !view.onHome && view.actions.includes('pin'));
-  return <ScrollView>{eligible.map((view, index) => {const detail = summary(view); return <Focusable ref={index === 0 ? firstRef : undefined} key={view.id} focusId={view.id} focusKind="row" onPress={() => onChoose(view)} style={{height: theme.isTV ? 92 : undefined, paddingVertical: theme.isTV ? 0 : 20, paddingHorizontal: theme.isTV ? 20 : 0, flexDirection: 'row', alignItems: 'center', gap: 18}}>
+  return <ScrollView>{eligible.map((view, index) => {const detail = summary(view); return <Focusable ref={index === 0 ? firstRef : undefined} key={view.id} focusId={view.id} focusKind="row" disabled={disabled} onPress={() => onChoose(view)} style={{minHeight: theme.isTV ? 92 : undefined, paddingVertical: theme.isTV ? 12 : 20, paddingHorizontal: theme.isTV ? 20 : 0, flexDirection: 'row', alignItems: 'center', gap: 18}}>
       <View style={{width: theme.isTV ? 52 : 36, height: theme.isTV ? 52 : 36, borderRadius: theme.isTV ? 13 : 9, alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.text}1A`}}><Icon name="i-filter" size={theme.isTV ? 28 : 20} color={theme.colors.textSecondary}/></View><View style={{flex: 1}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{view.name}</Text>
       {!!detail && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{detail}</Text>}</View>
