@@ -36,7 +36,7 @@ test('TV Saved tabs have a mounted content target and return edges for every non
     const props = {
       controller: {subscribe: () => () => {}, getSnapshot: () => snapshot},
       activation: {subscribe: () => () => {}, getSnapshot: () => ({visible})},
-      runtime: {reportError: () => {}, text: {}, artwork: () => undefined}, actions: {}, authority: {}, initialTab: tab,
+      runtime: {reportError: () => {}, text: {}, artwork: () => undefined}, actions: {isMenuOpen: () => false}, authority: {}, initialTab: tab,
       openSaved: () => {}, openEntry: () => {}, browseHome: () => {},
     };
     const render = () => nodes(host.render(() => TVSavedScreen(props as any)));
