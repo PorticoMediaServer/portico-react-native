@@ -14,19 +14,35 @@ type Claim = ReturnType<typeof decodeServerClaimLookupResponse>;
  * Public display never carries the claim code, token, state or verifier. */
 export class NativeSetupApproval {
   private claim?: Claim;
+  private deciding = false;
+  private readonly controller = new AbortController();
+  private readonly signal: AbortSignal;
+  private readonly off: () => void;
   private account?: {id: string; family: string; name: string};
   constructor(private readonly expected: {code: string; serverId: string; name: string; origin: string; transactionId: string; expiresAt: string},
-    private readonly sourceCurrent: () => Promise<void>, private readonly signal: AbortSignal) {}
+    private readonly sourceCurrent: () => Promise<void>, sourceSignal: AbortSignal,
+    private readonly opening: {signal: AbortSignal; current: () => boolean; canApprove: () => boolean}) {
+    const abort = () => this.controller.abort();
+    sourceSignal.addEventListener('abort', abort, {once: true}); opening.signal.addEventListener('abort', abort, {once: true});
+    if (sourceSignal.aborted || opening.signal.aborted) abort();
+    this.signal = this.controller.signal;
+    this.off = () => {sourceSignal.removeEventListener('abort', abort); opening.signal.removeEventListener('abort', abort);};
+  }
+  dispose() {this.controller.abort(); this.off();}
+  private assertOpening() {
+    this.signal.throwIfAborted();
+    if (!this.opening.current() || this.deciding && !this.opening.canApprove()) throw invalid();
+  }
   private async access() {
-    await this.sourceCurrent(); this.signal.throwIfAborted();
+    await this.sourceCurrent(); this.assertOpening();
     const credentials = nativeAccounts.accountCredentials();
-    await credentials.synchronize(); await this.sourceCurrent(); this.signal.throwIfAborted();
-    const session = await credentials.accessSession(); await this.sourceCurrent(); this.signal.throwIfAborted();
+    await credentials.synchronize(); await this.sourceCurrent(); this.assertOpening();
+    const session = await credentials.accessSession(); await this.sourceCurrent(); this.assertOpening();
     if (this.account && (session.account.id !== this.account.id || session.familyId !== this.account.family)) throw invalid();
     return session;
   }
   private async current() {
-    await this.sourceCurrent(); this.signal.throwIfAborted();
+    await this.sourceCurrent(); this.assertOpening();
     const session = nativeAccounts.accountCredentials().getSnapshot().session;
     if (!this.account || session?.account.id !== this.account.id || session.familyId !== this.account.family
       || Date.parse(this.expected.expiresAt) <= Date.now()) throw invalid();
@@ -61,6 +77,9 @@ export class NativeSetupApproval {
     return {approved: this.claim.status === 'approved', serverName: this.claim.name, address: this.claim.address, accountName: this.account!.name};
   }
   async approve() {
+    if (this.deciding || !this.opening.canApprove()) throw invalid();
+    this.deciding = true;
+    try {
     const previous = this.claim;
     if (!previous) throw invalid();
     const value = await this.lookup();
@@ -71,5 +90,6 @@ export class NativeSetupApproval {
     await this.current();
     const result = decodeServerClaimApproveCodeResponse(raw);
     if (result.status !== 'decided' || result.code !== 'claim_decided') throw invalid();
+    } finally {this.deciding = false;}
   }
 }

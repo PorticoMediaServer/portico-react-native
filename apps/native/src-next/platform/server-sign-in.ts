@@ -176,10 +176,10 @@ export class NativeServerSignIn {
       const url = await claim.prepare(api, hostedUrl); this.assertCurrent(); return url;
     });
   }
-  reviewHostedSetup(url: string) {
+  reviewHostedSetup(url: string, opening: {signal: AbortSignal; current: () => boolean; canApprove: () => boolean}) {
     return this.run(async () => {
       if (!this.hostedSetup) throw mismatch();
-      const review = await this.hostedSetup.accountApproval(url); this.assertCurrent(); return review;
+      const review = await this.hostedSetup.accountApproval(url, opening); this.assertCurrent(); return review;
     });
   }
   finishHostedSetup() {
@@ -356,7 +356,7 @@ export class NativeServerSignIn {
       if (!this.api || !this.snapshot || !this.account || !this.snapshot.profiles.some(profile => profile.id === profileId)) throw mismatch();
       const result = await selectDirectProfile(this.api, {authority: 'local', accountId: this.snapshot.account.id, serverId: this.snapshot.serverId},
         profileId, {pin, installationId: this.installation?.installationId}, this.controller.signal);
-      this.issued.set(result.session.sessionFamilyId, result.session); completed.accept();
+      this.issued.set(result.session.sessionFamilyId, result.session);
       try {await this.persist(result.session);} catch (error) {await this.retire(result.session); throw error;}
     });
   }

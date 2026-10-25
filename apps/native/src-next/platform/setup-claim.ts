@@ -157,7 +157,7 @@ export class NativeSetupClaim {
       return url;
     } finally {this.busy = false;}
   }
-  async accountApproval(url: string) {
+  async accountApproval(url: string, opening: {signal: AbortSignal; current: () => boolean; canApprove: () => boolean}) {
     const resumed = await this.resumePrepared();
     if (!resumed?.url || resumed.url !== url) throw invalid();
     const operation = this.operation();
@@ -175,8 +175,9 @@ export class NativeSetupClaim {
       if (!code.startsWith('claim_')) throw invalid(); routeBytes(code.slice(6), 32);
       const approval = new NativeSetupApproval({code, serverId: record.pin.serverId, name: proof.claim.name, origin: record.origin,
         transactionId: record.handoff.transactionId, expiresAt: record.handoff.expiresAt},
-        async () => {await this.current(record, operation);}, operation.signal);
-      const display = await approval.review(); return {approval, display};
+        async () => {await this.current(record, operation);}, operation.signal, opening);
+      try {const display = await approval.review(); return {approval, display};}
+      catch (error) {approval.dispose(); throw error;}
     } finally {this.busy = false;}
   }
   private async retire(api: HttpLocalApi, session: LocalSession, initial: ReadonlySet<string>) {
