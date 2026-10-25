@@ -316,9 +316,11 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (wasPlaying && !playing && pausedAt == 0.0) pausedAt = mono()
     if (!wasPlaying && playing && pausedAt > 0) {
       val elapsed = Math.max(0.0, mono() - pausedAt)
-      if (kind() == "audiobook_file" && elapsed >= 300 && nativeSeek == null && audible == null) {
+      if (kind() == "audiobook_file" && elapsed >= 300 && nativeSeek == null && audible == null && error == null && controller.listeningSnapshot()["seeking"] != true) {
         val position = num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
-        dropPrepared(null); nativeSeek = seekTo(Math.max(0.0, position - if (elapsed >= 3600) 30 else 15))
+        val choiceMs = num((policy?.get("audiobook") as? Map<*, *>)?.get("resumeRewindMs")) ?: 0.0
+        val amount = PorticoListeningPolicy.resumeDisplacement(elapsed, position, choiceMs)
+        if (amount > 0) { dropPrepared(null); nativeSeek = seekTo(position - amount) }
       }
       pausedAt = 0.0
     }
@@ -955,6 +957,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val effects = value["effects"] as? Map<*, *> ?: return false
     if (effects["gapless"] !is Boolean || !inRange(effects["crossfadeSeconds"], 0.0, 12.0) || effects["normalization"] !in NORMALIZATION) return false
     if (!PorticoListeningPolicy.validPreferences(value["preferences"], BOOK_RATES, PASSOUT)) return false
+    if (value.containsKey("audiobook") && !PorticoListeningPolicy.validAudiobookPreferences(value["audiobook"])) return false
     val timer = value["timer"]
     if (timer != null) {
       val t = timer as? Map<*, *> ?: return false
@@ -987,6 +990,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   private fun applyPreferredRate() {
     if (activeOwner == null || terminal) return
+    val book = kind() == "audiobook_file"
+    skipIntervals(PorticoListeningPolicy.skipSeconds(book, policy?.get("audiobook"), false), PorticoListeningPolicy.skipSeconds(book, policy?.get("audiobook"), true))
     val wanted = PorticoListeningPolicy.preferredRate(kind() == "audiobook_file", policy?.get("preferences")) ?: return
     val key = "${session["id"]}:$wanted"
     if (policyRateKey == key || wanted !in (if (kind() == "audiobook_file") BOOK_RATES else RATES)) return
@@ -1199,6 +1204,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   /** The profile's skip amounts for music and audiobooks on the lock screen. */
   fun skipIntervals(back: Double, forward: Double) {
     if (!back.isFinite() || !forward.isFinite()) return
+    if (skipBackSeconds == back && skipForwardSeconds == forward) return
     skipBackSeconds = back.coerceIn(5.0, 120.0)
     skipForwardSeconds = forward.coerceIn(5.0, 120.0)
     onSystemChange?.invoke()

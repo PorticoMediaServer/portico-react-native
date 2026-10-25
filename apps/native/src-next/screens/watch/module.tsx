@@ -1,4 +1,5 @@
 import React from 'react';
+import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import {Platform, type View} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {sameFence} from '../../../../../packages/player-core/src';
@@ -61,14 +62,18 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   const copy = bindings.copy ?? {sessionLead: defaultI18n.t('player.opt.temporaryChanges'), sessionDefaults: defaultI18n.t('player.opt.defaultsUnchanged'), audioContinues: defaultI18n.t('player.opt.hearingContinues')};
   let disposed = false;
   const current = () => !disposed && context.current();
-  const skipSeconds = (key: 'playback.skipBackMs' | 'playback.skipForwardMs') => {
+  const skipSeconds = (source: NativePlaybackRuntimeSnapshot, key: 'playback.skipBackMs' | 'playback.skipForwardMs') => {
+    if (source.dock?.local?.kind === 'audiobook') {
+      const selected = audiobookPreferences(context.preferences());
+      return (key === 'playback.skipBackMs' ? selected.skipBackMs : selected.skipForwardMs) / 1000;
+    }
     const value = context.preferences().effective[key];
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
     return value / 1000;
   };
   const player: NativeWatchHostBindings = {
-    chrome: (source, runtime) => ({...nativeWatchChromeFacts(source, bindings.names ?? createNativeWatchPanelNames(runtime.text)), skipBackSeconds: skipSeconds('playback.skipBackMs'),
-      skipForwardSeconds: skipSeconds('playback.skipForwardMs'), reportError: runtime.reportError,
+    chrome: (source, runtime) => ({...nativeWatchChromeFacts(source, bindings.names ?? createNativeWatchPanelNames(runtime.text)), skipBackSeconds: skipSeconds(source, 'playback.skipBackMs'),
+      skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError,
       onMinimize: fence => {if (current()) {const transition = context.playback.dock.collapse(fence); if (transition) void context.playback.onTransition(transition).catch(runtime.reportError);}},
       ...(context.playback.cast ? {onCast: fence => {if (current()) void context.playback.cast?.(fence).catch(runtime.reportError);}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),

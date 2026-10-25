@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {audiobookPreferences} from '../../../packages/client-core/src/audiobook-preferences';
 import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
 import {sameFence, playbackFence} from '../../../packages/player-core/src/index.ts';
@@ -11,7 +12,7 @@ const {react} = hooks();
 const menuCalls: any[][] = [];
 let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
-  react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
+  '../../../../../packages/client-core/src/audiobook-preferences': {audiobookPreferences}, react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
   '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
   '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},
   './ChannelRoute': {NativeWatchChannelRoute: 'Channel'},
@@ -38,13 +39,13 @@ test('chrome facts use current selected IDs and never a preferred version or an 
 });
 
 test('module preserves the genuine adapter/outlet, current preferences, body and retirement lifetime', async () => {
-  let live = true, back = 5000, forward = 60000;
+  let live = true, back = 5000, forward = 60000, book = false;
   const transitions: any[] = [], layouts: any[] = [], errors: any[] = [];
-  const transition = {action: 'collapse'}, playback = {getSnapshot: source, dock: {collapse: (expected: any) => {assert.equal(expected, fence); return transition;}},
+  const transition = {action: 'collapse'}, playback = {getSnapshot: () => ({...source(), dock: {local: {kind: book ? 'audiobook' : 'video'}}}), dock: {collapse: (expected: any) => {assert.equal(expected, fence); return transition;}},
     onTransition: async (value: any) => {transitions.push(value);}}, outlet = {genuine: true};
   const context = {current: () => live, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}), api: {},
     subscribeAuthority() {}, navigation: {}, playback, watch: outlet,
-    preferences: () => ({effective: {'playback.skipBackMs': back, 'playback.skipForwardMs': forward}})};
+    preferences: () => ({registry:{fields:[]},effective: {'playback.skipBackMs': back, 'playback.skipForwardMs': forward,'audiobooks.skipBackMs':60000,'audiobooks.skipForwardMs':90000,'audiobooks.resumeRewindMs':0}})};
   const menuListeners = new Set<() => void>();
   const entry = {id: 'member', kind: 'movie', libraryId: 'library', title: 'Member'};
   let opened: any;
@@ -61,6 +62,8 @@ test('module preserves the genuine adapter/outlet, current preferences, body and
   assert.equal(captured.playback, playback); assert.equal(captured.watch, outlet); assert.equal(captured.isCurrent(), true);
   let chrome = module.render(runtime); assert.equal(chrome.skipBackSeconds, 5); assert.equal(chrome.skipForwardSeconds, 60);
   back = 15000; forward = 30000; chrome = module.render(runtime); assert.equal(chrome.skipBackSeconds, 15); assert.equal(chrome.skipForwardSeconds, 30);
+  book = true; chrome = module.render(runtime); assert.equal(chrome.skipBackSeconds, 60); assert.equal(chrome.skipForwardSeconds, 90);
+  book = false;
   chrome.onMinimize(fence); await Promise.resolve(); assert.deepEqual(transitions, [transition]);
   assert.equal(captured.player.content({}), 'body'); assert.equal(module.back(), true);
   live = false; assert.equal(module.render(runtime), null); assert.equal(module.back(), false); assert.equal(captured.isCurrent(), false);

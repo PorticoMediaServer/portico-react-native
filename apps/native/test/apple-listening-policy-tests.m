@@ -18,6 +18,10 @@ int main(void){@autoreleasepool{
  check(PorticoListeningEffectsValid(effects),"actual canonical typed audio effects accepted");
  check(PorticoListeningEffectsValid(@{@"gapless":@NO,@"crossfadeSeconds":@0,@"normalization":@"off"}),"unreported optional effects stay absent");
  for(NSDictionary *patch in @[@{@"preampDb":@0},@{@"gapless":@1},@{@"crossfadeSeconds":@13},@{@"normalization":@"automatic"},@{@"neverBoost":@1},@{@"smoothTransitions":NSNull.null},@{@"sampleRateMatching":@"automatic"}]){NSMutableDictionary *value=[effects mutableCopy];[value addEntriesFromDictionary:patch];check(!PorticoListeningEffectsValid(value),"invalid or unsupported effect field refused");}
+ NSDictionary *book=@{@"skipBackMs":@60000,@"skipForwardMs":@90000,@"resumeRewindMs":@5000};
+ check(PorticoAudiobookPreferencesValid(book),"independent canonical audiobook choices accepted");
+ check(PorticoAudiobookPreferencesValid(nil),"older private policy defaults remain supported");
+ for(NSString *key in @[@"skipBackMs",@"skipForwardMs",@"resumeRewindMs"]){NSMutableDictionary *bad=[book mutableCopy];bad[key]=@7000;check(!PorticoAudiobookPreferencesValid(bad),"unsupported book choice refused");bad[key]=@YES;check(!PorticoAudiobookPreferencesValid(bad),"Boolean book duration refused");}
  PorticoListeningLease lease=PorticoListeningLeaseAt(1,100,110,120,true);
  check(lease.valid&&lease.lease==11&&lease.horizon==21,"existing lease clock anchoring unchanged");
  check(!PorticoListeningMayPlay(true,false,false,false,false,true,11,lease.lease,lease.horizon),"existing lease expiry still stops playback");

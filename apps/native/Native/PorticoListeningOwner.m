@@ -278,9 +278,10 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(_wasPlaying&&!playing&&_pausedAt==0)_pausedAt=PauseClock();
  if(!_wasPlaying&&playing&&_pausedAt>0){
   double elapsed=MAX(0,PauseClock()-_pausedAt);
-  if([[self kind] isEqual:@"audiobook_file"]&&elapsed>=300&&!_nativeSeek&&!_audible){
+  if([[self kind] isEqual:@"audiobook_file"]&&elapsed>=300&&!_nativeSeek&&!_audible&&!_error&&![[_controller listeningSnapshot][@"seeking"] boolValue]){
    double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
-   [self dropPrepared:nil];_nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,position-(elapsed>=3600?30:15)))};
+   double amount=PorticoAudiobookResumeDisplacement(elapsed,position,[_policy[@"audiobook"][@"resumeRewindMs"] doubleValue]);
+   if(amount>0){[self dropPrepared:nil];_nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(position-amount)};}
   }
   _pausedAt=0;
  }
@@ -735,6 +736,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if(!PorticoListeningEffectsValid(effects))return NO;
  id preferences=value[@"preferences"];
  if(!PorticoListeningPreferencesValid(preferences))return NO;
+ if(!PorticoAudiobookPreferencesValid(value[@"audiobook"]))return NO;
  id timer=value[@"timer"];
  if(timer!=NSNull.null){
   if(![timer isKindOfClass:NSDictionary.class]||!Text(timer[@"label"])||[timer[@"label"] length]>512||!WireID(timer[@"libraryId"]))return NO;
@@ -760,6 +762,9 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 }
 - (void)applyPreferredRate {
  if(!_owner||_terminal)return;
+ NSDictionary *book=_policy[@"audiobook"];
+ if([[self kind] isEqual:@"audiobook_file"])[self skipBack:book?([book[@"skipBackMs"] doubleValue]/1000):15 forward:book?([book[@"skipForwardMs"] doubleValue]/1000):30];
+ else [self skipBack:30 forward:30];
  NSNumber *preferred=PorticoPreferredListeningRate([self kind],_policy[@"preferences"]);if(!preferred)return;
  double rate=preferred.doubleValue;
  NSString *key=[NSString stringWithFormat:@"%@:%g",_session[@"id"],rate];
@@ -916,6 +921,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if([action isEqual:@"stop"]){[self retire:installedOwner stop:YES];return;}
  NSString *resolved=action;NSNumber *resolvedValue=value;
  if([action isEqual:@"toggle"])resolved=([self allowed]&&[_intent isEqual:@"playing"])?@"pause":@"resume";
+ if([action isEqual:@"skip-back"]||[action isEqual:@"skip-forward"]){BOOL back=[action isEqual:@"skip-back"];value=@(back?-(_skipBackSeconds>0?_skipBackSeconds:30):(_skipForwardSeconds>0?_skipForwardSeconds:30));action=@"skip";}
  if([action isEqual:@"skip"]){resolvedValue=@(MAX(0,[[_controller listeningSnapshot][@"positionSeconds"] doubleValue]+value.doubleValue));resolved=@"seek";}
  [self action:resolved value:resolvedValue owner:installedOwner];
 }
@@ -929,7 +935,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  transport(center.playCommand,@"resume");transport(center.pauseCommand,@"pause");transport(center.togglePlayPauseCommand,@"toggle");transport(center.stopCommand,@"stop");
  if(_queue){transport(center.nextTrackCommand,@"next");transport(center.previousTrackCommand,@"previous");}
  [self addRemote:center.changePlaybackPositionCommand handler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event){if(![event isKindOfClass:MPChangePlaybackPositionCommandEvent.class])return MPRemoteCommandHandlerStatusCommandFailed;invoke(@"seek",@(((MPChangePlaybackPositionCommandEvent *)event).positionTime));return MPRemoteCommandHandlerStatusSuccess;}];
- for(MPSkipIntervalCommand *command in @[center.skipForwardCommand,center.skipBackwardCommand]){BOOL backward=command==center.skipBackwardCommand;double preferred=backward?(_skipBackSeconds>0?_skipBackSeconds:30):(_skipForwardSeconds>0?_skipForwardSeconds:30);command.preferredIntervals=@[@(preferred)];[self addRemote:command handler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event){double interval=[event isKindOfClass:MPSkipIntervalCommandEvent.class]?((MPSkipIntervalCommandEvent *)event).interval:preferred;invoke(@"skip",@(backward?-interval:interval));return MPRemoteCommandHandlerStatusSuccess;}];}
+ for(MPSkipIntervalCommand *command in @[center.skipForwardCommand,center.skipBackwardCommand]){BOOL backward=command==center.skipBackwardCommand;double preferred=backward?(_skipBackSeconds>0?_skipBackSeconds:30):(_skipForwardSeconds>0?_skipForwardSeconds:30);command.preferredIntervals=@[@(preferred)];[self addRemote:command handler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event){(void)event;invoke(backward?@"skip-back":@"skip-forward",nil);return MPRemoteCommandHandlerStatusSuccess;}];}
  center.changePlaybackRateCommand.supportedPlaybackRates=@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2];
  [self addRemote:center.changePlaybackRateCommand handler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event){if(![event isKindOfClass:MPChangePlaybackRateCommandEvent.class])return MPRemoteCommandHandlerStatusCommandFailed;invoke(@"rate",@(((MPChangePlaybackRateCommandEvent *)event).playbackRate));return MPRemoteCommandHandlerStatusSuccess;}];
 }

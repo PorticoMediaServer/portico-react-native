@@ -98,6 +98,8 @@ export interface NativeShellRuntime {
   watch?: NativeWatchOutletPort;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
+  /** Direction-specific audiobook step; absent callers retain their old step. */
+  skipForwardSeconds?: number;
   /** Only installed when a real device destination control exists. */
   castControl?: ReactNode;
   desktopActivity?: ReactNode;

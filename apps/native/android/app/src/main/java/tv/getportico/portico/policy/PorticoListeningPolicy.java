@@ -15,6 +15,22 @@ public final class PorticoListeningPolicy {
   private static boolean member(Object value, Set<Double> values) {
     return value instanceof Number number && Double.isFinite(number.doubleValue()) && values.contains(number.doubleValue());
   }
+  public static boolean validAudiobookPreferences(Object value) {
+    if (!(value instanceof Map<?, ?> book) || book.size() != 3) return false;
+    return member(book.get("skipBackMs"), Set.of(10000.0,15000.0,30000.0,60000.0))
+        && member(book.get("skipForwardMs"), Set.of(15000.0,30000.0,60000.0,90000.0))
+        && member(book.get("resumeRewindMs"), Set.of(0.0,5000.0,15000.0,30000.0));
+  }
+  public static double skipSeconds(boolean audiobook, Object value, boolean forward) {
+    if (!audiobook) return 30;
+    if (!(value instanceof Map<?, ?> book)) return forward ? 30 : 15;
+    return ((Number)book.get(forward ? "skipForwardMs" : "skipBackMs")).doubleValue()/1000;
+  }
+  public static double resumeDisplacement(double elapsed, double position, double choiceMs) {
+    if (!Double.isFinite(elapsed) || elapsed < 300 || !Double.isFinite(position) || position <= 0
+        || !(choiceMs==0 || choiceMs==5000 || choiceMs==15000 || choiceMs==30000)) return 0;
+    return Math.min(position, choiceMs/1000);
+  }
   public static boolean mayAdvance(boolean timerStopped, Map<?, ?> postPlay) {
     return !timerStopped && (postPlay == null || !Boolean.FALSE.equals(postPlay.get("autoplay")));
   }

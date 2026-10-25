@@ -1,4 +1,5 @@
 import {AppState, Dimensions, Platform} from 'react-native';
+import {audiobookPreferences} from '../../../../packages/client-core/src/audiobook-preferences';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
 import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
@@ -186,7 +187,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       appVersion: installed.appVersion, serverName: server.name, current,
       get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation};
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
-      settings: () => nativePlaybackSettings(currentPreferences().effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
+      settings: () => ({...nativePlaybackSettings(currentPreferences().effective, installationSettings), audiobook: audiobookPreferences(currentPreferences())}), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
     watch = new NativeWatchOutlet(() => current() ? {authority, fence: playback!.getSnapshot().fence, window: Dimensions.get('window')} : undefined);
     cleanups.push(playback.subscribe(watch.invalidate));
     const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
@@ -305,7 +306,19 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text,
+    const playbackSkipSeconds = (direction: 'back' | 'forward') => {
+      assertCurrent();
+      const preferences = currentPreferences();
+      if (playback?.getSnapshot().dock.local?.kind === 'audiobook') {
+        const selected = audiobookPreferences(preferences);
+        return (direction === 'back' ? selected.skipBackMs : selected.skipForwardMs) / 1000;
+      }
+      // Keep the existing video/music dock step; book settings are independent.
+      const value = preferences.effective['playback.skipBackMs'];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
+      return value / 1000;
+    };
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;
