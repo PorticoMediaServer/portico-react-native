@@ -57,7 +57,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {}, 'react-native-qrcode-svg': {default: 'QR'},
     './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false, directoryIdentityUnconfirmed: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
     './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
-    './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'},
+    './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'},
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;
@@ -115,7 +115,7 @@ test('TV profile-switch hand-off preserves its current family, selection control
     '../../platform/profile-recovery': {NativeProfileRecovery: 'Recovery', temporaryRecoveryApi: () => ({})},
     '../../platform/account-authority': {hostedUrl: 'https://hosted.test'},
     '../../platform/server-connections': {nativeNetworkFetch: async () => ({})},
-    './PhoneProfileRecovery': {PhoneProfileRecovery: 'PhoneProfileRecovery'},
+    './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'PhoneProfileRecovery'},
   });
   const context = {session: () => current, current: () => true, serverName: 'Verified server', api: {baseUrl: 'https://verified.example'},
     account: {profiles: [profile]}, authority: () => ({}), navigation: {back: () => {exited++;}}};
