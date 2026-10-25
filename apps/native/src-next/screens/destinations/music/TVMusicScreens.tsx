@@ -1,11 +1,11 @@
-import React, {useCallback, useMemo, useRef, useSyncExternalStore} from 'react';
+import React, {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, type View as NativeView} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import {artistReleaseGroups} from '../../../../../../packages/client-core/src/presentation/library-tabs';
 import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
-import {Button} from '../../../kit/controls';
+import {Button, Chip} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {browseType} from '../../../kit/browse/presentation';
@@ -108,6 +108,12 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
   const facts = [entry.artist?.name, entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false}),
     snapshot.songTotal === undefined ? undefined : minutes === undefined ? t('title.songCount', {count: snapshot.songTotal})
       : t('music.songCountAndDuration', {songs: snapshot.songTotal, minutes})].filter((value): value is string => !!value);
+  // tv-more6: a multi-disc album draws a Disc chip row above the list; the chips are the album's
+  // own discs, and the list shows the chosen one. A single-disc album draws no row.
+  const discs = useMemo(() => [...new Set(snapshot.songs.flatMap(song => song.discNumber === undefined ? [] : [song.discNumber]))].sort((left, right) => left - right), [snapshot.songs]);
+  const [disc, setDisc] = useState<number>();
+  const chosen = disc !== undefined && discs.includes(disc) ? disc : discs[0];
+  const songs = discs.length > 1 ? snapshot.songs.filter(song => (song.discNumber ?? discs[0]) === chosen) : snapshot.songs;
   return <View testID="native-tv-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
@@ -122,7 +128,11 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
         </View>
         <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} onPlaylist={onPlaylist} style={{position: 'absolute', left: 760, top: 410}}/>
         {snapshot.phase === 'error' && <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}
-        <TrackList songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" style={{position: 'absolute', left: 724, top: 520, width: 1118, zIndex: 2}}/>
+        <View style={{position: 'absolute', left: 724, top: 520, width: 1118, zIndex: 2}}>
+          {discs.length > 1 && <View style={{flexDirection: 'row', gap: 14, marginBottom: 14}}>{discs.map(value => <Chip key={value} focusId={`music-disc-${value}`} selected={chosen === value}
+            accessibilityRole="radio" accessibilityState={{checked: chosen === value}} onPress={() => setDisc(value)}>{t('title.disc', {number: defaultI18n.number(value, {useGrouping: false})})}</Chip>)}</View>}
+          <TrackList songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album"/>
+        </View>
         <SectionHeading title={t('music.moreLikeThis')} detail={t('music.moreLikeThisHint')} left={200} top={896}/>
         <View style={{position: 'absolute', left: 200, top: 954, flexDirection: 'row', gap: 32, zIndex: 2}}>
           {snapshot.similar.filter(value => value.kind === 'album').slice(0, 7).map(value => <SquareCard key={value.id} width={200} title={value.displayTitle ?? value.title}
