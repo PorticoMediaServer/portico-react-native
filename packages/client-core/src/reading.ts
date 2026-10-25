@@ -1,3 +1,5 @@
+import {withReadingManifestFacts, type ReadingManifestFacts} from './reading-manifest-facts.ts';
+import {captureReadingAnnotationMutation, parseReadingAnnotations, parseReadingAnnotationSaved, readingAnnotationId, type ReadingAnnotationMutation, type ReadingAnnotationsPage} from './reading-annotations.ts';
 import {
   decodeGetReadingPeriodicalGroupsResponse, decodeGetReadingPeriodicalIssuesResponse,
   type GetReadingPeriodicalGroupsResponse, type GetReadingPeriodicalIssuesResponse,
@@ -14,7 +16,16 @@ import type {Viewer} from './index.ts';
 
 export type ReadingScope = Readonly<{viewer: Readonly<Viewer>; isCurrent: () => boolean; signal?: AbortSignal}>;
 type Immutable<T> = T extends readonly (infer V)[] ? readonly Immutable<V>[] : T extends object ? {readonly [K in keyof T]: Immutable<T[K]>} : T;
-export type ReadingManifest = Immutable<PostReadingSessionsResponse>;
+export type ReadingManifest = Immutable<PostReadingSessionsResponse & {canAnnotate?: true; canSaveFile?: true; metadata: PostReadingSessionsResponse['metadata'] & ReadingManifestFacts}>;
+/** Optional source capability is withheld unless the actual response says literal true. */
+export function parseReadingManifest(raw: unknown): ReadingManifest {
+  const {canAnnotate: decodedCapability, canSaveFile: decodedSaveCapability, ...value} = withReadingManifestFacts(raw, decodePostReadingSessionsResponse) as PostReadingSessionsResponse & {metadata: PostReadingSessionsResponse['metadata'] & ReadingManifestFacts; canAnnotate?: unknown; canSaveFile?: unknown};
+  void decodedCapability; void decodedSaveCapability;
+  const offered = typeof raw === 'object' && raw !== null && !Array.isArray(raw) && (raw as Record<string, unknown>).canAnnotate === true;
+  const saveOffered = typeof raw === 'object' && raw !== null && !Array.isArray(raw) && (raw as Record<string, unknown>).canSaveFile === true;
+  return frozen({...value, ...(offered ? {canAnnotate: true as const} : {}), ...(saveOffered ? {canSaveFile: true as const} : {})});
+}
+
 /** Derived from the generated official response, never a hand-written mirror. */
 export type ReadingItem = GetReadingItemsResponse['items'][number];
 export type ReadingContinueItem = GetReadingContinueResponse['items'][number];
@@ -202,7 +213,7 @@ function validReadingCover(itemId: string, value: unknown): boolean {
   return value.startsWith(prefix) && /^[a-f0-9]{64}$/.test(value.slice(prefix.length));
 }
 
-function validateManifest(m: PostReadingSessionsResponse, request: PostReadingSessionsRequest) {
+function validateManifest(m: ReadingManifest, request: PostReadingSessionsRequest) {
   if (!id(m.sessionId) || m.itemId !== request.itemId || m.sourceId !== request.sourceId || !revision(m.revision) || !format(m.format) || !integer(m.size, 1, 2 ** 31)) fail('invalid_manifest');
   if (!validReadingCover(m.itemId, m.metadata.coverUrl)) fail('invalid_manifest');
   if (m.sequential === true && m.format !== 'pdf') fail('invalid_manifest');
@@ -225,6 +236,8 @@ function validateManifest(m: PostReadingSessionsResponse, request: PostReadingSe
   }
 }
 
+/** Shared bridge validation delegates to the canonical current-manifest location policy. */
+export function validateReadingLocation(location: ReadingLocation, manifest: ReadingManifest) {validateLocation(location, manifest);}
 function validateLocation(location: ReadingLocation, manifest: ReadingManifest, stale = false) {
   if (location.format !== manifest.format || !Number.isFinite(location.progression) || location.progression < 0 || location.progression > 1) fail('invalid_location');
   if (location.format === 'epub') {
@@ -471,7 +484,7 @@ export class ReadingClient {
   async open(request: PostReadingSessionsRequest, signal?: AbortSignal): Promise<ReadingSession> {
     if (!id(request.itemId) || !id(request.sourceId)) fail('invalid_request');
     const captured = Object.freeze({itemId: request.itemId, sourceId: request.sourceId});
-    const manifest = await this.json(routePath('post_reading_sessions'), 'POST', captured, signal, decodePostReadingSessionsResponse, 8 << 20, undefined, undefined, m => m.revision);
+    const manifest = await this.json(routePath('post_reading_sessions'), 'POST', captured, signal, parseReadingManifest, 8 << 20, undefined, undefined, m => m.revision);
     validateManifest(manifest, captured); this.check(signal);
     const session = new ReadingSession(this, manifest); this.#sessions.add(session); return session;
   }
@@ -485,6 +498,7 @@ export class ReadingSession {
   #life = new AbortController();
   #activeRanges = 0;
   #activeSequential = false;
+  #savingFile = false;
   #retire: () => void;
   constructor(client: ReadingClient, manifest: ReadingManifest) {
     this.#client = client; this.manifest = frozen(manifest); this.signal = this.#life.signal;
@@ -596,6 +610,30 @@ export class ReadingSession {
       return bytes(r, entry.size, active, check, entry.size);
     });
   };
+  /** Authenticated from-start original bytes; no public URL or offline receipt.
+   * The session and caller must remain current until all bytes are received. */
+  saveFile = async (operationId: string, signal?: AbortSignal): Promise<Uint8Array> => {
+    this.#check();
+    if (this.manifest.canSaveFile !== true) fail('not_permitted');
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(operationId)) fail('invalid_request');
+    if (this.manifest.size > 64 << 20) fail('response_size');
+    if (this.#savingFile) fail('request_in_progress');
+    this.#savingFile = true;
+    try {
+      // The canonical session route supplies the captured identity; the new
+      // source-declared subresource descriptor is checkpoint-generated.
+      const path = routePath('delete_reading_sessions_sessionId', {sessionId: this.manifest.sessionId}) + '/file-save';
+      return await this.#binary(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({operationId})}, signal, async (r, active, check) => {
+        if (r.status !== 200) return this.#client.error(r, active, check);
+        this.#etag(r);
+        if (r.headers.get('X-Reading-Item') !== this.manifest.itemId || r.headers.get('X-Reading-Source') !== this.manifest.sourceId
+          || r.headers.get('Content-Length') !== String(this.manifest.size) || r.headers.has('Content-Range')
+          || r.headers.get('Accept-Ranges') !== 'none' || mime(r.headers.get('Content-Type')) !== 'application/octet-stream'
+          || r.headers.get('Content-Disposition') !== 'attachment; filename="publication"') fail('source_changed');
+        return bytes(r, 64 << 20, active, check, this.manifest.size);
+      });
+    } finally { this.#savingFile = false; }
+  };
   page = async (index: number, options: Readonly<{width: number; signal?: AbortSignal}>): Promise<ReadingPage> => {
     if (this.manifest.format !== 'cbz') fail('invalid_format');
     if (!integer(index, 0, this.manifest.pageNames!.length - 1) || !integer(options.width, 32, 2048)) fail('invalid_page');
@@ -622,6 +660,23 @@ export class ReadingSession {
       if (out.saved && (out.progress === null || out.progress.stale || out.progress.revision !== expectedRevision + 1)) fail('invalid_progress');
       return out;
     }, true);
+  };
+  /** The existing generated session identity plus the declared annotations subresource.
+   * Official new operation descriptors are produced at the Release checkpoint. */
+  annotations = async (cursor = '', revision?: number, signal?: AbortSignal): Promise<ReadingAnnotationsPage> => {
+    this.#check();
+    if (this.manifest.canAnnotate !== true) fail('not_permitted');
+    if (cursor && (!readingAnnotationId(cursor) || revision === undefined) || revision !== undefined && !integer(revision, 0, Number.MAX_SAFE_INTEGER)) fail('invalid_revision');
+    const path = routePath('delete_reading_sessions_sessionId', {sessionId: this.manifest.sessionId}) + '/annotations';
+    return this.#control(() => this.#client.json(query(path, {cursor, revision}), 'GET', undefined, signal,
+      raw => parseReadingAnnotations(raw, this.manifest, location => validateLocation(location, this.manifest), cursor), 2 << 20, this.#headers(), this.signal), true);
+  };
+  mutateAnnotation = async (request: ReadingAnnotationMutation, signal?: AbortSignal): Promise<Readonly<{revision: number}>> => {
+    this.#check(); if (this.manifest.canAnnotate !== true) fail('not_permitted');
+    const captured = captureReadingAnnotationMutation(request, location => validateLocation(location, this.manifest));
+    const path = routePath('delete_reading_sessions_sessionId', {sessionId: this.manifest.sessionId}) + '/annotations';
+    return this.#control(() => this.#client.json(path, 'PUT', captured, signal,
+      raw => parseReadingAnnotationSaved(raw, captured.expectedRevision), 4096, this.#headers(), this.signal), true);
   };
   close = async (signal?: AbortSignal): Promise<void> => {
     if (this.signal.aborted) return;
