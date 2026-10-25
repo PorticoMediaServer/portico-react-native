@@ -24,7 +24,8 @@ export function remoteSourceError(t: Translate, error: unknown): string {
 export function receiptCheckRequired(state: RemoteState): boolean {
   // A confirmed command's follow-up list read can fail after the service cleared its receipt.
   // Check the original operation; never turn that refresh failure into a new mutation.
-  return state.ambiguous || !!state.operationId && !state.receipt && !state.rclone && !!state.error && !state.errorCode;
+  return state.ambiguous || !!state.operationId && !state.receipt && !state.rclone
+    && (!state.errorCode || state.errorCode === 'remote_source_not_listed');
 }
 
 export function useAttempt(parentCurrent: () => boolean) {
