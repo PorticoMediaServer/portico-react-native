@@ -21,13 +21,18 @@ export function createNativeTogetherRenderer(context: NativeShellBootstrapContex
     current: () => lifetime.current() && context.current(),
     makeHost: memberId => controller.makeHost(memberId),
   });
+  // A route lifetime or authority that retires without dispose still has to notify the slot:
+  // otherwise the player would keep stale members and permissions until an unrelated render.
+  const retireOnEnd = () => retirePort();
+  lifetime.signal.addEventListener('abort', retireOnEnd, {once: true});
+  const offAuthority = context.subscribeAuthority(() => {if (!lifetime.current()) retirePort();});
   return {
     render: (route, runtime) => {
       lifetime.assert();
       if (route.kind !== 'together') throw new Error('native_together_route_mismatch');
       return <NativeTogetherScreen ports={{context}} controller={controller} media={media} runtime={runtime}/>;
     },
-    dispose: () => {retirePort(); controller.dispose(); media.dispose(); lifetime.dispose();},
+    dispose: () => {lifetime.signal.removeEventListener('abort', retireOnEnd); offAuthority(); retirePort(); controller.dispose(); media.dispose(); lifetime.dispose();},
   };
 }
 
