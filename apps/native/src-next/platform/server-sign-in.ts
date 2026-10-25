@@ -46,6 +46,7 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly requiredSetupHandoff: boolean;
   private memberMove?: {dispose: () => void};
+  private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; retire: (fresh: LocalSession) => Promise<void>}>;
   constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean} = {}) {
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
@@ -196,7 +197,7 @@ export class NativeServerSignIn {
    * password/code is sent. Ordinary Local/Portico sign-in remains unchanged. */
   createMemberMove(initial: 'password' | 'code') {
     return this.run(async () => {
-      this.memberMove?.dispose(); this.memberMove = undefined;
+      this.memberMove?.dispose(); this.memberMove = undefined; this.memberMoveFactor = undefined;
       const descriptor = this.server, origin = this.probe.getSnapshot().origin;
       if (!descriptor || !origin || descriptor.move === null || this.account || this.challenge
         || initial === 'password' && descriptor.move !== 'to_portico') throw mismatch();
@@ -306,12 +307,32 @@ export class NativeServerSignIn {
           }
           // Store notifications invalidate this exact revision's lease; no
           // selected/default getter may broaden it after normal adoption.
-          return {result: accepted, isCurrent: () => lease && this.current() && this.api === api
-            && this.server === server && this.account === acceptedAccount && this.snapshot === acceptedSnapshot && this.challenge === acceptedChallenge && samePin()};
+          const acceptedCurrent = () => lease && this.current() && this.api === api
+            && this.server === server && this.account === acceptedAccount && this.snapshot === acceptedSnapshot && this.challenge === acceptedChallenge && samePin();
+          if (accepted.kind === 'challenge' && acceptedChallenge)
+            this.memberMoveFactor = {api, token: acceptedChallenge, expiresAt: accepted.expiresAt, isCurrent: acceptedCurrent, retire: retireCaptured};
+          return {result: accepted, isCurrent: acceptedCurrent};
         },
       }, initial);
       this.memberMove = move;
       return move;
+    });
+  }
+  /** Only the exact challenge adopted by this member move may use this
+   * continuation. Ordinary Local/TV factor admission is unchanged. */
+  completeMemberMoveFactor(code: string) {
+    return this.run(async () => {
+      const factor = this.memberMoveFactor;
+      if (!factor || !factor.isCurrent() || this.api !== factor.api || this.challenge !== factor.token
+        || Date.parse(factor.expiresAt) <= Date.now()) throw cancelled();
+      const result = await completeDirectSignInChallenge(factor.api, factor.token, code, this.controller.signal);
+      if (!factor.isCurrent() || this.memberMoveFactor !== factor || this.api !== factor.api || this.challenge !== factor.token) {
+        if (result.kind === 'signed-in') await factor.retire(result.session);
+        throw cancelled();
+      }
+      const accepted = await this.consume(result);
+      this.memberMoveFactor = undefined;
+      return accepted;
     });
   }
   /** Auth18 on the sign-in picker. The same account-scoped sign-in that opened the
