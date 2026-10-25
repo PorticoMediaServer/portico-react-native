@@ -66,3 +66,26 @@ test('medium rail drops Live TV when the server has none and keeps the current l
   const shows = nodes.find(node => node.props?.testID === 'medium-rail-library:shows')!;
   assert.equal((shows.props?.accessibilityState as {selected: boolean}).selected, true);
 });
+
+test('an owner sees the icon-only Server activity after Saved, never a Notifications dead end', async () => {
+  const h = hooks(), theme = createTheme({isTV: false, width: 840});
+  const {MediumRail} = await screenModule(new URL('../src-next/shell/MediumRail.tsx', import.meta.url), {
+    react: h.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})},
+    'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
+    '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
+    '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/artwork': {ProfileFace: 'ProfileFace'},
+    '../kit/theme': {useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
+    './model': model, './tv-focus': {sameDestination},
+  });
+  const opened: unknown[] = [];
+  const element = h.render(() => MediumRail({libraries: [{id: 'movies', name: 'Movies', kind: 'movie'}], hasLiveTV: true, destination: {kind: 'home'},
+    profile: {name: 'D', initial: 'D'} as never, unread: false, serverAction: {id: 'server', label: 'Dashboard', onPress: () => opened.push('server')},
+    onNavigate: () => {}, onProfile: () => {}, profileRef: {current: null}, short: false}));
+  const nodes = tree(element), ids = nodes.map(node => node.props?.testID).filter((id): id is string => typeof id === 'string');
+  assert.deepEqual(ids, ['medium-rail', 'medium-rail-search', 'medium-rail-home', 'medium-rail-library:movies', 'medium-rail-live', 'medium-rail-saved',
+    'medium-rail-server', 'medium-rail-settings', 'medium-rail-profile']);
+  (nodes.find(node => node.props?.testID === 'medium-rail-server')!.props?.onPress as () => void)();
+  assert.deepEqual(opened, ['server']);
+  assert.equal(ids.includes('medium-rail-notifications'), false, 'no screen registers Notifications, so the rail does not draw it');
+});
