@@ -23,6 +23,8 @@ import {SavedNameSheet} from './SavedForms';
 import {savedItemCount, savedLibraryName, savedMosaicPaths, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
 import type {NativeSavedViewSummaries} from './state';
 
+const noSummarySubscribe = (_listener: () => void) => () => {};
+const noSummaryRevision = () => 0;
 const t = defaultI18n.t;
 
 type DirectoryView = 'playlists' | 'collections' | 'views';
@@ -46,6 +48,7 @@ export type NativeSavedDirectoryProps = Readonly<{
  * the + sends the real create command and the rows open the pushed pages. */
 export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed, summaries}: NativeSavedDirectoryProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  useSyncExternalStore(summaries?.subscribe ?? noSummarySubscribe, summaries?.getSnapshot ?? noSummaryRevision);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [creating, setCreating] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
