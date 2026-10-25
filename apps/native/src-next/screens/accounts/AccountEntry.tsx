@@ -997,11 +997,13 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     primaryAction={{id: 'retry-identity', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: chooseAnother}}/>;
   const singleTVFailure = Platform.isTV && servers.length === 1 && !!target && directoryAccessRefused(error);
+  const singlePhoneRefusal = !Platform.isTV && directoryList === 'ready' && servers.length === 1 && !!target
+    && servers[0].id === target.id && directoryAccessRefused(error);
   if (stage === 'servers' && target && directoryClockSkew(error)) return <StateLayout testID="accounts-server-clock" icon="i-clock"
     title={t('web.chooser.clockTitle', {server: target.name})} body={t('web.chooser.clockBody')}
     primaryAction={{id: 'retry-clock', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: chooseAnother}}/>;
-  if (stage === 'servers' && target && directoryAccessRefused(error) && !singleTVFailure) return <DirectoryAccessRefused serverName={target.name} busy={busy}
+  if (stage === 'servers' && target && directoryAccessRefused(error) && !singleTVFailure && !singlePhoneRefusal) return <DirectoryAccessRefused serverName={target.name} busy={busy}
     onOther={chooseAnother} onRefresh={() => {cancelDirectory(); void run(directory);}}/>;
   if (stage === 'servers' && target && directoryView === 'opening' && !allTVOffline) return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
     primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
@@ -1039,13 +1041,13 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
     primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
-  if (stage === 'servers' && (directoryList === 'ready' && servers.length === 0 || singleTVFailure)) {
+  if (stage === 'servers' && (directoryList === 'ready' && servers.length === 0 || singleTVFailure || singlePhoneRefusal)) {
     const source = operation.current, attempt = directoryAttempt.current, scope = accountScope.current, capturedTarget = target;
     const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && operation.current === source
       && directoryAttempt.current === attempt && accountScope.current === scope && (!capturedTarget || targetRef.current === capturedTarget)
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope?.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
-    const notice = singleTVFailure && capturedTarget
+    const notice = (singleTVFailure || singlePhoneRefusal) && capturedTarget
       ? {title: t('web.chooser.refusedTitle', {server: capturedTarget.name}), body: t('web.chooser.refusedBody')} : undefined;
     const EmptyDirectory = Platform.isTV ? TVNoServers : PhoneNoServers;
     return <EmptyDirectory {...(!Platform.isTV ? {username: nativeAccounts.accountCredentials().getSnapshot().session?.account.username,

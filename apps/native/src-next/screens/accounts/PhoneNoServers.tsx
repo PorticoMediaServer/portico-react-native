@@ -12,8 +12,8 @@ const alwaysCurrent = () => true;
 const ownerCurrent = (current: () => boolean) => {try {return current();} catch {return false;}};
 
 /** Empty directory only: discovery and invitation entry still prove their server. */
-export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin, onSettings, username, isCurrent = alwaysCurrent}: {
-  busy: boolean; error?: React.ReactNode; isCurrent?: () => boolean; onSettings?: () => void; username?: string; onFind: () => void; onRefresh: () => void;
+export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignOut, onBack, onJoin, onSettings, username, isCurrent = alwaysCurrent, notice}: {
+  busy: boolean; error?: React.ReactNode; notice?: Readonly<{title: string; body: string}>; isCurrent?: () => boolean; onSettings?: () => void; username?: string; onFind: () => void; onRefresh: () => void;
   onJoin: (invitation: string, address: string) => void; onShare: () => void; onSignOut: () => void; onBack?: () => void;
 }) {
   const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
@@ -55,8 +55,8 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
       {onBack && <Button variant="text" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
       <View style={{gap: 12}}>
-        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{t('web.hostedAccount.noServers')}</Text>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.noneBody')}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{notice?.title ?? t('web.hostedAccount.noServers')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{notice?.body ?? t('web.chooser.noneBody')}</Text>
         {error}
       </View>
       {onSettings && <Button variant="text" disabled={busy} onPress={onSettings}>{username ? username + " · " + t('settings.title') : t('settings.title')}</Button>}
