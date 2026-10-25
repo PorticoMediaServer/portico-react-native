@@ -27,6 +27,7 @@ test('current native local sign-in probes before credentials, verifies the pin a
       if (request.body.pin !== '1234') return {status: 401, body: {error: {code: 'profile_pin_invalid'}}};
       return {status: 200, body: {session: {...f.session, accessToken: 'viewer_access' + suffix, sessionFamilyId: 'current_viewer' + suffix}}};
     }
+    if (request.path === '/v1/direct/profiles/profile/pin-reset') return {status: 204};
     if (request.path === '/v1/me') {
       if (held) await new Promise<void>(resolve => {held = resolve;});
       return {status: 200, body: {viewer: f.viewer}};
@@ -103,6 +104,25 @@ test('current native local sign-in probes before credentials, verifies the pin a
         assert.equal(app.requests.slice(before).filter((r: any) => r.path === '/v1/sessions/current').length, 1, 'temporary account family retired once');
       } finally {signIn.dispose(); await app.settle();}
       assert.equal((await nativeAppSessions.selected())?.connection.session.sessionFamilyId, 'current_viewer', 'disposal preserves published viewer');
+    });
+    await t.test('the sign-in picker exposes a fenced recovery for its own account grant', async () => {
+      kind = 'local'; const signIn = new NativeServerSignIn(), before = app.requests.length;
+      let recovery: any;
+      try {
+        await signIn.inspect('https://standard-home.test'); await signIn.confirmLocal(await signIn.inspectLocalIdentity());
+        assert.throws(() => signIn.profileRecovery('profile'), 'a credential command is not a management grant');
+        const result = await signIn.signInLocal('synthetic_user', 'synthetic_password');
+        assert.equal(result.kind, 'profiles');
+        recovery = signIn.profileRecovery('profile');
+        assert.equal(recovery.getSnapshot().phase, 'pin', 'the account-scoped grant can manage this profile');
+        assert.throws(() => signIn.profileRecovery('missing'), 'the profile must still be in the captured snapshot');
+        await recovery.reset('4321');
+        assert.equal(recovery.getSnapshot().phase, 'done');
+        const requests = app.requests.slice(before);
+        assert.equal(requests.filter((r: any) => r.path === '/v1/direct/profiles/profile/pin-reset').length, 1);
+        assert.equal(requests.filter((r: any) => r.path === '/v1/sessions/current').length, 0, 'the sign-in family is never a recovery cleanup target');
+        recovery.dispose(); recovery = undefined;
+      } finally {recovery?.dispose(); signIn.dispose(); await app.settle();}
     });
     await t.test('a new sign-in on the same server retires only the exact previous viewer and temporary account', async () => {
       suffix = '_replacement'; const signIn = new NativeServerSignIn(), before = app.requests.length;
