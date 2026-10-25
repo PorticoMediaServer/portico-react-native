@@ -51,6 +51,7 @@ import {NativeServerTroubleshooting} from './server/TroubleshootingPage';
 import {NativeServerStorage} from './server/StoragePage';
 import {NativeServerIntegrations} from './server/IntegrationsPage';
 import {NativeServerGeneral} from './server/GeneralPage';
+import {NativeRemoteAccessPage} from './server/RemoteAccessPage';
 import {NativeServerStreaming} from './server/StreamingPage';
 import {NativeServerSegments} from './server/SegmentsPage';
 import {PhoneServerPageHeader} from './server/PhoneServerPageHeader';
@@ -131,7 +132,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const serverPageOrder = ['general', 'dashboard', 'history', 'libraries', 'remote-sources', 'metadata', 'segments', 'live', 'people', 'signin', 'remote', 'integrations', 'streaming', 'storage', 'troubleshooting'];
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
-    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'remote' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
     return [...pages].sort((a, b) => {
       const left = serverPageOrder.indexOf(a.id), right = serverPageOrder.indexOf(b.id);
       return (left < 0 ? serverPageOrder.length : left) - (right < 0 ? serverPageOrder.length : right);
@@ -141,7 +142,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const phoneAccountOrder = ['playback', 'languages', 'quality', 'music', 'appearance', 'region', 'privacy', 'device'];
   const tabletAccountOrder = ['profile', 'privacy', 'playback', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
   const tabletAccountClusters: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
-  const tabletServerClusters: readonly (readonly string[])[] = [['general', 'dashboard'], ['libraries', 'remote-sources', 'segments'], ['live', 'integrations'], ['streaming', 'storage', 'troubleshooting']];
+  const tabletServerClusters: readonly (readonly string[])[] = [['general', 'dashboard'], ['libraries', 'remote-sources', 'segments'], ['live', 'remote', 'integrations'], ['streaming', 'storage', 'troubleshooting']];
   const tabletDefaultPage = accountPages.some(value => value.id === 'playback') ? 'playback' : accountPages[0]?.id;
   const [selected, setSelected] = useState(() => !theme.isTV && !compact ? tabletDefaultPage : accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
   // tv-more frame 22: the list keeps the spec's three groups, in the drawn order; Reading is not on TV.
@@ -227,6 +228,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const generalPage = !theme.isTV && page.id === 'general';
   const streamingPage = !theme.isTV && page.id === 'streaming';
   const segmentsPage = !theme.isTV && page.id === 'segments';
+  const remoteAccessPage = !theme.isTV && page.id === 'remote';
   // Medium and expanded Settings draw the owner Dashboard as a Settings page; phone keeps
   // its dedicated pushed Dashboard route.
   const dashboardPage = !theme.isTV && !compact && page.id === 'dashboard' && dashboard !== undefined;
@@ -299,9 +301,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
         {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>}
-        {!compact && !dashboardPage && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {!compact && !dashboardPage && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && !remoteAccessPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {dashboardPage ? <NativeDashboardScreen controller={dashboard!} ports={ports} runtime={runtime} inline onDenied={dashboardDenied} deniedFallback={null}/> : segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {dashboardPage ? <NativeDashboardScreen controller={dashboard!} ports={ports} runtime={runtime} inline onDenied={dashboardDenied} deniedFallback={null}/> : remoteAccessPage ? <NativeRemoteAccessPage ports={ports} runtime={runtime} compactHeader={compact}/> : segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && matches.length > 0 && <Text testID="settings-search-count" style={[shellType(20, 600), {color: theme.colors.textTertiary, marginBottom: 18}]}>{t('next.shell.tvSettingsMatchCount', {count: matches.length})}</Text>}
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
