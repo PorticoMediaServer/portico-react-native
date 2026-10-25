@@ -424,8 +424,16 @@ internal object PorticoDownloadCenter {
     val stat = try { android.system.Os.lstat(file.path) } catch (error: android.system.ErrnoException) {
       if (error.errno == android.system.OsConstants.ENOENT) return "" else throw error
     }
-    check(android.system.OsConstants.S_ISREG(stat.st_mode) && stat.st_size <= 1048576)
-    return file.readText(Charsets.UTF_8)
+    check(android.system.OsConstants.S_ISREG(stat.st_mode) && stat.st_size in 0L..1048576L)
+    val bytes = java.io.FileInputStream(file).use { input ->
+      val out = ByteArray(stat.st_size.toInt()); var offset = 0
+      while (offset < out.size) { val count = input.read(out, offset, out.size - offset); check(count > 0); offset += count }
+      check(input.read() == -1); out
+    }
+    return Charsets.UTF_8.newDecoder()
+      .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+      .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+      .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
   }
   fun publicationStateWrite(registry: PublicationStateRegistry, handle: String, name: String, json: String) {
     val ticket = publicationStateTicket(registry, handle, name)
