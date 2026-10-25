@@ -39,6 +39,7 @@ import {NativeServerTroubleshooting} from './server/TroubleshootingPage';
 import {NativeServerStorage} from './server/StoragePage';
 import {NativeServerIntegrations} from './server/IntegrationsPage';
 import {NativeServerGeneral} from './server/GeneralPage';
+import {NativeServerStreaming} from './server/StreamingPage';
 import {PhoneServerPageHeader} from './server/PhoneServerPageHeader';
 import {NativeRemoteSourcesScreen} from '../settings/remote-sources/NativeRemoteSourcesScreen';
 import QRCode from 'react-native-qrcode-svg';
@@ -60,7 +61,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
-    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources'));
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
     // settings.html wins over the group's old order: General comes first.
     const general = pages.find(value => value.id === 'general');
     return general ? [general, ...pages.filter(value => value.id !== 'general')] : pages;
@@ -125,6 +126,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const storagePage = !theme.isTV && page.id === 'storage';
   const integrationsPage = !theme.isTV && page.id === 'integrations';
   const generalPage = !theme.isTV && page.id === 'general';
+  const streamingPage = !theme.isTV && page.id === 'streaming';
   const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
@@ -165,9 +167,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
       {(!compact || pushed) && <View style={{flex: 1}}>
         {compact && (serverPage ? <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>
           : <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t('action.back')}</Button>)}
-        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
             {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
