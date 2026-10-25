@@ -1,3 +1,4 @@
+import {NativeSafeModeRow, nativeSafeModeAvailable, nativeSafeModeFocusId} from './NativeSafeModeRow';
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -206,6 +207,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   useEffect(() => {
     if (showEqualizer && !equalizer.ready && !nativeEqualizer.getSnapshot().pending) void nativeEqualizer.refresh().catch(runtime.reportError);
   }, [showEqualizer, equalizer.ready, runtime.reportError]);
+  const showSafeMode = theme.isTV && page.id === 'quality' && nativeSafeModeAvailable(devicePreferences);
   const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId), ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
@@ -217,10 +219,12 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     if (!scope) throw new Error('native_settings_scope_unavailable');
     void controller.apply(scope, patch).catch(runtime.reportError);
   };
+  if (showSafeMode) rowIds.unshift(nativeSafeModeFocusId);
   const device = Platform.isTV ? Platform.OS === 'ios' ? 'device.noun.appleTV' : String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon' ? 'device.noun.fireTV' : 'device.noun.androidTV'
     : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
   return <><FocusRegion id={region} entry={rowIds[0]} order={rowIds} orientation="vertical" edges={{left: column}}>
     {actionError !== undefined && <StateView {...runtime.error(actionError, () => setActionError(undefined))}/>}
+    {showSafeMode && <NativeSafeModeRow source={devicePreferences} runtime={runtime} current={controller.lifetime.current}/>}
     {sections.map(section => <React.Fragment key={section.id}><View style={{marginBottom: theme.isTV ? 30 : 24}}>
       {section.title && <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textTertiary, marginLeft: theme.isTV ? 24 : 0, marginBottom: 10}]}>{t(section.title)}</Text>}
       {section.description && <Text style={[shellType(theme.isTV ? 22 : 14), {color: theme.colors.textSecondary, marginBottom: 14}]}>{t(section.description)}</Text>}
