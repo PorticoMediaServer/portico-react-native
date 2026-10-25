@@ -64,6 +64,8 @@ export type SavedConfirmSheetProps = Readonly<{
   action: string;
   busy: boolean;
   error?: string;
+  /** Draw the confirm as the destructive red-tint action (collections 13c). */
+  destructive?: boolean;
   testID: string;
   onClose: () => void;
   onConfirm: () => void;
@@ -74,8 +76,9 @@ export function SavedConfirmSheet(props: SavedConfirmSheetProps) {
   const theme = useTheme();
   const footer = <View style={{flexDirection: 'row', gap: 12}}>
     <Button testID={`${props.testID}-cancel`} focusId={`${props.testID}-cancel`} variant="glass" disabled={props.busy} onPress={props.onClose} style={{flex: 1}}>{t('action.cancel')}</Button>
-    <Button testID={`${props.testID}-confirm`} focusId={`${props.testID}-confirm`} variant="primary" loading={props.busy} disabled={props.busy}
-      onPress={props.onConfirm} style={{flex: 1}}>{props.action}</Button>
+    <Button testID={`${props.testID}-confirm`} focusId={`${props.testID}-confirm`} variant={props.destructive ? 'glass' : 'primary'} loading={props.busy} disabled={props.busy}
+      onPress={props.onConfirm} style={props.destructive ? {flex: 1, backgroundColor: `${theme.colors.record}24`} : {flex: 1}}
+      textStyle={props.destructive ? {color: theme.colors.record} : undefined}>{props.action}</Button>
   </View>;
   const body = <View style={{gap: 12}}>
     {props.error !== undefined && <Banner testID={`${props.testID}-error`} variant="notice" tone="error" placement="inline" message={props.error}/>}
