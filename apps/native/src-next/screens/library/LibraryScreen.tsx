@@ -576,10 +576,15 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
 }
 
 function LibraryCard({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur, onSelect}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions; selected?: CardSelection; disabled?: boolean; focusId?: string; onFocus?: () => void; onBlur?: () => void; /** The menu's Select row: this card's real selection entry. */ onSelect?: () => void}) {
-  const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
+  const menuAnchorRef = useRef<View>(null);
   // tv-player 9: the album that is playing carries the same still meter on its card.
   const adapter = runtime.playback;
   const playing = useSyncExternalStore(adapter?.subscribe ?? (() => () => {}), adapter?.getSnapshot ?? (() => undefined));
+  if (entry.kind === 'radio' && entry.radioSeed) return <SquareCard focusId={focusId} disabled={disabled}
+    title={defaultI18n.t('music.radioNamed', {name: entry.title})} width={width} titleLines={2}
+    caption={[{id: 'radio', role: 'value', text: defaultI18n.t('music.radio')}]}
+    artwork={runtime.artwork(entry.posterUrl)} onNavigate={() => actions.play(entry)} onFocus={onFocus} onBlur={onBlur}/>;
+  const text = homeCardText(entry, false, runtime.text);
   const playingAlbum = entry.kind === 'album' && playing?.entry?.album?.id === entry.id;
   const props = {focusId, disabled, title: entry.displayTitle || entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched, playing: playingAlbum,
     onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, menuAnchorRef, onSelect), selection: selected,

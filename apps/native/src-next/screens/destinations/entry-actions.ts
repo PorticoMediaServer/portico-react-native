@@ -36,6 +36,23 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
     for (const operation of pending) if (!current(operation.entry) || context.navigation.getSnapshot().revision !== operation.revision) operation.abort.abort();
   };
   const off = [membership.subscribe(check), context.navigation.subscribe(check), context.subscribeAuthority(check)];
+  const play = (entry: ContentEntry) => {
+    if (!current(entry) || !entry.playback && !entry.radioSeed) return;
+    const operation = {entry, revision: context.navigation.getSnapshot().revision, abort: new AbortController()};
+    const isCurrent = () => !operation.abort.signal.aborted && current(entry) && context.navigation.getSnapshot().revision === operation.revision;
+    pending.add(operation);
+    const execute = async () => {
+      if (!isCurrent()) return;
+      if (entry.kind === 'radio' && entry.radioSeed) {
+        const catalogue = context.playback.cataloguePlayback?.();
+        if (!catalogue) throw Object.assign(new Error('native_radio_playback_unavailable'), {code: 'unavailable'});
+        await catalogue.playSegments([{source: {container: {kind: 'radio', id: entry.radioSeed.id}}}], {signal: operation.abort.signal, isCurrent});
+      } else if (entry.playback) {
+        await context.playback.start({entry, target: entry.playback, lifetime: {signal: operation.abort.signal, isCurrent}});
+      }
+    };
+    void execute().catch(error => {if (isCurrent()) common.reportError(error, 'detail');}).finally(() => {pending.delete(operation);});
+  };
   const menuState: NativeEntryMenuState = Object.freeze({getSnapshot: () => revision, subscribe: listener => {
     if (disposed) return () => {};
     listeners.add(listener); borrowMenu();
@@ -43,15 +60,8 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
   }});
   return Object.freeze({
     menuState,
-    open: (entry: ContentEntry) => {if (current(entry)) common.navigate(entry);},
-    play: (entry: ContentEntry) => {
-      if (!current(entry) || !entry.playback) return;
-      const operation = {entry, revision: context.navigation.getSnapshot().revision, abort: new AbortController()};
-      const isCurrent = () => !operation.abort.signal.aborted && current(entry) && context.navigation.getSnapshot().revision === operation.revision;
-      pending.add(operation);
-      void context.playback.start({entry, target: entry.playback, lifetime: {signal: operation.abort.signal, isCurrent}})
-        .catch(error => {if (isCurrent()) common.reportError(error, 'detail');}).finally(() => {pending.delete(operation);});
-    },
+    open: (entry: ContentEntry) => {if (!current(entry)) return; if (entry.kind === 'radio') play(entry); else common.navigate(entry);},
+    play,
     menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void) => {
       if (!current(entry)) return;
       const captured = context.navigation.getSnapshot().revision, port = borrowMenu();

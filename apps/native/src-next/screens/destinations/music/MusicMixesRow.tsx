@@ -103,17 +103,19 @@ export function MusicMixesRow({port, artwork, reportError, title = t('music.mixe
       disabled={!active || !caller} onFocus={() => onCardFocus?.(`music-mix:${row.id}`)} onPlay={() => play(row)}
       onMenu={ref => {if (caller?.lifetime.isCurrent()) setMenu({row, caller, ref});}}/>)}
   </ScrollView>;
+  const headingButton = onOpen && <Focusable disabled={!active} focusId="music-mixes-open" testID="music-mixes-open" accessibilityRole="button" accessibilityLabel={title} onPress={onOpen}
+    style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
+    <Text style={[heading, {color: theme.colors.text}]}>{title}</Text>
+    <Text style={[sub, {color: theme.colors.textTertiary}]}>{t('music.mixesFromListening')}</Text>
+  </Focusable>;
   return <View testID="music-mixes-row" style={{marginTop: theme.isTV ? 44 : theme.layoutMode === 'phone' ? 28 : 26}}>
-    {onOpen ? <Focusable focusId="music-mixes-open" testID="music-mixes-open" accessibilityRole="button" accessibilityLabel={title} onPress={onOpen}
-      style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
-      <Text style={[heading, {color: theme.colors.text}]}>{title}</Text>
-      <Text style={[sub, {color: theme.colors.textTertiary}]}>{t('music.mixesFromListening')}</Text>
-    </Focusable> : <View style={{marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
+    {onOpen ? focus ? <FocusRegion id={`${focus.id}.more`} enabled={active} entry="music-mixes-open" order={['music-mixes-open']}
+      edges={{up: focus.up, down: focus.id, left: focus.left}}>{headingButton}</FocusRegion> : headingButton : <View style={{marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
       <Text style={[heading, {color: theme.colors.text}]}>{title}</Text>
       <Text style={[sub, {color: theme.colors.textTertiary}]}>{t('music.mixesFromListening')}</Text>
     </View>}
     {focus ? <FocusRegion id={focus.id} enabled={active} orientation="horizontal" entry={`music-mix:${snapshot.rows[0]!.id}`}
-      order={snapshot.rows.map(row => `music-mix:${row.id}`)} edges={{up: focus.up, down: focus.down, left: focus.left}}>{cards}</FocusRegion> : cards}
+      order={snapshot.rows.map(row => `music-mix:${row.id}`)} edges={{up: onOpen ? `${focus.id}.more` : focus.up, down: focus.down, left: focus.left}}>{cards}</FocusRegion> : cards}
     {menu && active && menu.caller.lifetime.isCurrent() && <SidePanel open title={t('music.mix.name', {name: menu.row.name})}
       onOpenChange={open => {if (!open && !busy) setMenu(undefined);}} returnFocusRef={menu.ref} initialFocusRef={firstAction} showClose={false} dismissOnBack={!busy} width={640}>
       <MenuRow ref={firstAction} focusId="play" label={t('entry.play')} icon="i-play" disabled={busy} onPress={() => command('play')}/>

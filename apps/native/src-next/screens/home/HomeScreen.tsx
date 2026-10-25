@@ -34,6 +34,9 @@ import {TvHomeRecovery} from './TvHomeRecovery';
 import {useTvHomeRecovery} from './useTvHomeRecovery';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
+const noMixesSubscription = () => () => {};
+const noMixesSnapshot = () => undefined;
+const mixesFocusRow = 'portico.profile.music-mixes';
 
 /**
  * Phone Home measurements the drawn frame states outside the shared kit:
@@ -176,7 +179,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const occupied = theme.isTV && (registry.isRegionActive(ids.spotlight) || previousRows.current.some(row => registry.isRegionActive(ids.row(row.id))));
   const rows = theme.isTV ? tvHomeRows(previousRows.current, incomingRows, rowId => registry.isRegionActive(ids.row(rowId)), occupied) : incomingRows;
   previousRows.current = rows;
-  const regionMap = tvHomeRegionMap(authority, rows.map(row => row.id));
+  const mixes = useSyncExternalStore(runtime.mixes?.subscribe ?? noMixesSubscription, runtime.mixes?.getSnapshot ?? noMixesSnapshot);
+  const hasMixes = mixes?.phase === 'ready' && mixes.rows.length > 0;
+  const regionMap = tvHomeRegionMap(authority, [...rows.map(row => row.id), ...(hasMixes ? [mixesFocusRow] : [])]);
+  const mixesRegion = regionMap.rows.get(mixesFocusRow);
   const ranges = useRef(new Map<string, {first: number; last: number; keys?: readonly string[]}>());
   const viewportHeight = windowHeight, viewportWidth = windowWidth;
 
@@ -326,7 +332,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       </View></HomeWindow>;
     })}
     {pendingRows.map(row => <HomePendingRow key={`pending:${row.id}`} row={row} labels={labels} viewportWidth={viewportWidth}/>)}
-    {runtime.mixes ? <HomeRegion><MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')} onOpen={runtime.musicDiscover} active={active}/></HomeRegion> : null}
+    {runtime.mixes ? <MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')} onOpen={runtime.musicDiscover} active={active}
+      focus={theme.isTV && mixesRegion ? {id: mixesRegion.id, up: mixesRegion.edges.up!, down: mixesRegion.edges.down, left: ids.rail} : undefined}/> : null}
     <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={theme.isTV ? {flexDirection: 'row', alignItems: 'center', gap: 30, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingVertical: 24} : {marginTop: 34, marginHorizontal: 24, alignItems: 'center', gap: 12}}><Button focusId="customize" variant="glass" icon="i-sliders" style={theme.isTV ? undefined : {height: 48, paddingHorizontal: 22}} onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button>
       {theme.isTV
         ? <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 30.8}, theme.textScale), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.home.customizeDescriptionTV')}</Text>
