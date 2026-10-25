@@ -19,7 +19,7 @@ import type {NativeRouteRenderer} from '../../shell/route-registry';
 import type {NativeShellNavigation} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
-import {NativeTitleController} from './title-controller';
+import {NativeTitleController, type NativeTitlePageHost} from './title-controller';
 import {NativeTitleStarts} from './title-starts';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
@@ -144,11 +144,24 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       return controllers.get(key) === owner && !state.retired && (titleKey(state.entry) === titleKey(member) || state.episodes.some(value => titleKey(value) === titleKey(member))
         || state.detail?.data?.related?.rows.some(row => row.entries.some(value => titleKey(value) === titleKey(member))) === true);
     };
-    owner = new NativeTitleController({...ports, entry, playback: {start: async input => {
-      const route = ports.navigation.getSnapshot().route, source = ports.playback.getSnapshot();
-      const visible = body ? source.dock.local?.expanded === true && !!source.entry && titleKey(source.entry) === titleKey(entry)
-        : route.kind === 'title' && titleKey(route.entry) === titleKey(entry);
-      if (visible) await starts.start(input, () => memberCurrent(input.entry));
+    // The exact host this page lives under: the layout's own route revision for a
+    // title page, or the playing session's fence for the watch body. A retained
+    // page keeps its cache, but a host that has moved retires its live controls.
+    const host = (): NativeTitlePageHost | undefined => {
+      const nav = ports.navigation.getSnapshot(), source = ports.playback.getSnapshot();
+      // The watch body's host is its own session: still expanded, still live, and
+      // still playing the entry this page was created for.
+      return body
+        ? source.dock.local?.expanded === true && !source.retired && !!source.fence && !!source.entry && titleKey(source.entry) === titleKey(entry)
+          ? {fence: source.fence} : undefined
+        : nav.route.kind === 'title' && titleKey(nav.route.entry) === titleKey(entry) ? {revision: nav.revision} : undefined;
+    };
+    const subscribeHost = (listener: () => void) => {
+      const offRoute = ports.navigation.subscribe(listener), offSource = ports.playback.subscribe(listener);
+      return () => {offRoute(); offSource();};
+    };
+    owner = new NativeTitleController({...ports, entry, host, subscribeHost, playback: {start: async input => {
+      if (host()) await starts.start(input, () => memberCurrent(input.entry));
     }}});
     controllers.set(key, owner); controllerSubscriptions.set(key, owner.subscribe(starts.invalidate));
     return owner;
@@ -341,10 +354,11 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
   const episodeList = (host: NativeWatchHostContext, pane: boolean) => {
     const source = host.source, entry = source.entry;
     if (!alive() || source.retired || host.fence.kind !== 'queue' || entry?.kind !== 'episode' || !entry.show?.id || !entry.libraryId) return null;
-    const show: ContentEntry = {id: entry.show.id, libraryId: entry.libraryId, kind: 'show', title: entry.show.name};
-    const key = `watch-episodes:${entry.show.id}`;
+    // The panel and the watch page share one retained show controller, so the
+    // drawn Hide watched choice is the same fact on both surfaces.
+    const key = `watch:${titleKey(entry)}`;
     let controller = controllers.get(key);
-    if (!controller) controller = createTitleController(key, show, true);
+    if (!controller) controller = createTitleController(key, entry, true);
     return <NativeWatchEpisodes controller={controller} currentId={entry.id} playing={source.playback.intent === 'playing'} text={host.runtime.text} pane={pane}
       artwork={host.runtime.artwork} onClose={host.closePanel}
       onPlay={next => {
