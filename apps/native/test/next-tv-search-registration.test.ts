@@ -11,6 +11,8 @@ import {NativeSearchDestination} from '../src-next/screens/search/model.ts';
 import {NativeSearchExplore} from '../src-next/screens/search/explore.ts';
 import * as navigationPorts from '../src-next/screens/search/navigation.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
+import {mediaSelectionKey} from '../../../packages/client-core/src/media-selection';
 import * as selectionCore from '../../../packages/client-core/src/selection-model';
 import {selectedItemsLabel} from '../src-next/shell/selection-display';
 import {nativeSearchEntryKey} from '../src-next/screens/search/model';
@@ -87,10 +89,13 @@ async function setup() {
     constructor(options: ConstructorParameters<typeof NativeSearchExplore>[0]) {super(options); this.surface = options.surface;}
   }
   const {createNativeSearchSelection} = await screenModule(new URL('../src-next/screens/search/selection.tsx', import.meta.url), {
-    react: hooks().react, 'react-native': {View: 'View'},
+    react: hooks().react, 'react-native': {View: 'View', Text: 'Text'},
     'react-native-safe-area-context': {useSafeAreaInsets: unavailable},
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/selection-model': selectionCore,
+    '../../../../../packages/client-core/src/presentation/errors': {presentError},
+    '../../../../../packages/client-core/src/media-selection': {mediaSelectionKey},
+    '../../kit/overlays': {Dialog: 'Dialog'}, '../../kit/controls': {Button: 'Button'},
     '../../shell/selection-display': {selectedItemsLabel}, '../../kit/selection': {SelectionBar: 'SelectionBar', SelectionPhoneActionBar: 'SelectionPhoneActionBar'},
     '../../kit/theme': {useTheme: unavailable}, '../destinations/lifetime': {nativeDestinationLifetime},
     '../native-screen-services': {nativeScreenServices: () => ({requestId: unavailable, reportError: (error: unknown) => errors.push(error)})},

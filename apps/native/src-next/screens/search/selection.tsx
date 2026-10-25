@@ -1,15 +1,19 @@
 import React, {useState, useSyncExternalStore} from 'react';
-import {View} from 'react-native';
+import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {SearchEntry, SearchGroup, SearchSnapshot} from '../../../../../packages/client-core/src/search';
-import {SelectionModel, selectionKey, readCatalogueSelectionItem, playCatalogueSelection, enqueueCatalogueSelection,
+import {SelectionModel, selectionKey, selectionFourthAction, readCatalogueSelectionItem, playCatalogueSelection, enqueueCatalogueSelection, createCataloguePersonalSelection,
   type SelectionContext, type SelectionItem} from '../../../../../packages/client-core/src/selection-model';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {selectedItemsLabel} from '../../shell/selection-display';
 import {SelectionBar, SelectionPhoneActionBar, type SelectionActionOffer, type SelectionBarProps} from '../../kit/selection';
 import {useTheme} from '../../kit/theme';
+import {Dialog} from '../../kit/overlays';
+import {Button} from '../../kit/controls';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
+import {mediaSelectionKey} from '../../../../../packages/client-core/src/media-selection';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {nativeScreenServices} from '../native-screen-services';
@@ -28,6 +32,9 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: SearchEntry; group: SearchGroup}>();
   let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false;
   let pending: AbortController | undefined, batchGeneration = 0;
+  let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, stopPersonal: (() => void) | undefined;
+  let personalController: AbortController | undefined, personalCurrent: (() => boolean) | undefined;
+  const closePersonal = () => {personalController?.abort(); personalController = undefined; stopPersonal?.(); stopPersonal = undefined; personal?.dispose(); personal = undefined; personalCurrent = undefined;};
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const keyFor = (snapshot: SearchSnapshot) => snapshot.phase === 'ready' && snapshot.data
     ? JSON.stringify([snapshot.generation, snapshot.data.scope.viewerFence, snapshot.data.revision, snapshot.data.query]) : '';
@@ -37,7 +44,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     return role === undefined || role === 'local';
   };
   const reset = () => {
-    batchGeneration++;
+    batchGeneration++; closePersonal();
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
     model?.dispose(); model = undefined; windows.clear(); token = ''; emit();
   };
@@ -64,7 +71,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     else if (batch !== batchGeneration) return;
     reconcile();
     const currentModel = model;
-    if (!currentModel || pending || !leaf(entry) || !contains(group, entry)) return;
+    if (!currentModel || pending || personal || !leaf(entry) || !contains(group, entry)) return;
     const id = nativeSearchEntryKey(group, entry), registered = windows.get(id);
     if (registered) {currentModel.toggle(registered.windowId, registered.key); return;}
     if (windows.size >= 256) {feedback.reportError(unavailable(), 'search'); return;}
@@ -75,7 +82,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     try {
       const port = context.playback.cataloguePlayback?.();
       const item = await readCatalogueSelectionItem({api: context.api, scope: authority.scope, requestId: feedback.requestId,
-        signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl()});
+        signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl(), myList: true, favorite: true, watched: true});
       if (!current()) throw cancelled();
       const groups = source.getSnapshot().groups, sectionOrder = groups.findIndex(result => result.id === group);
       const start = groups[sectionOrder].items.indexOf(entry);
@@ -96,6 +103,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     return [...new Map(rows.map(row => [JSON.stringify([row.entry.libraryId, row.entry.kind, row.entry.id]), row])).values()];
   };
   const selectLoaded = async () => {
+    if (personal) return;
     reconcile();
     const batch = ++batchGeneration;
     pending?.abort(); pending = undefined;
@@ -117,7 +125,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     batchGeneration++;
     reconcile();
     const currentModel = model, operation = currentModel?.captureOperation();
-    if (!currentModel || !operation || operation.target.mode !== 'explicit' || pending || !visible()) return;
+    if (!currentModel || !operation || operation.target.mode !== 'explicit' || pending || personal || !visible()) return;
     const controller = new AbortController(), captured = token, route = context.navigation.getSnapshot().revision;
     const queue = action !== 'play';
     const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
@@ -137,6 +145,38 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     } catch (error) {if (current()) feedback.reportError(error, 'search');}
     finally {if (pending === controller) {pending = undefined; emit();}}
   };
+  const applyPersonal = async (action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched') => {
+    batchGeneration++; reconcile();
+    const currentModel = model, operation = currentModel?.captureOperation();
+    if (!currentModel || !operation || operation.target.mode !== 'explicit' || pending || personal || !visible()) return;
+    const capability = action === 'myList' || action === 'removeMyList' ? 'myList' : action === 'favorite' ? 'favorite' : 'watched';
+    if (!operation.target.items.every(pick => pick.item.capabilities[capability])) return;
+    const captured = token, route = context.navigation.getSnapshot().revision, controller = new AbortController();
+    const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
+      && keyFor(source.getSnapshot().search) === captured && context.navigation.getSnapshot().revision === route
+      && currentModel.isOperationCurrent(operation) && operation.target.mode === 'explicit'
+      && operation.target.items.every(pick => [...windows.values()].some(window => window.key === pick.key && contains(window.group, window.entry)));
+    const entries = operation.target.items.flatMap(pick => {
+      const window = [...windows.values()].find(value => value.key === pick.key);
+      return window && leaf(window.entry) ? [window.entry] : [];
+    });
+    if (entries.length !== operation.target.items.length || !current()) return;
+    personalController = controller; personalCurrent = current;
+    personal = createCataloguePersonalSelection({api: context.api, scope: authority.scope, requestId: feedback.requestId,
+      signal: controller.signal, isCurrent: current});
+    stopPersonal = personal.service.subscribe(emit);
+    personal.service.setEntries(entries); personal.service.begin();
+    for (const entry of entries) personal.service.toggle(mediaSelectionKey(entry));
+    emit();
+    try {await personal.service.apply(capability === 'myList' ? 'watchlist' : capability, action !== 'removeMyList' && action !== 'unwatched');}
+    catch (error) {if (current()) feedback.reportError(error, 'search');}
+    finally {emit();}
+  };
+  const retryPersonal = async () => {
+    if (!personal || !personalCurrent?.() || personal.service.getSnapshot().busy) return;
+    try {await personal.service.retry();}
+    catch (error) {if (personalCurrent?.()) feedback.reportError(error, 'search');}
+  };
   let lastQueueControl = queueControl();
   const queueChanged = () => {
     const next = queueControl();
@@ -148,8 +188,8 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     context.navigation.subscribe(() => {batchGeneration++; pending?.abort(); reconcile();}), context.playback.subscribe(queueChanged)];
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
-    getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), busy: () => !!pending, queueControl,
-    clear: () => {batchGeneration++; pending?.abort(); model?.clear();}, selectLoaded, execute};
+    getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), personal: () => personal?.service.getSnapshot(), busy: () => !!pending || !!personal?.service.getSnapshot().busy, queueControl,
+    clear: () => {if (personal?.service.getSnapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); model?.clear(); emit();}, selectLoaded, execute, applyPersonal, retryPersonal};
   const port: NativeSearchSelectionPort = {
     register: () => {reconcile(); return () => {};},
     item: (group, entry) => {
@@ -165,6 +205,8 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
 }
 
 type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number; snapshot(): ReturnType<SelectionModel['getSnapshot']> | undefined;
+  personal(): ReturnType<ReturnType<typeof createCataloguePersonalSelection>['service']['getSnapshot']> | undefined;
+  applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched'): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>};
 function SearchSelectionBars({store}: {store: Store}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -175,12 +217,30 @@ function SearchSelectionBars({store}: {store: Store}) {
   if (state.summary.every.play) actions.push({id: 'play', disabled: store.busy()});
   if (state.summary.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()},
     {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
+  if (state.summary.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
+  if (state.summary.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
+  if (state.summary.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
+  if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  const personal = store.personal();
   const props: SelectionBarProps = {count: state.summary.count, selectionLabel: selectedItemsLabel(state.summary),
     selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: () => {void store.selectLoaded();}, onCancel: () => {setMenu(null); store.clear();},
-    actions, menu, onMenuChange: setMenu, topInset: insets.top,
-    onAction: action => {if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}}};
-  return <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
+    actions, menu, onMenuChange: setMenu, topInset: insets.top, fourthSlot: selectionFourthAction(state.summary) === 'mark-watched' ? 'watched' : 'myList',
+    onAction: action => {if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}
+      else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action);}}};
+  return <><View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
     <View style={theme.isTV ? {position: 'absolute', left: 200, right: 96, top: 58} : undefined}><SelectionBar {...props}/></View>
     {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}
-  </View>;
+  </View>
+    {personal && <Dialog open title={defaultI18n.t('next.selection.selectedItems', {items: selectedItemsLabel(state.summary)})}
+      onOpenChange={open => {if (!open && !personal.busy) store.clear();}}
+      footer={<><Button disabled={personal.busy} onPress={store.clear}>{defaultI18n.t('next.selection.done')}</Button>
+        {personal.results.some(result => result.status === 'failed') && <Button disabled={personal.busy} onPress={() => {void store.retryPersonal();}}>{defaultI18n.t('next.selection.retry')}</Button>}</>}>
+      {personal.results.map(result => <View key={result.key} style={{gap: 4, marginBottom: 12}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{result.title}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{result.status === 'saved' ? defaultI18n.t('next.selection.saved')
+          : result.status === 'waiting' || result.status === 'working' ? defaultI18n.t('next.states.loading')
+            : presentError({code: result.status === 'conflict' ? 'metadata_conflict' : result.status === 'unavailable' ? 'access_refused' : 'unavailable'}, 'detail', {operation: 'action'}).body}</Text>
+      </View>)}
+    </Dialog>}
+  </>;
 }
