@@ -25,6 +25,7 @@ internal class PorticoPublicationReads {
     val operation = AtomicLong(0)
     val cancelledThrough = AtomicLong(0)
     var channel: FileChannel? = null
+    var bytes = 0L
     var member: ByteArray? = null
   }
   private val tickets = ConcurrentHashMap<String, Ticket>()
@@ -33,24 +34,53 @@ internal class PorticoPublicationReads {
   @Volatile private var closed = false
   private fun requireLive(t: Ticket) {check(!closed && !t.closed.get() && t.cancelledThrough.get() < t.operation.get())}
   private fun release(t: Ticket) {t.member = null; runCatching {t.channel?.close()}; t.channel = null}
-  @Synchronized fun close(handle: String) {if (retired.size >= 4096) closed = true; retired.add(handle); tickets.remove(handle)?.let {t -> t.closed.set(true); io.execute {release(t)}}}
+  @Synchronized private fun enqueue(work: () -> Unit): Boolean {
+    if (io.isShutdown) return false
+    io.execute {work()}
+    return true
+  }
+  @Synchronized private fun retire(handle: String, t: Ticket) {
+    if (!tickets.remove(handle, t)) return
+    if (retired.size >= 4096) closed = true
+    retired.add(handle); t.closed.set(true)
+    enqueue {release(t)}
+  }
+  @Synchronized fun close(handle: String) {
+    if (retired.size >= 4096) closed = true
+    retired.add(handle)
+    tickets[handle]?.let {retire(handle, it)}
+  }
   fun cancel(handle: String, operation: Double) {
     if (!operation.isFinite() || operation < 1 || operation > 9007199254740991.0 || operation != operation.toLong().toDouble()) return
     tickets[handle]?.cancelledThrough?.updateAndGet {maxOf(it, operation.toLong())}
   }
-  @Synchronized fun invalidate() {closed = true; tickets.keys.toList().forEach(::close)}
+  @Synchronized fun invalidate() {
+    closed = true
+    tickets.entries.toList().forEach {retire(it.key, it.value)}
+    // Exact-ticket closes are queued before shutdown; already queued work drains.
+    io.shutdown()
+  }
   private fun run(handle: String, operation: Double, promise: Promise, work: (Ticket) -> Any?) {
     val t = tickets[handle]
     if (t == null || closed || t.closed.get() || !operation.isFinite() || operation < 1 || operation > 9007199254740991.0 || operation != operation.toLong().toDouble() || operation < t.operation.get() || operation <= t.cancelledThrough.get() || !t.busy.compareAndSet(false, true)) {promise.reject("reading_unavailable", "reading_unavailable"); return}
     t.operation.set(operation.toLong())
     PorticoDownloadCenter.post {
-      if (!t.current() || t.closed.get()) {t.busy.set(false); promise.reject("reading_unavailable", "reading_unavailable"); return@post}
-      io.execute {
+      if (closed || !t.current() || t.closed.get()) {retire(handle, t); t.busy.set(false); promise.reject("reading_unavailable", "reading_unavailable"); return@post}
+      val queued = enqueue {
         try {
           requireLive(t); val result = work(t); requireLive(t)
-          PorticoDownloadCenter.post {t.busy.set(false); if (tickets[handle] === t && !t.closed.get() && !closed && t.cancelledThrough.get() < operation.toLong() && t.current()) promise.resolve(result) else promise.reject("reading_retired", "reading_retired")}
-        } catch (_: Exception) {t.busy.set(false); if (t.cancelledThrough.get() < operation.toLong()) close(handle); promise.reject("reading_unavailable", "reading_unavailable")}
+          PorticoDownloadCenter.post {
+            t.busy.set(false)
+            val ownerCurrent = t.current()
+            if (tickets[handle] === t && !t.closed.get() && !closed && t.cancelledThrough.get() < operation.toLong() && ownerCurrent) promise.resolve(result)
+            else {
+              if (!ownerCurrent || closed || t.closed.get()) retire(handle, t)
+              promise.reject("reading_retired", "reading_retired")
+            }
+          }
+        } catch (_: Exception) {t.busy.set(false); if (t.cancelledThrough.get() < operation.toLong()) retire(handle, t); promise.reject("reading_unavailable", "reading_unavailable")}
       }
+      if (!queued) {t.busy.set(false); promise.reject("reading_unavailable", "reading_unavailable")}
     }
   }
   @Synchronized fun open(handle: String, file: File, bytes: Long, digest: String, current: () -> Boolean, promise: Promise) {
@@ -59,19 +89,35 @@ internal class PorticoPublicationReads {
     if (tickets.putIfAbsent(handle, t) != null) {promise.reject("reading_unavailable", "reading_unavailable"); return}
     run(handle, 1.0, promise) {
       val fd = Os.open(file.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW, 0)
-      val stat = Os.fstat(fd)
-      if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_size != bytes || bytes < 1 || bytes > 2147483648L) {Os.close(fd); error("reading_unavailable")}
-      val channel = FileInputStream(fd).channel; t.channel = channel
-      val hash = MessageDigest.getInstance("SHA-256"); val buffer = ByteBuffer.allocate(65536)
-      var seen = 0L
-      while (true) {requireLive(t); buffer.clear(); val n = channel.read(buffer); if (n < 0) break; if (n == 0) error("reading_unavailable"); hash.update(buffer.array(), 0, n); seen += n}
-      check(seen == bytes && hash.digest().joinToString("") {"%02x".format(it)} == digest)
-      bytes.toDouble()
+      var input: FileInputStream? = null
+      var transferred = false
+      try {
+        val stat = Os.fstat(fd)
+        check(OsConstants.S_ISREG(stat.st_mode) && stat.st_size == bytes && bytes >= 1 && bytes <= 2147483648L)
+        val stream = FileInputStream(fd); input = stream
+        val channel = stream.channel; t.channel = channel; t.bytes = bytes; transferred = true
+        val hash = MessageDigest.getInstance("SHA-256"); val buffer = ByteBuffer.allocate(65536)
+        var seen = 0L
+        while (seen < bytes) {
+          requireLive(t); buffer.clear(); buffer.limit(minOf(buffer.capacity().toLong(), bytes - seen).toInt())
+          val n = channel.read(buffer); check(n > 0)
+          hash.update(buffer.array(), 0, n); seen += n
+        }
+        check(seen == bytes && channel.size() == bytes && hash.digest().joinToString("") {"%02x".format(it)} == digest)
+        bytes.toDouble()
+      } finally {
+        // Until channel ownership transfers to this ticket, every failed fstat,
+        // stream construction or channel acquisition still owns the raw fd here.
+        if (!transferred) {
+          val stream = input
+          if (stream != null) runCatching {stream.close()} else runCatching {Os.close(fd)}
+        }
+      }
     }
   }
   private fun read(t: Ticket, offset: Long, count: Int): ByteArray {
     requireLive(t); val channel = t.channel ?: error("reading_unavailable")
-    check(offset >= 0 && count >= 0 && offset <= channel.size() - count)
+    check(offset >= 0 && count >= 0 && channel.size() == t.bytes && offset <= t.bytes - count)
     val out = ByteArray(count); val buffer = ByteBuffer.wrap(out); var position = offset
     while (buffer.hasRemaining()) {requireLive(t); val n = channel.read(buffer, position); check(n > 0); position += n}
     return out
