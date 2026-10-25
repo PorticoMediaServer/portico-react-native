@@ -19,7 +19,7 @@ test('the screen port observes the same device store and routes play through its
     pause: async (value: OfflineEntry) => {calls.push(['pause',value]);},
     resume: async (value: OfflineEntry) => {calls.push(['resume',value]);},
     remove: async (value: OfflineEntry) => {calls.push(['remove',value]);},
-    removeOthers: async () => {calls.push('others');},
+    removeOthersConfirmed: async (expected: {revision: number; bytes: number}) => {calls.push(['others', expected]);},
     playable: () => '', playabilityReason: () => null, displayFacts: async () => ({}), note: () => '',
     localMedia: async (value: OfflineEntry) => ({entryId:value.id,itemId:value.itemId,playId:'play',fileUrl:'file:///media',durationSeconds:10,startSeconds:0}),
   };
@@ -29,9 +29,9 @@ test('the screen port observes the same device store and routes play through its
   assert.equal(storageOnly.getSnapshot(), state, 'the genuine local store remains available without playback');
   assert.equal(adapter.getSnapshot(),state);
   const off = adapter.subscribe(listener); await adapter.open(); await adapter.setSettings({limitBytes:75});
-  await adapter.openOffline(entry); await adapter.pause(entry); await adapter.resume(entry); await adapter.remove(entry); await adapter.removeOthers();
+  await adapter.openOffline(entry); await adapter.pause(entry); await adapter.resume(entry); await adapter.remove(entry); await adapter.removeOthers({revision: 1, bytes: 30});
   assert.equal((await adapter.localMedia(entry)).fileUrl,'file:///media'); off();
-  assert.deepEqual(calls,[listener,'open',{limitBytes:75},['play',entry],['pause',entry],['resume',entry],['remove',entry],'others','off']);
+  assert.deepEqual(calls,[listener,'open',{limitBytes:75},['play',entry],['pause',entry],['resume',entry],['remove',entry],['others',{revision:1,bytes:30}],'off']);
   state = {...state, entries:[]};
   await assert.rejects(adapter.openOffline(entry));
   await assert.rejects(async () => adapter.pause(entry));

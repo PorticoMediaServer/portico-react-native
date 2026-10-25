@@ -83,6 +83,15 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
   }
 
   @ReactMethod
+  fun removeGeneration(identifier: String?, generation: String?, promise: Promise) = PorticoDownloadCenter.post {
+    when (PorticoDownloadCenter.removeGeneration(identifier, generation)) {
+      null -> promise.resolve(null)
+      "generation_changed" -> promise.reject("generation_changed", "This download changed before it could be removed.")
+      else -> promise.reject("invalid_download", "The download is invalid.")
+    }
+  }
+
+  @ReactMethod
   fun setMeta(identifier: String?, meta: String?, promise: Promise) = PorticoDownloadCenter.post {
     when (PorticoDownloadCenter.setMeta(identifier, meta)) {
       null -> promise.resolve(null)

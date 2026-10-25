@@ -319,6 +319,22 @@ internal object PorticoDownloadCenter {
   /** Whether downloads still wait to be carried on (the job asks to run again when they do). */
   fun hasUnfinished(): Boolean = unfinished()
 
+  /** Whether the exact published entry version is still the one this center holds. */
+  private fun isGeneration(id: String, generation: String?): Boolean {
+    val live = publicationGenerations[id] ?: return false
+    return !live.retired && live.entry === entries[id] && generation != null && live.value == generation
+  }
+
+  /** Conditional removal for a confirmed target: the exact published entry version is
+   * matched on this bookkeeping thread before any file, task or manifest side effect.
+   * Null on success; otherwise the rejection code (never a silent success). */
+  fun removeGeneration(id: String?, generation: String?): String? {
+    if (!safeIdentifier(id)) return "invalid_download"
+    id!!
+    if (!isGeneration(id, generation)) return "generation_changed"
+    return if (remove(id)) null else "invalid_download"
+  }
+
   fun remove(id: String?): Boolean {
     if (!safeIdentifier(id)) return false
     id!!

@@ -103,6 +103,7 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 - (void)start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)remove:(NSString *)identifier generation:(NSString *)generation resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)writeExtra:(NSString *)identifier name:(NSString *)name text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
@@ -729,6 +730,35 @@ static NSString *PorticoSafeFileName(NSString *value) {
   }];
 }
 
+/** The exact published entry version this owner queued, still current on its queue. */
+- (BOOL)isGeneration:(NSString *)generation currentFor:(NSString *)identifier {
+  PorticoPublicationGeneration *live = self->_publicationGenerations[identifier];
+  return live != nil && !live.retired && live.entry == self->_entries[identifier]
+    && generation != nil && [live.value isEqualToString:generation];
+}
+
+- (void)remove:(NSString *)identifier generation:(NSString *)generation resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+  if (!PorticoSafeIdentifier(identifier)) { reject(@"invalid_download", @"The download is invalid.", nil); return; }
+  dispatch_async(self->_queue, ^{
+    // The caller confirmed one exact entry version. It is matched before this asks for a
+    // task or cancels anything, so a replaced download is never touched as the later one.
+    if (![self isGeneration:generation currentFor:identifier]) { reject(@"generation_changed", @"This download changed before it could be removed.", nil); return; }
+    // taskFor only reads session tasks; its callback runs on this queue, where the same
+    // version is matched again before the first cancel and stays true through the removal.
+    [self taskFor:identifier then:^(NSURLSessionDownloadTask *task) {
+      if (![self isGeneration:generation currentFor:identifier]) { reject(@"generation_changed", @"This download changed before it could be removed.", nil); return; }
+      [task cancel];
+      [self->_activeTasks[identifier] cancel];
+      [self->_activeTasks removeObjectForKey:identifier];
+      [self retirePublicationGeneration:identifier];
+      [self->_entries removeObjectForKey:identifier];
+      [[NSFileManager defaultManager] removeItemAtURL:[self directoryFor:identifier] error:nil];
+      [self saveManifest]; [self changed:identifier force:YES];
+      resolve(nil);
+    }];
+  });
+}
+
 - (void)setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     // The caller's bookkeeping (a receipt, its owner) is only acknowledged once it is on disk.
@@ -1136,6 +1166,9 @@ RCT_EXPORT_METHOD(pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)r
 }
 RCT_EXPORT_METHOD(remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   [_owner whenLoaded:^{ [self->_owner remove:identifier resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(removeGeneration:(NSString *)identifier generation:(NSString *)generation resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner remove:identifier generation:generation resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
 }
 RCT_EXPORT_METHOD(setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   [_owner whenLoaded:^{ [self->_owner setMeta:identifier meta:meta resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];

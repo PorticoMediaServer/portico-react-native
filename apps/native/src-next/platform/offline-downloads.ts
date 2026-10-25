@@ -1,14 +1,14 @@
-import {offlineDownloads, offlineOwnerKey, type OfflineDownloads, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
+import {offlineDownloads, offlineOwnerKey, type OfflineDownloads, type OfflineEntry, type OfflineOthersTarget, type OfflineSettings} from '../../platform/offline-downloads';
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 
 export {groupOfflineEntries} from '../../platform/offline-downloads';
-export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts, OfflineReadingFacts} from '../../platform/offline-downloads';
+export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts, OfflineReadingFacts, OfflineOthersTarget} from '../../platform/offline-downloads';
 
 /** The shell alone binds the current viewer/server through adopt/connect/disconnect. */
 export {offlineDownloads};
 export type {OfflineDownloads};
 
-type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource' | 'readingFacts'>>;
+type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthersConfirmed' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource' | 'readingFacts'>>;
 export type NativeOfflineDownloadsAdapter = Readonly<{
   publicationSource?: OfflineDownloads['publicationSource'];
   readingFacts?: OfflineDownloads['readingFacts'];
@@ -19,7 +19,8 @@ export type NativeOfflineDownloadsAdapter = Readonly<{
   pause: (entry: OfflineEntry) => Promise<void>;
   resume: (entry: OfflineEntry) => Promise<void>;
   remove: (entry: OfflineEntry) => Promise<void>;
-  removeOthers: () => Promise<void>;
+  /** Exactly the other-viewer set a confirm drew; a changed target refuses. */
+  removeOthers: (expected: OfflineOthersTarget) => Promise<void>;
   playable: (entry: OfflineEntry) => string;
   playabilityReason: (entry:OfflineEntry) => ReturnType<DeviceDownloads['playabilityReason']>;
   displayFacts: DeviceDownloads['displayFacts'];
@@ -56,7 +57,7 @@ export function createNativeOfflineDownloadsAdapter(
     pause: entry => device.pause(current(entry)),
     resume: entry => device.resume(current(entry)),
     remove: entry => device.remove(current(entry)),
-    removeOthers: () => device.removeOthers(),
+    removeOthers: expected => device.removeOthersConfirmed(expected),
     playable: entry => device.playable(current(entry)),
     playabilityReason: entry => device.playabilityReason(current(entry)),
     displayFacts: async entry => {const facts=await device.displayFacts(current(entry));current(entry);return facts;},

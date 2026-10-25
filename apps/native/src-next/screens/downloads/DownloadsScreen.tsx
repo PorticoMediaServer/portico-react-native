@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -11,11 +11,12 @@ import {Icon} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {DownloadsService, TrackedDownloadRequest} from '../../../../../packages/client-core/src/downloads-service';
-import {type NativeOfflineDownloadsDevice, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
+import {type NativeOfflineDownloadsDevice, type OfflineEntry, type OfflineSettings, type OfflineSnapshot} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from './presentation';
 import {useDownloadArtwork} from './useDownloadArtwork';
 import {useReadingFacts} from './useReadingFacts';
+import {SavedConfirmSheet} from '../saved/SavedForms';
 
 const t = defaultI18n.t;
 const noRequests = (): readonly TrackedDownloadRequest[] => Object.freeze([]);
@@ -23,6 +24,9 @@ const noSubscribe = (_listener: () => void) => () => {};
 const limits = [0, 5, 10, 25, 50, 100].map(gb => gb * 1073741824);
 
 export type {NativeDownloadsCopy} from './presentation';
+type OthersOpening = Readonly<{device: NativeOfflineDownloadsDevice; revision: number; bytes: number}>;
+type RenderedOthers = Readonly<{device: NativeOfflineDownloadsDevice; snapshot: OfflineSnapshot; pending: boolean}>;
+
 export type NativeDownloadsScreenProps = Readonly<{
   device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
   back: () => void; openTitle: (entry: OfflineEntry) => void;
@@ -42,8 +46,32 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   const menu = entryMenu && snapshot.entries.find(entry => downloadEntryIdentity(entry) === downloadEntryIdentity(entryMenu.entry));
   useEffect(() => {if (entryMenu && !menu) setEntryMenu(undefined);}, [entryMenu, menu]);
   const [pickingLimit, setPickingLimit] = useState(false), [pending, setPending] = useState(false);
+  const [removingOthers, setRemovingOthers] = useState<OthersOpening>();
   const alive = useRef(true), operation = useRef(0), scroll = useRef<ScrollView>(null), limitRef = useRef<View>(null);
+  const removeOthersOpening = useRef<OthersOpening | undefined>(undefined), removeOthersTicket = useRef<object | undefined>(undefined), mounted = useRef(false);
   useEffect(() => {const lifetime = alive, tickets = operation; lifetime.current = true; return () => {lifetime.current = false; tickets.current++;};}, [device]);
+  // The latest committed render of this screen: a retained opener from an earlier render
+  // must match this device and this exact published snapshot before it may open anything.
+  const liveOthers = useRef<RenderedOthers>({device, snapshot, pending});
+  useLayoutEffect(() => {liveOthers.current = {device, snapshot, pending};});
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; removeOthersOpening.current = undefined; removeOthersTicket.current = undefined;};}, []);
+  // A replaced device (viewer or authority) retires the opening and the C9 operation that
+  // described the old one. Other commands keep their own passive lifetime.
+  useLayoutEffect(() => {
+    removeOthersOpening.current = undefined; setRemovingOthers(undefined);
+    if (removeOthersTicket.current) {removeOthersTicket.current = undefined; if (mounted.current) setPending(false);}
+    return () => {
+      removeOthersOpening.current = undefined;
+      if (removeOthersTicket.current) {removeOthersTicket.current = undefined; if (mounted.current) setPending(false);}
+    };
+  }, [device]);
+  // The published other-viewer target changed while its sheet was open: retire that opening.
+  useLayoutEffect(() => {
+    const opening = removeOthersOpening.current;
+    if (opening && (snapshot.othersRevision !== opening.revision || snapshot.otherBytes !== opening.bytes)) {
+      removeOthersOpening.current = undefined; setRemovingOthers(undefined);
+    }
+  }, [snapshot.otherBytes, snapshot.othersRevision]);
   const run = useCallback((work: () => Promise<void>) => {
     const revision = ++operation.current;
     setFailure(undefined); setPending(true);
@@ -52,6 +80,46 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   }, [runtime]);
   useEffect(() => {run(device.open);}, [device, run]);
   const save = (settings: Partial<OfflineSettings>) => run(() => device.setSettings(settings));
+  // states.html 2: removing other profiles' files is exact and final. The drawn target is
+  // the opaque set revision and the size shown; a successor target retires the sheet rather
+  // than adopting it, and Cancel/confirm stay bound to the opening that drew it.
+  const openRemoveOthers = () => {
+    // The click must belong to the render that is actually on screen: a retained opener from
+    // another device renders against this witness and refuses before any setter runs.
+    const witness = liveOthers.current;
+    if (!mounted.current || witness.pending || pending) return;
+    if (witness.device !== device || witness.snapshot !== snapshot) return;
+    if (device.getSnapshot() !== snapshot) return;
+    if (snapshot.otherBytes <= 0) return;
+    const revision = snapshot.othersRevision;
+    if (revision === undefined || revision < 1) return;
+    const opening: OthersOpening = {device, revision, bytes: snapshot.otherBytes};
+    removeOthersOpening.current = opening; setRemovingOthers(opening);
+  };
+  const closeRemoveOthers = () => {
+    const opening = removingOthers;
+    if (!opening || removeOthersOpening.current !== opening) return;
+    removeOthersOpening.current = undefined; setRemovingOthers(undefined);
+  };
+  // C9's own operation ticket: only this ticket on this exact device may publish its result
+  // or clear the busy flag. The shared passive lifetime and operation counter stay untouched.
+  const runRemoveOthers = (opening: OthersOpening) => {
+    const ticket = {}, ownerDevice = opening.device;
+    removeOthersTicket.current = ticket;
+    setFailure(undefined); setPending(true);
+    const current = () => mounted.current && removeOthersTicket.current === ticket && liveOthers.current.device === ownerDevice;
+    void ownerDevice.removeOthers({revision: opening.revision, bytes: opening.bytes})
+      .catch(error => {if (current()) {setFailure(error); runtime.reportError(error);}})
+      .finally(() => {if (!current()) return; removeOthersTicket.current = undefined; setPending(false);});
+  };
+  const confirmRemoveOthers = () => {
+    const opening = removingOthers;
+    if (!opening || !mounted.current || removeOthersOpening.current !== opening || opening.device !== device) return;
+    if (liveOthers.current.device !== opening.device) return;
+    removeOthersOpening.current = undefined; setRemovingOthers(undefined);
+    runRemoveOthers(opening);
+  };
+
   const groups = downloadGroups(snapshot.entries), storage = downloadStorageSegments(snapshot);
   const requests = useSyncExternalStore(service ? service.subscribe : noSubscribe, service ? () => service.getSnapshot().requests : noRequests);
   const empty = snapshot.ready && snapshot.entries.length === 0 && requests.length === 0;
@@ -78,7 +146,7 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   const ruleList = <DownloadsRules settings={snapshot.settings} pending={pending} copy={copy} save={save} limitRef={limitRef} onLimit={() => setPickingLimit(true)}/>;
   const otherNotice = snapshot.otherBytes > 0 && <View style={{marginHorizontal: 16, marginTop: 14, paddingLeft: 14, paddingRight: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: alpha(theme.colors.text, .08), flexDirection: 'row', gap: 10, alignItems: 'center'}}>
     <Icon name="i-info" size={18} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 13.5, 400), {color: theme.colors.textSecondary, flex: 1}]}>{t(copy.otherProfiles, {size: defaultI18n.bytes(snapshot.otherBytes)})}</Text>
-    <Chip testID="downloads-remove-other-profiles" disabled={pending} onPress={() => run(device.removeOthers)}>{t('action.remove')}</Chip>
+    <Chip testID="downloads-remove-other-profiles" disabled={pending || snapshot.otherBytes <= 0} onPress={openRemoveOthers}>{t('action.remove')}</Chip>
   </View>;
   const firstMenuAction = useRef<View>(null);
   const menuItems: MenuAction[] = menu ? [
@@ -185,6 +253,9 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
     <Menu testID="downloads-storage-limit" open={pickingLimit} onOpenChange={setPickingLimit} anchorRef={limitRef} returnFocusRef={limitRef} title={t('downloads.storageLimit')}
       items={limits.map(value => ({id: String(value), label: value ? defaultI18n.bytes(value) : t('downloads.noLimit'), selected: snapshot.settings.limitBytes === value,
         onSelect: () => save({limitBytes: value})}))} presentation={dimensions.width < 600 ? 'sheet' : 'anchored'}/>
+    <SavedConfirmSheet open={!!removingOthers} title={t('confirm.removeOthers.title')} action={t('action.remove')} destructive busy={pending}
+      body={removingOthers ? `${t('downloads.othersOnDevice', {size: defaultI18n.bytes(removingOthers.bytes)})} ${t('confirm.removeOthers.body')}` : ''}
+      testID="downloads-remove-other-profiles-confirm" onClose={closeRemoveOthers} onConfirm={confirmRemoveOthers}/>
   </View>;
 }
 

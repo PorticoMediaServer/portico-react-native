@@ -98,7 +98,11 @@ export type OfflineReadingFacts = Readonly<{
   pageCount?: number;
   location?: ReadingLocation;
 }>;
-export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical regular-file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). Symlinks contribute no logical target bytes. */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories and symlinks' own reported allocation, counted once per inode. Link targets are never traversed. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; error?: string}>;
+export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical regular-file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). Symlinks contribute no logical target bytes. */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories and symlinks' own reported allocation, counted once per inode. Link targets are never traversed. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; /** Opaque revision of that other-viewer set; it changes whenever the set or its stored size changes. */ othersRevision?: number; error?: string}>;
+/** The exact other-viewer set a confirm drew: its opaque revision and shown size. */
+export type OfflineOthersTarget = Readonly<{revision: number; bytes: number}>;
+/** One other-viewer member's published provenance, used for the confirm signature. */
+type OtherMember = Readonly<{id: string; owner: string; artifact: string; generation: string; bytes: number}>;
 export type Viewer = Readonly<{authority: string; accountId: string; profileId: string; serverId: string}>;
 type Api = {baseUrl: string; mediaUrl(path: string): string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
 type Play = DeferredProgressEntry;
@@ -156,6 +160,9 @@ type Stored = {
 
 const native = NativeModules.PorticoDownloads as undefined | {
   list(): Promise<any[]>; start(request: Record<string, unknown>): Promise<any>; pause(id: string): Promise<void>; remove(id: string): Promise<void>;
+  /** Present from the C9 conditional-removal build: removes only while that entry's published
+   * native generation is still current at the owner's accepting turn. */
+  removeGeneration?(id: string, generation: string): Promise<void>;
   setMeta(id: string, meta: string): Promise<void>; setMetas(metas: Record<string, string>): Promise<void>;
   storage(): Promise<{freeBytes: number; usedBytes: number; totalBytes?: number; storedBytes?: number; allocatedBytes?: number}>; setCellular(allowed: boolean): Promise<void>;
   readState(): Promise<string>; writeState(json: string): Promise<void>;
@@ -251,7 +258,7 @@ const revokesOwnedFile = (code: string) => code !== '' && code !== 'unknown_rece
 export class OfflineDownloads {
   /** Identity from the native outbound clone, excluded from enumerable app/guest/persisted data. */
   private readonly publicationStateGenerations = new WeakMap<OfflineEntry, string>();
-  private state: OfflineSnapshot = Object.freeze({supported: !!native && !Platform.isTV, ready: false, entries: [], settings: defaults, freeBytes: 0, usedBytes: 0, pendingProgress: 0, otherBytes: 0});
+  private state: OfflineSnapshot = Object.freeze({supported: !!native && !Platform.isTV, ready: false, entries: [], settings: defaults, freeBytes: 0, usedBytes: 0, pendingProgress: 0, otherBytes: 0, othersRevision: 0});
   private listeners = new Set<() => void>();
   /** Everything on the device. `state.entries` is the subset the connected
    * viewer may see; this is the list ownership decisions are made against. */
@@ -291,6 +298,10 @@ export class OfflineDownloads {
   /** The play under way for each entry (one id for as long as the file stays open). */
   private playing = new Map<string, string>();
   private observationTimes = new Map<string, number>();
+  /** The other viewers' set, as the last published snapshot weighed it: its opaque
+   * revision changes whenever any member or its stored bytes change. */
+  private othersRevision = 0;
+  private othersSignature = '';
 
   getSnapshot = () => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
@@ -319,11 +330,18 @@ export class OfflineDownloads {
   private publishEntries(next = this.all) {
     this.all = sort(next);
     const owner = this.ownerKey();
+    if (!owner) {this.othersSignature = ''; this.othersRevision = 0; this.publish({entries: [], otherBytes: 0, othersRevision: 0}); return;}
     // Other viewers' downloads are never named, only weighed: the space they take is this
-    // device's, and whoever is using it can see it and give it back.
-    let otherBytes = 0;
-    for (const e of this.all) if (this.entryOwner(e) !== owner) otherBytes += e.state === 'ready' ? e.bytes : e.bytesDone;
-    this.publish({entries: this.visibleEntries(), otherBytes: owner ? otherBytes : 0});
+    // device's, and whoever is using it can see it and give it back. The opaque revision
+    // lets a confirm keep the exact set it drew without exposing any other viewer's ids.
+    let otherBytes = 0; const signatures: string[] = [];
+    for (const e of this.all) if (this.entryOwner(e) !== owner) {
+      const member = this.otherMember(e);
+      otherBytes += member.bytes; signatures.push(`${member.id}:${member.owner}:${member.artifact}:${member.generation}:${member.bytes}`);
+    }
+    const signature = signatures.sort().join('\n');
+    if (signature !== this.othersSignature) {this.othersSignature = signature; this.othersRevision++;}
+    this.publish({entries: this.visibleEntries(), otherBytes, othersRevision: this.othersRevision});
   }
 
   /** Reads what is on the device. Works with no server and no sign-in. */
@@ -793,6 +811,56 @@ export class OfflineDownloads {
       if (generation !== this.generation || this.ownerKey() !== owner) return;
       await native.remove(entry.id); if (generation !== this.generation || this.ownerKey() !== owner) return;
       const erasedOwner = this.entryOwner(entry); if (erasedOwner) {delete this.stored.reading[erasedOwner]?.[entry.id]; delete this.stored.wantedPublications[erasedOwner]?.[entry.id];}
+    }
+    await this.persist();
+    void this.measure();
+  }
+
+  /** How one other-viewer member was published: owner, receipt artifact and native version. */
+  private otherMember(entry: OfflineEntry): OtherMember {
+    return Object.freeze({id: entry.id, owner: this.entryOwner(entry) ?? '',
+      artifact: entry.receipt?.claims.artifact.sha256 ?? '',
+      generation: this.publicationStateGenerations.get(entry) ?? '',
+      bytes: entry.state === 'ready' ? entry.bytes : entry.bytesDone});
+  }
+  private sameOtherMember(entry: OfflineEntry, captured: OtherMember): boolean {
+    const live = this.otherMember(entry);
+    return live.id === captured.id && live.owner === captured.owner && live.artifact === captured.artifact
+      && live.generation === captured.generation && live.bytes === captured.bytes;
+  }
+  private changedOthers() {return Object.assign(new Error('downloads_others_changed'), {code: 'others_changed'});}
+  /** Removes exactly the other viewers' downloads the caller confirmed. The published
+   * opaque revision and stored size identify that set; every member is captured with its
+   * owner, signed artifact and native generation. A changed member is refused instead of
+   * being replaced by a later file, and the removal is conditional at the native owner's
+   * accepting turn. Members are the original captured ones: our own accepted removals let
+   * the remaining originals continue, while an externally added member is never adopted. */
+  async removeOthersConfirmed(expected: OfflineOthersTarget) {
+    const owner = this.ownerKey();
+    if (!owner || !native) return;
+    if (!Number.isSafeInteger(expected.revision) || expected.revision < 1
+      || !Number.isSafeInteger(expected.bytes) || expected.bytes < 1
+      || expected.revision !== this.othersRevision || expected.bytes !== this.state.otherBytes)
+      throw this.changedOthers();
+    // Only the conditional native removal can keep this target to the accepting turn;
+    // without it nothing is deleted (there is no remove(id) fallback).
+    const removal = native.removeGeneration;
+    if (!removal) throw this.changedOthers();
+    const captured = this.all.filter(e => this.entryOwner(e) !== owner).map(e => this.otherMember(e));
+    if (!captured.length || captured.some(member => !member.generation)) throw this.changedOthers();
+    const generation = this.generation;
+    for (const member of captured) {
+      if (generation !== this.generation || this.ownerKey() !== owner) return;
+      const live = this.all.find(e => e.id === member.id);
+      if (!live || !this.sameOtherMember(live, member)) throw this.changedOthers();
+      try {await removal.call(native, member.id, member.generation);}
+      catch (error) {
+        const code = (error as {code?: unknown} | null)?.code;
+        if (code === 'generation_changed' || code === 'others_changed') throw this.changedOthers();
+        throw error;
+      }
+      if (generation !== this.generation || this.ownerKey() !== owner) return;
+      if (member.owner) {delete this.stored.reading[member.owner]?.[member.id]; delete this.stored.wantedPublications[member.owner]?.[member.id];}
     }
     await this.persist();
     void this.measure();
