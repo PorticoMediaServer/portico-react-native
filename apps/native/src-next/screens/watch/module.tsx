@@ -18,6 +18,7 @@ import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
 import {NativeWatchPostPlay} from './PostPlayScreen';
+import {isTablet} from '../../bridge/device-platform';
 import {createNativeWatchPanelNames} from './panel-names';
 import {nativeServerPreferences} from '../../platform/server-preferences';
 import {browseValueLabel} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
@@ -114,7 +115,9 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       onMinimize: fence => {if (current()) {const transition = context.playback.dock.collapse(fence); if (transition) void context.playback.onTransition(transition).catch(runtime.reportError);}},
       ...(context.playback.cast ? {onCast: fence => {if (current()) void context.playback.cast?.(fence).catch(runtime.reportError);}} : {}),
       ...(context.playback.goLive ? {goLive: fence => {if (current()) void context.playback.goLive!(fence).catch(runtime.reportError);}} : {}),
-      ...(Platform.isTV ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
+      // tablet-play8 / tv-player: the guide opens from the live player on a television
+      // and on a tablet, where the mini guide docks beside the picture; a phone has none.
+      ...(Platform.isTV || isTablet ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),
       ...(bindings.onFullWindow ? {onFullWindow: bindings.onFullWindow} : {}),
     }),
