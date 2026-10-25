@@ -309,16 +309,16 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && matches.length > 0 && <Text testID="settings-search-count" style={[shellType(20, 600), {color: theme.colors.textTertiary, marginBottom: 18}]}>{t('next.shell.tvSettingsMatchCount', {count: matches.length})}</Text>}
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
-            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
+            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} onQuality={() => choose('quality')} page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
             <Text testID="settings-search-help" style={[shellType(18, 400), {color: theme.colors.textTertiary, marginTop: 24}]}>{t('next.shell.tvSettingsSearchHelp')}</Text>
-          </> : <SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} page={page} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={rows} column={column}/>}
+          </> : <SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} onQuality={() => choose('quality')} page={page} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={rows} column={column}/>}
         </ScrollView>}
       </View>}
     </View>
   </Screen>;
 }
 
-function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming}: {reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
+function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming, onQuality}: {reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; onQuality: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
   // The public browser handoff does not grant native password/two-step editing.
@@ -364,9 +364,17 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
           {value: 'mpv', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.label'},
         ],
       },
-    }],
+    },
+    // Frame 11 draws Playback fixes on television only; Android touch keeps the Player row alone.
+    ...(theme.isTV ? [{
+      kind: 'action' as const,
+      id: 'devicePlayerFixes' as const,
+      label: 'next.settingsSpec.account.device.advanced.groups.3.rows.1.label' as const,
+      value: 'next.settingsSpec.account.device.advanced.groups.3.rows.1.control.label' as const,
+    }] : []),
+    ],
   };
-  const connectionAt = page.sections.findIndex(section => section.rows.some(row => 'id' in row
+  const connectionAt = page.sections.findIndex(section => section.id === 'deviceConnection' || section.rows.some(row => 'id' in row
     && (row.id === 'device.connection' || row.id === 'device.playerLink')));
   // Television alone moves the injected group before Connection; a phone or tablet keeps
   // the previous appended placement.
@@ -375,7 +383,9 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       ? [...page.sections.slice(0, connectionAt), playerSection, ...page.sections.slice(connectionAt)]
       : [...page.sections, playerSection]
     : page.sections;
-  const sections = pageSections.filter(section => !section.advanced || advanced);
+  // Frame 12 gives Apple no Connection group; the advanced section is Android TV's only.
+  const sections = pageSections.filter(section => !section.advanced || advanced)
+    .filter(section => !(Platform.OS === 'ios' && section.id === 'deviceConnection'));
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const showEqualizer = page.id === 'music' && equalizer.supported;
   useEffect(() => {
@@ -422,10 +432,12 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         if (row.kind === 'server-setting') throw new Error('native_account_page_server_row');
         if (row.kind === 'action') {
           const target = nativeSettingsActionTarget(row.id);
-          return <SettingsRow key={id} testID={id} destructive={row.destructive} label={t(row.label)} description={row.help ? t(row.help) : undefined} first={index === 0} onPress={() => {
+          return <SettingsRow key={id} testID={id} destructive={row.destructive} label={t(row.label)} description={row.help ? t(row.help) : undefined}
+            value={row.value ? t(row.value) : undefined} first={index === 0} onPress={() => {
             controller.lifetime.assert();
             if (target === 'linkTV') ports.accountActions.linkTV();
             else if (target === 'customizeHome') ports.context.navigation.open({kind: 'home-customize'}, ports.context.authority());
+            else if (target === 'quality') onQuality();
             else setConfirmation(row.id === 'signOut' ? 'signOut' : 'resetRecommendations');
           }}/>;
         }
