@@ -15,10 +15,14 @@ import type {NativeWatchOverlay} from './presenters';
 export function NativeVersionChooser({value, choose, close}: {value: NativeWatchOverlay; choose: (id: string) => void; close: () => void}) {
   const theme = useTheme(), window = useWindowDimensions(), first = useRef<View>(null), done = useRef<View>(null), t = defaultI18n.t;
   const destination = value.destination, rows = destination?.rows ?? [];
-  const selected = rows.findIndex(row => row.id === destination?.selectedVersionId);
+  const selected = rows.findIndex(row => row.id === destination?.selectedRowId);
   const entry = selected >= 0 ? selected : Math.min(1, rows.length - 1);
   useOverlayLifecycle(theme.isTV, true, close, first, value.anchorRef, 0, 'watch-version-chooser');
   const body = <ScrollView testID="watch-version-rows" contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0}}>
+    {/* The server is analyzing the chosen disc title: the existing neutral word, and
+        no claim that anything is playing or ready. */}
+    {value.busy && theme.isTV && <Text testID="watch-version-preparing" style={[nativeType({size: theme.isTV ? 22 : 15, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale),
+      {color: theme.colors.textTertiary, paddingHorizontal: theme.isTV ? 0 : 16, paddingBottom: 12}]}>{t('next.browse.native.markAllPreparing')}</Text>}
     <View style={theme.isTV ? undefined : {marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
       {rows.map((row, index) => <Focusable key={row.id} ref={index === entry ? first : undefined} focusId={`watch-version-${row.id}`} testID={`watch-version-${row.id}`}
         focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && index === entry}
@@ -29,8 +33,8 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
           {!theme.isTV && index > 0 && <View pointerEvents="none" style={{position: 'absolute', left: 16, right: 0, top: 0, height: 1, backgroundColor: '#3b566873'}}/>}
           <Text style={[nativeType({size: theme.isTV ? 22 : 15.5, weight: theme.isTV ? 600 : 700, tracking: theme.isTV ? 0 : -.01, lineHeight: 'normal'}, theme.textScale),
             {color: theme.isTV && !focused ? theme.colors.textSecondary : theme.colors.text}]}>{row.heading}</Text>
-          {!!row.detail && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: theme.isTV ? 'normal' : 18.2}, theme.textScale),
-            {marginTop: theme.isTV ? 2 : 3, color: theme.isTV && !focused ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{row.detail}</Text>}
+          {!!(row.detail || row.id === destination?.pendingRowId) && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: theme.isTV ? 'normal' : 18.2}, theme.textScale),
+            {marginTop: theme.isTV ? 2 : 3, color: theme.isTV && !focused ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{row.id === destination?.pendingRowId ? t('next.browse.native.markAllPreparing') : row.detail}</Text>}
         </>}
       </Focusable>)}
     </View>

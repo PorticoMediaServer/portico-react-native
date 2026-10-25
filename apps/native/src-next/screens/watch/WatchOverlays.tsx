@@ -91,7 +91,7 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (!value || !presenters.overlayCurrent(value)) return null;
   if (value.phase === 'disc-titles' && value.disc) return <NativeDiscTitlesSheet controller={value.disc} subject={named(value.capture.entry)} close={() => presenters.closeDisc(value)}
     renderError={(error, retry) => <StateView variant="inline" {...common.error(error, retry, 'detail')}/>}/>;
-  if (value.phase === 'versions') return <NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(id);}} close={presenters.close}/>;
+  if (value.phase === 'versions') return <NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(value, id);}} close={() => presenters.closeVersions(value)}/>;
   if (value.phase === 'file-info') return <FileInfoSurface value={value} presenters={presenters}/>;
   if (value.phase !== 'menu' && value.phase !== 'file-pending' && value.phase !== 'versions-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
   if (value.phase === 'file-pending' || value.phase === 'versions-pending') return null;
