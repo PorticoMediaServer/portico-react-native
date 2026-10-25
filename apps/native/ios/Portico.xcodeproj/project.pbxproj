@@ -15,6 +15,7 @@
 		0C80B921A6F3F58F76C31292 /* libPods-Portico.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-Portico.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		21A01CD8C2E3AE4B31958D60 /* PorticoImagePicker.m in Sources */ = {isa = PBXBuildFile; fileRef = 34202A7540AC3E7E5FE588ED /* PorticoImagePicker.m */; };
+		D3A105000000000000000001 /* PorticoQRScanner.m in Sources */ = {isa = PBXBuildFile; fileRef = D3A105000000000000000002 /* PorticoQRScanner.m */; };
 		2614EC9FEA2D4BF2CA118B3D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
@@ -70,6 +71,7 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Portico/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = Portico/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		34202A7540AC3E7E5FE588ED /* PorticoImagePicker.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = PorticoImagePicker.m; path = ../Native/PorticoImagePicker.m; sourceTree = "<group>"; };
+		D3A105000000000000000002 /* PorticoQRScanner.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoQRScanner.m; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-Portico.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Portico.debug.xcconfig"; path = "Target Support Files/Pods-Portico/Pods-Portico.debug.xcconfig"; sourceTree = "<group>"; };
 		4239B6B87389F0D28B2631FE /* PorticoDownloads.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = PorticoDownloads.m; path = ../Native/PorticoDownloads.m; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-Portico.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Portico.release.xcconfig"; path = "Target Support Files/Pods-Portico/Pods-Portico.release.xcconfig"; sourceTree = "<group>"; };
@@ -214,6 +216,7 @@
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
 				4239B6B87389F0D28B2631FE /* PorticoDownloads.m */,
 				34202A7540AC3E7E5FE588ED /* PorticoImagePicker.m */,
+				D3A105000000000000000002 /* PorticoQRScanner.m */,
 				E7CB18FE2B76A8D86E32C0CE /* PorticoCapabilities.m */,
 			);
 			indentWidth = 2;
@@ -470,6 +473,7 @@
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				E256F9529781C1DDA4567A7B /* PorticoDownloads.m in Sources */,
 				21A01CD8C2E3AE4B31958D60 /* PorticoImagePicker.m in Sources */,
+				D3A105000000000000000001 /* PorticoQRScanner.m in Sources */,
 				A595158A418583D8DEB1DDE4 /* PorticoCapabilities.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
