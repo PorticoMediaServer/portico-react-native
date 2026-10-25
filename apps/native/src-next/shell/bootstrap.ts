@@ -29,6 +29,7 @@ import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
 import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
+import {rememberNativePlaybackPreferences} from './remembered-playback-settings';
 import {LyricsService} from '../../../../packages/client-core/src/lyrics';
 import {musicAudioEffects} from '../../../../packages/client-core/src/music-preferences';
 import {NativePlayOn} from '../platform/play-on/controller';
@@ -330,6 +331,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     cleanups.push(() => app.remove(), runEventFeed(events, undefined, {visible: () => AppState.currentState === 'active', onVisibility: listener => {const subscription = AppState.addEventListener('change', listener); return () => subscription.remove();},
       busy: () => !!playback?.getSnapshot().dock.local, onBusy: playback.subscribe}));
     ready = true;
+    // Preserve only already-admitted canonical settings for later receipt-only
+    // playback. A failed optional cache never changes normal admission.
+    const rememberPlaybackSettings = () => {
+      if (current()) void rememberNativePlaybackPreferences(context, currentPreferences().effective, installationSettings).catch(() => {});
+    };
+    cleanups.push(context.subscribePreferences(rememberPlaybackSettings)); rememberPlaybackSettings();
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
