@@ -22,18 +22,19 @@ export type MusicSignalView = Readonly<{input: MusicSignalInput; path: NativeSig
 export function MusicSignalLine({view, onPress, focusRef}: {view: MusicSignalView; onPress?: () => void; focusRef?: React.Ref<View>}) {
   const theme = useTheme(), tv = theme.isTV, path = view.path;
   const colour = path.healthy ? theme.colors.healthy : theme.colors.textTertiary;
-  const body = <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 7, minWidth: 0}}>
+  const body = (focused = false) => <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 10 : 7, minWidth: 0}}>
     <Icon name="i-pulse" size={tv ? 26 : 15} color={colour}/>
-    {path.source ? <Text numberOfLines={1} ellipsizeMode="clip" style={[nativeType({size: tv ? 22 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flexShrink: 0}]}>{path.source}</Text> : null}
-    {path.state ? <Text numberOfLines={1} ellipsizeMode="tail" style={[nativeType({size: tv ? 22 : 12, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary, flexShrink: 1}]}>{path.state}</Text> : null}
+    {path.source ? <Text numberOfLines={1} ellipsizeMode="clip" style={[nativeType({size: tv ? 22 : 12, weight: tv ? 800 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: tv ? theme.colors.textSecondary : theme.colors.text, flexShrink: 0}]}>{path.source}</Text> : null}
+    {tv && path.source && path.state ? <View style={{width: 2}}/> : null}
+    {path.state ? <Text numberOfLines={1} ellipsizeMode="tail" style={[nativeType({size: tv ? 22 : 12, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: tv ? focused ? theme.colors.text : theme.colors.textTertiary : theme.colors.textSecondary, flexShrink: 1}]}>{path.state}</Text> : null}
     {tv && <Icon name="i-right" size={20} color={theme.colors.textTertiary}/>}
   </View>;
   const label = path.accessibleName ?? [path.source, path.state].filter(Boolean).join('. ');
-  if (!onPress) return <View accessible accessibilityLabel={label} style={{maxWidth: tv ? 556 : 342}}>{body}</View>;
-  if (tv) return <Focusable ref={focusRef} focusId="music-signal-line" testID="music-signal-line" accessibilityRole="button" accessibilityLabel={label} focusRadius={10}
-    onPress={onPress} style={{maxWidth: 556, paddingVertical: 4, paddingRight: 6}}>{body}</Focusable>;
+  if (!onPress) return <View accessible accessibilityLabel={label} style={{maxWidth: tv ? 556 : 342}}>{body()}</View>;
+  if (tv) return <Focusable ref={focusRef} focusId="music-signal-line" testID="music-signal-line" accessibilityRole="button" accessibilityLabel={label} focusRadius={12}
+    onPress={onPress} style={({focused}) => ({maxWidth: 556, height: 52, paddingHorizontal: 14, borderRadius: 12, justifyContent: 'center', backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>{({focused}) => body(focused)}</Focusable>;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} testID="music-signal-line"
-    style={{maxWidth: 342, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: 'rgba(237,245,250,.07)'}}>{body}</Pressable>;
+    style={{maxWidth: 342, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: 'rgba(237,245,250,.07)'}}>{body()}</Pressable>;
 }
 
 function Row({label, value, note, changed}: {label: string; value?: string; note?: string; changed: boolean}) {
