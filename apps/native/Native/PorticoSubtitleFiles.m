@@ -161,12 +161,15 @@ RCT_EXPORT_MODULE()
 }
 - (void)invalidate {
  atomic_store(&_closed,true);
- if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self finish:_request result:nil code:@"cancelled" terminal:YES];});return;}
- [self finish:_request result:nil code:@"cancelled" terminal:YES];
+ PorticoDocumentPickRequest *request;
+ @synchronized(self){request=_request;}
+ if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self finish:request result:nil code:@"cancelled" terminal:YES];});return;}
+ [self finish:request result:nil code:@"cancelled" terminal:YES];
 }
 RCT_REMAP_METHOD(cancel,cancel:(NSString *)requestId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  if(atomic_load(&_closed)){resolve(@(NO));return;}
- PorticoDocumentPickRequest *request=_request;
+ PorticoDocumentPickRequest *request;
+ @synchronized(self){request=_request;}
  BOOL current=[requestId isKindOfClass:NSString.class]&&[request.identifier isEqualToString:requestId];
  if(current)[self finish:request result:nil code:@"cancelled" terminal:NO];
  resolve(@(current));
@@ -178,14 +181,20 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:
 #if TARGET_OS_TV
  reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);
 #else
- if(_request){reject(@"document_picker_busy",@"document_picker_busy",nil);return;}
- UIViewController *presenter=RCTPresentedViewController();if(!presenter){reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);return;}
- PorticoDocumentPickRequest *request=[PorticoDocumentPickRequest new];
- request.identifier=requestId;request.kind=kind;request.resolve=resolve;request.reject=reject;request.progress=[NSProgress progressWithTotalUnitCount:1];
- NSMutableArray<UTType *> *types=[NSMutableArray new];
- for(NSString *extension in [kind isEqualToString:@"playlist"]?@[@"m3u",@"m3u8"]:@[@"xml"]){[types addObject:[UTType typeWithFilenameExtension:extension]?:UTTypeData];}
- UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc]initForOpeningContentTypes:types asCopy:NO];
- request.picker=picker;picker.delegate=self;picker.allowsMultipleSelection=NO;_request=request;[presenter presentViewController:picker animated:YES completion:nil];
+ @synchronized(self) {
+  if(atomic_load(&_closed)){reject(@"bridge_closed",@"bridge_closed",nil);return;}
+  if(_request){reject(@"document_picker_busy",@"document_picker_busy",nil);return;}
+  UIViewController *presenter=RCTPresentedViewController();if(!presenter){reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);return;}
+  PorticoDocumentPickRequest *request=[PorticoDocumentPickRequest new];
+  request.identifier=requestId;request.kind=kind;request.resolve=resolve;request.reject=reject;request.progress=[NSProgress progressWithTotalUnitCount:1];
+  NSMutableArray<UTType *> *types=[NSMutableArray new];
+  for(NSString *extension in [kind isEqualToString:@"playlist"]?@[@"m3u",@"m3u8"]:@[@"xml"]){[types addObject:[UTType typeWithFilenameExtension:extension]?:UTTypeData];}
+  UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc]initForOpeningContentTypes:types asCopy:NO];
+  request.picker=picker;picker.delegate=self;picker.allowsMultipleSelection=NO;_request=request;
+  // Recheck immediately before the one registration point.
+  if(atomic_load(&_closed)){_request=nil;reject(@"bridge_closed",@"bridge_closed",nil);return;}
+  [presenter presentViewController:picker animated:YES completion:nil];
+ }
 #endif
 }
 #if !TARGET_OS_TV

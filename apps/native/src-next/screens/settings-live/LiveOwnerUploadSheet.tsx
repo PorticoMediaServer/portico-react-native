@@ -80,7 +80,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
     changed();
     onOpenChange(false);
   };
-  const input = current?.draft ?? blank, files = current?.files ?? {}, preview = current?.preview, revision = current?.revision, busy = current?.phase === 'checking' || current?.phase === 'saving', reading = current?.reading;
+  const draft = current?.draft, input = draft ?? blank, files = current?.files ?? {}, preview = current?.preview, revision = current?.revision, busy = current?.phase === 'checking' || current?.phase === 'saving', reading = current?.reading;
   const edit = (target: Opening, patch: Pick<Partial<UploadInput>, 'name' | 'tunerCount'>) => {
     if (active.current !== target || target.retired || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
     target.draft = Object.freeze({...target.draft, ...patch, requestId: makeId()});
@@ -90,7 +90,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
     if (!liveDocumentPicker || active.current !== target || target.retired || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
     target.pick?.abort();
     const pickController = new AbortController();
-    target.pick = pickController;target.reading = field;target.preview = undefined;target.error = undefined;changed();
+    target.pick = pickController;target.reading = field;target.revision += 1;target.preview = undefined;target.error = undefined;changed();
     try {
       const picked = await liveDocumentPicker.pick(field, pickController.signal);
       if (!picked || active.current !== target || target.retired || target.phase !== 'open' || target.reading !== field ||
@@ -111,13 +111,14 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
       }
     }
   };
-  const check = async (target: Opening, renderedRevision: number) => {
-    if (active.current !== target || target.retired || target.phase !== 'open' || target.revision !== renderedRevision ||
-      !target.draft.name.trim() || !target.draft.playlist || target.abort.signal.aborted) return;
+  const check = async (target: Opening, renderedRevision: number, renderedDraft: UploadInput) => {
+    if (active.current !== target || target.retired || target.phase !== 'open' || target.reading || target.pick ||
+      target.revision !== renderedRevision || target.draft !== renderedDraft ||
+      !renderedDraft.name.trim() || !renderedDraft.playlist || target.abort.signal.aborted) return;
     target.phase = 'checking';target.preview = undefined;target.error = undefined;changed();
     const caller = {isCurrent: () => active.current === target && !target.retired && target.phase === 'checking' && !target.abort.signal.aborted, signal: target.abort.signal};
     try {
-      const value = await controller.previewFiles(target.draft, caller);
+      const value = await controller.previewFiles(renderedDraft, caller);
       if (active.current !== target || target.retired || target.phase !== 'checking' || target.abort.signal.aborted) return;
       target.phase = 'open';target.preview = {revision: target.revision, value};changed();
     } catch (failure) {
@@ -126,13 +127,14 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
       }
     }
   };
-  const save = async (target: Opening, renderedRevision: number) => {
-    if (active.current !== target || target.retired || target.phase !== 'open' || target.revision !== renderedRevision ||
-      target.preview?.revision !== renderedRevision || target.abort.signal.aborted) return;
+  const save = async (target: Opening, renderedRevision: number, renderedDraft: UploadInput, renderedPreview: Readonly<{revision: number; value: UploadPreview}>) => {
+    if (active.current !== target || target.retired || target.phase !== 'open' || target.reading || target.pick ||
+      target.revision !== renderedRevision || target.draft !== renderedDraft || target.preview !== renderedPreview ||
+      renderedPreview.revision !== renderedRevision || target.abort.signal.aborted) return;
     target.phase = 'saving';target.error = undefined;changed();
     const caller = {isCurrent: () => active.current === target && !target.retired && target.phase === 'saving' && !target.abort.signal.aborted, signal: target.abort.signal};
     try {
-      const saved = await controller.saveFiles(target.draft, caller);
+      const saved = await controller.saveFiles(renderedDraft, caller);
       if (active.current !== target || target.retired || target.phase !== 'saving' || target.abort.signal.aborted) return;
       if (saved) {onSaved();close(target);}
       else {target.phase = 'open';target.error = controller.getSnapshot().error ?? new Error('save_live_source');changed();}
@@ -152,7 +154,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
     footer={<View style={{flexDirection: 'row', gap: 10}}>
       <Button variant="glass" disabled={busy} onPress={() => {if (current) close(current);}}>{t('action.cancel')}</Button>
       <Button variant="primary" loading={busy} disabled={busy || !!reading || !input.name.trim() || !input.playlist}
-        onPress={() => {if (current && revision !== undefined) {if (preview) void save(current, revision);else void check(current, revision);}}}>{t(preview ? 'web.liveTv.addSource' : 'web.liveTv.checkFiles')}</Button>
+        onPress={() => {if (current && draft && revision !== undefined) {if (preview) void save(current, revision, draft, preview);else void check(current, revision, draft);}}}>{t(preview ? 'web.liveTv.addSource' : 'web.liveTv.checkFiles')}</Button>
     </View>} testID="live-owner-upload">
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{gap: 16}}>
       <TextField testID="live-owner-upload-name" label={t('web.liveTv.sourceName')} value={input.name} maxLength={100} disabled={busy || !!reading} onChangeText={name => {if (current) edit(current, {name});}}/>

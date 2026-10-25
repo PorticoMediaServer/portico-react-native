@@ -221,19 +221,23 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
   }
   private var active: Request? = null
   @Volatile private var closed = false
+  private val admission = Any()
   private var nextCode = 0x5044
   private val main = Handler(Looper.getMainLooper())
 
   private val listener: ActivityEventListener = object : BaseActivityEventListener() {
     override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
-      if (closed) return
-      val request = active ?: return
-      if (request.code != requestCode || request.reading) return
-      request.reading = true
-      // Keep this exact request active through the bounded read; completion clears it.
+      var request: Request? = null
+      synchronized(admission) {
+        if (closed) return
+        request = active ?: return
+        if (request!!.code != requestCode || request!!.reading) return
+        request!!.reading = true
+      }
+      val chosen = request ?: return
       val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
-      if (uri == null) { finish(request, null, "cancelled", "File selection cancelled."); return }
-      pickerWork.execute { read(uri, request) }
+      if (uri == null) { finish(chosen, null, "cancelled", "File selection cancelled."); return }
+      pickerWork.execute { read(uri, chosen) }
     }
   }
 
@@ -242,43 +246,59 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
   override fun getName(): String = "PorticoDocumentFiles"
 
   override fun invalidate() {
-    closed = true
+    var request: Request? = null
+    synchronized(admission) {
+      closed = true
+      request = active; active = null
+      request?.cancelled = true
+    }
     reactApplicationContext.removeActivityEventListener(listener)
-    val request = active; active = null
-    if (request != null) { request.cancelled = true; request.promise.resolve(null) }
+    request?.promise?.resolve(null)
     super.invalidate()
   }
 
   @ReactMethod
   fun pick(requestId: String, kind: String, promise: Promise) {
-    if (closed) { promise.reject("bridge_closed", "bridge_closed"); return }
     if (TelevisionDisplay.isTelevision) { promise.reject("document_picker_unavailable", "Choose playlist files on a phone or tablet."); return }
     if (!requestId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) || (kind != "playlist" && kind != "guide")) { promise.reject("document_request_invalid", "Invalid document request."); return }
-    if (active != null) { promise.reject("document_picker_busy", "Another file is being read."); return }
-    if (nextCode > 0x7fff) { promise.reject("document_picker_exhausted", "Restart the app before choosing another file."); return }
     val activity = reactApplicationContext.currentActivity
     if (activity == null) { promise.reject("document_picker_unavailable", "Open the app before choosing a file."); return }
-    val request = Request(nextCode++, requestId, kind, promise); active = request
-    try {
-      activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), request.code)
-    } catch (_: Exception) {
-      active = null; request.cancelled = true
-      promise.reject("document_picker_unavailable", "Open the app before choosing a file.")
+    synchronized(admission) {
+      if (closed) { promise.reject("bridge_closed", "bridge_closed"); return }
+      if (active != null) { promise.reject("document_picker_busy", "Another file is being read."); return }
+      if (nextCode > 0x7fff) { promise.reject("document_picker_exhausted", "Restart the app before choosing another file."); return }
+      val request = Request(nextCode++, requestId, kind, promise); active = request
+      // Recheck immediately before the one registration point.
+      if (closed) { active = null; request.cancelled = true; promise.reject("bridge_closed", "bridge_closed"); return }
+      try {
+        activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), request.code)
+      } catch (_: Exception) {
+        active = null; request.cancelled = true
+        promise.reject("document_picker_unavailable", "Open the app before choosing a file.")
+      }
     }
   }
 
   @ReactMethod
   fun cancel(requestId: String, promise: Promise) {
     if (closed) { promise.resolve(false); return }
-    val request = active
-    val current = request != null && request.id == requestId
-    if (current) { request!!.cancelled = true; active = null; request.promise.resolve(null) }
+    var request: Request? = null
+    var current = false
+    synchronized(admission) {
+      request = active
+      current = request != null && request!!.id == requestId
+      if (current) { request!!.cancelled = true; active = null }
+    }
+    if (current) request!!.promise.resolve(null)
     promise.resolve(current)
   }
 
   private fun finish(request: Request, result: com.facebook.react.bridge.WritableMap?, code: String?, message: String?) {
-    if (closed || active !== request || request.cancelled) return
-    active = null
+    val accepted = synchronized(admission) {
+      if (closed || active !== request || request.cancelled) false
+      else { active = null; true }
+    }
+    if (!accepted) return
     if (result != null) request.promise.resolve(result)
     else request.promise.reject(code ?: "document_file", message ?: "Read failed.")
   }
