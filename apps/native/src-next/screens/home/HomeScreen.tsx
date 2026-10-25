@@ -9,6 +9,7 @@ import {homeEntryCapabilities} from '../../../../../packages/client-core/src/hom
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {programmeFactParts, programmeTimeRange, type FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {ArtworkPlacementContext} from '../../platform/ArtworkPipeline';
+import {usePlatformPosture} from '../../platform/platformPosture';
 import {AmbientArt} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
@@ -98,6 +99,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const windowWidth = theme.isTV ? 1920 : dimensions.width, windowHeight = theme.isTV ? 1080 : dimensions.height;
   const heroHeight = theme.isTV ? 820 : medium ? mediumHeroHeight(windowWidth, windowHeight) : theme.spec.hero.homeHeight[theme.platform];
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
+  // foldable7: on a real vertical crease the medium hero keeps its words on the left
+  // page and its picture on the right, so the title never sits across the fold.
+  const posture = usePlatformPosture();
+  const crease = medium && posture.status === 'available' && posture.window?.width === windowWidth && posture.window.height === windowHeight
+    ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.right > value.bounds.left && value.bounds.right <= windowWidth) : undefined;
   const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
   const document = authorizedHome(snapshot.document, authority);
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
@@ -198,11 +204,14 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     reason: serverTextLabel(labels, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
   })) : [], [document, runtime.text, labels, t]);
-  const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
-    foreground={showBackdrops ? runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl) : undefined} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
-    onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : heroHeight}
-    foregroundFraction={medium ? mediumBackdropFraction(windowWidth, windowHeight) : undefined} foregroundFade={medium ? 'left' : undefined}
-    position={medium ? {x: 0.38, y: 0.22} : undefined}/>;
+  const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => {
+    const art = <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
+      foreground={showBackdrops ? runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl) : undefined} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
+      onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={crease ? Math.max(0, windowWidth - crease.bounds.right) : viewportWidth} height={theme.isTV ? 900 : heroHeight}
+      foregroundFraction={medium ? mediumBackdropFraction(windowWidth, windowHeight) : undefined} foregroundFade={medium ? 'left' : undefined}
+      position={medium ? {x: 0.38, y: 0.22} : undefined}/>;
+    return crease ? <View style={{position: 'absolute', left: crease.bounds.right, right: 0, top: 0, height: heroHeight}}>{art}</View> : art;
+  };
   const activate = (entry: ContentEntry, target: ContentEntry | undefined) => guarded(() => {
     if (target?.playback) runtime.actions.play(entry, target.playback); else runtime.actions.navigate(entry);
   });
