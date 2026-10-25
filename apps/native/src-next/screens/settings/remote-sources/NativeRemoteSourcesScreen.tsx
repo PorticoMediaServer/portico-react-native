@@ -52,7 +52,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     return () => onBackHandlerChange?.(undefined);
   }, [subpage, close, onBackHandlerChange]);
   const captured = attempt.current;
-  const isCurrent = () => controller.getSnapshot().allowed && attempt.current === captured;
+  const isCurrent = useCallback(() => controller.getSnapshot().allowed && attempt.current === captured, [controller, captured]);
   if (!snapshot.allowed) {
     const problem = presentError({code: 'forbidden'}, 'server-console');
     return <StateView title={problem.title} body={problem.body} tone="error"/>;
