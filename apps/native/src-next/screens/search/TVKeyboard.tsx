@@ -24,12 +24,15 @@ export type NativeTVKeyboardProps = Readonly<{
   testID?: string;
   /** The row region holding focus, so a screen can point Left/Back at its remembered key. */
   onRowFocus?: (rowId: string) => void;
+  /** Present only when a real caller-owned system recognizer is available. */
+  onVoice?: () => void;
+  voiceBusy?: boolean;
 }>;
 
 /** Shared actual native keyboard for Search, Settings search and typing sheets.
  * Native focus guides choose directional traversal. No remote-key listener or
  * synthetic first child is installed; entry waits for the real key-a host. */
-export function NativeTVKeyboard({id, value, onChangeText, activation, leftRegionId, rightRegionId, width = 500, rows = nativeTVKeyboardRows, testID = 'native-tv-keyboard', onRowFocus}: NativeTVKeyboardProps) {
+export function NativeTVKeyboard({id, value, onChangeText, activation, leftRegionId, rightRegionId, width = 500, rows = nativeTVKeyboardRows, testID = 'native-tv-keyboard', onRowFocus, onVoice, voiceBusy}: NativeTVKeyboardProps) {
   const theme = useTheme(), keyWidth = (width - 50) / 6;
   const first = {regionId: `${id}.row.0`, childId: rows[0]?.[0] ?? 'a'};
   useDestinationEntryFocus(activation, first);
@@ -58,5 +61,10 @@ export function NativeTVKeyboard({id, value, onChangeText, activation, leftRegio
         <Text style={[browseType(theme, 22, 700), {color: theme.colors.textSecondary}]}>{defaultI18n.t('filter.clear')}</Text>
       </Focusable>
     </FocusRegion>
+    {onVoice && <FocusRegion id={`${id}.voice`} entry="voice" order={['voice']} orientation="horizontal" enabled={activation.visible} edges={edges} onFocusChange={rowFocus(`${id}.voice`)}>
+      <Focusable focusId="voice" testID={`${testID}-voice`} disabled={!activation.visible || voiceBusy} accessibilityLabel={defaultI18n.t('web.search.title')} onPress={onVoice} focusRadius={14} style={{...keyStyle(6), flexDirection: 'row', gap: 14}}>
+        <Icon name="i-mic" size={28} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 22, 700), {color: theme.colors.textSecondary}]}>{defaultI18n.t('web.search.title')}</Text>
+      </Focusable>
+    </FocusRegion>}
   </FocusRegion>;
 }
