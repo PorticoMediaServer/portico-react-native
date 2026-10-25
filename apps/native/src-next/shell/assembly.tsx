@@ -356,6 +356,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderHomeEmpty: () => <NativeHomeEmpty owner={context.account.account.role === 'owner'} serverName={context.serverName}
       hasLibraries={context.libraries().length > 0} onSwitchServer={nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined}/>,
     renderDownloads: () => <NativeDownloadSheet context={context}/>,
+    openServers: nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined,
     libraryMenu: library => {
       const common = {read: isReadingLibraryKind(library.kind),
         onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};

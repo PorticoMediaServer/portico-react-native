@@ -79,6 +79,8 @@ export interface NativeShellRuntime {
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
   renderHomeEmpty: () => ReactNode;
+  /** The drawn Switch server action, when the installed source offers that route. */
+  openServers?: () => void;
   /** The shell-owned download sheet, opened by a title page's drawn Download action. */
   renderDownloads?: () => ReactNode;
   /** Destinations name their own copy context; Home stays the default. */

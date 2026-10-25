@@ -30,6 +30,8 @@ import {MusicMixesRow} from '../destinations/music/MusicMixesRow';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
 import {authorizedHome, homeCardText, homePlayTarget, homeRowHasContent, pageAtVisibleEnd, platformRows} from './model';
+import {TvHomeRecovery} from './TvHomeRecovery';
+import {useTvHomeRecovery} from './useTvHomeRecovery';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 
@@ -113,6 +115,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
   const document = authorizedHome(snapshot.document, authority);
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
+  // The recovery session lives here, at the screen's stable scope, so the service clearing
+  // its error for the length of a retry cannot unmount it or restart its schedule.
+  const recovery = useTvHomeRecovery({runtime, authority, error: snapshot.error, active: active && foreground, resolved: !!document, enabled: theme.isTV});
   const [heroVisible, setHeroVisible] = useState(true), [visibleRows, setVisibleRows] = useState<ReadonlySet<string>>(new Set());
   const [focus, setFocusState] = useState<{rowId: string; entryId: string}>(), [heroFocused, setHeroFocused] = useState(false), [repeating, setRepeating] = useState(false);
   const focusTarget = useRef<typeof focus>(undefined), canAnchor = useRef(false);
@@ -253,7 +258,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     renderThumbnail={candidate => <Artwork source={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} width={heroSpec.thumbnail.width} height={heroSpec.thumbnail.height}/>}
     onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
-  if (!document) return snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
+  if (!document) return recovery.visible && recovery.session
+    ? <TvHomeRecovery session={recovery.session} onRetryNow={recovery.retryNow} onSwitchServer={recovery.switchServer}/>
+    : snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
     : <HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>;
   if (!document.spotlight.length && !rows.length) return <>{runtime.renderHomeEmpty()}</>;
 
