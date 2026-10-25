@@ -48,9 +48,6 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open({kind: 'music', entry}, context.authority());};
       const back = () => {if (current()) context.navigation.back(context.authority());};
       const download = (entry: ContentEntry) => {const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);};
-      if (!Platform.isTV) return page.entry.kind === 'album'
-        ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back} download={download}/>
-        : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
       const pageCurrent = () => {
         const active = context.navigation.getSnapshot().route;
         return !!active && active.kind === 'music' && active.entry.kind === page.entry.kind && active.entry.id === page.entry.id;
@@ -59,6 +56,9 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
         {albumId: page.entry.id, load: () => page.controller.albumMembership()},
         {signal: page.abort.signal, isCurrent: () => current() && pageCurrent()},
       ) : undefined;
+      if (!Platform.isTV) return page.entry.kind === 'album'
+        ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back} download={download} onPlaylist={onPlaylist}/>
+        : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
       return <>
         {page.entry.kind === 'album'
           ? <TVAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onPlaylist={onPlaylist}/>
