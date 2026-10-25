@@ -13,7 +13,7 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
   const theme = useTheme(), t = defaultI18n.t;
   return <StateLayout testID="phone-no-servers" icon="i-server" title={t('web.hostedAccount.noServers')}
     body={t('web.chooser.noneBody')} beforeActions={error}
-    primaryAction={{id: 'find-server', label: t('playOn.onThisNetwork'), disabled: busy, onPress: onFind}}
+    primaryAction={{id: 'find-server', label: t('connection.discovery.find'), disabled: busy, onPress: onFind}}
     secondaryAction={{id: 'refresh-directory', label: t('accounts.servers.refresh'), disabled: busy, onPress: onRefresh}}
     detailsAction={onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: onBack} : undefined}>
     <View style={{alignSelf: 'stretch', gap: 12, marginTop: 24}}>

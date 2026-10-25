@@ -82,6 +82,8 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   useEffect(() => {if (!memberMove) return; const publish = () => setMoveSnapshot(memberMove.getSnapshot()); publish(); return memberMove.subscribe(publish);}, [memberMove]);
   const [pinRecovery, setPinRecovery] = useState<PINRecovery>();
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
+  const [nearbyStatus, setNearbyStatus] = useState<'loading' | 'ready' | 'failed'>('loading'), [nearbyRefresh, setNearbyRefresh] = useState(0);
+  const nearbySource = useRef<{active: boolean} | undefined>(undefined);
   const lifetime = useRef(true), directoryAttempt = useRef(0), retryDelay = useRef(20), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
   const pinRecoveryRef = useRef<PINRecovery | undefined>(undefined), profileRef = useRef(profile);
   profileRef.current = profile;
@@ -104,11 +106,15 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
   useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; memberMoveRef.current?.dispose(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) stopRetry(); setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (stage !== 'address') return;
+    const ticket = {active: true}; nearbySource.current = ticket;
+    const current = () => ticket.active && nearbySource.current === ticket && stageRef.current === 'address';
+    setNearbyStatus('loading');
     const abort = new AbortController(), probes = new Set<ServerSignInProbe>();
     setNearby([]);
     void browseNearby('servers', abort.signal).then(async values => {
+      if (!current() || abort.signal.aborted) return;
       const found = values.flatMap(value => {try {
         if (!value || typeof value !== 'object' || !('baseUrl' in value) || typeof value.baseUrl !== 'string') return [];
         if (!('serverId' in value) || typeof value.serverId !== 'string') return [];
@@ -117,19 +123,20 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       // Discovery supplies addresses, not display names. Ask each server's public system
       // endpoint; never substitute a hostname or make a Portico Services request.
       const unique = found.filter((value, index) => found.findIndex(item => item.serverId === value.serverId) === index);
-      for (let index = 0; index < unique.length && !abort.signal.aborted; index += 4) {
+      for (let index = 0; index < unique.length && current() && !abort.signal.aborted; index += 4) {
         const rows = await Promise.all(unique.slice(index, index + 4).map(async value => {
-          if (abort.signal.aborted) return;
+          if (!current() || abort.signal.aborted) return;
           const probe = new ServerSignInProbe(nativeNetworkFetch, 3000); probes.add(probe);
           try {const descriptor = await probe.inspect(value.origin);
             return descriptor?.id === value.serverId ? {origin: value.origin, server: descriptor} : undefined;
           } finally {probe.dispose(); probes.delete(probe);}
         }));
-        if (!abort.signal.aborted) setNearby(current => [...current, ...rows.flatMap(value => value ? [value] : [])]);
+        if (current() && !abort.signal.aborted) setNearby(previous => [...previous, ...rows.flatMap(value => value ? [value] : [])]);
       }
-    }).catch(failure => {if (!abort.signal.aborted) setError(failure);});
-    return () => {abort.abort(); for (const probe of probes) probe.dispose();};
-  }, [stage]);
+      if (current() && !abort.signal.aborted) setNearbyStatus('ready');
+    }).catch(() => {if (current() && !abort.signal.aborted) setNearbyStatus('failed');});
+    return () => {ticket.active = false; abort.abort(); for (const probe of probes) probe.dispose();};
+  }, [stage, nearbyRefresh]);
   const run = async (work: () => Promise<void>) => {
     if (busy || acting.current || adoptingTV.current || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
     const startedOperation = operation.current;
@@ -541,10 +548,25 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       const result = await operation.current!.setupLocal(name, username, password);
       setPassword(''); setSetupPasswordConfirm(''); consume(result);
     }, !name.trim() || !/^[A-Za-z0-9_.-]{3,64}$/.test(username.trim()) || !passwordStrength(password).acceptable || password !== setupPasswordConfirm));
-  if (stage === 'address') return layout(t('accounts.signIn.local'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), () => inspect(), !address.trim()), nearby.length > 0 &&
-    <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
-      {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}{value.server.setupRequired ? ' · ' + t('accounts.setup.confirmAction') : ''}</Button>
-        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}</View>);
+  if (stage === 'address') {
+    const ticket = nearbySource.current;
+    const current = () => !!ticket?.active && nearbySource.current === ticket && lifetime.current && stageRef.current === 'address';
+    return layout(t('accounts.signIn.local'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), () => inspect(), !address.trim()),
+      <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
+        {nearbyStatus === 'loading' && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
+        {nearbyStatus === 'failed' && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('connection.discovery.failed')}</Text>}
+        {nearbyStatus === 'ready' && nearby.length === 0 && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('connection.discovery.empty')}</Text>}
+        {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {
+          if (!current() || busyRef.current) return;
+          setAddress(value.origin); void run(() => inspect(value.origin));
+        }}>{value.server.name}{value.server.setupRequired ? ' · ' + t('accounts.setup.confirmAction') : ''}</Button>
+          <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}
+        {nearbyStatus !== 'loading' && <Button variant="text" disabled={busy} onPress={() => {
+          if (!current() || busyRef.current) return; ticket!.active = false; setNearbyRefresh(value => value + 1);
+        }}>{t('web.chooser.tryAgain')}</Button>}
+      </View>);
+  }
   if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {
     const ticket = ownerResetOpening.current, source = ticket?.source, renderedStage = stage;
     const current = () => !!ticket && ownerResetOpening.current === ticket && operation.current === source
