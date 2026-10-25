@@ -48,8 +48,13 @@ export class NativeOwnerRecoveryContact {
     if (this.started) throw cancelled();
     this.started = true;
     let timedOut = false;
+    let rejectAbort = () => {};
+    const stopped = new Promise<never>((_resolve, reject) => {
+      rejectAbort = () => reject(cancelled());
+      this.controller.signal.addEventListener('abort', rejectAbort, {once: true});
+    });
     const timer = setTimeout(() => {timedOut = true; this.controller.abort();}, 12000);
-    try {
+    const work = async () => {
       const original = await nativeAppSessions.read(); this.assertCurrent();
       const result = await this.contact(this.captured, {fetcher: nativeOwnerRecoveryFetch(this.origin, this.current),
         crypto: nativeRouteCrypto, signal: this.controller.signal, isCurrent: this.current});
@@ -63,10 +68,14 @@ export class NativeOwnerRecoveryContact {
       this.assertCurrent();
       await Linking.openURL(result.signInURL);
       this.assertCurrent();
-    } catch (error) {
+    };
+    try {await Promise.race([work(), stopped]);}
+    catch (error) {
       if (timedOut) throw new RouteError('timeout', 'Owner recovery contact timed out.');
       throw error;
-    } finally {clearTimeout(timer); this.dispose();}
+    } finally {
+      clearTimeout(timer); this.controller.signal.removeEventListener('abort', rejectAbort); this.dispose();
+    }
   }
   dispose = () => {
     this.controller.abort();

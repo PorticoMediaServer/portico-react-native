@@ -149,14 +149,16 @@ export function nativeOwnerRecoveryFetch(capturedOrigin: string, isCurrent: () =
     });
     if (Platform.OS === 'ios') checkApplePlainHttp(input);
     const response = await nativeRequest(input, {...options, headers, credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'});
-    check(options.signal);
-    // The strict path cannot settle an OS-refused leaf or install new native certificate trust.
-    if (certificateTrustAvailable()) {
-      const refused = await nativeCertificatePlatform.refused(origin);
+    try {
       check(options.signal);
-      if (refused) throw new RouteError('certificate_untrusted', 'The server certificate is not trusted.');
-    }
-    return response;
+      // The strict path cannot settle an OS-refused leaf or install new native certificate trust.
+      if (certificateTrustAvailable()) {
+        const refused = await nativeCertificatePlatform.refused(origin);
+        check(options.signal);
+        if (refused) throw new RouteError('certificate_untrusted', 'The server certificate is not trusted.');
+      }
+      return response;
+    } catch (error) {void response.body?.cancel().catch(() => {}); throw error;}
   };
 }
 

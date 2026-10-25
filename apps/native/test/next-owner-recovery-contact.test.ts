@@ -70,3 +70,14 @@ for (const signInURL of ['https://replacement.example/sign-in', 'https://origina
     await assert.rejects(source.open(), {code: 'identity_mismatch'}); assert.deepEqual(f.opened, []);
   });
 }
+
+test('cancellation settles even while a protected native read has not returned', async () => {
+  const f = await fixture(); let release!: () => void, entered!: () => void, calls = 0;
+  const waiting = new Promise<void>(resolve => {entered = resolve;}), held = new Promise<void>(resolve => {release = resolve;});
+  f.setRead(async () => {entered(); await held; return {revision: 7, selectedServerId: 'original-selection'};});
+  const source = f.open(async () => {calls++; return answer();});
+  const opening = source.open(); await waiting; source.dispose();
+  await assert.rejects(opening, {code: 'cancelled'});
+  release(); await Promise.resolve();
+  assert.equal(calls, 0); assert.deepEqual(f.opened, []);
+});
