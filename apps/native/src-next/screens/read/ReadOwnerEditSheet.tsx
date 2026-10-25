@@ -1,8 +1,8 @@
 import React, {useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {Text, View} from 'react-native';
+import {Image, ScrollView, Text, View} from 'react-native';
 import {MetadataRepairService, type RepairData} from '../../../../../packages/client-core/src/metadata-repair';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {Button, TextField} from '../../kit/controls';
+import {Button, Focusable, TextField} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
 import {SkeletonBlock, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
@@ -10,6 +10,7 @@ import {useTheme} from '../../kit/theme';
 import {linkNativeAbortSignals} from '../../platform/abort-signals';
 import {stageCoverImage, type CoverImageMime, type CoverImageTemp} from '../../platform/cover-image';
 import {rereadNativeReadingSource} from './read-reread';
+import {loadNativeCoverPages, type NativeCoverPage} from './read-cover-pages';
 import type {ReadingManifest, ReadingPage} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeReadOwnerEditLease, NativeReadVersion} from './read-book-model';
@@ -50,6 +51,8 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
   const operation = useRef<object | undefined>(undefined);
   const coverCurrent = useRef<CoverOpening | null>(null);
   const coverFlight = useRef<Readonly<{opening: CoverOpening; controller: AbortController}> | undefined>(undefined);
+  // The page-preview strip is presentation-only and tied to its exact opening.
+  const pagesFlight = useRef<AbortController | undefined>(undefined);
   const coverSeq = useRef<number>(0);
   // The page-number draft is opaque and revisioned: a retained Choose callback
   // can only submit the exact draft it was drawn with.
@@ -91,6 +94,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
   const [draft, setDraft] = useState<Readonly<Record<string, string>>>({});
   const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
   const [coverOpening, setCoverOpening] = useState<CoverOpening | null>(null);
+  const [coverPages, setCoverPages] = useState<Readonly<{opening: CoverOpening; phase: 'loading' | 'ready' | 'failed'; pages: readonly NativeCoverPage[]}>>();
   const [pageInput, setPageInput] = useState(pageCurrent.current);
   const [coverBusy, setCoverBusy] = useState(false), [coverFailed, setCoverFailed] = useState(false);
   const [rereadBusy, setRereadBusy] = useState(false), [rereadFailed, setRereadFailed] = useState(false);
@@ -100,7 +104,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
   // are captured once and never follow a successor.
   const opening = useRef<Readonly<{owner: object; onClose: (owner: object) => void}> | undefined>(undefined);
   if (!opening.current) opening.current = Object.freeze({owner, onClose});
-  const close = () => {if (!retired.current) {retired.current = true; sheetLife.abort(); coverFlight.current?.controller.abort(); opening.current!.onClose(opening.current!.owner);}};
+  const close = () => {if (!retired.current) {retired.current = true; sheetLife.abort(); pagesFlight.current?.abort(); coverFlight.current?.controller.abort(); opening.current!.onClose(opening.current!.owner);}};
   useLayoutEffect(() => {
     if (!owned()) {close(); return;}
     // The original page leaving its route or authority retires this sheet and
@@ -117,7 +121,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       }
     });
     void service.load({kind: 'item', id: itemId, libraryId});
-    return () => {offNav(); offAuthority(); offModel(); off(); retired.current = true; sheetLife.abort(); coverFlight.current?.controller.abort(); linked.dispose(); client.dispose(); service.dispose();};
+    return () => {offNav(); offAuthority(); offModel(); off(); retired.current = true; sheetLife.abort(); pagesFlight.current?.abort(); coverFlight.current?.controller.abort(); linked.dispose(); client.dispose(); service.dispose();};
   }, [context, service, itemId, libraryId, owned, sheetLife, linked, lease]); // eslint-disable-line react-hooks/exhaustive-deps
   const data: RepairData | null | undefined = snapshot.data;
   const exact = (value: RepairData | null | undefined): value is RepairData => !!value && owned()
@@ -172,6 +176,23 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
     const next = Object.freeze({revision: pageCurrent.current.revision + 1, value});
     pageCurrent.current = next; setPageInput(next);
   };
+  /** Bounded real page previews for this exact opening: same source, revision,
+   * page bounds and sheet lifetime; nothing is relooked up. */
+  const loadCoverPages = async (target: CoverOpening) => {
+    if (coverCurrent.current !== target) return;
+    const flight = new AbortController();
+    pagesFlight.current = flight;
+    const scoped = linkNativeAbortSignals([linked.signal, flight.signal]);
+    setCoverPages({opening: target, phase: 'loading', pages: []});
+    try {
+      const pages = await loadNativeCoverPages({client, signal: scoped.signal, opening: {itemId: target.itemId, sourceId: target.sourceId,
+        revision: target.revision, pageCount: target.pageCount, pageNames: target.pageNames},
+        isCurrent: () => coverCurrent.current === target && owned() && !scoped.signal.aborted});
+      if (coverCurrent.current !== target || !owned()) return;
+      setCoverPages({opening: target, phase: 'ready', pages});
+    } catch {if (coverCurrent.current === target && !scoped.signal.aborted) setCoverPages({opening: target, phase: 'failed', pages: []});}
+    finally {scoped.dispose(); if (pagesFlight.current === flight) pagesFlight.current = undefined;}
+  };
   /** The drawn control captures the immutable opening now; later renders never
    * substitute their own repair document or manifest for it. */
   const openCover = () => {
@@ -182,7 +203,8 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
     if (!witness) return;
     const next = Object.freeze({...witness, key: ++coverSeq.current});
     coverCurrent.current = next;
-    setPage(''); setCoverFailed(false); setCoverOpening(next);
+    setPage(''); setCoverFailed(false); setCoverPages(undefined); setCoverOpening(next);
+    void loadCoverPages(next);
   };
   /** Ask the server to re-read the exact original source and refresh its file
    * facts. The rendered repair document, manifest and selected version are
@@ -210,9 +232,10 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
   const dismissCover = (target: CoverOpening) => {
     if (coverCurrent.current !== target) return;
     coverCurrent.current = null;
+    pagesFlight.current?.abort(); pagesFlight.current = undefined;
     const flight = coverFlight.current;
     if (flight?.opening === target) {coverFlight.current = undefined; flight.controller.abort();}
-    setCoverOpening(null); setPage(''); setCoverFailed(false);
+    setCoverOpening(null); setPage(''); setCoverFailed(false); setCoverPages(undefined);
   };
   const choosePage = async (target: CoverOpening, input: Readonly<{revision: number; value: string}>) => {
     if (coverCurrent.current !== target || operation.current || !owned() || pageCurrent.current !== input) return;
@@ -220,6 +243,8 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
     // is opened; a retained opening is closed rather than served.
     const entry = service.getSnapshot();
     if (entry.phase !== 'ready' || entry.data !== target.data) {dismissCover(target); return;}
+    // A page choice ends the preview flight before its own session opens.
+    pagesFlight.current?.abort(); pagesFlight.current = undefined;
     const index = Number(input.value.trim()) - 1;
     const pageName = Number.isInteger(index) && index >= 0 && index < target.pageCount ? target.pageNames[index] : undefined;
     if (pageName === undefined) return;
@@ -259,7 +284,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       if (!alive()) return;
       if (!uploaded) throw new Error('cover_upload_failed');
       coverCurrent.current = null;
-      setCoverOpening(null); setPage('');
+      setCoverOpening(null); setPage(''); setCoverPages(undefined);
     } catch {if (alive()) setCoverFailed(true);}
     finally {
       await temp?.dispose();
@@ -307,6 +332,21 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       description={t('next.reader.ownerOnly')} testID="native-read-cover-page" keyboardAvoiding>
       <View style={{gap: 10}}>
         <Text style={[browseType(theme, 13, 500), {color: theme.colors.textSecondary}]}>{t('next.reader.pageCount', {count: coverOpening.pageCount})}</Text>
+        {coverPages?.opening === coverOpening && coverPages.phase === 'loading' ? <SkeletonBlock width="100%" height={132}/> : null}
+        {coverPages?.opening === coverOpening && coverPages.phase === 'failed' ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
+        {coverPages?.opening === coverOpening && coverPages.phase === 'ready' && coverPages.pages.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{gap: 8, paddingRight: 4}}>
+          {coverPages.pages.map(page => {
+            const selected = pageInput.value.trim() === String(page.index + 1);
+            return <Focusable key={page.index} accessibilityRole="button" accessibilityLabel={`${t('next.reader.page')} ${page.index + 1}`}
+              onPress={() => {if (!coverBusy) setPage(String(page.index + 1));}} style={{width: 84, gap: 4}}>
+              <View style={{width: 84, height: 118, borderRadius: 8, overflow: 'hidden', borderWidth: selected ? 2 : 0, borderColor: theme.colors.accent}}>
+                <Image source={{uri: page.uri}} style={{width: '100%', height: '100%'}} resizeMode="cover"/>
+              </View>
+              <Text style={[browseType(theme, 11.5, 600), {color: selected ? theme.colors.text : theme.colors.textSecondary, textAlign: 'center'}]}>{t('next.reader.page')} {page.index + 1}</Text>
+            </Focusable>;
+          })}
+        </ScrollView> : null}
         <TextField value={pageInput.value} onChangeText={setPage} editable={!coverBusy} keyboardType="number-pad"
           accessibilityLabel={t('next.reader.page')} maxLength={4}/>
         <Button onPress={() => {void choosePage(coverOpening, pageInput);}} loading={coverBusy} disabled={coverBusy || !pageInput.value.trim()}>{t('web.metadata.useIt')}</Button>
