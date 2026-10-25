@@ -373,7 +373,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             ? <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center'}}>
               {hint(0, keycap('', ['i-left', 'i-right']), t('player.hint.move'))}
               {hint(1, keycap(t('player.hint.hold')), t('player.hint.faster'))}
-              {hint(2, keycap(t('cast.receiver.key.ok')), t('player.hint.playFrom', {time: clockText(landing ?? returnAt)}))}
+              {hint(2, keycap(t('title.ok')), t('player.hint.playFrom', {time: clockText(landing ?? returnAt)}))}
               {hint(3, keycap(t('action.back')), t('player.hint.returnTo', {time: clockText(returnAt)}))}
             </View>
             : <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
