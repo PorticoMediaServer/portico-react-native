@@ -51,6 +51,8 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
   const position = playbackPosition(occupant), bounds = seekBounds(occupant), span = bounds ? bounds.end - bounds.start : p.durationSeconds;
   const artist = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
+  const queueRegion = queue ? `${id}.queue` : undefined;
+  const actionsRegion = lyrics || equalizer.supported ? `${id}.actions` : undefined;
   const currentEntry = queue?.queue.entries.find(entry => entry.id === queue.queue.currentEntryId);
   const currentItem = queue?.items.find(item => item.entryId === queue.queue.currentEntryId);
   // An album in the metadata alone does not say where this queue came from.
@@ -78,12 +80,12 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
           {!!artist && <Text style={[type(34, 700), {color: theme.colors.textSecondary, marginBottom: 8}]}>{artist}</Text>}
           {!!album && <Text style={[type(24), {color: theme.colors.textTertiary}]}>{album}</Text>}
         </View>
-        {signal && <MusicFocusRegion id={`${id}.signal`} entry="music-signal-line" edges={{down: `${id}.progress`, right: `${id}.queue`}}
+        {signal && <MusicFocusRegion id={`${id}.signal`} entry="music-signal-line" edges={{down: `${id}.progress`, right: queueRegion}}
           style={{height: 52, marginBottom: 18, maxWidth: 500}}>
           <MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/>
         </MusicFocusRegion>}
         {!signal && <View style={{height: 70}}/>}
-        <MusicFocusRegion id={`${id}.progress`} entry="seek" edges={{up: signal ? `${id}.signal` : undefined, down: `${id}.transport`, right: `${id}.queue`}}
+        <MusicFocusRegion id={`${id}.progress`} entry="seek" edges={{up: signal ? `${id}.signal` : undefined, down: `${id}.transport`, right: queueRegion}}
           style={{minHeight: 64, width: 500}}>
           <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel && !more} testID={`${testID}-scrubber`}/>
           <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
@@ -91,7 +93,7 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
             <Text style={[type(20), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span)}</Text>
           </View>
         </MusicFocusRegion>
-        <MusicFocusRegion id={`${id}.transport`} entry="toggle" orientation="horizontal" edges={{up: `${id}.progress`, down: `${id}.actions`, right: `${id}.queue`}}
+        <MusicFocusRegion id={`${id}.transport`} entry="toggle" orientation="horizontal" edges={{up: `${id}.progress`, down: actionsRegion, right: queueRegion}}
           style={{marginTop: 28, width: 500, height: 96, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 34}}>
           <Button testID={`${testID}-previous`} variant="glass" iconOnly icon="i-prev" iconSize={34} style={{height: 72, width: 72, borderRadius: 36}}
             accessibilityLabel={t('player.previous')} disabled={!p.capabilities.previous} onPress={() => act('previous')}/>
@@ -101,11 +103,11 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
           <Button testID={`${testID}-next`} variant="glass" iconOnly icon="i-next" iconSize={34} style={{height: 72, width: 72, borderRadius: 36}}
             accessibilityLabel={t('player.next')} disabled={!p.capabilities.next} onPress={() => act('next')}/>
         </MusicFocusRegion>
-        {(lyrics || equalizer.supported) && <MusicFocusRegion id={`${id}.actions`} orientation="horizontal" edges={{up: `${id}.transport`, right: `${id}.queue`}}
+        {actionsRegion && <MusicFocusRegion id={actionsRegion} entry={lyrics ? 'lyrics' : 'more'} orientation="horizontal" edges={{up: `${id}.transport`, right: queueRegion}}
           style={{marginTop: 38, flexDirection: 'row', gap: 16}}>
-          {lyrics && <Button ref={lyricsRef} variant="glass" size="small" icon="i-lyrics" iconSize={28} style={{height: 64, paddingHorizontal: 26}} textStyle={{fontSize: 22 * theme.textScale}}
+          {lyrics && <Button ref={lyricsRef} focusId="lyrics" testID={`${testID}-lyrics`} variant="glass" size="small" icon="i-lyrics" iconSize={28} style={{height: 64, paddingHorizontal: 26}} textStyle={{fontSize: 22 * theme.textScale}}
             onPress={() => setPanel('lyrics')}>{t('player.lyrics')}</Button>}
-          {equalizer.supported && <Button ref={moreRef} variant="glass" iconOnly icon="i-more" iconSize={28} style={{height: 64, width: 64, borderRadius: 32}}
+          {equalizer.supported && <Button ref={moreRef} focusId="more" testID={`${testID}-more`} variant="glass" iconOnly icon="i-more" iconSize={28} style={{height: 64, width: 64, borderRadius: 32}}
             accessibilityLabel={t('next.controls.more')} onPress={() => setMore(true)}/>}
         </MusicFocusRegion>}
         </ScrollView>
