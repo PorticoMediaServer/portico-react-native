@@ -144,7 +144,7 @@ export class NativeTVLiveGuide {
     if (this.command?.fromMini) {this.command.controller.abort();this.command = undefined;if (this.opening) this.opening.busy = false;}
     this.publish({...this.state, open: false, busy: this.opening?.busy ?? false});return true;
   };
-  tune = async (advertised: NativeLiveGuideRow, expected: NativeLiveGuideSnapshot) => {
+  tune = async (advertised: NativeLiveGuideRow, expected: NativeLiveGuideSnapshot, onError?: (error: unknown) => void) => {
     const opening = this.opening;
     if (this.state !== expected || !opening || !this.current(opening) || opening.busy || this.state.phase !== 'ready' || !this.state.rows.includes(advertised)) return;
     if (advertised.step === 0) {this.close();return;}
@@ -165,7 +165,12 @@ export class NativeTVLiveGuide {
       if (!current()) return;
       this.context.navigation.replaceChannel(opening.route, {kind: 'channel', sourceId: raw.sourceId, channelId: raw.id,
         guide: Object.freeze({row: target, options: opening.origin.options}), tune: {fence: opening.fence, sourceGeneration: raw.generation}}, opening.authority);
-    } catch (error) {if (current()) this.publish({...this.state, error});}
+    } catch (error) {
+      if (current()) {
+        this.publish({...this.state, error});
+        if (!command.fromMini && current()) onError?.(error);
+      }
+    }
     finally {
       opening.controller.signal.removeEventListener('abort', stop);
       if (this.command === command) {this.command = undefined;opening.busy = false;if (this.current(opening)) this.publish({...this.state, busy: false});}

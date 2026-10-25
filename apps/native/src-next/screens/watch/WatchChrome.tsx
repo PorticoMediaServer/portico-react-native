@@ -295,7 +295,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     return <View style={{position: 'relative'}}>
       <Focusable focusId={id} testID={id} accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled || liveGuide.busy}
         accessibilityLabel={t(direction < 0 ? 'next.live.channelDown' : 'next.live.channelUp', {channel: target.channel.name, number: target.channel.number})}
-        onPress={() => {if (controlsCurrent()) void props.liveGuide?.tune(target, liveGuide);}}
+        onPress={() => {if (controlsCurrent()) void props.liveGuide?.tune(target, liveGuide, props.reportError);}}
         style={{width: small, height: small, borderRadius: small / 2, alignItems: 'center', justifyContent: 'center'}}>
         {direction < 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
         <Icon name={direction < 0 ? 'i-chdown' : 'i-chup'} size={24} color={theme.colors.text}/>
