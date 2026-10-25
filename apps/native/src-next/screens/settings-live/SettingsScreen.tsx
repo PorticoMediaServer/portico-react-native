@@ -8,7 +8,7 @@ import {NativeFrameRateRow, nativeFrameRateFocusId} from './NativeFrameRateRow';
 import {NativePassthroughRow, nativePassthroughFocusId} from './NativePassthroughRow';
 import {NativeLossNoticesRow, nativeLossNoticesFocusId} from './NativeLossNoticesRow';
 import {NativeSafeModeRow, nativeSafeModeAvailable, nativeSafeModeFocusId} from './NativeSafeModeRow';
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, Dimensions, NativeModules, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, readComposite, compositePatch, type SettingsPage, type SettingsRow as Row} from '../../../../../packages/client-core/src/presentation/settings-structure';
@@ -331,7 +331,26 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
   const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string}>[]; apply: (value: string) => void}>>();
   const [languages, setLanguages] = useState<Readonly<{testID: string; title: string; help?: string; value: readonly LanguageOption[]; available: readonly LanguageOption[]; limit: number; apply: (value: readonly LanguageOption[]) => void}>>();
-  const [confirmation, setConfirmation] = useState<'signOut' | 'resetRecommendations'>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
+  type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token: number; page: string; revision: number; controller: typeof controller}>;
+  const [confirmOpen, setConfirmOpen] = useState<AccountConfirm>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
+  // The confirmation belongs to one opening and one rendered page/route; the flight holds that
+  // same object, so no delayed close, result or busy release can reach a successor. Refs are
+  // explicit about their empty state, as the current React types require.
+  const navigation = ports.context.navigation;
+  const route = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
+  const confirmRef = useRef<AccountConfirm | undefined>(undefined), confirmFlight = useRef<AccountConfirm | undefined>(undefined), confirmToken = useRef(0), confirmScope = useRef<string | undefined>(undefined), confirmOwner = useRef(controller);
+  const scope = `${page.id}|${route.revision}`;
+  if (confirmScope.current !== scope || confirmOwner.current !== controller) {confirmScope.current = scope; confirmOwner.current = controller; confirmRef.current = undefined; confirmFlight.current = undefined;}
+  const shown = confirmOpen && confirmRef.current === confirmOpen && confirmScope.current === scope && confirmOpen.controller === controller
+    && confirmOpen.page === page.id && confirmOpen.revision === route.revision ? confirmOpen : undefined;
+  useLayoutEffect(() => () => {confirmRef.current = undefined; confirmFlight.current = undefined;}, []);
+  const openConfirm = (kind: AccountConfirm['kind']) => {
+    // A delayed row action from an old page may not reopen its modal on the successor page.
+    if (confirmScope.current !== scope || confirmOwner.current !== controller) return;
+    const next: AccountConfirm = {kind, token: ++confirmToken.current, page: page.id, revision: route.revision, controller};
+    confirmFlight.current = undefined; confirmRef.current = next; setActionBusy(false); setActionError(undefined); setConfirmOpen(next);
+  };
+  const closeConfirm = (target: AccountConfirm) => {if (confirmRef.current !== target) return; confirmRef.current = undefined; setConfirmOpen(current => current === target ? undefined : current);};
   const cancel = useRef<View>(null);
   useSyncExternalStore(devicePreferences.subscribe, () => page.sections.flatMap(section => section.rows).filter(row => row.kind === 'composite' && row.storage === 'device').map(row => devicePreferences.read((row as Extract<Row, {kind: 'composite'}>).id)).join('|'));
   useEffect(() => setAdvanced(false), [page.id]);
@@ -438,7 +457,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
             if (target === 'linkTV') ports.accountActions.linkTV();
             else if (target === 'customizeHome') ports.context.navigation.open({kind: 'home-customize'}, ports.context.authority());
             else if (target === 'quality') onQuality();
-            else setConfirmation(row.id === 'signOut' ? 'signOut' : 'resetRecommendations');
+            else openConfirm(row.id === 'signOut' ? 'signOut' : 'resetRecommendations');
           }}/>;
         }
         let value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
@@ -506,14 +525,31 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
-    <Dialog testID="settings-action-confirm" open={confirmation !== undefined} onOpenChange={open => {if (!open && !actionBusy) setConfirmation(undefined);}} initialFocusRef={cancel}
-      title={confirmation === 'signOut' ? t('settings.signOutConfirm.title', {server: ports.serverName(), device: t(device)}) : t('settings.resetRecommendations.confirmTitle')}
-      description={t(confirmation === 'signOut' ? theme.isTV ? 'settings.signOutConfirm.bodyTV' : 'settings.signOutConfirm.bodyDownloads' : 'settings.resetRecommendations.confirmBody')}
-      footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" disabled={actionBusy} onPress={() => setConfirmation(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} loading={actionBusy} onPress={() => {
-        controller.lifetime.assert(); setActionBusy(true);
-        const work = confirmation === 'signOut' ? ports.accountActions.signOut() : controller.lifetime.request(signal => resetRecommendations(ports.context.api, {serverId: controller.lifetime.authority.serverId, operationId: ports.requestId(), signal}));
-        void work.then(() => {if (controller.lifetime.current()) setConfirmation(undefined);}, error => {if (controller.lifetime.current()) setActionError(error);}).finally(() => {if (controller.lifetime.current()) setActionBusy(false);});
-      }}>{t(confirmation === 'signOut' ? 'action.signOut' : 'settings.resetRecommendations.confirm')}</Button></View>}><View/></Dialog>
+    <Dialog testID="settings-action-confirm" open={shown !== undefined} onOpenChange={open => {if (!open && !confirmFlight.current && shown) closeConfirm(shown);}} initialFocusRef={cancel}
+      title={shown?.kind === 'signOut' ? t('settings.signOutConfirm.title', {server: ports.serverName(), device: t(device)}) : t('settings.resetRecommendations.confirmTitle')}
+      description={t(shown?.kind === 'signOut' ? theme.isTV ? 'settings.signOutConfirm.bodyTV' : 'settings.signOutConfirm.bodyDownloads' : 'settings.resetRecommendations.confirmBody')}
+      footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" disabled={actionBusy} onPress={() => {if (shown) closeConfirm(shown);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} loading={actionBusy} onPress={() => {
+        const opening = shown;
+        if (!opening || confirmFlight.current || confirmRef.current !== opening) return;
+        // Re-read the route and visibility at the press, not the render that drew the dialog.
+        const nav = navigation.getSnapshot();
+        if (nav.revision !== opening.revision || !navigation.isCurrent()) return;
+        if (runtime.getSnapshot().contentVisible !== true) return;
+        if (opening.page !== page.id || opening.controller !== controller || !controller.lifetime.current()) return;
+        confirmFlight.current = opening; setActionBusy(true);
+        const work = opening.kind === 'signOut' ? ports.accountActions.signOut() : controller.lifetime.request(signal => resetRecommendations(ports.context.api, {serverId: controller.lifetime.authority.serverId, operationId: ports.requestId(), signal}));
+        void work.then(
+          // Only the opening that started this closes its own dialog; sign-out's own session
+          // retirement is intentional, so its late UI writes are skipped rather than retried.
+          () => {if (controller.lifetime.current() && confirmRef.current === opening) closeConfirm(opening);},
+          error => {if (controller.lifetime.current() && confirmFlight.current === opening) setActionError(error);}
+        ).finally(() => {
+          if (confirmFlight.current !== opening) return;
+          confirmFlight.current = undefined;
+          if (!controller.lifetime.current()) return;
+          setActionBusy(false);
+        });
+      }}>{t(shown?.kind === 'signOut' ? 'action.signOut' : 'settings.resetRecommendations.confirm')}</Button></View>}><View/></Dialog>
     {theme.isTV && <Menu testID="settings-value-sheet" open={choices !== undefined} onOpenChange={open => {if (!open) setChoices(undefined);}} presentation="sideSheet"
       title={choices?.title} description={choices?.help} initialFocusId={choices?.value}
       items={choices ? choices.options.map(option => ({id: option.value, label: option.label, selected: option.value === choices.value, onSelect: () => {const apply = choices.apply; setChoices(undefined); apply(option.value);}})) : []}/>}

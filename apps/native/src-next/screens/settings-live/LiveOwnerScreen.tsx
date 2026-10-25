@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {importSkipped, liveSourceState} from '../../../../../packages/client-core/src/server-admin/live-words';
@@ -29,19 +29,47 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
   const [tab, setTab] = useState('sources');
   const [addMenu, setAddMenu] = useState(false), [adding, setAdding] = useState(initialAction === 'add'), [discovering, setDiscovering] = useState(initialAction === 'discover'), [uploading, setUploading] = useState(false), [tuner, setTuner] = useState<string>();
   const addButton = useRef<View | null>(null);
-  const [menu, setMenu] = useState<LiveSource>(), [configure, setConfigure] = useState<LiveSource>(), [mapping, setMapping] = useState<LiveSource>(), [remove, setRemove] = useState<LiveSource>();
+  const [menu, setMenu] = useState<LiveSource>(), [configure, setConfigure] = useState<LiveSource>(), [mapping, setMapping] = useState<LiveSource>();
+  // One remove confirmation, exactly the source it was drawn for; the flight keeps that same
+  // opening so a delayed close or a second press cannot reach a successor.
+  type RemoveOpening = Readonly<{token: number; source: LiveSource; controller: NativeLiveOwnerController; revision: number}>;
+  const [removeOpening, setRemoveOpening] = useState<RemoveOpening>();
+  const removeRef = useRef<RemoveOpening | undefined>(undefined), removeFlight = useRef<RemoveOpening | undefined>(undefined), removeToken = useRef(0);
   const [removing, setRemoving] = useState(false);
-  const menuOpener = useRef<View | null>(null), rowOpeners = useRef(new Map<string, View>());
+  const menuOpener = useRef<View | null>(null), rowOpeners = useRef(new Map<string, View>()), confirmCancel = useRef<View>(null), owner = useRef(controller);
+  const navigation = ports.context.navigation, mounted = useRef(true);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; removeRef.current = undefined; removeFlight.current = undefined;};}, []);
+  if (owner.current !== controller) {owner.current = controller; removeRef.current = undefined; removeFlight.current = undefined;}
   const role = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.account.role === 'admin' ? 'administrator' as const : 'member' as const;
   useEffect(() => {void controller.ensure();}, [controller]);
   const sources = state.list?.sources ?? [];
   const refresh = (id: string) => state.list?.refresh.find(value => value.sourceId === id);
-  const removeSource = async () => {
-    if (!remove || removing) return;
-    setRemoving(true);
-    await controller.removeSource(remove.id);
-    setRemoving(false);
-    if (controller.lifetime.current()) setRemove(undefined);
+  const openRemove = (source: LiveSource) => {
+    if (removeFlight.current) return;
+    const revision = navigation.getSnapshot().revision;
+    const next: RemoveOpening = {token: ++removeToken.current, source, controller, revision}; removeRef.current = next; setRemoveOpening(next);
+  };
+  const closeRemove = (target: RemoveOpening) => {if (removeRef.current !== target) return; removeRef.current = undefined; setRemoveOpening(current => current === target ? undefined : current);};
+  const liveRevision = navigation.getSnapshot().revision;
+  if (removeRef.current && (removeRef.current.revision !== liveRevision || removeRef.current.controller !== controller)) {removeRef.current = undefined; removeFlight.current = undefined;}
+  if (removeFlight.current && (removeFlight.current.revision !== liveRevision || removeFlight.current.controller !== controller)) removeFlight.current = undefined;
+  const shownRemove = removeOpening && removeRef.current === removeOpening && removeOpening.controller === controller && removeOpening.revision === liveRevision ? removeOpening : undefined;
+  const removeSource = async (target: RemoveOpening) => {
+    if (!mounted.current || removeRef.current !== target || removeFlight.current) return;
+    // The route and visibility are re-read at the press, not taken from the drawn render.
+    const nav = navigation.getSnapshot();
+    if (nav.revision !== target.revision || !navigation.isCurrent()) return;
+    if (runtime.getSnapshot().contentVisible !== true || !target.controller.lifetime.current()) return;
+    removeFlight.current = target; setRemoving(true);
+    try {await target.controller.removeSource(target.source.id);}
+    catch (failure) {if (mounted.current && target.controller.lifetime.current() && removeFlight.current === target) runtime.reportError(failure);}
+    finally {
+      if (removeFlight.current !== target) return;
+      removeFlight.current = undefined;
+      if (!mounted.current || !target.controller.lifetime.current()) return;
+      setRemoving(false);
+      if (removeRef.current === target) closeRemove(target);
+    }
   };
   const menuItems = menu ? [
     {id: 'settings', icon: 'i-sliders' as const, label: t('web.liveTv.sourceSettings'), onSelect: () => setConfigure(menu)},
@@ -49,7 +77,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
     ...(menu.state !== 'disabled' && menu.acquisition !== 'upload' ? [{id: 'refresh', icon: 'i-refresh' as const, label: t('web.liveTv.refreshGuideNow'), onSelect: () => {void controller.refreshSource(menu.id);}}] : []),
     {id: 'toggle', icon: menu.state === 'disabled' ? 'i-play' as const : 'i-pause' as const, label: t(menu.state === 'disabled' ? 'web.liveTv.enableSource' : 'web.liveTv.pauseSource'), onSelect: () => {void controller.setEnabled(menu.id, menu.state === 'disabled');}},
     {id: 'separator', separator: true as const},
-    {id: 'remove', icon: 'i-trash' as const, label: t('web.liveTv.removeSource'), destructive: true, onSelect: () => setRemove(menu)},
+    {id: 'remove', icon: 'i-trash' as const, label: t('web.liveTv.removeSource'), destructive: true, onSelect: () => openRemove(menu)},
   ] : [];
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView contentContainerStyle={{paddingBottom: 100}} keyboardShouldPersistTaps="handled">
@@ -114,8 +142,8 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
     <DiscoverSheet controller={controller} runtime={runtime} open={discovering} onOpenChange={setDiscovering} onUse={address => {setTuner(address); setAdding(true);}}/>
     <SourceSettingsSheet controller={controller} runtime={runtime} source={configure} sources={sources} open={configure !== undefined} onOpenChange={value => {if (!value) setConfigure(undefined);}} onSaved={() => void controller.load(true)}/>
     <ChannelMapSheet controller={controller} runtime={runtime} source={mapping} open={mapping !== undefined} onOpenChange={value => {if (!value) setMapping(undefined);}}/>
-    <Dialog open={remove !== undefined} onOpenChange={value => {if (!value && !removing) setRemove(undefined);}} title={t('web.liveTv.removeTitle', {name: remove?.name ?? ''})} description={t('web.liveTv.removeBody')} testID="live-owner-remove"
-      footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} loading={removing} onPress={() => void removeSource()}>{t('web.liveTv.removeSource')}</Button><Button variant="glass" disabled={removing} onPress={() => setRemove(undefined)}>{t('action.cancel')}</Button></View>}>
+    <Dialog open={shownRemove !== undefined} onOpenChange={value => {if (!value && !removeFlight.current && shownRemove) closeRemove(shownRemove);}} title={t('web.liveTv.removeTitle', {name: shownRemove?.source.name ?? ''})} description={t('web.liveTv.removeBody')} testID="live-owner-remove" initialFocusRef={confirmCancel}
+      footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={removing} onPress={() => {if (shownRemove) closeRemove(shownRemove);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={removing} loading={removing} onPress={() => {if (shownRemove) void removeSource(shownRemove);}}>{t('web.liveTv.removeSource')}</Button></View>}>
       <View/>
     </Dialog>
   </View>;

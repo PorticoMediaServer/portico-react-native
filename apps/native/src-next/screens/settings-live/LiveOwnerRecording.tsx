@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {recordingAllowed, recordingGuideRoute, recordingOwnerKey, recordingOwnerLabel, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice, type RecordingSeries} from '../../../../../packages/client-core/src/server-admin/recording-policy';
@@ -24,10 +24,31 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const theme = useTheme(), t = runtime.text.t;
   const [tuners, setTuners] = useState<TunerView>(), [policy, setPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>();
   const [rules, setRules] = useState<readonly AdminRule[]>(), [settings, setSettings] = useState<DVRDocument>(), [storage, setStorage] = useState<RecordingStorage>();
-  const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [ruleRemove, setRuleRemove] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
+  const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
+  // One rule-removal confirmation, exactly the rule it was drawn for; the flight keeps that same
+  // opening so a delayed close or a second press cannot reach a successor.
+  type RuleRemoveOpening = Readonly<{token: number; rule: AdminRule; controller: NativeLiveOwnerController; revision: number}>;
+  const [ruleRemoveOpening, setRuleRemoveOpening] = useState<RuleRemoveOpening>();
+  const ruleRemoveRef = useRef<RuleRemoveOpening | undefined>(undefined), ruleRemoveFlight = useRef<RuleRemoveOpening | undefined>(undefined), ruleRemoveToken = useRef(0), mounted = useRef(true);
+  const ruleOwner = useRef(controller);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined;};}, []);
+  const openRuleRemove = (rule: AdminRule) => {
+    if (ruleRemoveFlight.current) return;
+    const revision = runtime.navigation?.getSnapshot().revision;
+    if (revision === undefined) return;
+    const next: RuleRemoveOpening = {token: ++ruleRemoveToken.current, rule, controller, revision};
+    // A fresh confirmation starts with no stale busy display from an orphaned write.
+    if (!ruleRemoveFlight.current) setBusy('');
+    ruleRemoveRef.current = next; setRuleRemoveOpening(next);
+  };
+  const closeRuleRemove = (target: RuleRemoveOpening) => {if (ruleRemoveRef.current !== target) return; ruleRemoveRef.current = undefined; setRuleRemoveOpening(current => current === target ? undefined : current);};
+  if (ruleOwner.current !== controller) {ruleOwner.current = controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined;}
+  const ruleRevision = runtime.navigation?.getSnapshot().revision;
+  if (ruleRemoveRef.current && (ruleRemoveRef.current.revision !== ruleRevision || ruleRemoveRef.current.controller !== controller)) {ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined;}
+  const shownRuleRemove = ruleRemoveOpening && ruleRemoveRef.current === ruleRemoveOpening && ruleRemoveOpening.controller === controller && ruleRemoveOpening.revision === ruleRevision ? ruleRemoveOpening : undefined;
   const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>>({});
   const [defaultsDraft, setDefaultsDraft] = useState<DVRDefaults>(), [storageDraft, setStorageDraft] = useState<StoragePolicy>();
-  const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null);
+  const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null), confirmCancel = useRef<View>(null);
   const reload = async () => {
     setError(undefined);
     try {
@@ -38,12 +59,13 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     } catch (failure) {if (controller.lifetime.current()) setError(failure);}
   };
   useEffect(() => {void reload();}, [controller, recordings]); // eslint-disable-line react-hooks/exhaustive-deps
-  const write = async (key: string, work: () => Promise<unknown>) => {
+  const write = async (key: string, work: () => Promise<unknown>, current: () => boolean = () => true) => {
     if (busy) return;
+    const live = () => controller.lifetime.current() && current();
     setBusy(key); setError(undefined);
-    try {await work(); await reload();}
-    catch (failure) {if (controller.lifetime.current()) setError(failure);}
-    finally {if (controller.lifetime.current()) setBusy('');}
+    try {await work(); if (live()) await reload();}
+    catch (failure) {if (live()) setError(failure);}
+    finally {if (live()) setBusy('');}
   };
   const saveAll = async () => {
     if (busy || !policy) return;
@@ -88,12 +110,26 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     <Menu open={ruleMenu !== undefined} onOpenChange={value => {if (!value) setRuleMenu(undefined);}} title={ruleMenu?.name} anchorRef={ruleMenuOpener} presentation="sheet" testID="live-owner-rule-menu" items={ruleMenu ? [
       ...(policy ? [{id: 'toggle', icon: ruleMenu.enabled ? 'i-pause' as const : 'i-play' as const, label: t(ruleMenu.enabled ? 'web.recordingRules.pauseRule' : 'web.recordingRules.resumeRule'), onSelect: () => void write(`rule:${ruleMenu.id}`, () => controller.saveRuleEnabled(ruleMenu, policy.grants, !ruleMenu.enabled))}] : []),
       {id: 'separator', separator: true as const},
-      {id: 'remove', icon: 'i-trash' as const, label: t('web.recordingRules.remove'), destructive: true, onSelect: () => setRuleRemove(ruleMenu)},
+      {id: 'remove', icon: 'i-trash' as const, label: t('web.recordingRules.remove'), destructive: true, onSelect: () => openRuleRemove(ruleMenu)},
     ] : []}/>
     {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} open={newRule} onOpenChange={setNewRule}
       onSaved={() => {setNewRule(false); void reload();}}/>}
-    <Dialog open={ruleRemove !== undefined} onOpenChange={value => {if (!value && !busy) setRuleRemove(undefined);}} title={t('web.recordingRules.removeTitle', {name: ruleRemove?.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove"
-      footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} loading={busy.startsWith('rule')} onPress={() => {const rule = ruleRemove; if (!rule) return; void write(`rule:${rule.id}`, () => controller.deleteRule(rule)).then(() => {if (controller.lifetime.current()) setRuleRemove(undefined);});}}>{t('web.recordingRules.remove')}</Button><Button variant="glass" disabled={!!busy} onPress={() => setRuleRemove(undefined)}>{t('action.cancel')}</Button></View>}>
+    <Dialog open={shownRuleRemove !== undefined} onOpenChange={value => {if (!value && !ruleRemoveFlight.current && shownRuleRemove) closeRuleRemove(shownRuleRemove);}} title={t('web.recordingRules.removeTitle', {name: shownRuleRemove?.rule.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove" initialFocusRef={confirmCancel}
+      footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={!!busy} onPress={() => {if (shownRuleRemove) closeRuleRemove(shownRuleRemove);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={!!busy} loading={busy.startsWith('rule')} onPress={() => {
+        const opening = shownRuleRemove;
+        if (!mounted.current || !opening || ruleRemoveFlight.current || ruleRemoveRef.current !== opening) return;
+        // Visibility, the route revision and the controller are re-read at the press.
+        if (runtime.navigation?.getSnapshot().revision !== opening.revision) return;
+        // Visibility and the controller are re-read at the press.
+        if (runtime.getSnapshot().contentVisible !== true || !opening.controller.lifetime.current()) return;
+        ruleRemoveFlight.current = opening;
+        void write(`rule:${opening.rule.id}`, () => opening.controller.deleteRule(opening.rule),
+          () => mounted.current && ruleRemoveFlight.current === opening && ruleRemoveRef.current === opening
+            && opening.controller === controller && runtime.navigation?.getSnapshot().revision === opening.revision).then(
+          () => {if (mounted.current && opening.controller.lifetime.current() && ruleRemoveRef.current === opening) closeRuleRemove(opening);},
+          () => {}
+        ).finally(() => {if (ruleRemoveFlight.current === opening) ruleRemoveFlight.current = undefined;});
+      }}>{t('web.recordingRules.remove')}</Button></View>}>
       <View/>
     </Dialog>
   </View>;
