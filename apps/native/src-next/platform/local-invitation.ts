@@ -71,10 +71,9 @@ export class NativeLocalInvitation<T> {
     } catch (error) {this.assertCurrent(); throw error;} finally {this.busy = false;}
   }
   failure(error: unknown): 'expired' | 'username' | 'unavailable' | undefined {
-    if (this.shortEntry && (error instanceof InvitationExpired || error instanceof ApiError && (
+    if (this.shortEntry && !this.accepted && (error instanceof InvitationExpired || error instanceof ApiError && (
       error.status === 410 && error.code === 'invitation_expired'
-      || error.status === 403 && error.code === 'invitation_for_another_account'
-      || error.status === 404 && error.code === 'not_found'))) return 'unavailable';
+      || error.status === 403 && error.code === 'invitation_for_another_account'))) return 'unavailable';
     if (error instanceof InvitationExpired || error instanceof ApiError && error.status === 410 && error.code === 'invitation_expired') return 'expired';
     if (error instanceof ApiError && error.status === 409 && error.code === 'username_taken') return 'username';
     return undefined;
