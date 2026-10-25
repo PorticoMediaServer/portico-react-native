@@ -88,12 +88,22 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     <ScrollView contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}}>
       <View style={tv ? {width: 1920, height: 1120} : {alignItems: 'center', paddingHorizontal: 20}}>
-        {tv && series ? <View style={{position: 'absolute', left: 200, top: 120, width: 380, height: 380, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-          {runtime.artwork(coverPath) ? <Artwork source={runtime.artwork(coverPath)} width={380} height={380} priority/> : null}
+        {tv && series ? <View style={{position: 'absolute', left: 200, top: 120, width: 380, height: 380}}>
+          {runtime.ambient(coverPath) ? <View pointerEvents="none" style={{position: 'absolute', left: -26, top: -26, width: 432, height: 432, borderRadius: 18, overflow: 'hidden'}}>
+            <AmbientArt source={runtime.ambient(coverPath)} treatment="cover"/>
+          </View> : null}
+          <View style={{width: 380, height: 380, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+            {runtime.artwork(coverPath) ? <Artwork source={runtime.artwork(coverPath)} width={380} height={380} priority/> : null}
+          </View>
         </View> : null}
         {tv && !series ? <View style={{position: 'absolute', left: 1280, top: 150}}><PersonCircle covers={covers} initials={[...title.trim()][0] ?? ''} alt={title} size={360} visible/></View> : null}
         {!tv ? <View style={{marginTop: 4}}>{series
-          ? <View style={{width: 232, height: 232, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>{runtime.artwork(coverPath) ? <Artwork source={runtime.artwork(coverPath)} width={232} height={232} priority/> : null}</View>
+          ? <View style={{width: 232, height: 232}}>
+            {runtime.ambient(coverPath) ? <View pointerEvents="none" style={{position: 'absolute', left: -16, top: -16, width: 264, height: 264, borderRadius: 16, overflow: 'hidden'}}>
+              <AmbientArt source={runtime.ambient(coverPath)} treatment="cover"/>
+            </View> : null}
+            <View style={{width: 232, height: 232, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>{runtime.artwork(coverPath) ? <Artwork source={runtime.artwork(coverPath)} width={232} height={232} priority/> : null}</View>
+          </View>
           : <PersonCircle covers={covers} initials={[...title.trim()][0] ?? ''} alt={title} size={164} visible/>}</View> : null}
         <View style={tv ? {position: 'absolute', left: series ? 760 : 200, top: series ? 150 : 150, width: series ? 1000 : 940} : {alignItems: 'center', marginTop: 18, width: '100%'}}>
           <Text style={[browseType(theme, tv ? 22 : 13, 700), {color: theme.colors.textSecondary, textAlign: tv ? 'left' : 'center'}]}>{t('title.kind', {kind: entry.kind})}</Text>

@@ -33,10 +33,18 @@ function ErrorState({error, retry}: {error: unknown; retry: () => void}) {
 }
 
 function Cover({runtime, path, size}: {runtime: NativeShellRuntime; path: string | undefined; size: number}) {
-  const source = runtime.artwork(path), theme = useTheme();
-  return <View style={{width: size, height: size, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised,
-    shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: 24}, shadowOpacity: .85, shadowRadius: 28}}>
-    {source ? <Artwork source={source} width={size} height={size} priority/> : null}
+  const source = runtime.artwork(path), ambient = runtime.ambient(path), theme = useTheme();
+  // collections 41a/43: the cover sits in a glow taken from its own art. The
+  // ambient variant is already blurred by the server, so no device runs a live
+  // blur (the Android TV rule).
+  return <View style={{width: size, height: size}}>
+    {ambient ? <View pointerEvents="none" style={{position: 'absolute', left: -size * .07, top: -size * .07, width: size * 1.14, height: size * 1.14, borderRadius: 16, overflow: 'hidden'}}>
+      <AmbientArt source={ambient} treatment="cover"/>
+    </View> : null}
+    <View style={{width: size, height: size, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised,
+      shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: 24}, shadowOpacity: .85, shadowRadius: 28}}>
+      {source ? <Artwork source={source} width={size} height={size} priority/> : null}
+    </View>
   </View>;
 }
 
