@@ -28,8 +28,13 @@ export async function nativeReadEligibility(client: ReadingClient, itemId: strin
 export async function openNativeRead(context: NativeReadNavigationContext, target: Readonly<{itemId: string; sourceId: string; expectedSourceRevision?: string; contentsTarget?: ReadingHostContentsTarget}>, signal?: AbortSignal, origin?: NativeReadOrigin): Promise<boolean> {
   const selected = context.session(), snapshot = context.navigation.getSnapshot();
   if (origin && (snapshot.route !== origin.route || snapshot.revision !== origin.revision)) return false;
+  // Root54: a supplied expectation is never downgraded to "no expectation", which
+  // would open whatever the source is now. An empty one is refused before any
+  // session exists; anything else is carried to the host's own revision proof.
+  const expected = target.expectedSourceRevision;
+  if (expected !== undefined && expected.length === 0) return false;
   const destination: NativeShellRoute = {kind: 'read', itemId: target.itemId, sourceId: target.sourceId,
-    ...(target.expectedSourceRevision ? {expectedSourceRevision: target.expectedSourceRevision} : {}),
+    ...(expected !== undefined ? {expectedSourceRevision: expected} : {}),
     ...(target.contentsTarget ? {contentsTarget: target.contentsTarget} : {})};
   if (target.contentsTarget && (target.contentsTarget.sourceId !== target.sourceId || !target.contentsTarget.sourceRevision
     || !Number.isInteger(target.contentsTarget.index) || target.contentsTarget.index < 0 || target.contentsTarget.index > 511)) return false;
