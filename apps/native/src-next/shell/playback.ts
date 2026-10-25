@@ -8,6 +8,7 @@ import type {QueueHeader} from '../../../../packages/client-core/src/playback-v1
 import type {QueuePlayerState} from '../../../../packages/client-core/src/queue-controller';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
+import type {NativePlaybackRuntimeSnapshot} from '../platform/playback/types';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence, type RemoteDock} from '../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from './model';
 
@@ -34,6 +35,8 @@ export type NativeShellPlaybackSnapshot = Readonly<{
    * artist, audiobook): the same items, order and durations the engine plays, read
    * here only to draw them. Absent for a local file or while no queue is ready. */
   queue?: QueuePlayerState;
+  /** The runtime's admitted retained-view fact, passed through without inference. */
+  pictureInPicture?: NativePlaybackRuntimeSnapshot['pictureInPicture'];
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
 }>;
