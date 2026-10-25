@@ -54,7 +54,11 @@ function ChapterRows({controller, entries, current, progress, runtime, tv}: {
   const theme = useTheme();
   return <View style={{marginTop: tv ? 14 : 12}}>
     {entries.map((entry, index) => {
-      const number = chapterIndex(entry) ?? index + 1, playing = current === number;
+      // The server's chapter identity is the file-local 0-based chapter_index (it is
+      // also the row id's suffix); the drawn number is the list's own 1-based
+      // position, which keeps counting across a multi-part book's files.
+      const identity = chapterIndex(entry), playing = identity !== undefined && current === identity;
+      const number = index + 1;
       // collections 41: a finished chapter keeps its row but trades its number
       // for the check and dims. The server sends `watched` only when playback
       // really passed that chapter's end; nothing here infers it.
@@ -106,7 +110,11 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
     entity.duration === undefined ? undefined : duration(entity.duration), entity.count === undefined ? undefined : t('title.chapterCount', {count: entity.count})].filter((value): value is string => !!value);
   const resume = snapshot.listening?.resume;
   const canResume = !!resume && !snapshot.listening?.resumeUnavailable;
-  const resumeLabel = canResume && current !== undefined ? t('title.resumeChapterNumber', {number: current}) : t(canResume ? 'entry.resume' : 'entry.play');
+  // The drawn label carries the book's own chapter number: this page's ordered row
+  // position, since the server's index is file-local and 0-based.
+  const currentRow = current === undefined ? -1 : rows.findIndex(entry => entry.id === `${progress?.itemId ?? ''}:${current}`);
+  const chapterNumber = current === undefined ? undefined : currentRow >= 0 ? currentRow + 1 : current + 1;
+  const resumeLabel = canResume && chapterNumber !== undefined ? t('title.resumeChapterNumber', {number: chapterNumber}) : t(canResume ? 'entry.resume' : 'entry.play');
   const onPlay = () => {void (canResume ? controller.resume() : controller.startOver()).catch(error => runtime.reportError(error));};
   const retry = () => {void controller.load();};
   // phone-player 41: Download sits beside Finished; mobile web has none, and the TV

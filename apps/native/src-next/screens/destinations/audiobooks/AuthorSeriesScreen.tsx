@@ -19,7 +19,7 @@ function BookRow({entry, runtime, tv, position, onOpen, onMore}: {
   entry: ContentEntry; runtime: NativeShellRuntime; tv: boolean; position?: string; onOpen: () => void; onMore: () => void;
 }) {
   const theme = useTheme(), art = runtime.artwork(entry.posterUrl), progress = entry.bookProgress;
-  const state = progress?.chapter ? t('next.kit.chapterOf', {number: progress.chapter.index, total: entry.count ?? 0}) : undefined;
+  const state = progress?.chapter ? t('next.kit.chapterOf', {number: progress.chapter.index + 1, total: entry.count ?? 0}) : undefined;
   const left = progress?.remainingMs === undefined ? undefined : seconds(progress.remainingMs / 1000);
   const readBy = entry.narrators?.length ? t('next.kit.readBy', {name: defaultI18n.list(entry.narrators)}) : undefined;
   const ratio = progress?.positionMs !== undefined && progress.durationMs ? progress.positionMs / progress.durationMs
@@ -72,7 +72,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   const coverPath = series ? books[0]?.posterUrl ?? entity.posterUrl : entity.posterUrl;
   const title = entity.displayTitle ?? entity.title;
   const resumeLabel = resume?.bookProgress?.chapter && series
-    ? t('title.resumeChapterNumber', {number: resume.bookProgress.chapter.index})
+    ? t('title.resumeChapterNumber', {number: resume.bookProgress.chapter.index + 1})
     : resume ? t('next.browse.resume', {title: resume.title}) : t('entry.play');
   const open = (book: ContentEntry) => openEntry(book);
   const start = () => {if (resume) void controller.resumeBook(resume).catch(error => runtime.reportError(error)); else if (books[0]) open(books[0]);};
