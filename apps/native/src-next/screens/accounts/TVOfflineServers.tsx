@@ -16,6 +16,18 @@ type Props = {rows: readonly DirectoryRow[]; scope: object | undefined; revision
   onDownloads?: () => void; username?: string; onSettings?: () => void; onJoin?: () => void; onFind?: () => void;
   busy: boolean; retryIn?: number; retryProgress?: number; activeId?: string; onRetry: (id: string) => void; onBack: () => void; onRefresh: () => void};
 type Ticket = {live: boolean; scope: object};
+/** connect37's same-day form: the cached time is drawn only when it falls on the
+ * viewer's own local day, in the profile's zone and clock; other days keep the
+ * directory's existing last-seen wording. */
+function lastSeenText(row: DirectoryRow, now: number): string | undefined {
+  if (!row.subtitle) return undefined;
+  const at = row.lastSeen?.at, parsed = at ? Date.parse(at) : NaN;
+  if (at && Number.isFinite(parsed)) {
+    const day = (value: number) => defaultI18n.formatDate(value, {year: 'numeric', month: '2-digit', day: '2-digit'});
+    if (day(parsed) === day(now)) return defaultI18n.t('web.chooser.lastSeenToday', {time: defaultI18n.time(at)});
+  }
+  return defaultI18n.t(row.subtitle.key, row.subtitle.values);
+}
 /** Actual directory observations only. The parent owns one serialized connection
  * and its existing captured-issuer retry timer; this view never starts a session. */
 export function TVOfflineServers(props: Props) {
@@ -46,7 +58,7 @@ function TVOfflineList({rows, busy, activeId, retryIn, retryProgress, current, o
   rows: readonly DirectoryRow[]; busy: boolean; activeId?: string; retryIn?: number; retryProgress?: number; current: () => boolean;
   onRetry: (id: string) => void; onRefresh: () => void; onBack: () => void;
 }) {
-  const t = defaultI18n.t, theme = useTheme(), first = rows[0];
+  const t = defaultI18n.t, theme = useTheme(), first = rows[0], now = Date.now();
   const entryRevision = useTVBusyEntryRevision(busy);
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision},
     first ? {regionId: 'accounts.offline.rows', childId: `retry:${first.id}`} : undefined);
@@ -57,21 +69,23 @@ function TVOfflineList({rows, busy, activeId, retryIn, retryProgress, current, o
       <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t('accounts.tvOffline.title')}</Text>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('accounts.tvOffline.body')}</Text>
       <FocusRegion id="accounts.offline.rows" entry={first ? `retry:${first.id}` : undefined} enabled={!busy} style={{gap: 14}}>
-        {rows.map((row, index) => <View key={row.id} style={{height: 112, paddingLeft: 26, paddingRight: 32, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 24,
+        {rows.map((row, index) => {
+          const seen = lastSeenText(row, now);
+          return <View key={row.id} style={{height: 112, paddingLeft: 26, paddingRight: 32, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 24,
           backgroundColor: 'rgba(16, 33, 45, 0.74)', borderWidth: 1.5, borderColor: 'rgba(237, 245, 250, 0.09)', opacity: row.offline ? 0.6 : 1}}>
           <View style={{width: 68, height: 68, borderRadius: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundColor: theme.colors.raisedBright}}>
             <Icon name="i-server" size={34} color={theme.colors.textTertiary}/>
           </View>
           <View style={{flex: 1, gap: 4}}>
             <Text style={[nativeType({size: 32, weight: 700, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{row.name}</Text>
-            {row.subtitle && <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t(row.subtitle.key, row.subtitle.values)}</Text>}
+            {seen && <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{seen}</Text>}
           </View>
           {row.owner && <Text style={[nativeType({size: 20, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale),
             {color: theme.colors.textSecondary, backgroundColor: 'rgba(7, 16, 24, 0.6)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8}]}>{t('accounts.settings.owner')}</Text>}
           <Button focusId={`retry:${row.id}`} size="compact" icon="i-retry" iconSize={28} hasTVPreferredFocus={index === 0} disabled={busy} loading={busy && activeId === row.id || undefined}
             style={{height: 64, paddingHorizontal: 28}} textStyle={{fontSize: 24 * theme.textScale}}
             onPress={() => {if (current() && !busy) onRetry(row.id);}}>{t('web.chooser.tryAgain')}</Button>
-        </View>)}
+        </View>;})}
       </FocusRegion>
       {retryIn !== undefined && !busy && <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 18}}>
         <CountdownRing progress={retryProgress}/>
