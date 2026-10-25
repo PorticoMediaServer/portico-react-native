@@ -72,28 +72,28 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
     {id: 'mark-season', label: t(menu.watchedCount !== undefined && menu.episodeCount !== undefined && menu.watchedCount >= menu.episodeCount ? 'title.markSeasonUnwatched' : 'title.markSeasonWatched'),
       icon: 'i-check', onSelect: () => props.onMarkSeason(menu.id, !(menu.watchedCount !== undefined && menu.episodeCount !== undefined && menu.watchedCount >= menu.episodeCount))},
   ] : [];
-  return <View style={{flexDirection: 'row', gap: 80}}>
-    <View style={{width: 320}}>
+  return <View style={{flexDirection: 'row', gap: 70}}>
+    <View style={{width: 330}}>
       <ScrollView showsVerticalScrollIndicator={false} onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) props.onMoreSeasons();}} scrollEventThrottle={64}>
         {props.seasons.map(season => {
           const active = selected(season) || (focus.kind === 'season' && focus.season.id === season.id);
           const total = season.episodeCount, watched = season.watchedCount;
           const counted = watched !== undefined && total !== undefined && total > 0;
-          return <Focusable key={season.id} testID={`tv-season-${season.id}`} focusKind="row" focusRadius={12} accessibilityRole="button"
+          return <Focusable key={season.id} testID={`tv-season-${season.id}`} focusKind="row" focusRadius={14} accessibilityRole="button"
             accessibilityState={{selected: selected(season)}} hasTVPreferredFocus={focus.kind === 'season' && focus.season.id === season.id}
             nextFocusRight={rowTag} onLayout={active ? event => setListTag(event.target) : undefined}
             onFocus={() => seasonFocus(season)} onPress={() => {props.onSelectSeason(season.id); props.onSeasonFocus();}}
             onLongPressAction={() => setMenu(season)} onLongPress={() => setMenu(season)}
-            style={{minHeight: 72, marginBottom: 22, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, justifyContent: 'center',
-              backgroundColor: active ? '#409fd424' : 'transparent', overflow: 'hidden'}}>
+            style={{minHeight: 84, marginBottom: 6, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 14, justifyContent: 'center',
+              backgroundColor: active ? '#409fd429' : 'transparent', overflow: 'hidden'}}>
             {active && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: theme.colors.accent}}/>}
-            <Text numberOfLines={1} style={[browseType(theme, 26, 700), {color: theme.colors.text}]}>{season.title || t('title.season', {number: season.number})}</Text>
-            {counted ? <View style={{marginTop: 4}}>
-              <View style={{height: 4, borderRadius: 2, backgroundColor: '#edf5fa29'}}><View style={{height: 4, width: `${Math.min(1, watched! / total!) * 100}%`, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/></View>
-              <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, marginTop: 4}]}>{t('title.seasonProgress', {watched, total})}</Text>
+            <Text numberOfLines={1} style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{season.title || t('title.season', {number: season.number})}</Text>
+            {counted ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 3}}>
+              <View style={{width: 72, height: 6, borderRadius: 6, backgroundColor: '#edf5fa29'}}><View style={{height: 6, width: `${Math.min(1, watched! / total!) * 100}%`, borderRadius: 6, backgroundColor: theme.colors.accentStrong}}/></View>
+              <Text style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary}]}>{t('title.seasonProgress', {watched, total})}</Text>
             </View>
-              : total !== undefined ? <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('count.episodes', {count: total})}</Text> : null}
+              : total !== undefined ? <Text style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary, marginTop: 3}]}>{t('count.episodes', {count: total})}</Text> : null}
           </Focusable>;
         })}
       </ScrollView>
@@ -105,14 +105,14 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
       </View>}
     </View>
     <View style={{flex: 1, minWidth: 0}}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 24, paddingRight: 24, paddingBottom: 2}}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28, paddingRight: 24, paddingBottom: 2}}
         onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
           if (contentSize.width - contentOffset.x - layoutMeasurement.width < layoutMeasurement.width) props.onMoreEpisodes();}} scrollEventThrottle={64}>
         {episodes.map(entry => {
           const model = cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title, episode: numbering(entry), durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', props.text);
           const upNext = nextUp?.id === entry.id;
           // tv-detail frames 5 to 8 draw one muted label under the title and the length as a badge on the still.
-          return <TVTile key={entry.id} entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={356}
+          return <TVTile key={entry.id} entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={384}
             length={entry.duration === undefined ? undefined : durationText(entry.duration, t)} status={upNext ? t('player.post.upNext') : undefined}
             watched={entry.watched} progress={model.progress} artwork={props.artwork(entry.stillUrl)} backdropFallback={!entry.stillUrl} more={props.more}
             primaryAction="play" onLayout={upNext ? event => setRowTag(event.target) : undefined} hasTVPreferredFocus={focus.kind === 'episode' && focus.entry.id === entry.id}
