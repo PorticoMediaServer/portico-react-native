@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {findNodeHandle, ScrollView, Text, TVEventHandler, View} from 'react-native';
 import {defaultI18n, type I18n} from '../../../../../packages/i18n/src';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
@@ -6,6 +6,7 @@ import type {PersonalResource} from '../../../../../packages/client-core/src/per
 import {Button, Focusable, Switch} from '../../kit/controls';
 import {useFocusRegistry} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
+import {alpha} from '../../kit/browse/presentation';
 import {BottomSheet, Dialog, SidePanel} from '../../kit/overlays';
 import {focusTarget} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
@@ -52,8 +53,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     if (!returning.current || choosing || !theme.isTV) return;
     returning.current = false;
     if (!state.pickedId) return;
-    const frame = requestAnimationFrame(() => {focusTarget(picked.current); scroller.current?.scrollToEnd({animated: true});});
-    return () => cancelAnimationFrame(frame);
+    focusWhenPicked(state.pickedId, () => {scroller.current?.scrollToEnd({animated: true});});
   }, [choosing, state.pickedId, theme.isTV]);
   useEffect(() => {
     if (!theme.isTV || !state.pickedId || state.pending) return;
@@ -67,6 +67,34 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     return () => listener?.remove();
   }, [controller, regionId, registry, state.pending, state.pickedId, theme.isTV]);
   const rowHeight = theme.isTV ? 70 : 58;
+  /** One focus frame at a time, leased to the controller that asked for it. The lease is
+   * cancelled synchronously when this screen is torn down or handed a different controller, so a
+   * retained component can never run an old callback against its own `picked` ref, and the frame
+   * still re-checks that the same controller reports that exact row as picked. */
+  const focusFrame = useRef<Readonly<{controller: NativeHomeCustomizeController; id: number}> | undefined>(undefined);
+  useLayoutEffect(() => () => {
+    if (focusFrame.current) cancelAnimationFrame(focusFrame.current.id);
+    focusFrame.current = undefined;
+  }, [controller]);
+  /** A pick-up lands on the row itself: the D-pad listener moves only a lifted row that holds
+   * focus, so a pick started from the row's own handle must not leave focus on the handle. A
+   * later Back, reset, removal, close or unmount leaves the frame with nothing to do. */
+  function focusWhenPicked(pickedId: string, also?: () => void) {
+    const control = controller;
+    if (focusFrame.current) cancelAnimationFrame(focusFrame.current.id);
+    const id = requestAnimationFrame(() => {
+      const held = focusFrame.current;
+      focusFrame.current = undefined;
+      if (!held || held.controller !== control || control.getSnapshot().pickedId !== pickedId) return;
+      also?.();
+      focusTarget(picked.current);
+    });
+    focusFrame.current = {controller: control, id};
+  }
+  const pickRow = (id: string) => {
+    if (!controller.pick(id)) return;
+    focusWhenPicked(id);
+  };
   const rowsById = new Map(state.rows.map(row => [row.id, row]));
   const displayed = state.pickupOrder ? state.pickupOrder.map(id => rowsById.get(id)!).filter(Boolean) : state.rows;
   const targetIndex = state.rows.findIndex(row => row.id === state.pickedId), targetId = state.pickupOrder?.[targetIndex];
@@ -80,21 +108,36 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
       return <View key={row.id} onLayout={event => {const y = event.nativeEvent.layout.y; setPositions(before => {if (before.get(row.id) === y) return before; const next = new Map(before); next.set(row.id, y); return next;});}}
         style={{height: rowHeight, zIndex: lifted ? 8 : undefined, ...(lifted ? {borderWidth: 2, borderStyle: 'dashed', borderColor: theme.colors.line} : {})}}><View style={{flexDirection: 'row', alignItems: 'center', height: rowHeight, gap: theme.isTV ? 18 : 10, position: lifted ? 'absolute' : undefined, left: lifted ? 0 : undefined, right: lifted ? 0 : undefined,
         backgroundColor: lifted ? theme.colors.raisedHigh : undefined, borderRadius: 14, transform: lifted ? [{translateY: shift}, {scale: 1.03}] : undefined}}>
+        {theme.isTV && row.reorderable && <Focusable focusId={`${row.id}:handle`} testID={`${testID}-handle-${row.id}`} accessibilityRole="button"
+          accessibilityLabel={defaultI18n.t('next.home.layoutMoveAction')} disabled={state.pending || !!state.pickedId && !lifted}
+          focusKind="button" focusRadius={10} onPress={() => pickRow(row.id)}
+          style={{width: 44, height: 50, alignItems: 'center', justifyContent: 'center'}}>
+          <Icon name="i-grip" size={26} color={lifted ? theme.colors.text : theme.colors.textTertiary}/>
+        </Focusable>}
+        {theme.isTV && row.savedView && <View style={{width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .1)}}>
+          <Icon name="i-filter" size={22} color={theme.colors.textSecondary}/>
+        </View>}
         <Focusable ref={lifted ? picked : index === 0 ? first : undefined} focusId={row.id} testID={`${testID}-row-${row.id}`}
           disabled={state.pending || !!state.pickedId && !lifted} focusKind="row" focusRadius={16}
           hasTVPreferredFocus={index === 0} accessibilityLabel={title} accessibilityState={{selected: lifted}}
-          onPress={() => controller.pick(row.id)} onAccessibilityAction={event => {
+          onPress={() => pickRow(row.id)} onAccessibilityAction={event => {
             if (event.nativeEvent.actionName === 'increment' || event.nativeEvent.actionName === 'decrement') {
               if (!lifted) controller.pick(row.id);
               controller.move(event.nativeEvent.actionName === 'increment' ? 1 : -1); controller.drop();
             }
           }} accessibilityActions={row.reorderable ? [{name: 'increment', label: defaultI18n.t('home.customize.moveDown', {title})}, {name: 'decrement', label: defaultI18n.t('home.customize.moveUp', {title})}] : []}
           style={{flex: 1, minHeight: rowHeight, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 14, paddingLeft: theme.isTV ? 12 : 8}}>
-          <View style={theme.isTV ? {width: 44, height: 50, alignItems: 'center', justifyContent: 'center'} : undefined}><Icon name="i-grip" size={theme.isTV ? 26 : 20} color={lifted ? theme.colors.text : theme.colors.textTertiary}/></View>
+          {!theme.isTV && <View><Icon name="i-grip" size={20} color={lifted ? theme.colors.text : theme.colors.textTertiary}/></View>}
           <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 26 : 16, weight: theme.isTV ? 600 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: row.hidden ? theme.colors.textTertiary : theme.colors.text}]} numberOfLines={1}>{title}</Text>
             {!!detail && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: theme.isTV ? 1 : 4}]}>{detail}</Text>}
           </View>
         </Focusable>
+        {theme.isTV && row.savedView && <Focusable focusId={`${row.id}:remove`} testID={`${testID}-remove-${row.id}`} accessibilityRole="button"
+          accessibilityLabel={defaultI18n.t('home.customize.removeRow', {title})} disabled={state.pending || !!state.pickedId}
+          focusKind="button" focusRadius={21} onPress={() => controller.removeSavedView(row.id)}
+          style={{width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center'}}>
+          <Icon name="i-close" size={22} color={theme.colors.textTertiary}/>
+        </Focusable>}
         {row.required ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 9, paddingRight: 18}}><Icon name="i-lock" size={theme.isTV ? 18 : 14} color={theme.colors.textTertiary}/><Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 400, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{copy.alwaysOn}</Text></View>
           : row.hideable && <Switch focusId={`${row.id}:visibility`} checked={!row.hidden} disabled={state.pending || !!state.pickedId}
             accessibilityLabel={defaultI18n.t('home.customize.showRow', {title})} onCheckedChange={() => controller.toggle(row.id)}/>}

@@ -85,6 +85,16 @@ export class NativeHomeCustomizeController {
   private currentSavedViews(rows: readonly NativeHomeCustomizeRow[]): boolean {
     return rows.every(row => !row.savedView || this.ports.savedViews?.isCurrent(row.savedView));
   }
+  /** Takes a saved view off Home in the draft. The layout write is still the only mutation:
+   * the server builds a saved view's row from the order it is sent, so a row left out of the
+   * order is off Home on the next read, and the view's own On Home mark follows. */
+  removeSavedView = (id: string): boolean => {
+    const row = this.state.rows.find(value => value.id === id);
+    if (!this.editable() || this.state.pickedId || !row?.savedView) return false;
+    this.pickedOrder = undefined;
+    this.publish({rows: Object.freeze(this.state.rows.filter(value => value !== row)), pickedId: undefined, pickupOrder: undefined});
+    return true;
+  };
   toggle = (id: string): boolean => {
     const row = this.state.rows.find(value => value.id === id);
     if (!this.editable() || !row || row.required || !row.hideable) return false;
