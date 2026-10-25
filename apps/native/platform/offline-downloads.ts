@@ -1066,12 +1066,17 @@ export class OfflineDownloads {
       if (!current()) return;
       if (!sent || !sent.pending) continue;
       try {
-        const decoded = decodeDownloadReceipt(sent.receipt), claims = decoded.receipt.claims;
+        const original = decodeDownloadReceipt(sent.receipt);
+        const originalClaims = original.receipt.claims;
+        if (Date.parse(originalClaims.expiresAt) <= this.receiptNow()) {await this.renewReceipts(generation, api, owner, true); if (!current() || !records[id]) return;}
+        const live = this.all.find(value => value.id === id && this.entryOwner(value) === owner && value.receipt);
+        const decoded = decodeDownloadReceipt(live?.receipt ?? original.receipt), claims = decoded.receipt.claims;
         if (offlineOwnerKey(claims.viewer) !== owner || claims.itemId !== sent.itemId || claims.artifact.sha256 !== sent.artifactSha256 || claims.artifact.bytes !== sent.artifactBytes || !Number.isSafeInteger(sent.serverRevision) || sent.serverRevision < 0) continue;
         const binding = this.publicationBinding(decoded.receipt);
         if (binding.sourceId !== sent.sourceId || binding.revision !== sent.revision || binding.documentSha256 !== sent.documentSha256) continue;
-        const key = this.stored.keys[decoded.receipt.keyId]; if (!key || !await nativeRouteCrypto.verify(base64url(key), decoded.signatureBytes, decoded.signedBytes) || !current()) continue;
-        const raw = await api.request<unknown>('/v1/reading/offline/progress', 'POST', {receipt: decoded.receipt, expectedRevision: sent.serverRevision, observedAt: sent.pending.observedAt, startedAt: sent.pending.startedAt, location: sent.pending.location});
+        const key = this.stored.keys[decoded.receipt.keyId], originalKey = this.stored.keys[original.receipt.keyId];
+        if (!key || !originalKey || !await nativeRouteCrypto.verify(base64url(key), decoded.signatureBytes, decoded.signedBytes) || !await nativeRouteCrypto.verify(base64url(originalKey), original.signatureBytes, original.signedBytes) || !current()) continue;
+        const raw = await api.request<unknown>('/v1/reading/offline/progress', 'POST', {receipt: decoded.receipt, observationReceipt: original.receipt, expectedRevision: sent.serverRevision, observedAt: sent.pending.observedAt, startedAt: sent.pending.startedAt, location: sent.pending.location});
         if (!current() || !object(raw) || (raw.outcome !== 'applied' && raw.outcome !== 'history_paused' && raw.outcome !== 'stale_observation' && raw.outcome !== 'superseded_online')) return;
         if (Object.keys(raw).some(key => key !== 'progress' && key !== 'saved' && key !== 'outcome') || !Object.prototype.hasOwnProperty.call(raw, 'progress') || typeof raw.saved !== 'boolean') return;
         const result = decodePutReadingSessionsSessionIdProgressResponse({progress: raw.progress, saved: raw.saved});
