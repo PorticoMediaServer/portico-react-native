@@ -20,7 +20,8 @@ import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSavedViewDestination} from './view-model';
 import {SavedNameSheet} from './SavedForms';
-import {savedItemCount, savedLibraryName, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
+import {savedItemCount, savedLibraryName, savedMosaicPaths, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
+import type {NativeSavedViewSummaries} from './state';
 
 const t = defaultI18n.t;
 
@@ -37,11 +38,13 @@ export type NativeSavedDirectoryProps = Readonly<{
   back: () => void;
   open: (route: SavedRoute) => void;
   changed?: () => void;
+  /** The Saved views directory's real condition summaries, when its owner is live. */
+  summaries?: NativeSavedViewSummaries;
 }>;
 
 /** collections.html 10a–10c. Each directory is the server's own bounded page;
  * the + sends the real create command and the rows open the pushed pages. */
-export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed}: NativeSavedDirectoryProps) {
+export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed, summaries}: NativeSavedDirectoryProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -53,6 +56,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
   const playlists = route.view === 'playlists' ? (saved?.projection?.sections ?? []).flatMap(section => section.entries.filter((entry): entry is PlaylistCard => entry.kind === 'playlist')) : [];
   const resources = route.view === 'playlists' ? [] : personal?.resources ?? [];
   const title = t(route.view === 'playlists' ? 'saved.tab.playlists' : route.view === 'collections' ? 'saved.tab.collections' : 'saved.tab.savedViews');
+  const summaryText = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale};
   const createEnabled = route.view === 'playlists' ? saved?.projection?.actions?.includes('create_playlist') === true : route.view === 'collections';
   const filters = route.view === 'playlists' ? saved?.projection?.filters ?? [] : [];
   const sorts = route.view === 'playlists' ? saved?.projection?.sorts ?? [] : [];
@@ -107,10 +111,15 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
           title={playlist.title} caption={[savedItemCount(playlist.count), playlist.subtitle].filter(Boolean)} mosaic={(playlist.artworkPaths ?? []).map(path => runtime.artwork(path))}
           pinned={false} onPress={() => open({view: 'playlist', playlistId: playlist.id})}/>)}</View>
           : empty('web.saved.empty.playlists', 'web.saved.empty.playlistsBody'))
-        : resources.length ? <View style={{marginTop: 6}}>{resources.map(resource => <SavedDirectoryRow key={resource.id} id={`resource-${resource.id}`} title={resource.name}
-          caption={route.view === 'collections' ? [savedTitleCount(resource.entryCount)] : [resource.definition ? savedLibraryName(libraries, resource.definition.libraryId) : undefined,
-            savedViewCount(resource.entryCount)]} note={route.view === 'collections' ? savedVisibility(resource) : undefined} summary={route.view === 'views' ? resource.summary : undefined} filterTile={route.view === 'views'} pinned={resource.pinned}
-          mosaic={(resource.artworkPaths ?? []).map(path => runtime.artwork(path))} onPress={() => open({view: 'resource', resourceId: resource.id})}/>)}</View>
+        : resources.length ? <View style={{marginTop: 6}}>{resources.map(resource => {
+          const paths = route.view === 'views' ? savedMosaicPaths(resource) : resource.artworkPaths ?? [];
+          return <SavedDirectoryRow key={resource.id} id={`resource-${resource.id}`} title={resource.name}
+            caption={route.view === 'collections' ? [savedTitleCount(resource.entryCount)] : [resource.definition ? savedLibraryName(libraries, resource.definition.libraryId) : undefined,
+              savedViewCount(resource.entryCount)]} note={route.view === 'collections' ? savedVisibility(resource)
+                : resource.onHome ? {text: t('next.saved.onHome'), icon: 'i-home', strong: true} : undefined}
+            summary={route.view === 'views' ? summaries?.line(resource, summaryText) : undefined} filterTile={route.view === 'views' && !paths.length} pinned={resource.pinned}
+            mosaic={paths.map(path => runtime.artwork(path))} onPress={() => open({view: 'resource', resourceId: resource.id})}/>;
+        })}</View>
           : empty(route.view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views', route.view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}
       {!!(route.view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
         <Button variant="glass" size="compact" onPress={() => {void destination.next(route.view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);}}>{t('action.showMore')}</Button>

@@ -101,7 +101,8 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed}: {
   const route = useMemo(() => nativeSavedRouteTarget(entry.route), [entry.route]);
   const common = {destination: entry.view.source, activation: entry.view.activation, runtime};
   const body = route.view === 'playlists' || route.view === 'collections' || route.view === 'views'
-    ? <SavedDirectoryScreen {...common} route={route as NativeSavedDirectoryRoute} actions={entry.view.actions} libraries={libraries} back={back} open={open} changed={changed}/>
+    ? <SavedDirectoryScreen {...common} route={route as NativeSavedDirectoryRoute} actions={entry.view.actions} libraries={libraries} back={back} open={open} changed={changed}
+        summaries={'summaries' in entry.view ? entry.view.summaries : undefined}/>
     : route.view === 'watchlist' || route.view === 'favorites' || route.view === 'history'
       ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed}/>
       : <SavedResourceScreen {...common} route={route} actions={entry.view.actions} libraries={libraries} back={back} changed={changed}/>;
