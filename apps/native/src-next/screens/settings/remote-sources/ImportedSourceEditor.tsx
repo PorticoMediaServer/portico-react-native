@@ -21,7 +21,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const [s3, setS3] = useState<S3SourceFields>({endpoint: '', region: '', accessKey: '', secretKey: '', bucket: '', folder: ''});
   const [drive, setDrive] = useState<DriveKeyFields>({keyJson: '', location: 'folder', locationId: ''});
   const [clientId, setClientId] = useState(''), [clientSecret, setClientSecret] = useState(''), [redirect, setRedirect] = useState('');
-  const [oauthVersion, setOAuthVersion] = useState(0);
+  const [, setOAuthVersion] = useState(0);
   const oauth = useRef<{ticket: FormTicket; clientId: string; clientSecret: string; state?: string; token: string; phase: string} | undefined>(undefined);
   const retireOAuth = useCallback(() => {const old = oauth.current; oauth.current = undefined; if (old?.state) void controller.cancelDriveOAuth(old.state);}, [controller]);
   const scope = useMemo(() => ({controller, sourceId: source?.id, generation: source?.generation, form, isCurrent}), [controller, source?.id, source?.generation, form, isCurrent]);
@@ -49,8 +49,9 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const renderedForm = committedForm?.scope === scope ? committedForm : undefined;
   const admitted = () => current() && (form !== 'driveOAuth' || !!renderedForm && renderedForm.live && activeForm.current === renderedForm);
   const latestRedirect = useRef(redirect); latestRedirect.current = redirect;
-  const oauthResult = useMemo(() => form === 'driveOAuth' && oauth.current?.token ? driveOAuthDraft({...drive,
-    clientId: oauth.current.clientId, clientSecret: oauth.current.clientSecret, token: oauth.current.token}) : undefined, [form, drive, oauthVersion]);
+  const oauthInput = oauth.current, oauthToken = oauthInput?.token;
+  const oauthResult = useMemo(() => form === 'driveOAuth' && oauthInput && oauthToken ? driveOAuthDraft({...drive,
+    clientId: oauthInput.clientId, clientSecret: oauthInput.clientSecret, token: oauthToken}) : undefined, [form, drive, oauthInput, oauthToken]);
   const driveResult = useMemo(() => form === 'drive' ? driveServiceAccountDraft(drive) : undefined, [form, drive]);
   const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : oauthResult?.ok ? oauthResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, oauthResult]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [tested, setTested] = useState<RcloneTestResult>();
