@@ -23,7 +23,7 @@ export function MusicSignalLine({view, onPress, focusRef}: {view: MusicSignalVie
   const theme = useTheme(), tv = theme.isTV, path = view.path;
   const colour = path.healthy ? theme.colors.healthy : theme.colors.textTertiary;
   const body = (focused = false) => <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 10 : 7, minWidth: 0}}>
-    <Icon name="i-pulse" size={tv ? 26 : 15} color={colour}/>
+    <Icon name={tv ? 'i-wave' : 'i-pulse'} size={tv ? 26 : 15} color={colour}/>
     {path.source ? <Text numberOfLines={1} ellipsizeMode="clip" style={[nativeType({size: tv ? 22 : 12, weight: tv ? 800 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: tv ? theme.colors.textSecondary : theme.colors.text, flexShrink: 0}]}>{path.source}</Text> : null}
     {tv && path.source && path.state ? <View style={{width: 2}}/> : null}
     {path.state ? <Text numberOfLines={1} ellipsizeMode="tail" style={[nativeType({size: tv ? 22 : 12, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: tv ? focused ? theme.colors.text : theme.colors.textTertiary : theme.colors.textSecondary, flexShrink: 1}]}>{path.state}</Text> : null}
