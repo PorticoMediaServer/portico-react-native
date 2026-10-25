@@ -141,6 +141,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
         {layout.rail && <MediumRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
+          serverAction={snapshot.account.serverAction && {id: snapshot.account.serverAction.id, label: snapshot.account.serverAction.label, onPress: snapshot.account.serverAction.onPress}}
           profileRef={avatarRef} short={dimensions.height - insets.top - insets.bottom < 800}
           onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
           onProfile={() => setAccountOpen(true)}/>}

@@ -16,8 +16,10 @@ type RailEntry = Readonly<{key: string; label: string; icon: IconName; destinati
 
 /** foldable1/tablet: the 84 pt medium rail replaces the phone tab bar. Search,
  * Home, Live TV, Saved, Settings and Profile stay put; only the libraries scroll. */
-export function MediumRail({libraries, hasLiveTV, destination, profile, unread, onNavigate, onProfile, profileRef, short}: {
+export function MediumRail({libraries, hasLiveTV, destination, profile, unread, serverAction, onNavigate, onProfile, profileRef, short}: {
   libraries: readonly Library[]; hasLiveTV: boolean; destination: ShellDestination; profile: ProfileOption; unread: boolean;
+  /** Owner/administrator-only Server activity, icon-only as tablet 2/3 draw it. */
+  serverAction?: Readonly<{id: string; label: string; onPress: () => void}>;
   onNavigate: (destination: ShellDestination) => void; onProfile: () => void; profileRef: React.RefObject<View | null>; short: boolean;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), padding = mediumRailPadding(insets.top, insets.bottom);
@@ -43,6 +45,7 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
       <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: 10.5, lineHeight: 13.5, color: selected ? theme.colors.text : theme.colors.textTertiary, maxWidth: mediumRailMetrics.itemWidth, textAlign: 'center'}]}>{entry.label}</Text>
     </Focusable>;
   };
+  const hairline = <View accessible={false} style={{width: 40, height: 1, backgroundColor: theme.colors.line, marginVertical: 6}}/>;
   return <View testID="medium-rail" accessibilityLabel={defaultI18n.t('next.home.native.mainNavigation')}
     style={{position: 'absolute', left: 0, top: 0, bottom: 0, width: mediumRailMetrics.width, zIndex: theme.layers.navigation, overflow: 'hidden',
       borderRightWidth: 1, borderRightColor: theme.colors.line}}>
@@ -61,7 +64,13 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
             <Rect width="100%" height="100%" fill="url(#medium-rail-fade)"/></Svg>
         </View>}
       </View>
+      {hairline}
       {below.map(item)}
+      {hairline}
+      {serverAction && <Focusable testID="medium-rail-server" accessibilityRole="button" accessibilityLabel={serverAction.label} onPress={serverAction.onPress} focusRadius={mediumRailMetrics.itemRadius}
+        style={{width: mediumRailMetrics.itemWidth, minHeight: 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius, alignItems: 'center', justifyContent: 'center'}}>
+        <Icon name="i-activity" size={mediumRailMetrics.iconSize} color={theme.colors.textTertiary}/>
+      </Focusable>}
       <View style={{marginTop: 'auto', alignItems: 'center'}}>
         {item({key: 'settings', icon: 'i-settings', label: defaultI18n.t('settings.title'), destination: {kind: 'settings'}})}
         <Focusable testID="medium-rail-profile" accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={mediumRailMetrics.itemRadius}
