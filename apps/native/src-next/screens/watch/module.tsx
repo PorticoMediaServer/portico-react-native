@@ -10,6 +10,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import {createNativeWatchScreens, type NativeWatchFactoryPorts} from './factory';
 import type {MusicPlaylistPickerHandle} from '../destinations/music/MusicPlaylistPicker';
+import {NativePlaybackInfoPanel} from './PlaybackInfoPanel';
 import {NativeWatchPanels, type NativeWatchPanelsProps} from './WatchPanels';
 import {NativeWatchPanelOptions} from './panel-options';
 import type {NativeWatchHostBindings} from './WatchHost';
@@ -80,7 +81,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       ...(bindings.onFullWindow ? {onFullWindow: bindings.onFullWindow} : {}),
     }),
     panel: host => <NativeWatchPanels context={host} options={options} playback={context.playback} names={bindings.names ?? createNativeWatchPanelNames(host.runtime.text)} copy={copy}
-      reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo} episodes={bindings.episodes}/>,
+      reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo ?? (value => <NativePlaybackInfoPanel context={value} read={screens.readPlaybackInfo} renderError={bindings.title.renderError}/>)} episodes={bindings.episodes}/>,
     content: host => screens.watch.body(host),
     presentation: bindings.presentation,
   };
