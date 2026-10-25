@@ -56,7 +56,10 @@ export function ServerIdentityFailure({failure, onRetry, onChoose, onForget, onE
     <Dialog open={confirm} onOpenChange={open => {if (!busy) setConfirm(open);}} showClose={false} title={t('connection.identity.forgetTitle', {server: name})}
       description={t('connection.identity.forgetBody')} initialFocusRef={cancel} returnFocusRef={opener} testID="identity-forget"
       width={tv ? 1000 : undefined}
-      style={tv ? {borderRadius: 30, paddingTop: 56, paddingHorizontal: 60, paddingBottom: 52, borderWidth: 1.5, borderColor: `${theme.colors.text}1F`} : undefined}
+      faceColor={tv ? '#10212d' : undefined} scrimColor={tv ? 'rgba(3, 8, 12, 0.66)' : undefined} footerMarginTop={tv ? 34 : undefined}
+      style={tv ? {borderRadius: 30, paddingTop: 56, paddingHorizontal: 60, paddingBottom: 52, borderWidth: 1.5, borderColor: `${theme.colors.text}1F`,
+        // Frame 4's .tdlg shadow 0 80px 160px -40px #000; RN boxShadow carries the negative spread.
+        boxShadow: [{offsetX: 0, offsetY: 80, blurRadius: 160, spreadDistance: -40, color: '#000'}]} : undefined}
       titleType={tv ? {size: 48, weight: 800, tracking: -.035, lineHeight: 'normal'} : undefined}
       descriptionTextStyle={tv ? {fontSize: 28 * theme.textScale, lineHeight: 40.6 * theme.textScale, marginTop: 16} : undefined}
       footer={<View style={{flexDirection: tv ? 'row' : 'column', gap: tv ? 18 : 10}}>
