@@ -39,7 +39,7 @@ import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
-export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move';
+export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move';
 type MemberMove = Awaited<ReturnType<NativeServerSignIn['createMemberMove']>>;
 type MemberMoveSnapshot = ReturnType<MemberMove['getSnapshot']>;
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
@@ -59,6 +59,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [resetLocation, setResetLocation] = useState<ResetFileLocation>();
   const ownerResetOpening = useRef<{source: NativeServerSignIn; controller: AbortController} | undefined>(undefined);
   const retireOwnerReset = () => {const ticket = ownerResetOpening.current; ownerResetOpening.current = undefined; ticket?.controller.abort(); ticket?.source.dispose();};
+  const [setupMode, setSetupMode] = useState<'hosted' | 'local'>('hosted');
   const [setupAddress, setSetupAddress] = useState('');
   const [setupApprovalURL, setSetupApprovalURL] = useState<string>();
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
@@ -320,9 +321,8 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     if (!value) throw Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
     setServer(value);
     if (value.setupRequired && !Platform.isTV) {
-      const checked = await next.prepareSetup();
-      if (lifetime.current && operation.current === next) {setServer(checked); setSetupAddress(next.serverOrigin()); setName(checked.name); setUsername(''); setPassword(''); setSetupPasswordConfirm(''); setStage('setup-choice');}
-      return;
+      setSetupAddress(routeOrigin(origin)); setSetupMode(value.hostedConfigured ? 'hosted' : 'local');
+      setName(value.name); setUsername(''); setPassword(''); setSetupPasswordConfirm(''); setStage('setup-confirm'); return;
     }
     if (value.setupRequired) throw Object.assign(new Error('native_setup_phone_required'), {code: 'access_refused'});
     if (value.signIn === 'portico') {setStage('uses-portico'); return;}
@@ -435,32 +435,53 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;
-  if (stage === 'setup-choice') return layout(t('accounts.setup.title'), t('accounts.setup.at', {address: new URL(setupAddress).host}),
-    fields(field(t('web.general.serverName'), name, setName), <Text key="sign-in-choice" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.howSignIn')}</Text>),
-    server?.hostedConfigured ? action('setup-portico', t('accounts.signIn.continuePortico'), async () => {
-      const url = await operation.current!.prepareHostedSetup(name);
-      if (!lifetime.current) return;
-      setSetupApprovalURL(url);
-      const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
-      if (!lifetime.current) return;
-      if (url && credentials.getSnapshot().session) {
-        retireSetupReview();
-        const source = operation.current!, ticket = {source, controller: new AbortController(), review: undefined as SetupReview | undefined};
-        setupReviewTicket.current = ticket;
-        const current = () => lifetime.current && setupReviewTicket.current === ticket && operation.current === source && !ticket.controller.signal.aborted;
-        const review = await source.reviewHostedSetup(url, {signal: ticket.controller.signal, current,
-          canApprove: () => current() && stageRef.current === 'setup-review' && ticket.review === setupReviewTicket.current?.review});
-        if (!current()) {review.approval.dispose(); return;}
-        ticket.review = review;
-        if (review.display.approved) {retireSetupReview(); setStage('setup-hosted');}
-        else {setSetupReview(review); setStage('setup-review');}
-      } else {setStage('setup-hosted'); if (url) await Linking.openURL(url);}
-    }, !name.trim()) : action('setup-local', t('web.setup.localSignIn'), async () => {setStage('setup-local');}, !name.trim()),
-    <View style={{alignSelf: 'stretch', gap: 14}}>
-      {server?.hostedConfigured && <><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.setup.porticoBody')}</Text>
-        <Button variant="glass" disabled={busy || !name.trim()} onPress={() => setStage('setup-local')}>{t('web.setup.localSignIn')}</Button></>}
-      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.localSignInBody')}</Text>
-    </View>);
+  if (stage === 'setup-confirm') {
+    const source = operation.current;
+    const current = () => !!source && operation.current === source && lifetime.current && stageRef.current === 'setup-confirm';
+    return layout(t('accounts.setup.confirmTitle'), t('accounts.setup.confirmBody'),
+      <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{server!.name}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(setupAddress).host}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('accounts.setup.confirmWarning')}</Text>
+      </View>, action('confirm-setup', t('accounts.setup.confirmAction'), async () => {
+        if (!current() || !source) return;
+        const checked = await source.prepareSetup();
+        if (current()) {setServer(checked); setSetupAddress(source.serverOrigin()); setName(checked.name); setStage('setup-choice');}
+      }));
+  }
+  if (stage === 'setup-choice') {
+    const source = operation.current;
+    const current = () => !!source && operation.current === source && lifetime.current && stageRef.current === 'setup-choice';
+    return layout(t('accounts.setup.title'), t('accounts.setup.at', {address: new URL(setupAddress).host}),
+      fields(field(t('web.general.serverName'), name, setName), <Text key="name-help" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.serverNameHelp')}</Text>,
+        <Text key="sign-in-choice" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.howSignIn')}</Text>,
+        <View key="modes" style={{gap: 12}}>{(['hosted', 'local'] as const).filter(mode => mode === 'local' || server?.hostedConfigured).map(mode =>
+          <Focusable key={mode} accessibilityRole="radio" accessibilityState={{checked: setupMode === mode}} disabled={busy}
+            onPress={() => {if (current()) setSetupMode(mode);}} style={{padding: 14, borderWidth: 1, borderRadius: 14, borderColor: setupMode === mode ? theme.colors.accentStrong : theme.colors.line}}>
+            <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t(mode === 'hosted' ? 'accounts.settings.portico' : 'web.setup.localSignIn')}{mode === 'hosted' ? ' · ' + t('web.setup.recommended') : ''}</Text>
+            <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(mode === 'hosted' ? 'web.setup.porticoBody' : 'web.setup.localSignInBody')}</Text>
+          </Focusable>)}</View>),
+      action('setup-continue', t('action.continue'), async () => {
+        if (!current() || !source) return;
+        if (setupMode === 'local') {setStage('setup-local'); return;}
+        const url = await source.prepareHostedSetup(name); if (!current()) return;
+        setSetupApprovalURL(url);
+        const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize(); if (!current()) return;
+        if (url && credentials.getSnapshot().session) {
+          retireSetupReview();
+          const ticket = {source, controller: new AbortController(), review: undefined as SetupReview | undefined}; setupReviewTicket.current = ticket;
+          const live = () => lifetime.current && setupReviewTicket.current === ticket && operation.current === source && !ticket.controller.signal.aborted;
+          const review = await source.reviewHostedSetup(url, {signal: ticket.controller.signal, current: live,
+            canApprove: () => live() && stageRef.current === 'setup-review' && ticket.review === setupReviewTicket.current?.review});
+          if (!live()) {review.approval.dispose(); return;}
+          ticket.review = review;
+          if (review.display.approved) {retireSetupReview(); setStage('setup-hosted');} else {setSetupReview(review); setStage('setup-review');}
+        } else {setStage('setup-hosted'); if (url) await Linking.openURL(url);}
+      }, !name.trim()), <View style={{gap: 10}}>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(setupMode === 'hosted' ? 'accounts.setup.nextHosted' : 'accounts.setup.nextLocal')}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('accounts.setup.changeLater')}</Text>
+      </View>);
+  }
   if (stage === 'setup-review' && setupReview) {
     const ticket = setupReviewTicket.current;
     const current = () => !!ticket && setupReviewTicket.current === ticket && ticket.review === setupReview
@@ -479,15 +500,17 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       if (result) consume(result);
     }), setupApprovalURL && <Button variant="glass" disabled={busy} onPress={() => {void run(async () => {await Linking.openURL(setupApprovalURL);});}}>{t('accounts.signIn.continuePortico')}</Button>);
   if (stage === 'setup-local') return layout(t('web.setup.ownerTitle'), t('web.setup.localSignInBody'),
-    fields(field(t('web.general.serverName'), name, setName), field(t('auth.username'), username, setUsername, false, 'username'),
-      field(t('auth.password'), password, setPassword, true, 'password'), field(t('accounts.signIn.confirmPassword'), setupPasswordConfirm, setSetupPasswordConfirm, true)),
+    fields(field(t('auth.username'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password'),
+      <Text key="strength" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{password ? t(passwordStrength(password).level >= 3 ? 'accounts.password.good' : 'accounts.password.weak') : ''}</Text>,
+      field(t('accounts.signIn.confirmPassword'), setupPasswordConfirm, setSetupPasswordConfirm, true),
+      <Text key="recovery" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('accounts.setup.localRecovery')}</Text>),
     action('create-owner', t('web.setup.createOwner'), async () => {
       const result = await operation.current!.setupLocal(name, username, password);
       setPassword(''); setSetupPasswordConfirm(''); consume(result);
     }, !name.trim() || !/^[A-Za-z0-9_.-]{3,64}$/.test(username.trim()) || !passwordStrength(password).acceptable || password !== setupPasswordConfirm));
   if (stage === 'address') return layout(t('accounts.signIn.local'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), () => inspect(), !address.trim()), nearby.length > 0 &&
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
-      {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}</Button>
+      {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}{value.server.setupRequired ? ' · ' + t('accounts.setup.confirmAction') : ''}</Button>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}</View>);
   if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {
     const ticket = ownerResetOpening.current, source = ticket?.source, renderedStage = stage;
