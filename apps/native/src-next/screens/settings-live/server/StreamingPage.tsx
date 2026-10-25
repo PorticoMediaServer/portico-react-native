@@ -1,8 +1,11 @@
-import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {routePath} from '../../../../../../packages/contracts/src/routes';
 import {parseSettingsConfiguration, type SettingsConfiguration} from '../../../../../../packages/client-core/src/settings-configuration';
 import {nativeRouteCrypto} from '../../../platform/server-connections';
+import type {TranscodeCapacity} from '../../../../../../packages/client-core/src/telemetry';
+import {defaultI18n} from '../../../../../../packages/i18n/src';
+import {SettingsRow} from '../../../kit/shell';
 import {ConsoleClient} from '../../../../../../packages/client-core/src/console';
 import {FormSet} from '../../../../../../packages/client-core/src/server-admin/draft-form';
 import {createServerForm, withFormValue} from '../../../../../../packages/client-core/src/server-admin/server-forms';
@@ -28,6 +31,15 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
     const set = new FormSet(); set.add('runtime', forms.runtime); set.add('connectivity', forms.connectivity);
     return {lifetime, api, console, forms, set};
   }, [context]);
+  const capacityAlive = useRef(true), capacityPending = useRef(false);
+  const [capacity, setCapacity] = useState<TranscodeCapacity>(), [capacityError, setCapacityError] = useState<unknown>();
+  const loadCapacity = useCallback(() => {
+    if (capacityPending.current || !owned.lifetime.current()) return;
+    capacityPending.current = true;
+    void owned.console.transcodeCapacity().then(value => {if (capacityAlive.current && owned.lifetime.current()) {setCapacity(value); setCapacityError(undefined);}}, error => {if (capacityAlive.current && owned.lifetime.current()) setCapacityError(error);}).finally(() => {capacityPending.current = false;});
+  }, [owned]);
+  // Capacity can probe FFmpeg on a cache miss: one page read, never a polling loop or a test result.
+  useEffect(() => {capacityAlive.current = true; loadCapacity(); return () => {capacityAlive.current = false;};}, [loadCapacity]);
   const [configuration, setConfiguration] = useState<SettingsConfiguration>(), [configurationError, setConfigurationError] = useState<unknown>();
   useEffect(() => {const read = new AbortController(); void owned.api.request(routePath('get_settings_configuration'), 'GET', undefined, read.signal).then(parseSettingsConfiguration).then(value => {if (!read.signal.aborted) setConfiguration(value);}, error => {if (!read.signal.aborted) setConfigurationError(error);}); return () => read.abort();}, [owned]);
   useEffect(() => {for (const form of Object.values(owned.forms)) void form.load(); return () => {for (const form of Object.values(owned.forms)) form.dispose(); owned.console.dispose(); owned.set.discard(); owned.lifetime.dispose();};}, [owned]);
@@ -61,6 +73,15 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
     {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void owned.set.save();})}/>}
     {state.problem && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{t(state.problem as Parameters<typeof t>[0])}</Text>}
     {section?.groups?.slice(0, 4).map((group, index) => {const rows = group.rows.map(renderRow).filter(Boolean); return rows.length ? <View key={index} style={{gap: 10}}>{group.title && <Text style={[theme.type.rowHeading, {color: theme.colors.textSecondary}]}>{t(group.title)}</Text>}<View style={{backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14, gap: 16}}>{rows}</View></View> : null;})}
+    {capacityError !== undefined && <StateView variant="inline" {...runtime.error(capacityError, loadCapacity)}/>}
+    {capacity && <>
+      <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}><SettingsRow first label={t('next.settingsSpec.server.streaming.groups.2.rows.2.label')} value={capacity.temporaryDirectory.path} description={!capacity.temporaryDirectory.ready ? t('error.unavailable') : capacity.temporaryDirectory.freeBytes === null ? undefined : t('settings.server.health.free', {bytes: defaultI18n.bytes(capacity.temporaryDirectory.freeBytes)})}/></View>
+      <View style={{gap: 10}}><Text style={[theme.type.rowHeading, {color: theme.colors.textSecondary}]}>{t('next.settingsSpec.server.streaming.groups.3.title')}</Text><View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>
+        <SettingsRow first label={t('settings.server.hardware')} value={capacity.hardware.effective}/>
+        {!!capacity.hardware.device && <SettingsRow label={t('settings.server.hardwareDevice')} value={capacity.hardware.device}/>}
+        {!!capacity.hdrToneMapping.detail && <SettingsRow label={t('next.settingsSpec.server.streaming.groups.3.rows.4.label')} value={capacity.hdrToneMapping.detail}/>}
+      </View></View>
+    </>}
   </ScrollView><View style={{flexDirection: 'row', justifyContent: 'flex-end', padding: 16, gap: 12}}><Button variant="glass" disabled={!state.dirty || state.saving} onPress={() => {owned.set.discard(); setInvalid(new Set());}}>{t('action.discard')}</Button><Button disabled={!state.dirty || state.saving || invalid.size > 0 || !!state.problem} loading={state.saving} onPress={() => {void owned.set.save();}}>{t('action.save')}</Button></View></View>;
 }
 
