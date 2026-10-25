@@ -27,6 +27,6 @@ export function PhoneHomeHeader({profile, unread, avatarRef, onProfile, viewerRo
         style={{width: 40, height: 40, borderRadius: 20}}>
         {({hovered}) => <View style={{width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: hovered ? `${theme.colors.text}1A` : 'transparent'}}><Icon name="i-activity" size={22} color={hovered ? theme.colors.text : theme.colors.textSecondary}/></View>}
       </Focusable>}
-      <ProfileAvatar ref={avatarRef} profile={profile} size={30} unread={unread} accessibilityLabel={defaultI18n.t('profiles.title')} onPress={onProfile}/></View>
+      <ProfileAvatar ref={avatarRef} profile={profile} size={30} unread={unread} accessibilityLabel={defaultI18n.t('next.shell.settings')} onPress={onProfile}/></View>
   </View>;
 }
