@@ -90,12 +90,17 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const versions = await client.versions(target.itemId, life.signal);
       if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
       session = await client.open(target, life.signal);
-      livePort.current = session;
-      // A downloaded publication's queued edits live in that exact download's private
-      // lease state; an ordinary session uses the protected record store. Bind before the
-      // bridge can accept an edit, and only for this captured profile.
-      journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
-      if (current()) void annotations.flush(livePort.current);
+      // Containment (the complete 8ce sites): the false gate must withhold the live port, the
+      // bind and the initial flush at reader open too — not only the passive effects.
+      livePort.current = NATIVE_OFFLINE_ANNOTATION_AUTHORING && session.manifest.canAnnotate === true
+        && typeof session.annotations === 'function' && typeof session.mutateAnnotation === 'function' ? session : undefined;
+      if (NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
+        // A downloaded publication's queued edits live in that exact download's private
+        // lease state; an ordinary session uses the protected record store. Bind before the
+        // bridge can accept an edit, and only for this captured profile.
+        journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
+        if (current()) void annotations.flush(livePort.current);
+      }
       const initialProgress = await session.progress(life.signal);
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
@@ -108,6 +113,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         onQueued: () => {
           // A transport failure kept the original edit; the guest sees the real error. Retry later, never in a loop.
           if (quietRetry.current) return;
+          if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
           quietRetry.current = setTimeout(() => {quietRetry.current = undefined; if (current()) void annotations.flush(livePort.current);}, 15_000);
         }}) : session;
       host.current = createReadingHost({...highlightsSave, session: bridge, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
