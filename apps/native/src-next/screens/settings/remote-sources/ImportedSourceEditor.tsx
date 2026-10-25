@@ -148,9 +148,9 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
       onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setName(value);}}/>
     {form === 's3' ? <>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.s3Checks')}</Text>
-      {(['endpoint', 'region', 'accessKey', 'secretKey', 'bucket', 'folder'] as const).map(key => <TextField key={key}
-        label={t(({endpoint: 'next.remoteSources.s3Endpoint', region: 'next.remoteSources.s3Region', accessKey: 'next.remoteSources.s3AccessKey',
-          secretKey: 'next.remoteSources.s3SecretKey', bucket: 'next.remoteSources.s3Bucket', folder: 'next.remoteSources.s3Folder'} as const)[key])}
+      {(['endpoint', 'bucket', 'region', 'accessKey', 'secretKey', 'folder'] as const).map(key => <TextField key={key}
+        label={`${t(({endpoint: 'next.remoteSources.s3Endpoint', region: 'next.remoteSources.s3Region', accessKey: 'next.remoteSources.s3AccessKey',
+          secretKey: 'next.remoteSources.s3SecretKey', bucket: 'next.remoteSources.s3Bucket', folder: 'next.remoteSources.s3Folder'} as const)[key])}${key === 'region' || key === 'folder' ? ` · ${t('field.optional')}` : ''}`}
         description={key === 'endpoint' ? t('next.remoteSources.s3EndpointHelp') : key === 'region' ? t('next.remoteSources.s3RegionHelp')
           : key === 'bucket' ? t('next.remoteSources.s3BucketHelp') : key === 'folder' ? t('next.remoteSources.s3FolderHelp') : undefined}
         value={s3[key]} editable={editable} autoCapitalize="none" autoCorrect={false} secureTextEntry={key === 'secretKey'} textContentType="none"
