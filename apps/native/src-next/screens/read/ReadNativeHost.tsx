@@ -9,7 +9,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
-import {readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
+import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
 
 type Target = Readonly<{itemId: string; sourceId: string}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
@@ -17,6 +17,17 @@ type Target = Readonly<{itemId: string; sourceId: string}>;
 export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings}: {
   context: NativeShellBootstrapContext; target: Target; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>; onBack: () => void; onOpenSettings: () => void;
 }) {
+  const observedBridge = useRef(new Set<string>());
+  const observeBridge = (direction: 'guest-to-host' | 'host-to-guest', message: string) => {
+    if (!__DEV__) return;
+    const diagnostic = readerBridgeDiagnostic(message);
+    if (!diagnostic) return;
+    const key = `${direction}:${diagnostic.kind}:${diagnostic.method ?? ''}:${diagnostic.failed}`;
+    if (observedBridge.current.has(key)) return;
+    observedBridge.current.add(key);
+    console.warn('portico_reader_bridge', JSON.stringify({direction, ...diagnostic,
+      host: Boolean(host.current), view: Boolean(view.current), active: callbacks.current.active}));
+  };
   const closeRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const theme = useTheme(), view = useRef<WebView>(null), host = useRef<ReturnType<typeof createReadingHost>>(undefined);
   const callbacks = useRef({onBack, onOpenSettings, active}); callbacks.current = {onBack, onOpenSettings, active};
@@ -42,6 +53,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       return disposal;
     };
     closeRef.current = dispose;
+    observedBridge.current.clear();
     setState({});
     void (async () => {
       const versions = await client.versions(target.itemId, life.signal);
@@ -54,7 +66,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot,
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
-        initialProgress, current, send: message => {view.current?.injectJavaScript(readerDelivery(message));},
+        initialProgress, current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
       // The guest may handshake before the post-render activity effect runs.
       host.current.setActive(callbacks.current.active);
@@ -74,6 +86,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         onMessage={event => {if (readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) {
           if (__DEV__) {const diagnostic = readerStartupDiagnostic(event.nativeEvent.url, event.nativeEvent.data);
             if (diagnostic) {console.warn('portico_reader_startup', JSON.stringify(diagnostic)); return;}}
+          observeBridge('guest-to-host', event.nativeEvent.data);
           host.current?.receive(event.nativeEvent.data);
         }}}
         renderError={() => <></>} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}

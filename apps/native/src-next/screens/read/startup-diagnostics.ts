@@ -33,3 +33,17 @@ export function readerStartupDiagnostic(url: string, message: string): Readonly<
   if (!Number.isInteger(data.children) || Number(data.children) < 0 || Number(data.children) > 100 || !Number.isInteger(data.scripts) || Number(data.scripts) < 0 || Number(data.scripts) > 100) return;
   return {phase: String(data.phase), entry: data.entry, bridge: data.bridge, root: data.root, children: Number(data.children), scripts: Number(data.scripts)};
 }
+
+/** DEV bridge observations reconstruct only protocol vocabulary, never packet data. */
+export function readerBridgeDiagnostic(message: string): Readonly<{kind: string; method?: string; failed: boolean}> | undefined {
+  if (typeof message !== 'string' || message.length > 2 * 1024 * 1024) return;
+  let value: unknown;
+  try {value = JSON.parse(message);} catch {return;}
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const data = value as Record<string, unknown>;
+  if (data.v !== 1 || typeof data.kind !== 'string' || !['ready', 'initial', 'request', 'reply', 'active', 'preferences', 'retired', 'cancel', 'sequential-cancel'].includes(data.kind)) return;
+  const method = data.kind === 'request' && typeof data.method === 'string'
+    && ['head', 'range', 'asset', 'page', 'sequential-open', 'sequential-read', 'chunk', 'release', 'progress', 'save', 'back', 'settings'].includes(data.method)
+    ? data.method : undefined;
+  return {kind: data.kind, ...(method ? {method} : {}), failed: Object.prototype.hasOwnProperty.call(data, 'error')};
+}
