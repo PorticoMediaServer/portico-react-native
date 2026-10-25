@@ -147,16 +147,21 @@ RCT_EXPORT_MODULE()
 - (instancetype)init {if((self=[super init]))atomic_init(&_closed,false);return self;}
 - (dispatch_queue_t)methodQueue{return dispatch_get_main_queue();}
 - (void)finish:(PorticoDocumentPickRequest *)request result:(NSDictionary *)result code:(NSString *)code terminal:(BOOL)terminal {
- if(!request||_request!=request)return;
- if(!terminal&&atomic_load(&_closed))return;
- _request=nil;[request.progress cancel];
+ if(!request)return;
+ RCTPromiseResolveBlock resolve=nil;RCTPromiseRejectBlock reject=nil;
+ @synchronized(self) {
+  if(_request!=request)return;
+  if(!terminal&&atomic_load(&_closed))return;
+  _request=nil;
+  resolve=request.resolve;reject=request.reject;
+  request.resolve=nil;request.reject=nil;
+ }
+ [request.progress cancel];
 #if !TARGET_OS_TV
  request.picker.delegate=nil;
  if(request.picker.presentingViewController)[request.picker dismissViewControllerAnimated:NO completion:nil];
  request.picker=nil;
 #endif
- RCTPromiseResolveBlock resolve=request.resolve;RCTPromiseRejectBlock reject=request.reject;
- request.resolve=nil;request.reject=nil;
  if(result){if(resolve)resolve(result);}else if(reject)reject(code,code,nil);
 }
 - (void)invalidate {
@@ -198,8 +203,9 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:
 }
 #if !TARGET_OS_TV
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
- PorticoDocumentPickRequest *request=_request;
- if(request&&controller==request.picker)[self finish:request result:nil code:@"cancelled" terminal:NO];
+ PorticoDocumentPickRequest *request=nil;
+ @synchronized(self) {request=_request;if(!request||controller!=request.picker)return;}
+ [self finish:request result:nil code:@"cancelled" terminal:NO];
 }
 - (NSData *)readDocument:(NSURL *)url limit:(NSUInteger)limit request:(PorticoDocumentPickRequest *)request error:(NSError **)error {
  if(atomic_load(&_closed)||!request||request.progress.cancelled)return nil;
@@ -222,9 +228,12 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:
  return !atomic_load(&_closed)&&!request.progress.cancelled&&!readError&&bounded.length>0&&bounded.length<=limit?bounded:nil;
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
- PorticoDocumentPickRequest *request=_request;
- if(atomic_load(&_closed)||!request||controller!=request.picker||request.reading)return;
- request.reading=YES;
+ PorticoDocumentPickRequest *request=nil;
+ @synchronized(self) {
+  request=_request;
+  if(atomic_load(&_closed)||!request||controller!=request.picker||request.reading)return;
+  request.reading=YES;
+ }
  NSURL *url=urls.count==1?urls.firstObject:nil;
  NSString *kind=request.kind;
  NSString *extension=url.pathExtension.lowercaseString;
