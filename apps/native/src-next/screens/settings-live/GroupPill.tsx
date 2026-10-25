@@ -82,6 +82,9 @@ export function NativeTVGroupPill({onHost}: {onHost?: (host: number | undefined)
       testID="player-group-sheet" width={620} topInset={0} returnFocusRef={pill}
       style={{paddingTop: 46, paddingLeft: 56, paddingRight: 96}}>
       <View style={{gap: 18}}>
+        <Text testID="player-group-people" style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>
+          {t('web.together.pill.people', {count: joined.length})}
+        </Text>
         {joined.map(member => <View key={member.id} style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
           <Text style={[browseType(theme, 22, 700), {color: theme.colors.text, flex: 1}]}>
             {member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}
