@@ -1,12 +1,15 @@
-import React, {useEffect, useRef, useSyncExternalStore, type RefObject} from 'react';
-import {Text, View} from 'react-native';
+import React, {useEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import {Text, View, useWindowDimensions} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {homeEntryCapabilities} from '../../../../../packages/client-core/src/home-selection';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {Button, Chip, Focusable} from '../../kit/controls';
-import {FiltersButton, QuickToggle, SortMenu} from '../../kit/browse';
+import {FiltersButton, QuickToggle, SortMenu, ViewToggle} from '../../kit/browse';
+import {CardFrame, Parts} from '../../kit/cards/primitives';
+import {MediaArt} from '../../kit/artwork';
+import {browseType} from '../../kit/browse/presentation';
 import {PosterCard} from '../../kit/cards';
 import {AmbientArt} from '../../kit/artwork';
 import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
@@ -17,6 +20,7 @@ import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {authorityKey} from '../../shell/model';
 import {homeBrowseLabel} from './browse-label';
+import {homeSeeAllQuickOrder} from './see-all-model';
 import {homeCardText} from './model';
 import {NativeHomeRowController} from './row-controller';
 
@@ -31,6 +35,8 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   kindLabel: (id: string) => string; selection?: LayoutSelection;
 }) {
   const theme = useTheme(), registry = useFocusRegistry(), t = runtime.text.t, labels = {t, has: defaultI18n.has};
+  const window = useWindowDimensions(), [view, setView] = useState<'grid' | 'list'>('grid'),
+    list = !theme.isTV && view === 'list';
   const visible = useRef(active); visible.current = active;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const data = useSyncExternalStore(controller.collection.subscribe, controller.collection.getSnapshot);
@@ -72,21 +78,34 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
         <Chip selected={!state.selectedKind} onPress={() => controller.selectKind(undefined)} count={state.counts.find(value => value.id === 'all')?.total}>{t('search.chip.all')}</Chip>
         {controller.kinds.map(kind => <Chip key={kind.id} selected={state.selectedKind === kind.id} onPress={() => controller.selectKind(kind.id)} count={state.counts.find(value => value.id === kind.id)?.total}>{kindLabel(kind.id)}</Chip>)}
         <View style={{width: 1, height: tv ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-        {model.quick.filter(quick => ['unwatched', 'in-progress'].includes(quick.id)).map(quick => <QuickToggle key={quick.id} checked={quick.active} onCheckedChange={checked => {
+        {model.quick.filter(quick => homeSeeAllQuickOrder(quick.id)).map(quick => <QuickToggle key={quick.id} checked={quick.active} onCheckedChange={checked => {
           const remaining = state.filters.filter(node => JSON.stringify(node) !== JSON.stringify(quick.query)); controller.setFilters(checked ? [...remaining, quick.query] : remaining);
         }}>{quick.label?.text ?? homeBrowseLabel(quick, labels)}</QuickToggle>)}
-        {total && <Text style={[theme.type.caption, {marginLeft: 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count: total.total})}</Text>}
+        {!tv && <View style={{marginLeft: 'auto'}}><ViewToggle value={view} onValueChange={setView}/></View>}
+        {total && <Text style={[theme.type.caption, {marginLeft: tv ? 'auto' : 8, color: theme.colors.textTertiary}]}>{t('count.titles', {count: total.total})}</Text>}
       </View>
       {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0))} variant="centered"/> :
-        <WindowedGrid collection={controller.collection} getKey={item => item.membershipId} selection={selection} itemWidth={width} itemHeight={width * 1.5 + (tv ? 74 : 48)}
-          gap={tv ? 32 : 12} rowGap={tv ? 40 : 22} gutter={gutter} rightGutter={tv ? 96 : theme.gutter} paddingBottom={40} style={{flex: 1}} testID="home-see-all-grid"
-          renderPlaceholder={index => <SkeletonBlock key={index} width={width} height={width * 1.5}/>}
-          renderItem={(item, cell) => <FocusItem focusId={item.membershipId}><HomeRowCard entry={item.entry} runtime={runtime} width={width} onFocus={cell.onFocus} onBlur={cell.onBlur}
-            onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}} onPlay={() => {
-              const current = () => visible.current && controller.isCurrentItem(item, cell.index);
-              if (current()) onPlayEntry(item.entry, current);
-            }}
-            onMenu={onMenu ? anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);} : undefined}/></FocusItem>}/>
+        <WindowedGrid collection={controller.collection} getKey={item => item.membershipId} selection={selection}
+          itemWidth={list ? window.width - 32 : width} itemHeight={list ? 70 : width * 1.5 + (tv ? 74 : 48)}
+          gap={list ? 0 : tv ? 32 : 12} rowGap={list ? 0 : tv ? 40 : 22} gutter={list ? 16 : gutter} rightGutter={list ? 16 : tv ? 96 : theme.gutter}
+          paddingBottom={40} style={{flex: 1}} testID={list ? 'home-see-all-list' : 'home-see-all-grid'}
+          renderPlaceholder={index => <SkeletonBlock key={index} width={list ? window.width - 32 : width} height={list ? 70 : width * 1.5}/>}
+          renderItem={(item, cell) => <FocusItem focusId={item.membershipId}>{list
+            ? <HomeListRow entry={item.entry} runtime={runtime} width={window.width - 32} onFocus={cell.onFocus} onBlur={cell.onBlur}
+                onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}}
+                onPlay={item.entry.playback ? () => {
+                  const current = () => visible.current && controller.isCurrentItem(item, cell.index);
+                  if (current()) onPlayEntry(item.entry, current);
+                } : undefined}
+                onMenu={onMenu ? anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);} : undefined}/>
+            : <HomeRowCard entry={item.entry} runtime={runtime} width={width} onFocus={cell.onFocus} onBlur={cell.onBlur}
+                onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}}
+                onPlay={() => {
+                  const current = () => visible.current && controller.isCurrentItem(item, cell.index);
+                  if (current()) onPlayEntry(item.entry, current);
+                }}
+                onMenu={onMenu ? anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);} : undefined}/>}
+          </FocusItem>}/>
       }
     </FocusRegion>
   </View>;
@@ -98,4 +117,23 @@ function HomeRowCard({entry, runtime, width, onOpen, onPlay, onMenu, onFocus, on
   const allowed = homeEntryCapabilities(entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
   return <PosterCard title={text.title} caption={text.caption} detail={text.detail} width={width} artwork={runtime.artwork(entry.posterUrl)} density="grid" menuAnchorRef={anchor}
     onNavigate={onOpen} primaryAction={theme.isTV && allowed.playable && entry.playback ? 'play' : 'navigate'} onPlay={onPlay} onFocus={onFocus} onBlur={onBlur} onMore={onMenu ? () => onMenu(anchor) : undefined}/>;
+}
+
+/** The drawn phone list row for See all: same activation, play and menu as the poster. */
+function HomeListRow({entry, runtime, width, onOpen, onPlay, onMenu, onFocus, onBlur}: {entry: ContentEntry; runtime: NativeShellRuntime; width: number;
+  onOpen: () => void; onPlay?: () => void; onMenu?: (anchor: RefObject<View | null>) => void; onFocus: () => void; onBlur: () => void}) {
+  const anchor = useRef<View>(null), theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle ?? entry.title;
+  const square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
+  return <CardFrame testID={`home-see-all-list-${encodeURIComponent(entry.id)}`} title={title} width={width} onNavigate={onOpen} onPlay={onPlay}
+    onMore={onMenu ? () => onMenu(anchor) : undefined} menuAnchorRef={anchor} onFocus={onFocus} onBlur={onBlur}
+    pressableStyle={{height: 70, borderRadius: 10, justifyContent: 'center'}}>
+    {() => <View style={{height: 70, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12}}>
+      <MediaArt kind={square ? 'square' : 'poster'} source={runtime.artwork(entry.posterUrl)} width={square ? 54 : 36} height={54} style={{borderRadius: 5}}/>
+      <View style={{flex: 1, minWidth: 0, gap: 3}}>
+        <Text numberOfLines={1} style={[browseType(theme, 15, 600), {color: theme.colors.text}]}>{title}</Text>
+        <Parts parts={text.caption} style={[browseType(theme, 12.5, 400), {color: theme.colors.textSecondary}]}/>
+      </View>
+      <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, bottom: 0, height: 1, backgroundColor: theme.colors.line}}/>
+    </View>}
+  </CardFrame>;
 }
