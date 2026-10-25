@@ -1,5 +1,5 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Text, View} from 'react-native';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {Text, View, findNodeHandle, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
@@ -38,10 +38,39 @@ type Props = Readonly<{
 export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge, nextFocusUp}: Props) {
   const theme = useTheme(), fence = source.fence, width = useRef(0), dragging = useRef(false);
   const [preview, setPreview] = useState<number>();
+  const previewRef = useRef<number | undefined>(undefined), seekRef = useRef<View>(null), mounted = useRef(false);
+  const [seekHost, setSeekHost] = useState<number | undefined>(undefined);
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
   const span = end - start;
-  const current = useCallback(() => !!fence && sameFence(playback.getSnapshot().fence, fence) && !source.retired, [fence, playback, source.retired]);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
+  const current = useCallback(() => {
+    const live = playback.getSnapshot();
+    return mounted.current && !!fence && sameFence(live.fence, fence) && !live.retired && !source.retired && (!tv || live.dock.local?.expanded === true);
+  }, [fence, playback, source.retired, tv]);
   useEffect(() => {dragging.current = false; setPreview(undefined); onPreview?.(undefined);}, [fence, onPreview]);
+  const clearRemotePreview = useCallback(() => {
+    previewRef.current = undefined; setPreview(undefined); onPreview?.(undefined);
+    if (fence) controls.scrub(fence, false);
+  }, [controls, fence, onPreview]);
+  const remoteScrubbing = tv && preview !== undefined && previewRef.current !== undefined;
+  useLayoutEffect(() => {
+    if (!tv || !focused || !enabled || !fence) {clearRemotePreview(); return;}
+    if (!remoteScrubbing) return;
+    const unregister = controls.registerScrubCancel(fence, clearRemotePreview);
+    return () => {unregister(); clearRemotePreview();};
+  }, [clearRemotePreview, controls, enabled, fence, focused, remoteScrubbing, tv]);
+  useLayoutEffect(() => {if (tv) setSeekHost(findNodeHandle(seekRef.current) ?? undefined);}, [tv]);
+  useTVEventHandler(event => {
+    if (!tv || !focused || !enabled || !fence || !current() || !source.capabilities.seek || !(span > 0) || event.eventKeyAction === 1) return;
+    const left = event.eventType === 'left' || event.eventType === 'longLeft';
+    const right = event.eventType === 'right' || event.eventType === 'longRight';
+    if (!left && !right) return;
+    const live = playback.getSnapshot();
+    const next = Math.max(start, Math.min(end, (previewRef.current ?? live.playback.positionSeconds) + (left ? -skipBackSeconds : skipForwardSeconds)));
+    if (previewRef.current !== undefined || live.playback.intent === 'paused' || event.eventType === 'longLeft' || event.eventType === 'longRight') {
+      previewRef.current = next; setPreview(next); onPreview?.(next); controls.scrub(fence, true);
+    } else void playback.seek(fence, next).catch(reportError);
+  });
   const target = useCallback((x: number) => width.current > 0 && span > 0 ? Math.max(start, Math.min(end, start + x / width.current * span)) : undefined, [start, end, span]);
   const gesture = useMemo(() => Gesture.Pan().enabled(enabled && source.capabilities.seek).minDistance(0).runOnJS(true)
     .onBegin(event => {if (!fence || !current()) return; dragging.current = true; controls.scrub(fence, true); const landing = target(event.x); setPreview(landing); onPreview?.(landing);})
@@ -58,11 +87,13 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const adjust = (seconds: number) => {if (fence && current()) void playback.seek(fence, Math.max(start, Math.min(end, position + seconds))).catch(reportError);};
   const track = tv ? focused ? 12 : 8 : compact ? 3 : 4, knob = tv ? focused ? 30 : 22 : 14;
   const label = (marker: typeof marks[number]) => marker.type === 'intro' ? defaultI18n.t('player.marker.intro') : marker.type === 'recap' ? defaultI18n.t('player.marker.recap') : defaultI18n.t('player.marker.credits');
-  const seek = (size: number) => <Focusable accessibilityRole="adjustable" accessibilityLabel={defaultI18n.t('player.position')} accessibilityValue={{min: start, max: Math.max(start, end), now: Math.max(start, Math.min(end, position))}}
+  const seek = (size: number) => <Focusable ref={seekRef} accessibilityRole="adjustable" accessibilityLabel={defaultI18n.t('player.position')} accessibilityValue={{min: start, max: Math.max(start, end), now: Math.max(start, Math.min(end, position))}}
     focusId="watch-seek" testID="watch-seek" focusable={enabled} disabled={!enabled || !source.capabilities.seek} {...(nextFocusUp ? {nextFocusUp} : {})}
+    {...(tv && seekHost ? {nextFocusLeft: seekHost, nextFocusRight: seekHost} : {})}
     accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'increment') adjust(skipForwardSeconds); else if (event.nativeEvent.actionName === 'decrement') adjust(-skipBackSeconds);}}
-    onPress={() => {if (!fence || !current()) return; const landing = position;
-      void playback.seek(fence, landing).then(() => {if (playback.getSnapshot().playback.intent !== 'playing') return playback.toggle(fence);}).catch(reportError);}}
+    onPress={() => {if (!fence || !current()) return; const landing = previewRef.current ?? position;
+      clearRemotePreview();
+      void playback.seek(fence, landing).then(() => {if (current() && playback.getSnapshot().playback.intent !== 'playing') return playback.toggle(fence);}).catch(reportError);}}
     style={{height: size, justifyContent: 'center'}}>
     {({focused: ring}) => <View pointerEvents="none" style={{height: track, backgroundColor: liveEdge === undefined ? 'rgba(237,245,250,.22)' : 'rgba(237,245,250,.1)', borderRadius: tv ? track / 2 : compact ? 0 : 4}}>
       {liveEdge !== undefined && span > 0 && <View style={{position: 'absolute', top: 0, bottom: 0, left: 0, width: `${Math.max(0, Math.min(1, (liveEdge - start) / span)) * 100}%`, backgroundColor: 'rgba(237,245,250,.3)', borderRadius: 4}}/>}

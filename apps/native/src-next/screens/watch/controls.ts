@@ -40,6 +40,7 @@ export class NativeWatchControls {
   private hiddenByBack = false;
   private gestureScrubbing = false;
   private overlayHeld = false;
+  private scrubCancel?: {cancel: () => void};
   constructor(isTV: boolean, time: NativeWatchControlClock = clock) {this.isTV = isTV; this.time = time;}
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = (): NativeWatchControlState => this.state;
@@ -59,7 +60,7 @@ export class NativeWatchControls {
     this.context = context;
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
-      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false;
+      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false; this.scrubCancel = undefined;
       this.publish({fence, panel: undefined, panelFocus: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
     }
     if (!fence) {this.cancel(); this.publish({visible: false, panel: undefined, focus: 'surface'}); return;}
@@ -110,6 +111,12 @@ export class NativeWatchControls {
     if (held) this.reveal(fence);
     else {this.deadline = this.time.now() + 4000; this.arm();}
   }
+  /** The mounted timeline owns a preview; Back cancels that before hiding controls. */
+  registerScrubCancel(fence: PlaybackFence, cancel: () => void): () => void {
+    if (!this.current(fence)) return () => {};
+    const registration = {cancel}; this.scrubCancel = registration;
+    return () => {if (this.scrubCancel === registration) this.scrubCancel = undefined;};
+  }
   open(panel: NativeWatchPanel, fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.context.expanded) return false;
     this.cancel(); this.deadline = 0;
@@ -127,6 +134,7 @@ export class NativeWatchControls {
   }
   back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'stale' {
     if (!this.current(fence)) return 'stale';
+    if (!this.state.panel && this.scrubCancel) {this.scrubCancel.cancel(); return 'controls';}
     if (this.state.panel && this.state.panel !== 'options' && this.state.panel !== 'episodes') {
       const opener = this.state.panel;
       this.open('options', fence); this.publish({panelFocus: opener}); return 'panel';
@@ -135,5 +143,5 @@ export class NativeWatchControls {
     if (this.state.visible) {this.cancel(); this.deadline = 0; this.hiddenByBack = true; this.publish({visible: false, focus: 'surface', hideReason: 'input'}); return 'controls';}
     return 'player';
   }
-  dispose(): void {this.cancel(); this.disposed = true; this.offsets.clear(); this.listeners.clear();}
+  dispose(): void {this.cancel(); this.scrubCancel = undefined; this.disposed = true; this.offsets.clear(); this.listeners.clear();}
 }
