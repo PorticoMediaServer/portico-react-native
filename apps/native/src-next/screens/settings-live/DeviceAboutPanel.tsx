@@ -14,7 +14,7 @@ export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: Nat
   return <View testID="settings-panel-about">
     <SettingsRow first label={t('about.appVersion')} value={context.appVersion}/>
     <SettingsRow label={t('about.server')} value={context.serverName}/>
-    <SettingsRow testID="settings-open-licenses" label={t('licenses.title')} onPress={() => {lifetime.assert(); openRoute({kind: 'licenses'});}}/>
+    <SettingsRow testID="settings-open-licenses" label={t('licenses.title')} value={t('next.settingsSpec.account.device.groups.5.rows.3.control.label')} onPress={() => {lifetime.assert(); openRoute({kind: 'licenses'});}}/>
     {!Platform.isTV && <SettingsRow testID="settings-device-help" label={t('next.settingsSpec.account.device.groups.5.rows.4.label')} value={helpAddress} onPress={help}/>}
   </View>;
 }
