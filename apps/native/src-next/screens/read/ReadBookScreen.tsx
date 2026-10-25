@@ -20,6 +20,11 @@ import type {NativeReadBook} from './read-book-model';
 import type {NativeReadOwnerEditLease} from './read-book-model';
 import type {NativeReadVersion} from './read-book-model';
 import {ReadOwnerEditSheet} from './ReadOwnerEditSheet';
+import {ReadCollectionSheet} from './ReadCollectionSheet';
+import {nativeReadingCollectionCapability, type NativeReadingCollectionKind} from './read-collection-capability';
+import {nativeScreenServices} from '../native-screen-services';
+import {isReadingLibraryKind} from './platform';
+import {linkNativeAbortSignals} from '../../platform/abort-signals';
 
 const {t} = defaultI18n;
 const initials = (author: string): string => author.trim().split(/\s+/).slice(0, 2).map(part => part.slice(0, 1).toUpperCase()).join('') || '·';
@@ -47,6 +52,8 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   const wide = dimensions.width > dimensions.height && layout.kind !== 'phone', rowHero = layout.kind !== 'phone';
   const [more, setMore] = useState(false), [tab, setTab] = useState('contents'), [heroHeight, setHeroHeight] = useState(0), [collapsed, setCollapsed] = useState(false);
   const [edit, setEdit] = useState<Readonly<{lease: NativeReadOwnerEditLease; owner: object; key: number}>>();
+  const [collection, setCollection] = useState<Readonly<{lease: NativeReadOwnerEditLease; owner: object; key: number; kind: NativeReadingCollectionKind}>>();
+  const [collectionCapability, setCollectionCapability] = useState<Readonly<{lease: NativeReadOwnerEditLease; manifest: ReadingManifest; kind?: NativeReadingCollectionKind}>>();
   const editSeq = useRef(0);
   useLayoutEffect(() => {
     if (!controller.arm()) return;
@@ -61,11 +68,36 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   // The sheet lease is taken from this committed ready render; a retained menu
   // after Back cannot borrow the successor arm/life.
   const editLease = manifest ? controller.ownerEditLease(manifest) : undefined;
+  // The collection capability is asked of the exact item's Detail offer for
+  // this committed page under a real Reading library, never from a format or a
+  // library spelling; the producer's admitted ebook/comic kind is cached with
+  // that original lease and manifest.
+  const library = context.libraries().find(value => value.id === route.libraryId);
+  const leaseSignal = editLease?.signal, leaseOrigin = editLease?.origin;
+  useLayoutEffect(() => {
+    const lease = editLease;
+    if (!lease || !manifest || !library || !isReadingLibraryKind(library.kind) || !lease.isCurrent()) return;
+    const life = new AbortController(), linked = linkNativeAbortSignals([lease.signal, life.signal]);
+    const current = () => !linked.signal.aborted && lease.isCurrent() && context.current();
+    const services = (() => {try {return nativeScreenServices(context);} catch {return undefined;}})();
+    if (!services) return;
+    const scope = {serverId: lease.viewer.serverId, viewerId: JSON.stringify([lease.viewer.authority, lease.viewer.accountId, lease.viewer.profileId])};
+    void nativeReadingCollectionCapability({api: context.api, scope, requestId: services.requestId, signal: linked.signal,
+      isCurrent: current, itemId: controller.item.id, libraryId: route.libraryId})
+      .then(kind => {if (current()) setCollectionCapability({lease, manifest, kind});})
+      .catch(() => {if (current()) setCollectionCapability({lease, manifest});});
+    return () => {life.abort(); linked.dispose();};
+  }, [context, controller, manifest, route.libraryId, library?.id, library?.kind, leaseSignal, leaseOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
+  const offeredKind = collectionCapability && editLease && library && isReadingLibraryKind(library.kind)
+    && collectionCapability.manifest === manifest && collectionCapability.lease.signal === editLease.signal
+    && collectionCapability.lease.isCurrent() ? collectionCapability.kind : undefined;
   const menu: readonly MenuEntry[] = [
     ...(state.read ? [{id: 'read-mark', label: t(state.read.read ? 'next.reader.markUnread' : 'next.reader.markRead'), icon: 'i-check' as IconName,
       onSelect: () => {setMore(false); toggleRead(state.read!);}}] : []),
     ...(owner && editLease ? [{id: 'edit-details', label: t('next.reader.editDetails'), tone: 'owner' as const,
       onSelect: () => {if (!editLease.isCurrent()) return; setMore(false); setEdit({lease: editLease, owner: {}, key: ++editSeq.current});}}] : []),
+    ...(editLease && offeredKind ? [{id: 'add-to-collection', label: t('next.selection.addToCollection'), icon: 'i-layers' as IconName,
+      onSelect: () => {if (!editLease.isCurrent()) return; setMore(false); setCollection({lease: editLease, owner: {}, key: ++editSeq.current, kind: offeredKind});}}] : []),
     ...(contents.length ? [{id: 'details', label: t('next.reader.details'), selected: tab === 'details', onSelect: () => {setTab('details'); setMore(false);}}] : []),
     {id: 'settings', label: t('next.reader.openSettings'), onSelect: () => {setMore(false); onOpenSettings();}},
   ];
@@ -132,6 +164,8 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
     {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} manifest={manifest}
       onClose={ticket => setEdit(current => current?.owner === ticket ? undefined : current)}/> : null}
+    {collection ? <ReadCollectionSheet key={collection.key} context={context} lease={collection.lease} owner={collection.owner} itemId={controller.item.id} libraryId={route.libraryId} kind={collection.kind} title={title}
+      onClose={ticket => setCollection(current => current?.owner === ticket ? undefined : current)}/> : null}
   </View>;
 }
 
