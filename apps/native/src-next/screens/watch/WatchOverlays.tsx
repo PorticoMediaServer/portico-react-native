@@ -85,7 +85,7 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
 }
 
 export function NativeWatchOverlays({presenters, runtime, common}: {presenters: NativeWatchPresenters; runtime: NativeShellRuntime; common: NativeScreenServices}) {
-  const value = useSyncExternalStore(presenters.subscribe, presenters.getSnapshot), t = defaultI18n.t;
+  const value = useSyncExternalStore(presenters.subscribe, presenters.getSnapshot), t = defaultI18n.t, theme = useTheme();
   if (!value || !presenters.overlayCurrent(value)) return null;
   if (value.phase === 'versions') return <NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(id);}} close={presenters.close}/>;
   if (value.phase === 'file-info') return <FileInfoSurface value={value} presenters={presenters}/>;
@@ -121,7 +121,24 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (tv && value.actions?.entry?.goToArtist) items.push({id: 'go-to-artist', label: t('next.watch.goToArtist'), icon: 'i-person', onSelect: () => presenters.goToArtist(value)});
   if (value.actions?.select) items.push({id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => presenters.selectEntry(value)});
   if (value.actions?.entry?.details) items.push({id: 'details', label: t('title.details'), icon: 'i-page', onSelect: () => presenters.showDetails(value)});
-  return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef}
+  // tv-detail.html frame 7 and playback-info.html frame 17 draw the side sheet's
+  // small context line above the title, from the entry's own facts only.
+  const series = tv && entry.kind === 'episode' ? entry.show?.name : undefined;
+  const code = tv && entry.kind === 'episode' && entry.seasonNumber !== undefined && entry.episodeNumber !== undefined
+    ? t('next.kit.episodeCode', {season: entry.seasonNumber, episode: entry.episodeNumber}) : undefined;
+  const contextStyle = (weight: 600 | 700, color: string) => [nativeType({size: 22, weight, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color}];
+  const context = !tv ? undefined : series || code
+    ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 16}}>
+      {series ? <Text style={contextStyle(700, theme.colors.textSecondary)}>{series}</Text> : null}
+      {code ? <Text style={contextStyle(600, theme.colors.textTertiary)}>{code}</Text> : null}
+    </View>
+    : entry.kind === 'movie'
+      ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 16}}>
+        <Text style={contextStyle(700, theme.colors.textSecondary)}>{t('search.kind.movie')}</Text>
+        {entry.year === undefined ? null : <Text style={contextStyle(600, theme.colors.textTertiary)}>{defaultI18n.number(entry.year, {useGrouping: false})}</Text>}
+      </View>
+      : undefined;
+  return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef} context={context}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}
     onOpenChange={open => {if (!open) presenters.closeMenu(value);}}/>;
 }
