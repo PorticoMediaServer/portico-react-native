@@ -19,7 +19,7 @@ import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
 import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
-import {NowPlayingQueue} from './NowPlayingQueue';
+import {NowPlayingQueue, nowPlayingQueueEntry, nowPlayingQueueWindow} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import {NativeListeningNotice} from './ListeningNotice';
 import {TVNowPlayingScreen} from './TVNowPlayingScreen';
@@ -85,8 +85,19 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
   // and revision this screen drew, so a queue that moved on refuses it.
   const drawnFence = playback.fence, drawnQueue = queue?.queue, lifetime = policyLifetime;
+  // Only the accepted window for exactly this queue and revision may name what the run started
+  // from; anything else leaves the line off rather than borrowing an album's own title.
+  const drawnWindow = queue ? nowPlayingQueueWindow(queue) : undefined;
+  const currentFacts = drawnQueue?.currentEntryId ? nowPlayingQueueEntry(drawnWindow, drawnQueue.currentEntryId) : undefined;
+  const currentSegmentId = currentFacts?.available === true ? currentFacts.segmentId : undefined;
+  const playingFrom = currentSegmentId ? drawnWindow?.segments.find(segment => segment.id === currentSegmentId && segment.label)?.label : undefined;
   const policyReady = !!drawnQueue && drawnFence.kind === 'queue' && !!lifetime && !!queuePolicy?.canApply(drawnFence);
   const shuffled = !!drawnQueue?.shuffled, repeat = drawnQueue?.repeat ?? 'off';
+  // The edit port exists only while the accepted window really matches the drawn queue and
+  // names each row once; the pane then asks that same window for a row's own facts.
+  const queueEditPort = queueEdit?.enabled && drawnWindow ? {enabled: true, lease: queueEdit.lease, fenceKey: JSON.stringify(playback.fence),
+    entry: (entryId: string) => nowPlayingQueueEntry(drawnWindow, entryId),
+    apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => queueEdit.apply(playback.fence, intent, queueId, expectedRevision)} : undefined;
   const changePolicy = (intent: V1QueuePolicyIntent) => {
     if (!policyReady || !drawnQueue || !lifetime || !queuePolicy) return;
     void queuePolicy.apply(drawnFence, {queueId: drawnQueue.id, expectedRevision: drawnQueue.revision, intent}, lifetime).catch(reportError);
@@ -123,6 +134,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
   const cover = Math.max(160, Math.min(410, wide ? width - QUEUE_WIDTH - 120 : width - 96));
   const column = <View testID={`${testID}-column`} style={{flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 28, paddingTop: wide ? 36 : 20}}>
+    {playingFrom ? <Text numberOfLines={1} style={[browseType(theme, 13, 600), {marginBottom: 14, textAlign: 'center', color: theme.colors.textSecondary}]}>{t('next.music.playingFrom', {source: playingFrom})}</Text> : null}
     {p.artwork ? <Artwork source={p.artwork} width={cover} height={cover} style={{borderRadius: 14}}/> : null}
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
@@ -176,7 +188,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       <Button testID={`${testID}-close`} variant="glass" size="small" icon="i-down" accessibilityLabel={t('player.minimize')} onPress={onClose}>{t('action.close')}</Button>
     </View>
     {!side && sheet ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
-      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEdit ? {enabled: queueEdit.enabled, lease: queueEdit.lease, fenceKey: JSON.stringify(playback.fence), apply: (intent, queueId, expectedRevision) => queueEdit.apply(playback.fence, intent, queueId, expectedRevision)} : undefined}/> : null}
+      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : null}
     </View> : null}
   </View>;
   return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
@@ -203,7 +215,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
               <Text style={[browseType(theme, 20, 800, -0.02), {color: theme.colors.text}]}>{t(lyrics ? 'player.lyrics' : 'player.queue')}</Text>
             </View>}
           </View>
-          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEdit ? {enabled: queueEdit.enabled, lease: queueEdit.lease, fenceKey: JSON.stringify(playback.fence), apply: (intent, queueId, expectedRevision) => queueEdit.apply(playback.fence, intent, queueId, expectedRevision)} : undefined}/> : lyrics}
+          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : lyrics}
         </View>
       </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>

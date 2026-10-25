@@ -3,6 +3,7 @@ import {BackHandler, Image, Platform, View, useWindowDimensions} from 'react-nat
 import {GestureDetector} from 'react-native-gesture-handler';
 import Animated, {useAnimatedStyle} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../packages/player-core/src';
+import type {V1QueueEditIntent} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
@@ -115,9 +116,12 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         if (!lifetime.isCurrent() || current.capabilities.cast !== true || !current.fence || !sameFence(current.fence, fence)) return;
         runtime.playOn?.open();
       }}} : {}),
-      // The queue-edit UI is withheld until QueuePlaybackView carries the canonical loaded-entry
-      // position/availability facts; a row's visible slot is not admission, so no menu is offered.
-
+      ...(adapter.editQueue ? {queueEdit: {enabled: snapshot.capabilities.queueEdit === true, lease: lifetime,
+        apply: (fence: PlaybackFence, intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => {
+          const current = adapter.getSnapshot();
+          if (!lifetime.isCurrent() || current.capabilities.queueEdit !== true || !current.fence || !sameFence(current.fence, fence)) return;
+          void adapter.editQueue!(fence, {queueId, expectedRevision, intent}, lifetime).catch(runtime.reportError);
+        }}} : {}),
     };
   }, [listeningLifetime, adapter, snapshot.capabilities.retry, snapshot.capabilities.cast, snapshot.capabilities.queueEdit, runtime]);
   const playOn = runtime.playOn;
