@@ -24,6 +24,7 @@ import {useTheme, type Theme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
@@ -345,10 +346,17 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
         if (now.predicates === predicates && now.sort === state.sort) destination.setQuery(predicates, state.sort);
       }});
   };
-  const menu = <LibraryMenu {...runtime.libraryMenu(state.library)}
-    canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
+  homeActionDiagnostics.libraryMenu('screen', runtime);
+  // Preserve JSX's original component-reference-before-props evaluation order.
+  const Menu = LibraryMenu;
+  const menuProps = runtime.libraryMenu(state.library);
+  homeActionDiagnostics.libraryMenu('produced', runtime);
+  const canSaveView = !!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort});
+  const menu = <Menu {...menuProps}
+    canSaveView={canSaveView} onSaveView={() => {
       if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
     }} onMarkAll={actions.markAll && state.collection ? markAll : undefined}/>;
+  homeActionDiagnostics.libraryMenu('element', runtime);
   const select = selection && <Button testID="library-select-header" variant="text" size="compact" icon="i-check" style={{height: 44}} onPress={selection.start}>{defaultI18n.t('next.selection.select')}</Button>;
   const screenGutter = tabletLayout ? expanded ? 32 : 28 : theme.gutter;
   const songCount = state.library.kind === 'music' ? summaries.libraries.find(library => library.id === state.library.id)?.summary.counts.find(part => part.kind === 'song') : undefined;

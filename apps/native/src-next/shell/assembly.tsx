@@ -362,6 +362,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     openServers: nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined,
     connectionFacts: {serverName: context.serverName, connectionAddress: nativeServerHost(context.api.baseUrl)},
     libraryMenu: library => {
+      homeActionDiagnostics.libraryMenu('producer', runtime);
       const common = {read: isReadingLibraryKind(library.kind),
         onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};
       return management ? {...common, owner: true as const, ownerTag, onLibrarySettings: () => open({kind: 'library-settings', libraryId: library.id}), onScan: () => run(async () => {

@@ -81,6 +81,7 @@ const codes = new Set([
 const classes = new Set([
   'Error',
   'TypeError',
+  'ReferenceError',
   'RangeError',
   'SyntaxError',
   'AbortError',
@@ -99,11 +100,14 @@ const origins = new Set([
   'artwork-error',
   'native-http',
   'app-render',
+  'library-menu',
 ]);
 type ErrorOrigin = 'assembly-error' | 'restore-error' | 'home-registration' | 'artwork-error' | 'app-render';
 type ActionOrigin = 'home-card' | 'home-assembly';
 type Operation = 'primary-play' | 'menu';
 type Stage = 'enter' | 'guard-refused' | 'unoffered' | 'dispatch';
+type MenuStage = 'bindings' | 'attached' | 'screen' | 'producer' | 'produced' | 'element';
+const menuStages = new Set(['bindings', 'attached', 'screen', 'producer', 'produced', 'element']);
 const operations = new Set(['primary-play', 'menu']),
   stages = new Set(['enter', 'guard-refused', 'unoffered', 'dispatch']);
 export const HOME_DIAGNOSTIC_LIMIT = 256,
@@ -120,6 +124,11 @@ type SafeRecord = {
   class?: string;
   frames?: readonly (readonly [number, number])[];
   componentFrames?: readonly (readonly [number, number])[];
+  runtimeRef?: number;
+  menuRef?: number;
+  own?: boolean;
+  enumerable?: boolean;
+  callable?: boolean;
 };
 const statusOf = (value: unknown): number | undefined =>
   typeof value === 'number' &&
@@ -176,6 +185,13 @@ export function createHomeActionDiagnostics(
     requestSequence = 0;
   const counts = new Map<string, number>(),
     tickets = new WeakSet<Ticket>();
+  const references = new WeakMap<object, number>();
+  let referenceSequence = 0;
+  const reference = (value: object) => {
+    let id = references.get(value);
+    if (id === undefined) {id = ++referenceSequence; references.set(value, id);}
+    return id;
+  };
   const write = (origin: string, record: SafeRecord) => {
     try {
       const count = counts.get(origin) ?? 0;
@@ -195,6 +211,21 @@ export function createHomeActionDiagnostics(
     }
   };
   return {
+    /** Only local object/function reference numbers and fixed descriptor booleans.
+     * Do not invoke getters, inspect runtime contents or stringify private objects. */
+    libraryMenu(stage: MenuStage, runtime: unknown): void {
+      try {
+        if (!menuStages.has(stage) || sequence >= HOME_DIAGNOSTIC_LIMIT
+          || (counts.get('library-menu') ?? 0) >= HOME_DIAGNOSTIC_ORIGIN_LIMIT) return;
+        const object = runtime !== null && typeof runtime === 'object' ? runtime : undefined;
+        const descriptor = object ? Object.getOwnPropertyDescriptor(object, 'libraryMenu') : undefined;
+        const method = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+        write('library-menu', {operation: stage,
+          ...(object ? {runtimeRef: reference(object)} : {}),
+          ...(typeof method === 'function' ? {menuRef: reference(method)} : {}),
+          own: !!descriptor, enumerable: descriptor?.enumerable === true, callable: typeof method === 'function'});
+      } catch { /* Diagnostics cannot change rendering, even for a hostile descriptor. */ }
+    },
     action(
       origin: ActionOrigin,
       operation: Operation,

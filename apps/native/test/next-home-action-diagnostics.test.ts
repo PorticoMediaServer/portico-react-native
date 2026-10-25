@@ -17,6 +17,31 @@ const records = () => {
       lines.map(line => JSON.parse(line.slice(HOME_DIAGNOSTIC_PREFIX.length))),
   };
 };
+test('library menu receipts compare only local reference numbers and fixed descriptor flags', () => {
+  const f = records();
+  let called = 0;
+  const method = () => {called++; throw Error('private-function-body');};
+  const bindings = {libraryMenu: method, account: 'private-account', token: 'private-token'};
+  const runtime = {...bindings};
+  f.logger.libraryMenu('bindings', bindings);
+  f.logger.libraryMenu('attached', runtime);
+  f.logger.libraryMenu('screen', runtime);
+  const [before, attached, screen] = f.read();
+  assert.notEqual(before.runtimeRef, attached.runtimeRef);
+  assert.equal(before.menuRef, attached.menuRef);
+  assert.equal(attached.runtimeRef, screen.runtimeRef);
+  assert.deepEqual([screen.own, screen.enumerable, screen.callable], [true, true, true]);
+  assert.equal(called, 0);
+  const getter = Object.defineProperty({}, 'libraryMenu', {get() {called++; throw Error('private-getter');}});
+  assert.doesNotThrow(() => f.logger.libraryMenu('screen', getter));
+  assert.equal(f.read()[3].callable, false);
+  assert.equal(called, 0);
+  const hostile = new Proxy({}, {getOwnPropertyDescriptor() {throw Error('private-descriptor');}});
+  assert.doesNotThrow(() => f.logger.libraryMenu('screen', hostile));
+  f.logger.error('app-render', new ReferenceError('private-reference'));
+  assert.equal(f.read()[4].class, 'ReferenceError');
+  assert.equal(f.lines.join('').includes('private'), false);
+});
 test('passive receipts classify canonical routes and correlate only local numeric request IDs', () => {
   const f = records();
   const ticket = f.logger.request(

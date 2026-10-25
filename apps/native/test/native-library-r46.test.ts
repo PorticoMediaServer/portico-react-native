@@ -4,6 +4,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
 import * as libraryJump from '../src-next/screens/library/jump.ts';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../src-next/screens/read/platform.ts';
+import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 
 // The phone Library screen's own declared geometry and paint, taken from
 // phone-app.html #r2a (frame 4) and its filter/browse frames: the compact 44
@@ -54,6 +55,7 @@ async function libraryScreen(width: number, isTV = false) {
   const jumpSheet = await screenModule(new URL('../src-next/screens/library/LibraryJumpSheet.tsx', import.meta.url), modules);
   const module = await screenModule(new URL('../src-next/screens/library/LibraryScreen.tsx', import.meta.url), {
     ...modules, './LibraryJumpSheet': jumpSheet, './jump': libraryJump,
+    '../../platform/home-action-diagnostics': {homeActionDiagnostics},
   });
   return {theme, module};
 }

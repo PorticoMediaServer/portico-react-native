@@ -45,6 +45,7 @@ import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
 import {createNativeShellAccountBinding} from './account-binding';
+import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 
 export type NativeShellBootstrapContext = Readonly<{
   api: HttpLocalApi;
@@ -247,6 +248,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       assertCurrent(); installationSettings = raw; for (const listener of [...preferenceListeners]) listener();
     }});
     bindings = await makeBindings(context); assertCurrent();
+    homeActionDiagnostics.libraryMenu('bindings', bindings);
     const selectedBeforePublish = await readNativeSelectedViewer(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
     await accountBinding.assertCurrent(); assertCurrent();
@@ -389,6 +391,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     // behind the live authority too, instead of retaining the copied menu on retirement.
     Object.defineProperty(runtime, 'account', {get: () => {assertCurrent(); return bound.account;}});
     bound.attach(runtime);
+    homeActionDiagnostics.libraryMenu('attached', runtime);
     const retireTopShelfLocale = bindNativeTopShelfLocale(context, runtime.text, error => nativeScreenServices(context).reportError(error));
     if (retireTopShelfLocale) cleanups.push(retireTopShelfLocale);
     return runtime;
