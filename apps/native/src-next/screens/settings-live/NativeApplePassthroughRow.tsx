@@ -1,23 +1,33 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {AppState, NativeModules} from 'react-native';
+import {AppState, NativeModules, Platform} from 'react-native';
+import {appleProfile, type AppleNativeFacts} from '../../../../../packages/client-core/src/client-profile';
+import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {SettingsRow} from '../../kit/shell';
 
-type Facts = Readonly<{eligible?: boolean}>;
+type Facts = Readonly<{eligible?: boolean; atmos: boolean}>;
 
-/** Canonical Apple input only: audio.eac3JocEligible. There is no videoEligibility
- * fallback in AppleNativeFacts or the bridge, and a missing value is not evidence. */
+/** Canonical Apple input only: the raw facts go through client-profile's own
+ * appleProfile, and Atmos is claimed only when that normalised native engine
+ * actually carries eac3 objectAudio 'atmos'. There is no video fallback, and a
+ * missing value is not evidence. */
 function readFacts(value: unknown): Facts | undefined {
   if (!value || typeof value !== 'object') return undefined;
-  const audio = (value as {audio?: {eac3JocEligible?: unknown}}).audio;
-  return {eligible: typeof audio?.eac3JocEligible === 'boolean' ? audio.eac3JocEligible : undefined};
+  const facts = value as AppleNativeFacts;
+  let atmos = false;
+  try {
+    const document = appleProfile({television: true, osVersion: String(Platform.Version), model: facts.model,
+      appVersion: installationIdentity()?.appVersion}, facts);
+    atmos = document.engines.native.audio?.some(audio => audio.codec === 'eac3' && (audio.objectAudio ?? []).includes('atmos')) === true;
+  } catch {atmos = false;}
+  return {eligible: typeof facts.audio?.eac3JocEligible === 'boolean' ? facts.audio.eac3JocEligible : undefined, atmos};
 }
 
 /** Frame 12's Audio passthrough is a capability line, not a control: the Apple engines
- * have no stored passthrough choice to honour. It reports only the canonical eac3Joc
- * eligibility. Atmos is not named here: client-profile attaches it only when that
- * eligibility and the spatial-route requirement both hold, and the exact value copy
- * arrives with the mirrored key. Nothing is an active-output or receiver claim. */
+ * have no stored passthrough choice to honour. It reports canonical eligibility with
+ * the mirrored copy: the full Dolby Digital Plus with Atmos line only when the
+ * normalised engine vouches for Atmos, the existing Dolby Digital Plus name otherwise,
+ * and nothing invented for an unsupported or unknown report. */
 export function NativeApplePassthroughRow({testID}: {testID?: string}) {
   const t = defaultI18n.t, [facts, setFacts] = useState<Facts | null>();
   const generation = useRef(0);
@@ -38,8 +48,10 @@ export function NativeApplePassthroughRow({testID}: {testID?: string}) {
     return () => {alive = false; subscription.remove();};
   }, []);
   if (facts === undefined) return null;
-  const value = facts?.eligible === true ? t('next.kit.codec.eac3')
-    : facts?.eligible === false ? undefined : t('web.capabilities.unknown');
+  const value = facts?.atmos === true ? t('next.deviceCapabilities.applePassthrough')
+    : facts?.eligible === true ? t('next.kit.codec.eac3')
+    : facts?.eligible === false ? undefined
+    : t('web.capabilities.unknown');
   return <SettingsRow testID={testID} label={t('next.settingsSpec.account.device.groups.1.rows.7.label')}
-    description={t('next.settingsSpec.account.device.groups.1.rows.7.help')} value={value} readable/>;
+    description={t('next.deviceCapabilities.applePassthroughHint')} value={value} readable/>;
 }
