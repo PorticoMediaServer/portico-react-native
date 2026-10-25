@@ -20,6 +20,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'profiles'; profileId?: string}
   | {kind: 'servers'}
   | {kind: 'notifications'}
+  | {kind: 'licenses'}
   | {kind: 'together'}
   | {kind: 'account'}
   | {kind: 'downloads'}

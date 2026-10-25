@@ -26,6 +26,7 @@ if (!Platform.isTV) {
   registerNativeWatch(createNativeWatchBindings);
 }
 require('./shell/settings-mount');
+require('./screens/settings-live/LicencesRoute');
 require('./screens/home/CustomizeRoute');
 require('./screens/home/SeeAllRoute');
 require('./screens/settings-live/LiveRoute');
