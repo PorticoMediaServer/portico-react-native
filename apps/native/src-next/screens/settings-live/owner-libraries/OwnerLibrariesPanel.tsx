@@ -1,3 +1,4 @@
+import {loadInitialOwnerLibrary} from './initial-library';
 import type {NativeScreenLifetime} from '../lifetime';
 import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
@@ -45,7 +46,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
     [rename, setRename] = useState(false), [leaving, setLeaving] = useState(false), [removingFolder, setRemovingFolder] = useState<InventorySource>(),
     [folderMenu, setFolderMenu] = useState<InventorySource>(), [libraryMenu, setLibraryMenu] = useState<ManagedLibrary>(), [menuOnPage, setMenuOnPage] = useState(false), [skipped, setSkipped] = useState(false);
 
-  useEffect(() => {void controller.refresh().then(() => {if (initialOwnerLibrary) return controller.load(initialOwnerLibrary);}); return () => controller.dispose();}, [controller, initialOwnerLibrary]);
+  useEffect(() => {void loadInitialOwnerLibrary(controller, initialOwnerLibrary); return () => controller.dispose();}, [controller, initialOwnerLibrary]);
 
   const libraries = state.directory.data?.items ?? [];
   const library = libraries.find((value: ManagedLibrary) => value.id === openId) ?? (state.selectedId === openId ? state.selected.data?.library : undefined);
