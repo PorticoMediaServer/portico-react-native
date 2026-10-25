@@ -260,6 +260,9 @@ const accountPages: readonly AuthoredPage[] = [
       {id: 'limits', title: 'settings.section.qualityLimits', rows: [
         pref('quality.home', 'settings.row.qualityHome', {type: 'choice', choices: qualityChoices}, {scope: 'deviceClass', help: 'settings.help.qualityHome'}),
         pref('quality.remote', 'settings.row.qualityAway', {type: 'choice', choices: qualityChoices}, {scope: 'deviceClass', help: 'settings.help.qualityAway'}),
+        // The same saved default where the connection is cellular; only a phone has one.
+        pref('quality.mobile', 'next.settingsSpec.account.quality.groups.0.rows.2.label', {type: 'choice', choices: qualityChoices},
+          {scope: 'deviceClass', help: 'next.settingsSpec.account.quality.groups.0.rows.2.help', platforms: ['phone']}),
       ]},
       {id: 'method', rows: [
         // One choice in place of three four-way policies; it writes a combination that makes sense.

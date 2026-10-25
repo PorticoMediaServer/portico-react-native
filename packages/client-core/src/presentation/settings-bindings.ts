@@ -187,6 +187,10 @@ const source69PreferenceBindings:Readonly<Record<string,SettingsBinding>>={
  'appearance.notificationDot':{form:'preferences',key:'notifications.badges',scope:'profile-server'},
  'quality.home':{form:'preferences',key:'quality.home',scope:'profile-device-class',codec:'video-quality-choice'},
  'quality.remote':{form:'preferences',key:'quality.remote',scope:'profile-device-class',codec:'video-quality-choice'},
+ // The drawn row is quality.mobileData; the server stores quality.mobile (one phone value).
+ 'quality.mobileData':{form:'preferences',key:'quality.mobile',scope:'profile-device-class',codec:'video-quality-choice'},
+ // The shared structure names the same row by its stored key.
+ 'quality.mobile':{form:'preferences',key:'quality.mobile',scope:'profile-device-class',codec:'video-quality-choice'},
  'quality.directPlay':{form:'preferences',key:'delivery.directPlay',scope:'profile-device-class'},
  'quality.directStream':{form:'preferences',key:'delivery.directStream',scope:'profile-device-class'},
  'quality.transcode':{form:'preferences',key:'delivery.transcode',scope:'profile-device-class'},
