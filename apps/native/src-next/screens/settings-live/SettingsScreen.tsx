@@ -1,3 +1,4 @@
+import {passthroughFormats} from '../../platform/playback/passthrough-formats';
 import {NativeFrameRateRow, nativeFrameRateFocusId} from './NativeFrameRateRow';
 import {NativePassthroughRow, nativePassthroughFocusId} from './NativePassthroughRow';
 import {NativeLossNoticesRow, nativeLossNoticesFocusId} from './NativeLossNoticesRow';
@@ -284,6 +285,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId),
     ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : []),
     ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', ...(!theme.isTV ? ['settings-away-limit-change'] : [])] : []),
+    ...(theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' ? passthroughFormats.map(format => `settings-passthrough-${format}`) : []),
     ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [...(Platform.OS === 'android' ? [nativeFrameRateFocusId, nativePassthroughFocusId] : []), nativeLossNoticesFocusId] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
@@ -354,6 +356,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         {!theme.isTV && <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>}
       </> : null}</View>
     </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <>{Platform.OS === 'android' && <><NativeFrameRateRow context={ports.context} runtime={runtime}/><NativePassthroughRow context={ports.context} runtime={runtime}/></>}<NativeLossNoticesRow context={ports.context} runtime={runtime}/></>}
+    {theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' && <View style={{gap: 8, marginBottom: 30}}><Text style={[shellType(20, 700), {color: theme.colors.textTertiary}]}>{t('next.settingsSpec.account.device.advanced.groups.1.title')}</Text>{passthroughFormats.map(format => <NativePassthroughRow key={format} format={format} context={ports.context} runtime={runtime}/>)}</View>}
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
