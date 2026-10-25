@@ -3,6 +3,8 @@ import {Text, View, findNodeHandle} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {GroupSessionSnapshot} from '../../../../../packages/client-core/src/group-session';
 import {Button, Focusable} from '../../kit/controls';
+import {ProfileFace} from '../../kit/artwork';
+import {Icon} from '../../kit/Icon';
 import {SidePanel} from '../../kit/overlays';
 import {useTheme} from '../../kit/theme';
 import {browseType} from '../../kit/browse/presentation';
@@ -50,9 +52,17 @@ export function NativeTVGroupPill({onHost, onSheetChange}: {onHost?: (host: numb
   }, [group, onHost]);
   if (!group || !owner) return null;
   const joined = group.members.filter(member => member.state === 'joined');
+  const memberName = (member: (typeof joined)[number]) => member.private ? t('together.privateViewer') : member.displayName;
+  const waiting = joined.find(member => member.id !== group.viewerMemberId && member.readiness === 'buffering');
   // Drawn states come only from the service's own readiness, presence and room phase.
-  const pillState = snapshot?.phase === 'reconnecting' ? t('web.together.reconnecting')
-    : group.readiness.aggregate === 'ready' ? t('web.together.inStep') : t('web.together.catchingUp');
+  const pillState = snapshot?.phase === 'reconnecting' ? t('web.together.pill.reconnecting')
+    : group.host.presence !== 'connected' && !group.permissions.isHost ? t('web.together.pill.hostAway')
+    : waiting ? t('web.together.pill.waitingFor', {name: memberName(waiting)})
+    : group.readiness.aggregate === 'ready' ? t('web.together.pill.inStep') : t('web.together.catchingUp');
+  const statusColor = snapshot?.phase === 'reconnecting' || group.readiness.aggregate !== 'ready' || group.host.presence !== 'connected' ? theme.colors.amber : theme.colors.healthy;
+  const face = (member: (typeof joined)[number], size: number) => member.private
+    ? <View style={{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedHigh}}><Icon name="i-user" size={size / 2} color={theme.colors.textSecondary}/></View>
+    : <ProfileFace initial={[...member.displayName.trim()][0] ?? ''} size={size} scaleOnFocus={false}/>;
   const memberState = (member: (typeof joined)[number]) => member.readiness === 'buffering' ? t('web.together.loading')
     : member.readiness === 'lagging' ? t('web.together.catchingUp')
     : member.presence !== 'connected' ? t('web.together.away') : t('web.together.inStep');
@@ -81,12 +91,17 @@ export function NativeTVGroupPill({onHost, onSheetChange}: {onHost?: (host: numb
   };
   return <>
     <Focusable ref={pill} testID="player-group-pill" focusId="player-group-pill" accessibilityRole="button"
-      accessibilityLabel={group.name} onPress={openSheet} focusRadius={10}
-      style={{marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 8,
-        borderRadius: 14, backgroundColor: 'rgba(237,245,250,.12)'}}>
-      <Text style={[browseType(theme, 18, 700), {color: theme.colors.text}]}>{group.name}</Text>
-      <Text style={[browseType(theme, 16, 600), {color: theme.colors.textSecondary}]}>{t('web.together.here', {count: joined.length})}</Text>
-      <Text numberOfLines={1} style={[browseType(theme, 16, 600), {color: theme.colors.textTertiary, maxWidth: 260}]}>{pillState}</Text>
+      accessibilityLabel={t('web.together.pill.label', {name: group.name, count: joined.length, status: pillState})} onPress={openSheet} focusRadius={32}
+      style={{marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 14, height: 64, maxWidth: 380, paddingLeft: 10, paddingRight: 26,
+        borderRadius: 32, backgroundColor: 'rgba(7,16,24,.5)', boxShadow: 'inset 0 0 0 1px rgba(237,245,250,.12)'}}>
+      <View accessible={false} style={{flexDirection: 'row'}}>{joined.slice(0, 3).map((member, index) => <View key={member.id} style={{marginLeft: index ? -11 : 0, borderRadius: 21, boxShadow: '0 0 0 2.5px #0b1720'}}>{face(member, 42)}</View>)}</View>
+      <View style={{minWidth: 0, flexShrink: 1}}>
+        <Text numberOfLines={1} style={[browseType(theme, 22, 700), {lineHeight: 26 * theme.textScale, color: theme.colors.text}]}>{group.name}</Text>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+          <View style={{width: 9, height: 9, borderRadius: 4.5, backgroundColor: statusColor}}/>
+          <Text numberOfLines={1} style={[browseType(theme, 20, 600), {lineHeight: 24 * theme.textScale, color: statusColor, flexShrink: 1}]}>{pillState}</Text>
+        </View>
+      </View>
     </Focusable>
     <SidePanel open={currentSheet !== undefined} onOpenChange={next => {if (!next) closeSheet(currentSheet);}} title={group.name}
       testID="player-group-sheet" width={620} topInset={0} returnFocusRef={pill}
@@ -95,9 +110,10 @@ export function NativeTVGroupPill({onHost, onSheetChange}: {onHost?: (host: numb
         <Text testID="player-group-people" style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>
           {t('web.together.pill.people', {count: joined.length})}
         </Text>
-        {joined.map(member => <View key={member.id} style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
+        {joined.map(member => <View key={member.id} style={{flexDirection: 'row', alignItems: 'center', gap: 20, height: 88, paddingHorizontal: 22, borderRadius: 16}}>
+          {face(member, 64)}
           <Text style={[browseType(theme, 22, 700), {color: theme.colors.text, flex: 1}]}>
-            {member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}
+            {member.private ? memberName(member) : member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}
           </Text>
           <Text style={[browseType(theme, 18, 600), {color: member.role === 'host' ? theme.colors.accentStrong : theme.colors.textTertiary}]}>
             {member.role === 'host' ? t('web.together.hostStatus', {status: memberState(member)}) : memberState(member)}
