@@ -117,6 +117,13 @@ internal object PorticoUrlRoutes {
     return if (host.equals("native-layout", ignoreCase = true) || MEASUREMENT_ATTEMPT.containsMatchIn(raw.trim())) REFUSED_MEASUREMENT else null
   }
 
+  /** Exact DEV gallery grammar. Raw matching refuses credentials, ports, fragments,
+   * encoded aliases, duplicate/unknown parameters and payloads outside gallery IDs. */
+  internal fun debugKitRoute(raw: String): String? {
+    if (!BuildConfig.DEBUG) return null
+    return raw.takeIf { Regex("^portico://kit/?(?:\\?gallery=[A-Za-z0-9_-]{1,128}(?:&window=1)?)?$").matches(it) }
+  }
+
   /** The single decision, for warm opens and cold launches alike. */
   fun allows(uri: Uri): Boolean {
     if (uri.scheme != "portico" || uri.userInfo != null || uri.port != -1) return false
@@ -178,7 +185,7 @@ internal object PorticoUrlRoutes {
     // Release never evaluates this exception, including malformed-attempt handling.
     val measurement = if (BuildConfig.DEBUG) debugMeasurementRoute(data.toString(), data.host) else null
     // DEV only: the in-app gallery host reaches the DEV Kit. A release build never evaluates it.
-    val kit = if (BuildConfig.DEBUG && data.scheme == "portico" && data.host == "kit") data else null
+    val kit = debugKitRoute(data.toString())?.let { Uri.parse(it) }
     val route = measurement?.let { Uri.parse(it) } ?: kit ?: when (data.scheme) {
       "portico" -> data.takeIf { allows(it) }
       "https" -> route(data)
