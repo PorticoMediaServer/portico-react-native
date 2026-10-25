@@ -50,7 +50,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
   controller: NativeLiveOwnerController; runtime: NativeShellRuntime; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void;
 }) {
   const theme = useTheme(), t = runtime.text.t;
-  const active = useRef<Opening>(), sequence = useRef(0);
+  const active = useRef<Opening | undefined>(undefined), sequence = useRef(0);
   const [, render] = useState(0);
   const changed = () => render(value => value + 1);
   const opening = active.current;
@@ -150,18 +150,18 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
       onPress={() => {if (current) void choose(current, field);}}>{files[field]?.title ?? t('web.metadata.chooseImageFile')}</Button>
     {files[field] && <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{sizeLabel(files[field]!.bytes)}</Text>}
   </View>;
-  return <Dialog open={open && !!current} onOpenChange={value => {if (!busy && !value && current) close(current);}} title={t('web.liveTv.upload')} description={t('web.liveTv.uploadLede')} dismissOnBack={!busy} dismissOnOutsidePress={!busy} showCloseButton={!busy}
+  return <Dialog open={open && !!current} onOpenChange={value => {if (!busy && !value && current) close(current);}} title={t('web.liveTv.upload')} description={t('web.liveTv.uploadLede')} dismissOnBack={!busy} dismissOnOutsidePress={!busy} showClose={!busy}
     footer={<View style={{flexDirection: 'row', gap: 10}}>
       <Button variant="glass" disabled={busy} onPress={() => {if (current) close(current);}}>{t('action.cancel')}</Button>
       <Button variant="primary" loading={busy} disabled={busy || !!reading || !input.name.trim() || !input.playlist}
         onPress={() => {if (current && draft && revision !== undefined) {if (preview) void save(current, revision, draft, preview);else void check(current, revision, draft);}}}>{t(preview ? 'web.liveTv.addSource' : 'web.liveTv.checkFiles')}</Button>
     </View>} testID="live-owner-upload">
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{gap: 16}}>
-      <TextField testID="live-owner-upload-name" label={t('web.liveTv.sourceName')} value={input.name} maxLength={100} disabled={busy || !!reading} onChangeText={name => {if (current) edit(current, {name});}}/>
+      <TextField testID="live-owner-upload-name" label={t('web.liveTv.sourceName')} value={input.name} maxLength={100} editable={!(busy || !!reading)} onChangeText={name => {if (current) edit(current, {name});}}/>
       {fileRow('playlist', 'web.liveTv.playlistFile')}
       {fileRow('guide', 'web.liveTv.guideFile')}
       <TextField testID="live-owner-upload-tuners" label={t('web.dvrSettings.tuners')} description={t('web.liveTv.tunersHelp')} keyboardType="number-pad"
-        value={String(input.tunerCount)} disabled={busy || !!reading}
+        value={String(input.tunerCount)} editable={!(busy || !!reading)}
         onChangeText={value => {const count = Number(value);if (current && Number.isSafeInteger(count) && count >= 0 && count <= 64) edit(current, {tunerCount: count});}}/>
       {current && current.error !== undefined && <StateView testID="live-owner-upload-error" {...runtime.error(current.error, () => {if (active.current === current && !current.retired) {current.error = undefined;changed();}})}/>}
       {preview && <View testID="live-owner-upload-preview" style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 12, padding: 14, gap: 6}}>

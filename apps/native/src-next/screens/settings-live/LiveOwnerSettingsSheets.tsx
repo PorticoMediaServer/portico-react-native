@@ -61,7 +61,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
   const [document, setDocument] = useState<LiveSourceDocument>(), [draft, setDraft] = useState<Draft>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [logo, setLogo] = useState(''), [saved, setSaved] = useState<MessageId>();
   const [choosing, setChoosing] = useState<'groups' | 'channels'>();
   const [loading, setLoading] = useState(false);
-  const cancel = useRef<View>(null), openingRef = useRef<Readonly<{sourceId: string}> | undefined>(), documentRef = useRef<LiveSourceDocument>();
+  const cancel = useRef<View>(null), openingRef = useRef<Readonly<{sourceId: string}> | undefined>(undefined), documentRef = useRef<LiveSourceDocument | undefined>(undefined);
   // The opening ticket is published in layout state: every render's Save closes over the exact
   // ticket it rendered under, and a press may never borrow the ticket that is open now.
   const [opening, setOpening] = useState<Readonly<{sourceId: string}>>();
