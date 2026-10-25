@@ -8,6 +8,11 @@ import * as languages from '../../../packages/client-core/src/presentation/langu
 import * as regionChoices from '../../../packages/client-core/src/presentation/region-choices';
 import * as sentenceParts from '../src-next/kit/states/sentence-parts';
 import * as settingsActions from '../src-next/screens/settings-live/settings-actions';
+import * as settingsConfiguration from '../../../packages/client-core/src/settings-configuration';
+import * as settingsBindings from '../../../packages/client-core/src/presentation/settings-bindings';
+import * as settingsSpec from '../../../packages/client-core/src/presentation/settings-spec';
+import {AppState,NativeModules} from 'react-native';
+import {alpha} from '../src-next/kit/shell/visual';
 import * as i18n from '../../../packages/i18n/src';
 import {parsePreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {nextIcons} from '../../../packages/design/src/next-icons';
@@ -36,8 +41,11 @@ async function fixture() {
     './NativePassthroughRow': {NativePassthroughRow: 'NativePassthroughRow', nativePassthroughFocusId: 'settings-device-audio-passthrough'},
     './NativeLossNoticesRow': {NativeLossNoticesRow: 'NativeLossNoticesRow', nativeLossNoticesFocusId: 'settings-device-loss-notices'},
     react,
-    'react-native': {Dimensions: {get: () => ({width: 800, height: 1024})}, Platform: {OS: 'ios', isTV: false, isPad: true}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    'react-native': {AppState,NativeModules,Dimensions: {get: () => ({width: 800, height: 1024})}, Platform: {OS: 'ios', isTV: false, isPad: true}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     '../../../../../packages/contracts/src/routes': routes,
+    '../../../../../packages/client-core/src/settings-configuration': settingsConfiguration,
+    '../../../../../packages/client-core/src/presentation/settings-bindings': settingsBindings,
+    '../../../../../packages/client-core/src/presentation/settings-spec': settingsSpec,
     '../../../../../packages/client-core/src/presentation/settings-structure': structure,
     '../../../../../packages/client-core/src/presentation/language-list': languages,
     '../../../../../packages/client-core/src/presentation/region-choices': regionChoices,
@@ -49,7 +57,7 @@ async function fixture() {
     '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({capture: () => undefined, focus: () => false})},
     '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/shell': {SettingsRow: 'SettingsRow', SettingsSearchResults: 'SettingsSearchResults', LanguageList: 'LanguageList'},
-    '../../kit/shell/visual': {shellType: () => ({})},
+    '../../kit/shell/visual': {alpha,shellType: () => ({})},
     '../../kit/theme': {useTheme: () => theme},
     '../../kit/states': {StateView: 'StateView'},
     '../../kit/overlays': {Dialog: 'Dialog', Menu: 'Menu'},
