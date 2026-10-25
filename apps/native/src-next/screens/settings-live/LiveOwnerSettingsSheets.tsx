@@ -1,6 +1,8 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {guideOnlyPatch} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {liveSavedSettingsId} from '../../../../../packages/client-core/src/server-admin/live-words';
+import type {MessageId} from '../../../../../packages/i18n/src';
 import {Button, Focusable, Segmented, Select, Switch, TextField} from '../../kit/controls';
 import {Dialog} from '../../kit/overlays';
 import {SkeletonBlock, StateView} from '../../kit/states';
@@ -56,29 +58,43 @@ function Row({label, description, children}: {label: string; description?: strin
  * whether logos are brought in, its buffer and retry times, and its own import limits. */
 export function SourceSettingsSheet({controller, runtime, source, sources, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; source?: LiveSource; sources: readonly LiveSource[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [document, setDocument] = useState<LiveSourceDocument>(), [draft, setDraft] = useState<Draft>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [logo, setLogo] = useState('');
+  const [document, setDocument] = useState<LiveSourceDocument>(), [draft, setDraft] = useState<Draft>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [logo, setLogo] = useState(''), [saved, setSaved] = useState<MessageId>();
   const [choosing, setChoosing] = useState<'groups' | 'channels'>();
   const [loading, setLoading] = useState(false);
-  const cancel = useRef<View>(null);
-  useEffect(() => {
+  const cancel = useRef<View>(null), openingRef = useRef<Readonly<{sourceId: string}> | undefined>(), documentRef = useRef<LiveSourceDocument>();
+  // The opening ticket is published in layout state: every render's Save closes over the exact
+  // ticket it rendered under, and a press may never borrow the ticket that is open now.
+  const [opening, setOpening] = useState<Readonly<{sourceId: string}>>();
+  documentRef.current = document;
+  useLayoutEffect(() => {
     if (!open || !source) return;
-    setDocument(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLogo(''); setLoading(true);
+    const ticket = Object.freeze({sourceId: source.id});
+    openingRef.current = ticket;
+    setOpening(ticket);
+    setDocument(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLogo(''); setSaved(undefined); setLoading(true);
     let active = true;
+    const live = () => active && openingRef.current === ticket;
     void controller.document(source.id).then(value => {
-      if (!active) return;
+      if (!live()) return;
       setDocument(value); setDraft(draftOf(value.settings));
-    }, failure => {if (active) setError(failure);}).finally(() => {if (active) setLoading(false);});
-    return () => {active = false;};
+    }, failure => {if (live()) setError(failure);}).finally(() => {if (live()) setLoading(false);});
+    return () => {active = false; if (openingRef.current === ticket) openingRef.current = undefined; setOpening(current => current === ticket ? undefined : current);};
   }, [open, source, controller]);
   const dirty = !!document && !!draft && JSON.stringify(draft) !== JSON.stringify(draftOf(document.settings));
-  const patch = (value: Partial<Draft>) => setDraft(current => current ? {...current, ...value} : current);
-  const patchFilter = (key: typeof filterKeys[number], value: Partial<FilterRule>) => setDraft(current => current ? {...current, filters: {...current.filters, [key]: {...current.filters[key], ...value}}} : current);
+  const patch = (value: Partial<Draft>) => {setSaved(undefined); setDraft(current => current ? {...current, ...value} : current);};
+  const patchFilter = (key: typeof filterKeys[number], value: Partial<FilterRule>) => {setSaved(undefined); setDraft(current => current ? {...current, filters: {...current.filters, [key]: {...current.filters[key], ...value}}} : current);};
   const save = async () => {
-    if (!document || !draft || !source) return;
-    setBusy(true); setError(undefined);
-    const result = await controller.saveDocument({sourceId: document.sourceId, revision: document.revision, settings: document.settings}, settingsOf(draft));
+    // The ticket is the one this render rendered under, never acquired from the live opening.
+    if (!document || !draft || !source || !opening) return;
+    const ticket = opening, sourceId = document.sourceId, revision = document.revision, acquisition = document.acquisition;
+    if (openingRef.current !== ticket || ticket.sourceId !== sourceId) return;
+    setBusy(true); setError(undefined); setSaved(undefined);
+    const result = await controller.saveDocument({sourceId, revision, settings: document.settings}, settingsOf(draft));
+    // The accepted command still belongs to the opening and document it was sent for.
+    const live = documentRef.current;
+    if (openingRef.current !== ticket || live?.sourceId !== sourceId || live.revision !== revision) return;
     setBusy(false);
-    if (result) onSaved();
+    if (result) {setSaved(liveSavedSettingsId(acquisition)); onSaved();}
   };
   const importLogos = async () => {
     if (!source || !document) return;
@@ -165,6 +181,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
             </Section>
           </>}
         </>}
+        {saved && <Text testID="live-owner-source-saved" accessibilityLiveRegion="polite" style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{t(saved)}</Text>}
       </View>
     </Dialog>
     <SourceChoiceSheet controller={controller} runtime={runtime} source={source} kind={choosing} open={choosing !== undefined} onOpenChange={value => {if (!value) setChoosing(undefined);}}
