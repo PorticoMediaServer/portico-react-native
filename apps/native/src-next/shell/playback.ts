@@ -5,6 +5,7 @@ import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index'
 import type {V1QueuePlayer} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {SegmentInput} from '../../../../packages/client-core/src/playback-v1/queue';
 import type {QueueHeader} from '../../../../packages/client-core/src/playback-v1/types';
+import type {QueuePlayerState} from '../../../../packages/client-core/src/queue-controller';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence, type RemoteDock} from '../../../../packages/player-core/src';
@@ -29,6 +30,10 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   fence?: PlaybackFence;
   subject?: PlaybackSubject;
   entry?: ContentEntry;
+  /** The listening owner's own queue projection for a queue-backed occupant (album,
+   * artist, audiobook): the same items, order and durations the engine plays, read
+   * here only to draw them. Absent for a local file or while no queue is ready. */
+  queue?: QueuePlayerState;
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
 }>;
@@ -76,6 +81,9 @@ export interface NativeShellPlaybackAdapter {
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;
   next: (fence: PlaybackFence) => Promise<void>;
+  /** Play one queue entry by identity. The existing queue owner performs it; the
+   * revision is the one the drawn row was read from, so a changed queue refuses. */
+  queuePlay?: (queueId: string, entryId: string, expectedRevision: string) => Promise<void>;
   /** Channels only: return to the live edge of the retained window. */
   goLive?: (fence: PlaybackFence) => Promise<void>;
   /** Sleep timer for this playback: minutes, or null to clear. */

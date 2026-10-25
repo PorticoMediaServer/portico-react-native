@@ -7,6 +7,9 @@ import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation} from '../kit/dock';
+import {currentOccupant} from '../kit/dock/model';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
 import type {NativeShellRuntime} from './runtime';
 import {sameAuthority, type ShellAuthority} from './model';
@@ -18,7 +21,7 @@ import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
 export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
-  const {width, height} = useWindowDimensions(), theme = useTheme();
+  const {width, height} = useWindowDimensions(), theme = useTheme(), insets = useSafeAreaInsets();
   const watch = runtime.watch;
   const subscribeWatch = useCallback((listener: () => void) => watch ? watch.subscribe(listener) : () => {}, [watch]);
   const readWatchSlot = useCallback(() => watch?.getSnapshot(), [watch]);
@@ -158,6 +161,12 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, skipForwardSeconds: runtime.skipForwardSeconds, capabilities: snapshot.capabilities} : undefined;
+  // tablet-play9/10: a music or audiobook occupant that the viewer expanded is the
+  // listening surface, drawn from the same dock occupant and the listening owner's
+  // queue. The dock stays underneath; this never starts a second session.
+  const dockedLocal = snapshot.dock.local;
+  const nowPlaying = !theme.isTV && presentation && dockedLocal?.expanded === true && (dockedLocal.kind === 'music' || dockedLocal.kind === 'audiobook')
+    && sameFence(dockedLocal.fence, presentation.fence) ? currentOccupant(adapter.dock, snapshot.dock, {local: presentation}) : null;
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
       <PlayerMorph controller={morph} fence={pictureFence} docked={docked} fullFrame={fullFrame} dockFrame={dockSlot ?? fullFrame}
@@ -171,6 +180,10 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
         <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>
+        {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined}
+          width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
+          onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
+          onClose={() => {const current = adapter.getSnapshot(); if (current.dock.local?.expanded && current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.onTransition(adapter.dock.collapse(current.fence)).catch(runtime.reportError);}}/>}
       </View>
     </Animated.View>
   </View>;
