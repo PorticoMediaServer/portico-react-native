@@ -77,7 +77,8 @@ function Customization({source, runtime, close}: {source: Source; runtime: Nativ
   const labels = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale}, copy = customizeCopy(runtime.text);
   return state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, () => {void source.controller.load();})}/>
     : <HomeCustomize summary={view => source.summaries.line(view, labels)} controller={source.controller} copy={copy} i18n={labels} onClose={close} onAddView={retry} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
-      views={{items: views.resources, loading: views.loading, error: views.error, retry,
+      views={{items: views.resources, loading: views.loading, error: views.error, retry, hasMore: !!views.nextCursor,
+        loadMore: () => {void source.views.next().catch(runtime.reportError);},
         renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>}}/>;
 }
 
