@@ -40,6 +40,7 @@ export type NativeWatchHostBindings = Readonly<{
   scrubbing?: boolean;
   focusHeld?: boolean;
   /** tv-player/phone-player 5 and 13: the committed plan's own loss note, read once per playback. */
+  noticePreferences?: Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => boolean}>;
   notice?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<NativeWatchNotice | undefined>;
 }>;
 type Props = Readonly<{
@@ -53,12 +54,15 @@ type Props = Readonly<{
   isTV?: boolean;
   setPresentation: (context: Omit<NativeWatchControlContext, 'expanded' | 'paused'>) => void;
 }>;
+const noNoticeSubscription = () => () => {};
+const noticesOn = () => true;
 const positioned = (pane: PlayerRect) => ({position: 'absolute' as const, left: pane.x, top: pane.y, width: pane.width, height: pane.height});
 
 /** Persistent chrome sibling above Accounts' single Surface. A transparent
  * measured surface pane is the only native-slot producer, including letterbox.
  * Posture changes never navigate, key a player, or recreate title memory. */
 export function NativeWatchHost({authority, current, playback, outlet, runtime, controls, bindings, setPresentation, isTV = false}: Props) {
+  const noticesEnabled = useSyncExternalStore(bindings.noticePreferences?.subscribe ?? noNoticeSubscription, bindings.noticePreferences?.getSnapshot ?? noticesOn);
   const source = useSyncExternalStore(playback.subscribe, playback.getSnapshot);
   const state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
   const window = useWindowDimensions(), posture = usePlatformPosture();
@@ -119,7 +123,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
-      <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={expanded && lossNotice?.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
+      <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice?.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
