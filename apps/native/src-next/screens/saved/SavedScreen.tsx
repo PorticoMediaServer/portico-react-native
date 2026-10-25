@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
