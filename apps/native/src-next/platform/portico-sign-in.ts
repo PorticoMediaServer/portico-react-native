@@ -1,12 +1,19 @@
 import {NativeModules} from 'react-native';
 import {MFARequiredError, parseAccountReturn, parseNativeAccountContinuation,
-  type HostedAccountClient, type IdentityProvider, type IdentityTransaction, type NativeAccountContinuation, type Registration} from '../../../../packages/client-core/src/hosted-security';
+  type HostedAccountClient, type IdentityProvider, type IdentityTransaction, type MFAChallenge, type NativeAccountContinuation, type Registration} from '../../../../packages/client-core/src/hosted-security';
 import {CodedError} from '../../../../packages/client-core/src/server-messages';
 import {ApiError, type HostedSession} from '../../../../packages/client-core/src';
 import {routePath as hostedPath, routeBody as hostedBody} from '../../../../packages/contracts/src/hosted/routes';
 import {nativeAccounts} from './accounts';
 import {linkNativeAbortSignals} from './abort-signals';
 import {hostedUrl} from './account-authority';
+
+/** An opaque, frozen witness for the private factor challenge this port holds. It
+ * carries no challenge token and cannot be forged: only this exact cached object is
+ * accepted, and only while it is bound to the exact challenge the port still holds.
+ * Callers hand the reference back; they cannot build an interchangeable one. */
+declare const nativeFactorWitness: unique symbol;
+export type NativeFactorWitness = Readonly<{readonly [nativeFactorWitness]: true}>;
 
 /** Root 43: the one typed early outcome the signup form may put on the username
  * field. Only a confirmed public-handle collision carries this closed code; a
@@ -32,6 +39,8 @@ export class NativePorticoSignIn {
   /** Set the moment a confirmed username refusal needs a rotated proof; kept if the
    * refresh fails so the next completion must refresh this same original first. */
   private providerRefresh?: IdentityTransaction;
+  /** The one issued factor witness and the exact private challenge it was bound to. */
+  private factorWitness?: Readonly<{witness: NativeFactorWitness; challenge: MFAChallenge}>;
   private authenticating = false;
   private nativeApple = false;
   private readonly off = nativeAccounts.onCancel(() => this.dispose());
@@ -79,10 +88,32 @@ export class NativePorticoSignIn {
     const id = await this.bridge.newRequestId(); this.check();
     return this.authenticate(signal => this.api().login(username, password, id, signal));
   }
-  factor(code: string) {
+  /** Issue, or reuse, the witness for the private challenge this port holds. The
+   * returned object is frozen and opaque; the token and challenge never leave here. */
+  factorChallengeIdentity(): NativeFactorWitness | undefined {
+    const challenge = this.continuation?.mfa;
+    if (!challenge) {this.factorWitness = undefined; return undefined;}
+    if (this.factorWitness?.challenge !== challenge) {
+      this.factorWitness = Object.freeze({witness: Object.freeze({}) as NativeFactorWitness, challenge});
+    }
+    return this.factorWitness.witness;
+  }
+  factor(code: string, caller?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>, witness?: NativeFactorWitness) {
     const challenge = this.continuation?.mfa;
     if (!challenge) throw new Error('native_factor_missing');
-    return this.authenticate(signal => this.api().mfa(challenge, code, signal));
+    // The old one-argument behaviour exists only when neither a caller nor a witness is
+    // supplied; a caller without a witness is a forged new-path attempt and is refused.
+    if (!witness && !caller) return this.authenticate(signal => this.api().mfa(challenge, code, signal));
+    const issued = this.factorWitness;
+    if (!witness || !caller || !issued || witness !== issued.witness || issued.challenge !== challenge
+      || !(Date.parse(challenge.expiresAt) > Date.now())) throw new CodedError('cancelled', 'native_factor_changed');
+    const callerLive = () => !this.abort.signal.aborted && this.isCurrent() && caller.isCurrent() && !caller.signal.aborted
+      && this.continuation?.mfa === challenge;
+    return this.authenticate(async signal => {
+      if (!callerLive()) throw new CodedError('cancelled', 'native_factor_changed');
+      const linked = linkNativeAbortSignals([this.abort.signal, caller.signal, signal]);
+      try {return await this.api().mfa(challenge, code, linked.signal);} finally {linked.dispose();}
+    }, callerLive);
   }
   /** Account help sends one reset link; the new password is chosen on that page,
    * on any device. The service answers the same way whether or not it matched. */
@@ -202,5 +233,5 @@ export class NativePorticoSignIn {
     if (!this.registration) throw new Error('native_registration_missing');
     return this.authenticate(signal => this.api().verifyRegistration(this.registration!.registrationId, {code}, signal));
   }
-  dispose() {if (this.abort.signal.aborted) return; this.abort.abort(); this.bridge?.cancel(); this.off(); this.providerAttempt = undefined; this.providerRefresh = undefined; if (this.authenticating) nativeAccounts.cancel();}
+  dispose() {if (this.abort.signal.aborted) return; this.abort.abort(); this.bridge?.cancel(); this.off(); this.providerAttempt = undefined; this.providerRefresh = undefined; this.factorWitness = undefined; if (this.authenticating) nativeAccounts.cancel();}
 }

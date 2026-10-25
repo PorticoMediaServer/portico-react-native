@@ -20,7 +20,7 @@ import {nativeAccounts} from '../../platform/accounts';
 import {NativeServerSignIn} from '../../platform/server-sign-in';
 import {NativeSetupEnded} from '../../platform/setup-outcome';
 import {HostedSignInUnavailable} from '../../platform/hosted-sign-in-unavailable';
-import {NativePorticoSignIn, porticoUsernameUnavailable} from '../../platform/portico-sign-in';
+import {NativePorticoSignIn, porticoUsernameUnavailable, type NativeFactorWitness} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
@@ -72,6 +72,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   // The provider completion's opening: the exact transaction this form was drawn for.
   const [providerOpening, setProviderOpening] = useState<Readonly<{transaction: IdentityTransaction; source: NativePorticoSignIn; owner: {live: boolean}; life: AbortController}>>();
   const [providerUsernameUnavailable, setProviderUsernameUnavailable] = useState(false);
+  // The phone Portico factor form's opening: its exact issued witness, source and life.
+  const [factorOpening, setFactorOpening] = useState<Readonly<{source: NativePorticoSignIn; witness: NativeFactorWitness; owner: {live: boolean}; life: AbortController}>>();
   type SetupReview = Awaited<ReturnType<NativeServerSignIn['reviewHostedSetup']>>;
   const [setupReview, setSetupReview] = useState<SetupReview>();
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
@@ -205,6 +207,16 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setProviderUsernameUnavailable(false);
     return () => {owner.live = false; life.abort();};
   }, [stage, transaction]);
+  // One factor opening per phone Portico challenge; its layout cleanup retires and
+  // aborts it so a retained handler or late settlement cannot act on a successor form.
+  useLayoutEffect(() => {
+    if (stage !== 'factor' || factorKind.current !== 'portico' || Platform.isTV) {setFactorOpening(undefined); return;}
+    const source = account.current, witness = source?.factorChallengeIdentity();
+    if (!source || !witness) {setFactorOpening(undefined); return;}
+    const owner = {live: true}, life = new AbortController();
+    setFactorOpening(Object.freeze({source, witness, owner, life}));
+    return () => {owner.live = false; life.abort();};
+  }, [stage]);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useLayoutEffect(() => {
     if (stage !== 'address') return;
@@ -1056,8 +1068,37 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       {!Platform.isTV && server?.move === 'to_local' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberCode);}}>{t('accounts.move.haveCode')}</Button>}
     </View>);
   }
+  if (stage === 'factor' && factorKind.current === 'portico' && !Platform.isTV) {
+    // The phone Portico factor form acts only through its own opening: the exact issued
+    // witness, source, challenge and the draft revision it renders.
+    const opening = factorOpening, revision = registerDraftRev.current, entered = recovery ? recoveryCode : code;
+    // Settlement only needs this original form, source and draft; admission additionally
+    // needs the exact challenge, which a successful factor clears before it resolves.
+    const formLive = () => lifetime.current && stageRef.current === 'factor' && !!opening && opening.owner.live
+      && account.current === opening.source && registerDraftRev.current === revision;
+    const admitted = () => formLive() && !!opening && opening.source.factorChallengeIdentity() === opening.witness;
+    const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
+    return layout(t('auth.enterVerificationCode'), t('services.signin.twoStep'),
+      fields(field(recovery ? t('services.signin.recovery') : t('auth.verificationCode'), entered, recovery ? edit(setRecoveryCode) : edit(setCode))),
+      action('factor', t('action.continue'), async () => {
+        const source = opening?.source;
+        if (!opening || !source || !entered || !admitted()) return;
+        try {
+          await source.factor(entered, {signal: opening.life.signal, isCurrent: admitted}, opening.witness);
+        } catch (refusal) {
+          // A retired form publishes nothing; only the live original may surface a refusal.
+          if (!formLive()) return;
+          throw refusal;
+        }
+        // Only this own accepted completion settles and navigates.
+        if (!formLive()) return;
+        setCode(''); setRecoveryCode(''); setRecovery(false);
+        await directory();
+      }, !entered),
+      recovery ? undefined : <Button variant="text" disabled={busy} onPress={() => {if (!formLive()) return; registerDraftRev.current++; setRecoveryCode(''); setRecovery(true);}}>{`${t('services.signin.lostPhone')} ${t('services.signin.recovery')}`}</Button>);
+  }
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
-    if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
+    if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
       const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);
     } else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(code) : operation.current!.completeSecondFactor(code)));
     setCode('');
