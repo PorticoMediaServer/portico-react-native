@@ -5,6 +5,7 @@ import {DetailService, type DetailProjection, type DetailScope, type PersonalInt
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {ManageAction} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
+import {setContinueDismissed} from '../../../../../packages/client-core/src/continue-watching';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
@@ -253,8 +254,43 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       if (!controller) {
         controller = createTitleController(key, route.entry);
       }
-      // The search action keeps the title route and revision that committed it: a retained
-      // callback can never open Search on a later route or borrow a later authority.
+      // The search and Remove Continue actions keep the title route and revision that
+      // committed them; a retained callback can never act on a later route.
+      const continueWatching = route.continueWatching;
+      const removeContinue: NativeTitleScreenProps['removeContinue'] = continueWatching ? async callerSignal => {
+        const captured = {route, revision: navigation.revision, authority: ports.authority}, lease = new AbortController();
+        const stillCurrent = () => {
+          const now = ports.navigation.getSnapshot();
+          return alive() && sameAuthority(now.authority, captured.authority) && sameAuthority(captured.authority, ports.current())
+            && now.route === captured.route && now.revision === captured.revision && !lease.signal.aborted && !callerSignal.aborted;
+        };
+        const assertCurrent = () => {if (!stillCurrent()) throw Object.assign(new Error('native_title_route_changed'), {name: 'AbortError'});};
+        const stops = [ports.navigation.subscribe(() => {if (!stillCurrent()) lease.abort();}),
+          ports.subscribeCurrent(() => {if (!stillCurrent()) lease.abort();})];
+        const abortFromCaller = () => lease.abort();
+        if (callerSignal.aborted) lease.abort(); else callerSignal.addEventListener('abort', abortFromCaller, {once: true});
+        const signal = lease.signal;
+        // Every transport — the revision read, a retry and the PUT — rechecks the exact route.
+        const scoped = {request: async <T,>(path: string, method?: string, body?: unknown, requestSignal?: AbortSignal): Promise<T> => {
+          assertCurrent();
+          const result = await ports.api.request<T>(path, method, body, requestSignal);
+          assertCurrent();
+          return result;
+        }};
+        try {
+          assertCurrent();
+          await setContinueDismissed(scoped, {itemId: continueWatching.itemId, dismissed: true, revision: continueWatching.revision,
+            operationId: ports.requestId, signal});
+          assertCurrent();
+          return true;
+        } catch (error) {
+          if (!stillCurrent()) return false;
+          throw error;
+        } finally {
+          callerSignal.removeEventListener('abort', abortFromCaller);
+          for (const stop of stops) stop();
+        }
+      } : undefined;
       const search: NativeTitleScreenProps['search'] = ports.title.search && navigation.route === route
         ? query => {
             const now = ports.navigation.getSnapshot();
@@ -262,7 +298,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
             ports.title.search!(query);
           }
         : undefined;
-      return <NativeTitleScreen {...ports.title} search={search} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
+      return <NativeTitleScreen {...ports.title} search={search} removeContinue={removeContinue} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
         back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {
           const owner = controller!;
           void menu(entry, () => {
