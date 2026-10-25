@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, RefreshControl, Text, View, useWindowDimensions} from 'react-native';
 import Animated, {runOnJS, useAnimatedScrollHandler} from 'react-native-reanimated';
+import {heroSpec} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {HomeChannel, HomeRow} from '../../../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -10,7 +11,7 @@ import {serverTextLabel} from '../../../../../packages/client-core/src/presentat
 import {programmeFactParts, programmeTimeRange, type FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {ArtworkPlacementContext} from '../../platform/ArtworkPipeline';
 import {usePlatformPosture} from '../../platform/platformPosture';
-import {AmbientArt} from '../../kit/artwork';
+import {AmbientArt, Artwork} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {tvFocusIds, tvHomeRegionMap} from '../../shell/tv-focus';
@@ -248,7 +249,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const spotlight = <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
     testID={theme.isTV ? ids.surface('hero') : undefined} active={heroActive && (!theme.isTV || !preview)} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
     copySide={medium ? mediumCopySide(windowWidth, windowHeight) : undefined} lockupStyle={medium ? mediumLockupStyle(theme, windowWidth, windowHeight) : undefined}
-    renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
+    renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions}
+    renderThumbnail={candidate => <Artwork source={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} width={heroSpec.thumbnail.width} height={heroSpec.thumbnail.height}/>}
+    onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
   if (!document) return snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
     : <HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>;
