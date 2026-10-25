@@ -599,8 +599,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (factorKind.current === 'portico') {await account.current!.factor(value); await directory();}
     else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(value) : operation.current!.completeSecondFactor(value)));
   };
-  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
-    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid}/>;
+  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string, help?: string) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
+    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid} description={help}/>;
   const fields = (...children: React.ReactNode[]) => <View style={{alignSelf: 'stretch', width: theme.isTV ? 720 : undefined, gap: 14, marginBottom: 20}}>{children}</View>;
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
@@ -1078,9 +1078,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       && opening.owner.live && registerOpeningRef.current === opening && opening.source === source && account.current === source
       && registerDraftRev.current === revision;
     const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
-    return layout(t('auth.createYourAccount'), undefined, fields(
+    return layout(t('auth.createYourAccount'), theme.isTV ? undefined : t('auth.oneAccount'), fields(
       field(t('auth.username'), username, next => {setUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
-        !theme.isTV && usernameUnavailable ? t('web.signIn.error.accountTaken') : undefined),
+        !theme.isTV && usernameUnavailable ? t('web.signIn.error.accountTaken') : undefined, theme.isTV ? undefined : t('auth.usernameHelp')),
       field(t('auth.yourName'), name, edit(setName)), field(t('auth.email'), email, edit(setEmail)), field(t('auth.password'), password, edit(setPassword), true)),
       action('register', t('auth.createAccount'), async () => {
         const source = opening?.source;
