@@ -230,6 +230,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
         </View>
       </View>
   );
+  const playingEpisodeId = props.watch?.source.entry?.id, nextEpisodeId = workspace?.nextUp?.id;
   const bodyNode = (
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
         {selectedTab === 'episodes' && workspace && (theme.isTV ? <TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
@@ -262,6 +263,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               onNeighbour={neighbour => props.navigate({id: neighbour.id, kind: 'episode', title: neighbour.title, libraryId: workspace.show.libraryId, show: {id: workspace.show.id, name: workspace.show.title}})}
               onRetry={() => controller.episode.retry()} renderError={props.renderError} locale={text.locale ?? 'en-US'}/>
               : <TitleEpisode entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : bodyWidth - 40} layout={theme.isTV ? 'tile' : 'row'} artWidth={tabletWatch ? 224 : undefined} watched={entry.watched} progress={model.progress}
+                status={entry.id === playingEpisodeId ? t('player.miniPlaying') : entry.id === nextEpisodeId ? t('player.queue') : undefined}
                 artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={entry.overview}
                 {...(theme.isTV && entry.playback ? {primaryAction: 'play' as const, onPlay: () => {void controller.play(entry).catch(props.reportError);}} : {primaryAction: 'navigate' as const})}
                 onNavigate={() => theme.isTV ? props.navigate(entry) : controller.episode.open(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
