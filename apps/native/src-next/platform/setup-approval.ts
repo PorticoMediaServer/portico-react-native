@@ -33,7 +33,7 @@ export class NativeSetupApproval {
   }
   private async lookup(): Promise<Claim> {
     const session = await this.access();
-    this.account ??= {id: session.account.id, family: session.familyId, name: session.account.displayName};
+    this.account ??= {id: session.account.id, family: session.familyId, name: session.account.displayName || session.account.username};
     await this.current();
     const raw = await new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch)
       .request(routePath('server_claim_lookup'), 'POST', {code: this.expected.code}, this.signal);
@@ -58,7 +58,7 @@ export class NativeSetupApproval {
   }
   async review() {
     this.claim = await this.lookup();
-    return {serverName: this.claim.name, address: this.claim.address, accountName: this.account!.name};
+    return {approved: this.claim.status === 'approved', serverName: this.claim.name, address: this.claim.address, accountName: this.account!.name};
   }
   async approve() {
     const previous = this.claim;

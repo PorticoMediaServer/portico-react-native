@@ -415,7 +415,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       if (!lifetime.current) return;
       if (url && credentials.getSnapshot().session) {
         const review = await operation.current!.reviewHostedSetup(url);
-        if (lifetime.current) {setSetupReview(review); setStage('setup-review');}
+        if (lifetime.current) {if (review.display.approved) setStage('setup-hosted'); else {setSetupReview(review); setStage('setup-review');}}
       } else {setStage('setup-hosted'); if (url) await Linking.openURL(url);}
     }, !name.trim()) : action('setup-local', t('web.setup.localSignIn'), async () => {setStage('setup-local');}, !name.trim()),
     <View style={{alignSelf: 'stretch', gap: 14}}>

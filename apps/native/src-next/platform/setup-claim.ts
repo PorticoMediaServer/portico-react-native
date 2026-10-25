@@ -97,7 +97,7 @@ export class NativeSetupClaim {
       this.attemptId = record.attemptId; return {url: record.approvalURL};
     } finally {this.busy = false;}
   }
-  async prepare(api: HttpLocalApi, hostedOrigin: string): Promise<string> {
+  async prepare(api: HttpLocalApi, hostedOrigin: string): Promise<string | undefined> {
     this.ports.journal.assertAvailable();
     const existing = await this.resumePrepared();
     if (existing) return existing.url;
