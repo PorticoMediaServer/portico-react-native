@@ -65,7 +65,7 @@ async function controls(isTV = false, reduce = false) {
   const motion = {transforms: !reduce, timing: () => ({duration: reduce ? 160 : 120})};
   const handles: {read: () => any}[] = [], timings: {value: number; duration: number}[] = [];
   const animatedInputs: Record<string, any>[] = [];
-  const native = {Pressable: 'Pressable', View: 'View', Text: 'Text', ActivityIndicator: 'ActivityIndicator',
+  const native = {Pressable: 'Pressable', View: 'View', Text: 'Text', ActivityIndicator: 'ActivityIndicator', useWindowDimensions: () => ({width: 390, height: 844}),
     StyleSheet: {create: (styles: unknown) => styles, flatten, absoluteFill: {position: 'absolute', inset: 0}}};
   const animated = {
     default: {View: 'AnimatedView', createAnimatedComponent: (Component: any) => React.forwardRef(function Filtered(props: any, ref) {
