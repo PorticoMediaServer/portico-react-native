@@ -54,7 +54,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const [visible, setVisible] = useState({first: 0, last: 0});
   const grid = useRef<WindowedGridHandle>(null);
   const [lease, setLease] = useState<BooksLease>();
-  const held = useRef<BooksLease>(), command = useRef<object>();
+  const held = useRef<BooksLease | undefined>(undefined), command = useRef<object | undefined>(undefined);
   // Every commit installs the lease for the route this grid is laid out under;
   // a card closes over the lease of the render that drew it, so a retained
   // handler can never act on a Back or a later destination's revision.
