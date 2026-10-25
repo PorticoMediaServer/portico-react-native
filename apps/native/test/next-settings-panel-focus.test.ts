@@ -6,6 +6,8 @@ const {react} = hooks();
 const {renderNativeSettingsPanel} = await screenModule(new URL('../src-next/screens/settings-live/settings-panels.tsx', import.meta.url), {
   react, 'react-native': {},
   '../../../../../packages/client-core/src/installation': {installationIdentity: () => undefined},
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {},
+  '../../kit/controls': {},
   '../../../../../packages/client-core/src/freshness-actions': {},
   '../../../../../packages/client-core/src/playback-v1/http': {},
   '../../../../../packages/client-core/src/playback-v1/local-http': {},
