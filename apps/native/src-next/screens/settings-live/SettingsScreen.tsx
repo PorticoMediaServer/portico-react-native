@@ -187,11 +187,11 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
 function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
-  // tv-more24: the TV hands anything that needs typing or a password to a phone or computer.
+  // The public browser handoff does not grant native password/two-step editing.
   const settingsCapabilities = ports.settingsContext().capabilities;
-  const managesSignIn = settingsCapabilities.manageSignIn ?? (!!settingsCapabilities.localAccount && !settingsCapabilities.porticoMember);
+  const offersWebSignIn = !!settingsCapabilities.localAccount && !settingsCapabilities.porticoMember;
   const managementURL = (() => {
-    if (!(theme.isTV && page.id === 'profile' && managesSignIn)) return undefined;
+    if (!(theme.isTV && page.id === 'profile' && offersWebSignIn)) return undefined;
     try {return new URL('/settings/profile', ports.context.api.baseUrl).href;} catch {return undefined;}
   })();
   // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
