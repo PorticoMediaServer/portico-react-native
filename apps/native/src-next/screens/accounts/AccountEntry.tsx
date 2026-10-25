@@ -1079,7 +1079,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   if (stage === 'forgot') return layout(t('auth.forgotPasswordTitle'), t('auth.resetLinkLede'),
     fields(field(t('auth.username'), username, setUsername), field(t('auth.email'), email, setEmail)),
     action('request-reset', t('auth.resetLinkAction'), requestReset, !username.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())),
-    <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 4}]}>{t('auth.privacySameAnswer')}</Text>);
+    <View style={{alignSelf: 'stretch', gap: 4, marginTop: 4}}>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('auth.privacySameAnswer')}</Text>
+      {/* collections 31 draws both privacy sentences on the phone's forgot screen. */}
+      {theme.isTV ? null : <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('auth.noPasswordForSocial')}</Text>}
+    </View>);
   if (stage === 'forgot-sent') return layout(t('auth.checkEmail'), t('auth.resetLinkSent'),
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 16}]}>{t('auth.privacySameAnswer')}</Text>,
     action('back-to-sign-in', t('auth.backToSignIn'), async () => {if (lifetime.current) setStage('portico');}),
