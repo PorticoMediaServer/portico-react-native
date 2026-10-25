@@ -21,14 +21,14 @@ type ViewerRole = 'owner' | 'administrator' | 'member';
 type Translate = typeof defaultI18n.t;
 
 /** Settings › Server › Integrations on the phone (owner-server.html frames 38–39). */
-export function NativeServerIntegrations({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeServerIntegrations({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
   const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
   const [tab, setTab] = useState('keys');
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40}}>
       <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom: 12}}/>
-      <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.integrations')}</Text>
+      {!compactHeader && <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.integrations')}</Text>}
       <Tabs testID="server-integrations-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.integrations')}
         items={[{value: 'keys', label: t('web.access.apiKeys')}, {value: 'webhooks', label: t('api.webhooks.title')}, {value: 'assistants', label: t('api.mcp.title')}]}/>
       {tab === 'keys' && <ApiKeysTab ports={ports} runtime={runtime} t={t}/>}

@@ -35,14 +35,14 @@ const useRead = <T,>(read: () => Promise<T>, deps: readonly unknown[]) => {
 };
 
 /** Settings › Server › Storage & backups on the phone (owner-server.html frames 35–37). */
-export function NativeServerStorage({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeServerStorage({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
   const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
   const [tab, setTab] = useState('space');
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40}}>
       <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom: 12}}/>
-      <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.storage')}</Text>
+      {!compactHeader && <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.storage')}</Text>}
       <Tabs testID="server-storage-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.storage')}
         items={[{value: 'space', label: t('server.space')}, {value: 'limits', label: t('server.limitsAndRetention')}, {value: 'backups', label: t('settings.server.backups')}, {value: 'missing', label: t('settings.server.missingTitles')}]}/>
       {tab === 'space' && <SpaceTab ports={ports} runtime={runtime} t={t}/>}
