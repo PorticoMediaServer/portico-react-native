@@ -215,6 +215,8 @@ export class NativePlayOn {
   stop = async (): Promise<void> => {
     const controller = this.controller;
     if (!controller) return;
+    // While it is still asking or preparing, Stop cancels the request: nothing has moved.
+    if (controller.getSnapshot().phase !== 'done') {controller.cancel(); this.publish({sending: false, phase: 'idle', message: undefined}); return;}
     this.stopPolling();
     await controller.stop().catch(() => {});
     const current = this.state.remote;
