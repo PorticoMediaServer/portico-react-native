@@ -24,6 +24,8 @@ import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHa
 import {TVIdentityCodeForm} from '../../tv/auth/TVIdentityCodeForm';
 import type {NativeProfileRecovery} from '../../platform/profile-recovery';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
+import {DirectoryAccessRefused} from './DirectoryAccessRefused';
+import {directoryAccessRefused} from './directory-refusal';
 import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows} from './directory-chooser';
@@ -333,6 +335,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
     await account.current!.verifyContact(contact.current!, code); setTransaction(value => value && {...value, contactVerified: true}); setCode(''); setStage('provider');
   }, !code));
+  if (stage === 'servers' && target && directoryAccessRefused(error)) return <DirectoryAccessRefused serverName={target.name} busy={busy}
+    onOther={chooseAnother} onRefresh={() => {cancelDirectory(); void run(directory);}}/>;
   if (stage === 'servers' && target && directoryView === 'opening') return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
     primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   if (stage === 'servers' && target && directoryView === 'unreachable') {
