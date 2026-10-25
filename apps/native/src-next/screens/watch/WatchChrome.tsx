@@ -2,7 +2,8 @@ import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} f
 import {Text, View, useTVEventHandler} from 'react-native';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
-import {sameFence, activeSegment, skipTarget, skipsAutomatically, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
+import {sameFence, activeSegment, skipTarget, skipsAutomatically, followedByScene, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
+import {upNextCountdown, upNextOffer} from '../../../../../packages/client-core/src/up-next';
 import {playbackIdentity, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -15,6 +16,8 @@ import {nativeType, useTheme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
+import {NativeUpNextCard} from './UpNextCard';
+import type {ArtworkSource} from '../../kit/artwork';
 
 export type NativeWatchChromeProps = Readonly<{
   source: NativePlaybackRuntimeSnapshot;
@@ -36,6 +39,8 @@ export type NativeWatchChromeProps = Readonly<{
   onMinimize: (fence: PlaybackFence) => void;
   /** The viewer's Settings choice per segment kind; the engine already applies `auto`. */
   skipModes: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
+  /** The current authority's artwork resolver, for the next episode's still. */
+  artwork?: (path?: string) => ArtworkSource | undefined;
   onPanel?: (panel: NativeWatchPanel, fence: PlaybackFence) => void;
   /** TV4 keeps only identity/seek dimmed behind the authored overlay. */
   tvPanelRight?: number;
@@ -93,6 +98,21 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     return () => {clearTimeout(timer); cancelAnimation(undoLine);};
   }, [notice, undoLine]);
   const undoLineStyle = useAnimatedStyle(() => ({width: `${undoLine.value * 100}%`}));
+  // tv-player 5 and 6: the closing-credits offer and its countdown come from the
+  // queue's own post-play facts; nothing here starts a title by itself.
+  const view = source.queue.view;
+  const currentItem = view?.current ? view.items.find(item => item.entryId === view.current!.id) : undefined;
+  const nextItem = view?.next.entryId ? view.items.find(item => item.entryId === view.next.entryId) : undefined;
+  const credits = segments.find(segment => segment.kind === 'credits');
+  const sceneAfter = !!credits && followedByScene(credits, source.playback.duration);
+  const offer = fence && fence.kind === 'queue' && view ? upNextOffer({markers: segments, positionSeconds: source.playback.positionSeconds,
+    durationSeconds: source.playback.duration, kind: currentItem?.kind ?? source.entry?.kind, mode: props.skipModes.credits, nextAvailable: view.next.available, passoutDue: view.postPlay.passoutCheckDue}) : null;
+  const [, tick] = useState(0), dismissedOffer = useRef<string | undefined>(undefined), offerId = useRef<string | undefined>(undefined), offerSince = useRef(Date.now());
+  useEffect(() => {if (!offer) return; if (offerId.current !== offer.id) {offerId.current = offer.id; offerSince.current = Date.now();}}, [offer?.id]);
+  const countdown = offer && view ? upNextCountdown({offer, positionSeconds: source.playback.positionSeconds, durationSeconds: source.playback.duration,
+    rate: source.effectiveRate, autoplay: view.postPlay.autoplay, countdownSeconds: view.postPlay.countdownSeconds,
+    elapsedSeconds: (Date.now() - offerSince.current) / 1000, startDuringCredits: view.postPlay.startDuringCredits}) : null;
+  useEffect(() => {if (!countdown?.automatic) return; const timer = setInterval(() => tick(value => value + 1), 1000); return () => clearInterval(timer);}, [countdown?.automatic]);
   useEffect(() => {
     if (!seekFocused) {setLanding(undefined); return;}
     setReturnAt(source.playback.positionSeconds);
@@ -123,6 +143,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (current()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
   const offered = visible && !state.panel && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
   const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
+  const visibleOffer = visible && !state.panel && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
   const skipSegment = (marker: SegmentMarker) => {dismissed.current.add(marker.id); setNotice(undefined); if (current()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
   const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
@@ -239,10 +260,16 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
       </FocusRegion>
     </Animated.View>
-    {theme.isTV && (prompt || notice) && <View pointerEvents="box-none" style={{position: 'absolute', right: 96, bottom: 284}}>
-      <FocusRegion id="watch-skip" orientation="horizontal" entry="watch-skip-action">
+    {theme.isTV && (visibleOffer || prompt || notice) && <View pointerEvents="box-none" style={{position: 'absolute', right: 96, bottom: 284}}>
+      <FocusRegion id="watch-skip" orientation="horizontal" entry={visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : 'watch-skip-action'}>
         <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>
-        {notice
+        {visibleOffer && nextItem
+          ? <NativeUpNextCard item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer} countdown={countdown}
+            countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter}
+            onPlayNow={() => act(playback.next)}
+            onWatchCredits={() => {dismissedOffer.current = visibleOffer.id;}}
+            onSkipCredits={() => {if (credits) skipSegment(credits);}}/>
+          : notice
           ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 28, paddingLeft: 30, paddingRight: 16, paddingVertical: 16, borderRadius: 22, backgroundColor: 'rgba(9,19,27,.8)',
             boxShadow: '0 24px 60px -18px rgba(0,0,0,.85), inset 0 0 0 1px rgba(237,245,250,.1)'}}>
             <View style={{gap: 8}}>
@@ -257,7 +284,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant="glass" size="hero" hasTVPreferredFocus icon="i-back" onPress={() => {const from = notice.fromSeconds; setNotice(undefined);
               if (current()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
           </View>
-          : <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size="hero" hasTVPreferredFocus icon="i-next" onPress={() => skipSegment(prompt!)}>{t('player.skip', {kind: prompt!.kind})}</Button>}
+          : <>{prompt!.kind === 'credits' && sceneAfter && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>
+              <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.post.sceneAfter')}</Text>
+            </View>}
+            <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size="hero" hasTVPreferredFocus icon="i-next" onPress={() => skipSegment(prompt!)}>{t('player.skip', {kind: prompt!.kind})}</Button></>}
         </View>
       </FocusRegion>
     </View>}
