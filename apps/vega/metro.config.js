@@ -44,7 +44,7 @@ const plainLibraries = ['react-native-url-polyfill', 'react-native-qrcode-svg'].
 const inNodeModules = file => file.includes(`${path.sep}node_modules${path.sep}`) && !plainLibraries.some(library => file.startsWith(library));
 const within = (dir, file) => file === dir || file.startsWith(dir + path.sep);
 
-const overrideRoots = [[sharedSrc, path.join(overrides, 'native')], [packages, path.join(overrides, 'packages')]];
+const overrideRoots = [[sharedSrc, path.join(overrides, 'native')], [nextSrc, path.join(overrides, 'native-next')], [packages, path.join(overrides, 'packages')]];
 
 function overrideFor(file) {
   for (const [root, replacements] of overrideRoots) {

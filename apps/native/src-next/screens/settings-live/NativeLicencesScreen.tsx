@@ -1,8 +1,8 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, FlatList, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {licenceCount, licenceDetail, licenceParagraphs, licenceRowDetail, licenceSections, licenceSourceRows, type LicenceData} from '../../../../../packages/client-core/src/presentation/licences';
-import {loadLicences, licenceVariant} from '../../../src/licences/load';
+import {loadLicences, licenceVariant} from '../../platform/licences';
 import {Button, Focusable} from '../../kit/controls';
 import {StateView} from '../../kit/states';
 import {useTheme, nativeType} from '../../kit/theme';
@@ -21,11 +21,11 @@ export function NativeLicencesScreen({onBack, current}: {onBack: () => void; cur
     }, 0);
     return () => clearTimeout(timer);
   }, [current]);
-  const back = () => {if (!current()) return; if (selected) setSelected(undefined); else onBack();};
+  const back = useCallback(() => {if (!current()) return; if (selected) setSelected(undefined); else onBack();}, [current, selected, onBack]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!current()) return false; back(); return true;});
     return () => subscription.remove();
-  }, [current, selected, onBack]);
+  }, [current, back]);
   const detail = useMemo(() => data && selected ? licenceDetail(data, selected) : undefined, [data, selected]);
   const rows = useMemo((): Row[] => {
     if (!data) return [];

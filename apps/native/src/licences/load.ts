@@ -9,7 +9,7 @@ import {parseLicenceData, type LicenceData} from '../../../../packages/client-co
  * opens, not when the app starts.
  */
 export function loadLicences(): LicenceData | undefined {
-  return parseLicenceData(require('./apple.json'));
+  return parseLicenceData(require('../../licences/generated/apple.json'));
 }
 
 /** Which build this is, for the parts only some builds carry (the Google Cast SDK is only in the iPhone and iPad app). */
