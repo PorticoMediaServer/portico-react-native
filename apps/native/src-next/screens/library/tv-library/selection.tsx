@@ -20,14 +20,15 @@ type Store = Readonly<{
   snapshot: () => Snapshot;
   loadedCount: () => number;
   play: () => Promise<void>;
+  queue: (placement: 'next' | 'end') => Promise<void>;
   selectLoaded: () => void;
   clear: () => void;
 }>;
 
 /** tv select 23 is the drawn state: selection begins by picking the held title
  * in the hold-OK menu, so the port never enters an empty selection of its own.
- * Every control offered here has a real executor behind it; queue, My List,
- * Watched and the picker join only once their own executor is wired. */
+ * Every control offered here has a real executor behind it; My List, Watched
+ * and the picker join only once their own executor is wired. */
 export function createNativeTVLibrarySelection(context: NativeShellBootstrapContext, source: NativeLibraryDestination): NativeLibrarySelectionPort {
   const selection = createNativeLibraryPlaySelection(context, source);
   const model = selection.model, listeners = new Set<() => void>(), picked = new Set<string>();
@@ -61,7 +62,8 @@ export function createNativeTVLibrarySelection(context: NativeShellBootstrapCont
     getSnapshot: () => revision,
     snapshot,
     loadedCount: () => window?.entries.length ?? 0,
-    play: async () => {if (!disposed && snapshot().active) await selection.play();},
+    play: async () => {if (disposed || !snapshot().active) return; await selection.play(); if (!disposed) store.clear();},
+    queue: async placement => {if (disposed || !snapshot().active) return; await selection.queue(placement); if (!disposed) store.clear();},
     selectLoaded: () => {for (const entry of window?.entries ?? []) if (!picked.has(nativeLibraryEntryKey(entry))) toggle(entry);},
     clear: () => {if (disposed) return; model.clear(); clearPicked(); emit();},
   };
@@ -94,11 +96,16 @@ function TVLibrarySelectionBars({store}: {store: Store}) {
   if (!state.active) return null;
   const actions: SelectionActionOffer[] = [];
   if (state.summary.every.play) actions.push({id: 'play'});
+  if (state.summary.every.queue) actions.push({id: 'queue'}, {id: 'playNext'}, {id: 'playLater'});
   const props: SelectionBarProps = {testID: 'tv-library-selection', count: state.summary.count,
     selectionLabel: defaultI18n.t('next.selection.native.titles', {count: state.summary.count}),
     selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: store.selectLoaded,
     onCancel: () => {setMenu(null); store.clear();}, actions, menu, onMenuChange: setMenu,
-    onAction: action => {if (action === 'play') {setMenu(null); void store.play();}}};
+    onAction: action => {
+      if (action === 'play') {setMenu(null); void store.play();}
+      else if (action === 'playNext') {setMenu(null); void store.queue('next');}
+      else if (action === 'playLater') {setMenu(null); void store.queue('end');}
+    }};
   return <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
     <View style={{position: 'absolute', left: 200, right: 96, top: 58}}><SelectionBar {...props}/></View>
   </View>;

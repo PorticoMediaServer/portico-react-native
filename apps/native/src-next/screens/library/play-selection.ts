@@ -1,4 +1,4 @@
-import {BrowseSelectionModel, browseSelectionKey, playCatalogueSelection, readCatalogueSelectionItem, type BrowseSelectionContext, type SelectionItem, type SelectionOperation} from '../../../../../packages/client-core/src/selection-model';
+import {BrowseSelectionModel, browseSelectionKey, enqueueCatalogueSelection, playCatalogueSelection, readCatalogueSelectionItem, type BrowseSelectionContext, type SelectionItem, type SelectionOperation} from '../../../../../packages/client-core/src/selection-model';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeDestinationActivation} from '../../shell/routes';
@@ -109,6 +109,19 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
         && context.navigation.getSnapshot().revision === revision && model.isOperationCurrent(operation);
       operations.set(controller, operation);
       try {return await playCatalogueSelection(player, operation.target.displayItems.map(value => value.item), {signal: controller.signal, isCurrent});}
+      finally {operations.delete(controller);}
+    },
+    /** The queue takes the picks a leaf and its canonical parent expand to, in
+     * pick order, exactly as the shared selection controller does elsewhere. */
+    queue: async (placement: 'next' | 'end') => {
+      if (!current() || !activation.getSnapshot().visible) throw cancelled();
+      const operation = model.captureOperation();
+      if (!operation || operation.target.mode !== 'explicit') throw unavailable();
+      const controller = new AbortController(), revision = context.navigation.getSnapshot().revision;
+      const isCurrent = () => !controller.signal.aborted && current() && activation.getSnapshot().visible
+        && context.navigation.getSnapshot().revision === revision && model.isOperationCurrent(operation);
+      operations.set(controller, operation);
+      try {return await enqueueCatalogueSelection(player, operation.target.items.map(value => value.item), placement, {signal: controller.signal, isCurrent});}
       finally {operations.delete(controller);}
     },
     dispose,
