@@ -13,10 +13,11 @@ import {Page, Problem, remoteSourceError, useAttempt} from './RemoteSourceForms'
 export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel, onChoose}: {
   controller: NativeRemoteSourcesController; source: RemoteSource; t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void; onChoose: (folders: readonly ChosenSourceFolder[]) => void;
 }) {
-  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false);
+  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), selectionRevision = useRef(0);
+  const renderedSelection = selectionRevision.current;
   const [chosen, setChosen] = useState<readonly ChosenSourceFolder[]>([]);
-  const toggle = (folder: ChosenSourceFolder) => {if (!flight.current && current()) setChosen(rows => rows.some(row => row.relative === folder.relative)
-    ? rows.filter(row => row.relative !== folder.relative) : rows.length < 64 ? [...rows, folder] : rows);};
+  const toggle = (folder: ChosenSourceFolder) => {if (!flight.current && current()) {selectionRevision.current++; setChosen(rows => rows.some(row => row.relative === folder.relative)
+    ? rows.filter(row => row.relative !== folder.relative) : rows.length < 64 ? [...rows, folder] : rows);}};
   const [page, setPage] = useState<RemoteFolderPage>(), [hidden, setHidden] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string>();
   const read = async (path = '', showHidden = hidden, more = false) => {
     if (flight.current || !current() || more && (!page?.nextCursor || page.entries.length >= 500)) return;
@@ -37,7 +38,7 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const parent = page?.relative.split('/').slice(0, -1).join('/') ?? '';
-  return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={<Button disabled={busy || !chosen.length} onPress={() => {if (!flight.current && current() && chosen.length) onChoose(chosen);}}>{t(chosen.length === 1 ? 'next.remoteSources.useOneFolder' : 'next.remoteSources.useFolders', {count: chosen.length})}</Button>}>
+  return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={<Button disabled={busy || !chosen.length} onPress={() => {if (!flight.current && current() && selectionRevision.current === renderedSelection && chosen.length) onChoose(chosen);}}>{t(chosen.length === 1 ? 'next.remoteSources.useOneFolder' : 'next.remoteSources.useFolders', {count: chosen.length})}</Button>}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
     {page && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{page.path}</Text>}
     {page && <Button variant="glass" disabled={busy} onPress={() => toggle({name: page.relative.split('/').pop() || source.name, path: page.path, relative: page.relative})}>{t(chosen.some(row => row.relative === page.relative) ? 'next.remoteSources.chosen' : 'next.remoteSources.chooseThisFolder')}</Button>}
