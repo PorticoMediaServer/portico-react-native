@@ -133,7 +133,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const StyleSheet={create:s=>s,flatten:flat,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0},hairlineWidth:1};
  export const Dimensions={get:()=>({width:390,height:844,scale:1,fontScale:1}),addEventListener:()=>({remove(){}})},PixelRatio={get:()=>1,getFontScale:()=>1},useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1});
  export const TVEventHandler={addListener:()=>({remove(){}})},registerCallableModule=()=>{},AppRegistry={registerComponent:(name,factory)=>S.registrations.set(name,factory)},StatusBar=host('StatusBar'),UIManager={hasViewManagerConfig:()=>true},findNodeHandle=node=>node?.tag??null,requireNativeComponent=name=>host(name),useTVEventHandler=()=>{},I18nManager={isRTL:false};
- export const Alert={alert(){}},Keyboard={dismiss(){},addListener:()=>({remove(){}})},Linking={openURL:async()=>{},canOpenURL:async()=>true},useColorScheme=()=> 'dark';
+ export const Alert={alert(){}},Keyboard={dismiss(){},addListener:()=>({remove(){}})},Linking={openURL:async()=>{},canOpenURL:async()=>true,addEventListener:()=>({remove(){}}),getInitialURL:async()=>null},useColorScheme=()=> 'dark';
  class Value{constructor(value){this.value=value}setValue(value){this.value=value}stopAnimation(){}};
  export const Animated={View:host('AnimatedView'),Value,timing:(value,config)=>({start:done=>{value.value=config.toValue;done?.({finished:true})}}),parallel:()=>({start(){}})};
 `);
