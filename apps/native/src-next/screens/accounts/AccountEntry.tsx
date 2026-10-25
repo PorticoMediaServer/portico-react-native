@@ -4,6 +4,7 @@ import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
 import {routeOrigin} from '../../../../../packages/client-core/src/route-identity';
+import type {PublicInvitation} from '../../../../../packages/client-core/src/direct-account';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
 import {MFARequiredError, type IdentityOptions, type IdentityTransaction} from '../../../../../packages/client-core/src/hosted-security';
 import type {SetupCodeService, SetupCodeSnapshot} from '../../../../../packages/client-core/src/setup-code';
@@ -41,7 +42,7 @@ import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
-export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move';
+export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move' | 'invitation-code' | 'invitation-local';
 type MemberMove = Awaited<ReturnType<NativeServerSignIn['createMemberMove']>>;
 type MemberMoveSnapshot = ReturnType<MemberMove['getSnapshot']>;
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
@@ -69,6 +70,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
+  const invitationIntent = useRef<ReturnType<typeof NativeServerSignIn.parseInvitationEntry> | undefined>(undefined);
   const endedTarget = useRef<Readonly<{serverId: string; fingerprint: string}> | undefined>(undefined);
   const identityOrigin = useRef<string | undefined>(undefined);
   const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [retryIn, setRetryIn] = useState(20), [appActive, setAppActive] = useState(AppState.currentState === 'active'), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
@@ -81,6 +83,10 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const stopMemberMove = () => {memberMoveRef.current?.dispose(); memberMoveRef.current = undefined; memberOperation.current = undefined; setMemberMove(undefined); setMoveSnapshot(undefined);};
   useEffect(() => {if (!memberMove) return; const publish = () => setMoveSnapshot(memberMove.getSnapshot()); publish(); return memberMove.subscribe(publish);}, [memberMove]);
   const [pinRecovery, setPinRecovery] = useState<PINRecovery>();
+  const [invitationPreview, setInvitationPreview] = useState<PublicInvitation>();
+  const invitationOpening = useRef<{source: NativeServerSignIn; controller: ReturnType<NativeServerSignIn['createLocalInvitation']>; active: boolean} | undefined>(undefined);
+  const retireInvitation = () => {const ticket = invitationOpening.current; if (ticket) {ticket.active = false; ticket.controller.dispose(); invitationOpening.current = undefined;} setInvitationPreview(undefined);};
+
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
   const [nearbyStatus, setNearbyStatus] = useState<'loading' | 'ready' | 'failed'>('loading'), [nearbyRefresh, setNearbyRefresh] = useState(0);
   const nearbySource = useRef<{active: boolean} | undefined>(undefined);
@@ -101,10 +107,23 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
   const acting = useRef(false), adoptingTV = useRef(false);
+  useLayoutEffect(() => {
+    lifetime.current = true;
+    return () => {
+      lifetime.current = false;
+      const ticket = invitationOpening.current;
+      if (ticket) {
+        ticket.active = false; invitationOpening.current = undefined;
+        // The source preserves an already publishing canonical adoption until its
+        // atomic handoff finishes; all retained UI actions retire synchronously.
+        ticket.source.dispose();
+      }
+    };
+  }, []);
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
-  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; memberMoveRef.current?.dispose(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) stopRetry(); setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useLayoutEffect(() => {
     if (stage !== 'address') return;
@@ -150,11 +169,12 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
+    if (stage === 'invitation-code' || stage === 'invitation-local') {invitationIntent.current = undefined; retireInvitation(); cancelDirectory(); setPassword(''); setCode(''); setAddress(''); stageRef.current = 'address'; setStage('address'); return;}
     if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {reset(); setCode(''); setResetLocation(undefined); setStage('address'); return;}
     if (stage === 'setup-review') {retireSetupReview(); setError(undefined); setStage('setup-choice'); return;}
     if (stage === 'setup-local') {setPassword(''); setSetupPasswordConfirm(''); setError(undefined); setStage('setup-choice'); return;}
@@ -327,8 +347,8 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     if (lifetime.current) {setPassword(''); setCode(''); setStage('forgot-sent');}
   };
   const inspect = async (origin = address) => {
-    const resetIntent = ownerResetIntent.current;
-    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current});
+    const resetIntent = ownerResetIntent.current, invite = invitationIntent.current;
+    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current, expectedInvitation: invite ? {origin: invite.server, serverId: invite.id} : undefined});
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
@@ -355,6 +375,15 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       return;
     }
     await next.confirmLocal(await next.inspectLocalIdentity());
+    if (invite) {
+      if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite) return;
+      const controller = next.createLocalInvitation(), ticket = {source: next, controller, active: true}; invitationOpening.current = ticket;
+      stageRef.current = 'invitation-code'; setStage('invitation-code');
+      const preview = await controller.preview(invite.raw);
+      if (!lifetime.current || operation.current !== next || invitationIntent.current !== invite || invitationOpening.current !== ticket || !ticket.active) return;
+      invitationIntent.current = undefined; setInvitationPreview(preview); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setUsername(''); setName('');
+      stageRef.current = 'invitation-local'; setStage('invitation-local'); return;
+    }
     if (lifetime.current) {setServer(next.serverDescriptor()); if (Platform.isTV) await startTV('local'); else setStage('local');}
     return next;
   };
@@ -637,12 +666,60 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       }}/>) }{status}</>}
     primaryAction={Platform.isTV ? undefined : action('check-code', t('action.continue'), () => confirmCode(), identityCode.replace(/-/g, '').length !== 12)}
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
-  if (stage === 'local') return layout(server!.name, t('accounts.signIn.localBody'), fields(field(t('auth.username'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')),
+  if (stage === 'invitation-code' || stage === 'invitation-local') {
+    const ticket = invitationOpening.current, renderedStage = stage, preview = invitationPreview;
+    const current = () => !!ticket?.active && invitationOpening.current === ticket && operation.current === ticket.source
+      && lifetime.current && stageRef.current === renderedStage;
+    const change = (set: (value: string) => void) => (value: string) => {if (current()) set(value);};
+    const back = () => {if (current() && !busyRef.current) backRef.current();};
+    const failure = ticket?.controller.failure(error);
+    if (failure === 'expired') return <StateLayout testID="accounts-invitation-expired" icon="i-warn" title={t('accounts.invitation.expiredTitle')} body={t('accounts.invitation.expiredBody')}
+      primaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
+    if (stage === 'invitation-code') return <StateLayout testID="accounts-invitation-code" title={t('web.directJoin.title')}
+      body={t('services.start.joinBody')} beforeActions={<>{status}<TextField label={t('services.start.invitation')} value={code}
+        onChangeText={change(setCode)} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/></>}
+      primaryAction={{id: 'preview-invitation', label: t('action.continue'), disabled: busy || !code.trim(), loading: busy, onPress: () => {
+        if (!current()) return; void run(async () => {
+          if (!current()) return; const value = await ticket!.controller.preview(code);
+          if (!current()) return; invitationIntent.current = undefined; setInvitationPreview(value); setCode(''); stageRef.current = 'invitation-local'; setStage('invitation-local');
+        });
+      }}} secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
+    if (!preview) return null;
+    return <StateLayout testID="accounts-local-invitation" title={t('accounts.invitation.to') + ' ' + preview.serverName}
+      body={t('accounts.invitation.localPhoneBody', {server: preview.serverName})}
+      beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{status}
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('accounts.invitation.libraries')}</Text>
+        {preview.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
+        {preview.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}
+        <TextField label={t('web.directJoin.name')} value={name} onChangeText={change(setName)} editable={!busy}/>
+        <TextField label={t('web.directJoin.username')} value={username} error={failure === 'username' ? t('web.directJoin.error.taken') : undefined} onChangeText={change(setUsername)} autoCapitalize="none" autoCorrect={false} editable={!busy}/>
+        <TextField label={t('auth.password')} value={password} onChangeText={change(setPassword)} secureTextEntry autoComplete="new-password" editable={!busy}/>
+        <TextField label={t('web.directJoin.confirm')} value={setupPasswordConfirm} onChangeText={change(setSetupPasswordConfirm)} secureTextEntry autoComplete="new-password" editable={!busy}/>
+      </View>}
+      primaryAction={{id: 'join-local-invitation', label: t('web.directJoin.submit'), loading: busy,
+        disabled: busy || !/^[A-Za-z0-9_.-]{3,64}$/.test(username.trim()) || !passwordStrength(password).acceptable || password !== setupPasswordConfirm,
+        onPress: () => {if (!current()) return; void run(async () => {
+          if (!current()) return; const result = await ticket!.controller.join(preview, username, password, name);
+          if (!current()) return; setPassword(''); setSetupPasswordConfirm(''); consume(result);
+        });}}} secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
+  }
+  if (stage === 'local') {
+    const source = operation.current;
+    return layout(server!.name, t('accounts.signIn.localBody'), fields(field(t('auth.username'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')),
     action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
     <View style={{alignSelf: 'stretch', gap: 8}}>
       <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>
+      {!Platform.isTV && !endedTarget.current && <Button variant="text" disabled={busy} onPress={() => {
+        if (!source || source !== operation.current || !lifetime.current || stageRef.current !== 'local' || busyRef.current) return;
+        let controller: ReturnType<NativeServerSignIn['createLocalInvitation']>;
+        try {controller = source.createLocalInvitation();} catch (failure) {setError(failure); return;}
+        invitationOpening.current = {source, controller, active: true}; setInvitationPreview(undefined);
+        setCode(''); setPassword(''); setSetupPasswordConfirm(''); setUsername(''); setName(''); setError(undefined);
+        stageRef.current = 'invitation-code'; setStage('invitation-code');
+      }}>{t('web.directJoin.have')}</Button>}
       {!Platform.isTV && server?.move === 'to_local' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberCode);}}>{t('accounts.move.haveCode')}</Button>}
     </View>);
+  }
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
       const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);
@@ -732,6 +809,13 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope?.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
     return <PhoneNoServers busy={busy} error={status} onBack={() => {if (current()) back();}}
+      onJoin={(raw, origin) => {
+        if (!current() || busyRef.current || acting.current) return;
+        const link = NativeServerSignIn.parseInvitationEntry(raw, origin);
+        if (!link) {setError(Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'})); return;}
+        cancelDirectory(); invitationIntent.current = Object.freeze({...link}); setPassword(''); setCode(''); setAddress(link.server);
+        stageRef.current = 'address'; setStage('address'); void run(async () => {await inspect(link.server);});
+      }}
       onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
       onRefresh={() => {if (current()) void run(directory);}}
       onShare={() => {if (!current() || busyRef.current) return; void run(async () => {
