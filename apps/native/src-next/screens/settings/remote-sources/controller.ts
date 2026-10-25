@@ -227,7 +227,13 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   async driveOAuthStatus(state: string, redirect: string | undefined, guard: () => boolean) {
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
-    const result = redirect === undefined ? await this.service.driveOAuthStatus(state, guard) : await this.service.driveOAuthPaste(state, redirect, guard);
+    if (redirect !== undefined) {
+      // Paste records a code only; the status owner performs the token exchange.
+      await this.service.driveOAuthPaste(state, redirect, guard);
+      this.assertAllowed();
+      if (!guard()) throw screenScopeEnded();
+    }
+    const result = await this.service.driveOAuthStatus(state, guard);
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
     return result;
