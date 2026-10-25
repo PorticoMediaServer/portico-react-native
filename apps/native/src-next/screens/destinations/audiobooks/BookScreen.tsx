@@ -91,7 +91,10 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   const current = progress?.chapter?.index;
   const progressRatio = progress?.positionMs !== undefined && progress.durationMs ? progress.positionMs / progress.durationMs : progress?.partPositionMs !== undefined && progress.durationMs ? progress.partPositionMs / progress.durationMs : undefined;
   const remaining = progress?.remainingMs === undefined ? undefined : duration(progress.remainingMs / 1000);
-  const facts = [entity.author, entity.narrators?.length ? t('next.kit.readBy', {name: defaultI18n.list(entity.narrators ?? [])}) : undefined,
+  // collections 41a/43: the author is its own link line; the meta row carries
+  // who read it, how long it is and how many chapters. Drawing it twice is not
+  // the design.
+  const facts = [entity.narrators?.length ? t('next.kit.readBy', {name: defaultI18n.list(entity.narrators ?? [])}) : undefined,
     entity.duration === undefined ? undefined : duration(entity.duration), entity.count === undefined ? undefined : t('title.chapterCount', {count: entity.count})].filter((value): value is string => !!value);
   const resume = snapshot.listening?.resume;
   const canResume = !!resume && !snapshot.listening?.resumeUnavailable;

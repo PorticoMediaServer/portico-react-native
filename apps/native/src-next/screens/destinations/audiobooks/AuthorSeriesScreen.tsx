@@ -116,7 +116,9 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
           {/* collections 44/45 draw the rows without a section heading; 41b/41c
               keep the heading above the list on the phone. */}
           {!tv ? <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.kit.books', {count: entity.count ?? books.length})}</Text> : null}
-          {books.map(book => <BookRow key={book.id} entry={book} runtime={runtime} tv={tv} position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onMore={() => actions.menu(book)}/>)}
+          {/* collections 41c/45: the books are in series order, and each row is
+              labelled by that order; the author page has no numbers. */}
+          {books.map((book, index) => <BookRow key={book.id} entry={book} runtime={runtime} tv={tv} position={series ? book.series?.[0]?.position ?? String(index + 1) : undefined} onOpen={() => open(book)} onMore={() => actions.menu(book)}/>)}
           {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
             <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
             {narrators.length ? <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
