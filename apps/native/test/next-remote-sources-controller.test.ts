@@ -106,3 +106,33 @@ test('connection test completion after permission withdrawal returns no result o
   assert.equal(controller.getSnapshot().allowed, false);
   assert.equal(JSON.stringify(controller.getSnapshot()).includes(connection.password), false);
 });
+
+
+test('a held terminal transport refusal clears loaded metadata and retires all later commands with cached owner flags unchanged', async () => {
+  for (const refusal of [{status: 401}, {status: 403}, {statusCode: 401}, {statusCode: 403},
+    {code: 'unauthorized'}, {code: 'forbidden'}, {code: 'not_permitted'}]) {
+    const f = fixture(), controller = new NativeRemoteSourcesController(f.ports);
+    await controller.load();
+    assert.equal(controller.getSnapshot().sources.sources[0]?.name, 'Archive');
+    let deny: (error: unknown) => void = () => {};
+    f.setRead(() => new Promise((_resolve, reject) => {deny = reject;}));
+    const reloading = controller.load();
+    assert.equal(controller.getSnapshot().sources.sources[0]?.name, 'Archive');
+    deny(refusal);
+    await reloading;
+    assert.equal(f.account.account.disabled, false);
+    assert.equal(f.account.canManage, true);
+    assert.equal(controller.getSnapshot().allowed, false);
+    assert.deepEqual(controller.getSnapshot().sources.sources, []);
+    assert.equal(controller.getSnapshot().sources.receipt, null);
+    assert.equal(controller.getSnapshot().sources.operationId, null);
+    assert.equal(f.listeners.size, 0);
+    const calls = f.calls.length;
+    await controller.load();
+    await assert.rejects(controller.testConnection(connection), {name: 'AbortError'});
+    await assert.rejects(controller.configure(null, {...connection, keepPassword: false, keepConnection: false}), {name: 'AbortError'});
+    await assert.rejects(controller.remove({...source, kind: 'webdav', rangeSupport: 'conditional'}), {name: 'AbortError'});
+    await assert.rejects(controller.recover(), {name: 'AbortError'});
+    assert.equal(f.calls.length, calls);
+  }
+});
