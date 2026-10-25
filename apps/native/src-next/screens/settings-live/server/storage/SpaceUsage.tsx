@@ -16,7 +16,7 @@ export function NativeStorageSpaceUsage({context,runtime}:Readonly<{context:Nati
   return source&&nativeStorageOwner(context)?<Usage source={source} runtime={runtime}/>:null;
 }
 function Usage({source,runtime}:Readonly<{source:NativeStorageSpaceSource;runtime:NativeShellRuntime}>){
-  const theme=useTheme(),t=runtime.text.t,state=useSyncExternalStore(source.subscribe,source.getSnapshot,source.getSnapshot);
+  const theme=useTheme(),t=runtime.text.t as typeof defaultI18n.t,state=useSyncExternalStore(source.subscribe,source.getSnapshot,source.getSnapshot);
   useEffect(()=>{void source.load();},[source]);
   if(state.phase==='error')return <View><Text accessibilityRole="alert" style={[shellType(13,400),{color:theme.colors.textSecondary}]}>{t('error.unavailable')}</Text><Button size="compact" variant="glass" onPress={()=>{void source.load();}}>{t('action.tryAgain')}</Button></View>;
   if(!state.usage)return <Text accessibilityRole="progressbar" style={[shellType(13,400),{color:theme.colors.textSecondary}]}>{t('next.settings.loading')}</Text>;
