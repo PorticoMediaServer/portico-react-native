@@ -28,6 +28,11 @@ import tv.getportico.portico.TelevisionDisplay
  * answers with the same values, codes and messages.
  */
 class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+  private val tvVoice = PorticoTVVoice(context)
+  @ReactMethod fun canTVVoiceSearch(promise: Promise) {promise.resolve(tvVoice.available())}
+  @ReactMethod fun startTVVoiceSearch(id: String, promise: Promise) {tvVoice.start(id, promise)}
+  @ReactMethod fun cancelTVVoiceSearch(id: String) {tvVoice.cancel(id)}
+
   private val store = PorticoRecordStore.get(context)
   private val trust = PorticoProfileTrust(store)
   private val random = SecureRandom()
@@ -73,6 +78,7 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   }
 
   override fun invalidate() {
+    tvVoice.dispose()
     PorticoTransport.cancelOwnedBy(this)
     PorticoEventStream.cancelOwnedBy(this)
     super.invalidate()
