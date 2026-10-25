@@ -13,7 +13,7 @@ import {usePlatformPosture} from '../../platform/platformPosture';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
 import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
-import {nativeAnnotationSession} from './annotation-session';
+import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
 
 type Target = Readonly<{itemId: string; sourceId: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
@@ -100,7 +100,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const highlightsSave = {saveHighlights: readingHighlightsSavePort()};
       const issued = session.manifest.format;
       const format: NativeAnnotationFormat | undefined = issued === 'epub' || issued === 'pdf' || issued === 'cbz' ? issued : undefined;
-      const bridge = format ? nativeAnnotationSession({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
+      const bridge = format ? nativeAnnotationBridge({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
         source: {itemId: target.itemId, sourceId: target.sourceId, sourceRevision: session.manifest.revision, format}, fresh: current,
         onQueued: () => {
           // A transport failure kept the original edit; the guest sees the real error. Retry later, never in a loop.

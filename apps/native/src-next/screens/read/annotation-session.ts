@@ -1,11 +1,17 @@
-import {ReadingError, type ReadingHostSession, type ReadingSession} from '../../../../../packages/client-core/src';
+import {ReadingError, type ReadingHostSession} from '../../../../../packages/client-core/src';
 import type {ReadingAnnotationContent, ReadingAnnotationMutation, ReadingAnnotationPort} from '../../../../../packages/client-core/src/reading-annotations';
 import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotationSource} from './annotation-journal';
+import {nativeAnnotationLeaseOf} from './annotation-journal';
+import {nativeOfflineAnnotationSession} from './annotation-offline-port';
 
-/** The existing annotation bridge with one addition: a transport failure queues the
- * person's original edit in the private journal instead of losing it. The guest still
- * receives the real failure (nothing is reported as saved while it is only queued); the
- * reconnect merge uploads the frozen payload under the same annotation id. */
+/** The existing annotation bridge with the offline path this family owns.
+ *
+ * A real server session keeps delivering through `mutateAnnotation`; a transport failure
+ * queues the person's original edit in the private journal instead of losing it, and the
+ * guest still receives the real failure (nothing is reported as saved while it is only
+ * queued). A downloaded publication's lease session, which has no network annotation port,
+ * gets the offline authoring port for that exact source. No session, store or engine is
+ * duplicated: the same bridge and guest UI serve both. */
 
 /** Failures worth keeping: transport, offline and server-unavailable. A refusal the server
  * itself explained (invalid, forbidden, conflict, changed source) is never queued. */
@@ -20,8 +26,13 @@ const content = (mutation: Extract<ReadingAnnotationMutation, {operation: 'upser
   return rest;
 };
 
-export function nativeAnnotationSession(options: Readonly<{
-  session: ReadingSession;
+type ServerAnnotationSession = ReadingHostSession & Readonly<{
+  annotations: ReadingAnnotationPort['annotations'];
+  mutateAnnotation: ReadingAnnotationPort['mutateAnnotation'];
+}>;
+
+type BridgeOptions = Readonly<{
+  session: ReadingHostSession;
   journal: NativeAnnotationJournal;
   identity: NativeAnnotationIdentity;
   source: NativeAnnotationSource;
@@ -29,13 +40,23 @@ export function nativeAnnotationSession(options: Readonly<{
   fresh: () => boolean;
   now?: () => number;
   onQueued?: () => void;
-}>): ReadingHostSession {
+}>;
+
+/** Choose the port this exact reader session can honestly offer. */
+export function nativeAnnotationBridge(options: BridgeOptions): ReadingHostSession {
+  const {session} = options;
+  if (session.manifest.canAnnotate === true && typeof session.annotations === 'function' && typeof session.mutateAnnotation === 'function')
+    return nativeOnlineAnnotationSession({...options, session: session as ServerAnnotationSession});
+  if (nativeAnnotationLeaseOf(session)) return nativeOfflineAnnotationSession(options);
+  return session; // No annotation port here: the host withholds the capability instead of faking one.
+}
+
+function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{session: ServerAnnotationSession}>): ReadingHostSession {
   const {session, journal, identity, source, fresh, now = Date.now, onQueued} = options;
   // The bridge projection is always the real session; only the annotation methods differ.
   const base: ReadingHostSession = {manifest: session.manifest, signal: session.signal, headPDF: session.headPDF, readRange: session.readRange,
     readAsset: session.readAsset, page: session.page, progress: session.progress, saveProgress: session.saveProgress,
     ...(session.openSequential ? {openSequential: session.openSequential} : {})};
-  if (session.manifest.canAnnotate !== true) return base;
   /** The server's own updatedAt for each id at the revision the guest last read. */
   let observed: Readonly<{revision: number; updatedAt: ReadonlyMap<string, number>}> | undefined;
   const annotations: ReadingAnnotationPort['annotations'] = async (cursor = '', revision?: number, signal?: AbortSignal) => {

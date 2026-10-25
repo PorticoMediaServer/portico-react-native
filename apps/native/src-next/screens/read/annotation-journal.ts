@@ -1,32 +1,35 @@
 import type {LocalSession} from '../../../../../packages/client-core/src';
-import type {ReadingAnnotationContent} from '../../../../../packages/client-core/src/reading-annotations';
+import type {ReadingAnnotation, ReadingAnnotationContent} from '../../../../../packages/client-core/src/reading-annotations';
 import {NativeQueueStore} from '../../platform/queue-storage';
 
 /** The private, bounded offline annotation journal (P1-READ-OFFLINE-ANNOTATION-SYNC).
  *
- * The server's per-source annotation set stays the only record of truth. This journal
- * holds only the edits this device could not deliver, so they can be merged by the real
- * session later. It never is a second annotations store and never serves the reader.
+ * The server's per-source annotation set stays the only record of truth. This journal holds
+ * the edits this device could not deliver and the last server page it saw, so a downloaded
+ * publication can be annotated with the existing reader UI while its lease is the only
+ * source, and merged by the real session on reconnect. It is never a second annotations
+ * store of record and never serves the reader in place of a reachable server.
  *
- * Storage is one protected record per server account profile. For a downloaded
- * publication the record lives in the OfflineCore publication lease's own private state
- * namespace (`reader-state-annotations.json`, owned by that lease and bound to its exact
- * entry/profile/server/receipt/document); an ordinary online session uses the native
- * protected record store instead. Neither place is readable as a general file, logged, or
- * addressable by URL.
+ * Storage is one protected record per server account profile: the OfflineCore publication
+ * lease's own private state namespace for a downloaded source (`reader-state-annotations.json`,
+ * bound by that lease to its exact entry/profile/server/receipt/document), or the native
+ * protected record store for an ordinary session. Neither place is a general file, logged,
+ * or addressable by URL.
  *
- * Identity is captured at queue time and re-checked before every write, so a profile
- * switch, sign-out or re-authentication can never submit another context's edits. Client
- * time orders local edits only; merge decisions use the server's own `updatedAt` and the
- * annotation-set revision. */
+ * Identity is captured at queue time and re-checked before every write, so a profile switch,
+ * sign-out or re-authentication cannot submit another context's edits. Device time orders
+ * local edits only; merge decisions use the server's own `updatedAt` and set revision. */
 
 export const ANNOTATION_JOURNAL_VERSION = 1 as const;
 export const ANNOTATION_LEASE_STATE = 'reader-state-annotations.json';
-/** The record store refuses records over 256 KiB; keep a margin under it. The lease
- * state accepts up to 1 MiB, and the same cap keeps both backends honest. */
+/** The record store refuses records over 256 KiB; keep a margin under it. */
 const MAX_RECORD_BYTES = 180_000;
 export const MAX_JOURNAL_OPERATIONS = 256;
 export const MAX_JOURNAL_GROUPS = 16;
+/** The cached server page is a convenience, never the record of truth: bound it well below
+ * the journal so a person's own queued edits always win the space. */
+export const MAX_CACHE_ENTRIES = 50;
+const MAX_CACHE_BYTES = 64_000;
 
 export type NativeAnnotationIdentity = Readonly<{serverId: string; accountId: string; profileId: string}>;
 export type NativeAnnotationFormat = 'epub' | 'pdf' | 'cbz';
@@ -41,19 +44,27 @@ export type NativeAnnotationOperation = Readonly<{
   content?: ReadingAnnotationContent;
   /** Device time, used for local ordering and tie-breaking only. Never trusted as server time. */
   observedAt: number;
-  /** The annotation-set revision the edit was made against. */
+  /** The server annotation-set revision this edit was made against (0 when never seen). */
   baseRevision: number;
   /** The server's `updatedAt` for this id at that base; 0 when the entry did not exist. */
   baseUpdatedAt: number;
   /** Why the current server refused or displaced it; absent while it is still ordinary offline work. */
   unresolved?: NativeAnnotationUnresolved;
 }>;
-export type NativeAnnotationGroup = Readonly<{source: NativeAnnotationSource; operations: readonly NativeAnnotationOperation[]}>;
+export type NativeAnnotationCache = Readonly<{revision: number; entries: readonly ReadingAnnotation[]}>;
+export type NativeAnnotationGroup = Readonly<{
+  source: NativeAnnotationSource;
+  operations: readonly NativeAnnotationOperation[];
+  /** The local view's revision: the server's last observed revision plus this device's edits. */
+  localRevision: number;
+  cache?: NativeAnnotationCache;
+}>;
 export type NativeAnnotationRecord = Readonly<{version: 1; identity: NativeAnnotationIdentity; groups: readonly NativeAnnotationGroup[]}>;
 export type NativeAnnotationOperationRef = Readonly<{id: string; observedAt: number}>;
 export type NativeAnnotationResolution = NativeAnnotationOperationRef & (
   | Readonly<{outcome: 'applied' | 'resolved'}>
   | Readonly<{outcome: 'unresolved'; reason: NativeAnnotationUnresolved}>);
+export type NativeAnnotationView = Readonly<{revision: number; entries: readonly ReadingAnnotation[]}>;
 
 /** The OfflineCore publication lease's private state namespace, structurally. The lease,
  * not this module, owns the file, the exact download binding and its lifetime. */
@@ -93,6 +104,10 @@ function annotationContent(raw: unknown): ReadingAnnotationContent {
     || !object(raw.location)) throw new Error('native_annotation_journal_invalid');
   return raw as ReadingAnnotationContent;
 }
+function annotationEntry(raw: unknown): ReadingAnnotation {
+  if (!object(raw) || !integer(raw.createdAt) || !integer(raw.updatedAt) || raw.updatedAt < raw.createdAt) throw new Error('native_annotation_journal_invalid');
+  return Object.freeze({...annotationContent(raw), createdAt: raw.createdAt, updatedAt: raw.updatedAt});
+}
 function operation(raw: unknown): NativeAnnotationOperation {
   if (!object(raw) || typeof raw.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.id) || typeof raw.delete !== 'boolean'
     || !integer(raw.observedAt) || !integer(raw.baseRevision) || !integer(raw.baseUpdatedAt)
@@ -100,6 +115,12 @@ function operation(raw: unknown): NativeAnnotationOperation {
   return Object.freeze({id: raw.id, delete: raw.delete, observedAt: raw.observedAt, baseRevision: raw.baseRevision, baseUpdatedAt: raw.baseUpdatedAt,
     ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}),
     ...(raw.delete ? {} : {content: annotationContent(raw.content)})});
+}
+function cacheValue(raw: unknown): NativeAnnotationCache {
+  if (!object(raw) || !integer(raw.revision) || !Array.isArray(raw.entries) || raw.entries.length > MAX_CACHE_ENTRIES) throw new Error('native_annotation_journal_invalid');
+  const entries = raw.entries.map(annotationEntry);
+  if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new Error('native_annotation_journal_invalid');
+  return Object.freeze({revision: raw.revision, entries: Object.freeze(entries)});
 }
 function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotationRecord | undefined {
   if (raw == null || raw === '') return undefined;
@@ -109,17 +130,21 @@ function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotat
   if (!sameIdentity(raw.identity as NativeAnnotationIdentity, identity)) return undefined; // another profile's record: never read or overwrite
   const groups = raw.groups.map(group => {
     if (!object(group) || !object(group.source) || !Array.isArray(group.operations) || typeof group.source.itemId !== 'string'
-      || typeof group.source.sourceId !== 'string' || typeof group.source.sourceRevision !== 'string' || !format(group.source.format)) throw new Error('native_annotation_journal_invalid');
+      || typeof group.source.sourceId !== 'string' || typeof group.source.sourceRevision !== 'string' || !format(group.source.format)
+      || group.localRevision !== undefined && !integer(group.localRevision)) throw new Error('native_annotation_journal_invalid');
     const operations = group.operations.map(operation);
     if (new Set(operations.map(value => value.id)).size !== operations.length) throw new Error('native_annotation_journal_invalid');
+    const cache = group.cache === undefined ? {} : {cache: cacheValue(group.cache)};
     return Object.freeze({source: Object.freeze({itemId: group.source.itemId, sourceId: group.source.sourceId,
-      sourceRevision: group.source.sourceRevision, format: group.source.format}), operations: Object.freeze(operations)});
+      sourceRevision: group.source.sourceRevision, format: group.source.format}), operations: Object.freeze(operations),
+      localRevision: (group.localRevision as number | undefined) ?? 0, ...cache});
   });
   const total = groups.reduce((sum, group) => sum + group.operations.length, 0);
   if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
 }
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+const empty = (identity: NativeAnnotationIdentity): NativeAnnotationRecord => Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze([])});
 
 /** The ordinary online session's protected record store. */
 function nativeQueueBackend(identity: NativeAnnotationIdentity, storage: Pick<NativeQueueStore, 'change'>): Backend {
@@ -161,7 +186,6 @@ function leaseBackend(state: NativeAnnotationLeaseState, identity: NativeAnnotat
     }),
   };
 }
-const empty = (identity: NativeAnnotationIdentity): NativeAnnotationRecord => Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze([])});
 
 /** The journal keeps one record per profile, in whichever protected store this reader
  * actually has: the downloaded publication's lease state, or the native record store.
@@ -183,31 +207,44 @@ export class NativeAnnotationJournal {
     this.identity ??= Object.freeze({...identity});
     return this.backend ?? (this.backend = nativeQueueBackend(identity, this.local));
   }
-  list = async (identity: NativeAnnotationIdentity): Promise<readonly NativeAnnotationGroup[]> =>
-    (await this.store(identity).read())?.groups ?? [];
+  snapshot = async (identity: NativeAnnotationIdentity): Promise<NativeAnnotationRecord | undefined> => this.store(identity).read();
+  list = async (identity: NativeAnnotationIdentity): Promise<readonly NativeAnnotationGroup[]> => (await this.snapshot(identity))?.groups ?? [];
+  /** The local annotation view for this source: the last server page, plus every queued edit. */
+  view = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource): Promise<NativeAnnotationView> =>
+    nativeAnnotationView(await this.snapshot(identity), source);
+
   /** The newest edit for an id wins locally; the server base and the id stay those of the
    * first queued operation, so a later local edit cannot pretend to be based on newer server data. */
   enqueue = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>, assert?: () => void): Promise<void> => {
-    if (!integer(next.observedAt) || !integer(next.baseRevision) || !integer(next.baseUpdatedAt)) throw new Error('native_annotation_journal_invalid');
-    const operation: NativeAnnotationOperation = next.delete
-      ? Object.freeze({id: next.id, delete: true, observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt})
-      : Object.freeze({id: next.id, delete: false, content: annotationContent(next.content), observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt});
+    await this.add(identity, source, next, assert, false);
+  };
+  /** One edit made against the local view. Refused when the guest's revision is not the
+   * current local one; returns the new local revision the reader can use for its next write. */
+  localMutate = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource,
+    next: Omit<NativeAnnotationOperation, 'unresolved'>, expectedLocalRevision: number, assert?: () => void): Promise<number> =>
+    this.add(identity, source, next, assert, true, expectedLocalRevision);
+  /** Remember the last server page this device saw, so a later offline open can show it. */
+  cache = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, revision: number, entries: readonly ReadingAnnotation[]): Promise<void> => {
+    if (!integer(revision)) return;
+    let kept: ReadingAnnotation[] = [];
+    let size = 0;
+    for (const entry of entries.slice(0, MAX_CACHE_ENTRIES)) {
+      const entryBytes = bytes(entry);
+      if (size + entryBytes > MAX_CACHE_BYTES) break;
+      kept.push(entry); size += entryBytes;
+    }
     const wanted = groupKey(source);
     await this.store(identity).change(current => {
-      const groups = (current ?? empty(identity)).groups.map(group => group);
-      const at = groups.findIndex(group => groupKey(group.source) === wanted);
-      const existing = at < 0 ? undefined : groups[at];
-      const previous = existing?.operations.find(value => value.id === operation.id);
-      const merged: NativeAnnotationOperation = previous
-        ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt})
-        : operation;
-      const operations = existing ? [...existing.operations.filter(value => value.id !== operation.id), merged] : [merged];
-      const group: NativeAnnotationGroup = Object.freeze({source: Object.freeze({...source}), operations: Object.freeze(operations.sort((a, b) => a.observedAt - b.observedAt || a.id.localeCompare(b.id)))});
+      const base = current ?? empty(identity);
+      const at = base.groups.findIndex(group => groupKey(group.source) === wanted);
+      const existing = at < 0 ? undefined : base.groups[at];
+      const group: NativeAnnotationGroup = Object.freeze({source: Object.freeze({...source}), operations: existing?.operations ?? Object.freeze([]),
+        localRevision: Math.max(existing?.localRevision ?? 0, revision), cache: Object.freeze({revision, entries: Object.freeze(kept)})});
+      const groups = [...base.groups];
       if (at < 0) groups.push(group); else groups[at] = group;
-      const total = groups.reduce((sum, value) => sum + value.operations.length, 0);
-      if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS) throw new Error('native_annotation_journal_full');
-      return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)}) as NativeAnnotationRecord;
-    }, assert);
+      const next: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
+      return bytes(next) > MAX_RECORD_BYTES ? null : next;
+    });
   };
   /** Retire only operations that still are the exact ones the pass examined. A newer local
    * edit made during the pass keeps its place, and an unresolved operation keeps its payload. */
@@ -224,8 +261,8 @@ export class NativeAnnotationJournal {
           if (resolution.outcome !== 'unresolved') return [];
           return [{...operation, unresolved: resolution.reason} as NativeAnnotationOperation];
         });
-        return {source: group.source, operations} as NativeAnnotationGroup;
-      }).filter(group => group.operations.length > 0);
+        return {...group, operations} as NativeAnnotationGroup;
+      }).filter(group => group.operations.length > 0 || group.cache !== undefined);
       if (!groups.length) return null;
       return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
     }, assert);
@@ -234,6 +271,58 @@ export class NativeAnnotationJournal {
   discard = async (identity: NativeAnnotationIdentity): Promise<void> => {
     await this.store(identity).change(() => null);
   };
+
+  private async add(identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>,
+    assert: (() => void) | undefined, bump: boolean, expectLocal?: number): Promise<number> {
+    if (!integer(next.observedAt) || !integer(next.baseRevision) || !integer(next.baseUpdatedAt)) throw new Error('native_annotation_journal_invalid');
+    const operation: NativeAnnotationOperation = next.delete
+      ? Object.freeze({id: next.id, delete: true, observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt})
+      : Object.freeze({id: next.id, delete: false, content: annotationContent(next.content), observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt});
+    const wanted = groupKey(source);
+    let revision = 0;
+    await this.store(identity).change(current => {
+      const base = current ?? empty(identity);
+      const groups = base.groups.map(group => group);
+      const at = groups.findIndex(group => groupKey(group.source) === wanted);
+      const existing = at < 0 ? undefined : groups[at];
+      if (expectLocal !== undefined && (existing?.localRevision ?? 0) !== expectLocal) throw new Error('native_annotation_local_conflict');
+      const previous = existing?.operations.find(value => value.id === operation.id);
+      const merged: NativeAnnotationOperation = previous
+        ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt})
+        : operation;
+      const operations = existing ? [...existing.operations.filter(value => value.id !== operation.id), merged] : [merged];
+      const localRevision = bump ? (existing?.localRevision ?? 0) + 1 : existing?.localRevision ?? 0;
+      revision = localRevision;
+      const group: NativeAnnotationGroup = Object.freeze({...existing, source: Object.freeze({...source}),
+        operations: Object.freeze(operations.sort((a, b) => a.observedAt - b.observedAt || a.id.localeCompare(b.id))), localRevision});
+      if (at < 0) groups.push(group); else groups[at] = group;
+      const total = groups.reduce((sum, value) => sum + value.operations.length, 0);
+      if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS) throw new Error('native_annotation_journal_full');
+      let built: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
+      // Space belongs to the person's own edits: drop the cached server page before refusing.
+      if (bytes(built) > MAX_RECORD_BYTES) {
+        const trimmed = groups.map(value => value.cache === undefined ? value : {...value, cache: undefined} as NativeAnnotationGroup);
+        built = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(trimmed)});
+      }
+      if (bytes(built) > MAX_RECORD_BYTES) throw new Error('native_annotation_journal_full');
+      return built;
+    }, assert);
+    return revision;
+  }
+}
+
+/** The local view: cached server entries overlaid with this device's queued edits, ordered by
+ * id like the server's pages. The revision is local and monotonic; it is never sent as a
+ * server base — queued operations keep the server revision they were actually based on. */
+export function nativeAnnotationView(record: NativeAnnotationRecord | undefined, source: NativeAnnotationSource): NativeAnnotationView {
+  const group = record?.groups.find(value => groupKey(value.source) === groupKey(source));
+  const map = new Map<string, ReadingAnnotation>((group?.cache?.entries ?? []).map(entry => [entry.id, entry]));
+  for (const op of group?.operations ?? []) {
+    if (op.delete) {map.delete(op.id); continue;}
+    if (op.content) map.set(op.id, Object.freeze({...op.content, createdAt: op.observedAt, updatedAt: op.observedAt}));
+  }
+  const entries = [...map.values()].sort((a, b) => a.id.localeCompare(b.id)).slice(0, 256);
+  return Object.freeze({revision: Math.max(group?.localRevision ?? 0, group?.cache?.revision ?? 0), entries: Object.freeze(entries)});
 }
 
 /** The OfflineCore publication lease a session exposes, when this reader is reading the
