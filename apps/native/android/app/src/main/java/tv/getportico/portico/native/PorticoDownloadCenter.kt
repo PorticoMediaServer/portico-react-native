@@ -558,6 +558,9 @@ internal object PorticoDownloadCenter {
             }
             if (transfer.stopped != null) return "stopped"
           }
+          // Completion may be published only after the received bytes have
+          // reached the file, before its verified final rename and record.
+          out.fd.sync()
         }
         // The connection closed early without an error: the rest is fetched on the next attempt.
         if (done < size) return "network"
@@ -597,7 +600,13 @@ internal object PorticoDownloadCenter {
     }
     if (error != null) { entry["state"] = "failed"; entry["error"] = error }
     entry["waiting"] = ""
-    save()
+    if (!save() && entry["state"] == "ready") {
+      // Keep the verified file, but refuse an offline-ready publication until
+      // its completed local record has actually been committed.
+      entry["state"] = "failed"; entry["error"] = "transfer_failed"
+      entry.remove("completedAt")
+      save()
+    }
     changed(id, true)
     release()
   }

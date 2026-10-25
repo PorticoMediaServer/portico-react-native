@@ -475,13 +475,31 @@ static NSString *PorticoSafeFileName(NSString *value) {
     return;
   }
   [final setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+  NSFileHandle *durableFile = [NSFileHandle fileHandleForWritingToURL:final error:nil];
+  BOOL durable = durableFile && [durableFile synchronizeAndReturnError:nil];
+  [durableFile closeAndReturnError:nil];
+  if (!durable) {
+    // Preserve the verified payload for recovery, without claiming that it is
+    // durably available offline before both bytes and record are committed.
+    entry[@"state"] = @"failed"; entry[@"error"] = @"transfer_failed"; entry[@"waiting"] = @"";
+    [entry removeObjectForKey:@"grantUrl"];
+    [self saveManifest]; [self changed:identifier force:YES];
+    return;
+  }
   [[NSFileManager defaultManager] removeItemAtURL:[self resumeURLFor:identifier] error:nil];
   NSNumber *size = [[NSFileManager defaultManager] attributesOfItemAtPath:final.path error:nil][NSFileSize];
   entry[@"state"] = @"ready"; entry[@"error"] = @""; entry[@"waiting"] = @""; entry[@"bytes"] = size ?: @0; entry[@"bytesDone"] = size ?: @0;
   entry[@"file"] = final.lastPathComponent; entry[@"completedAt"] = @((long long)(NSDate.date.timeIntervalSince1970 * 1000));
   // SEC-22: the address has done its job; a finished download keeps no token.
   [entry removeObjectForKey:@"grantUrl"];
-  [self saveManifest]; [self changed:identifier force:YES];
+  if (![self saveManifest]) {
+    // The verified file stays on disk, but an uncommitted local record is not
+    // an offline-ready download and must never produce a completion notice.
+    entry[@"state"] = @"failed"; entry[@"error"] = @"transfer_failed";
+    [entry removeObjectForKey:@"completedAt"];
+    [self saveManifest];
+  }
+  [self changed:identifier force:YES];
   // No notifications (Justin's rule): completion shows in the app (Downloads state and a toast).
 }
 
