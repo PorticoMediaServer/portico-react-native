@@ -33,6 +33,12 @@ export function AccountConfigEditor({controller, t, isCurrent, onCancel, onSaved
   }, []);
   const state = controller.getSnapshot().sources, recovery = receiptCheckRequired(state);
   const selected = view?.remotes.find(value => value.name === remote && value.supported);
+  // An unsupported offer keeps the server's own reason; an unknown reason stays the generic sentence.
+  const unsupportedReason = (reason: string) => reason === 'encrypted' ? 'next.remoteSources.configEncrypted'
+    : reason === 'wrapper' ? 'next.remoteSources.configWrapper'
+    : reason === 'duplicate' ? 'next.remoteSources.configDuplicate'
+    : reason === 'ambiguous' ? 'next.remoteSources.configAmbiguous'
+    : 'next.remoteSources.configUnsupportedKind';
   const finish = () => {
     const state = controller.getSnapshot().sources, receipt = state.rclone;
     const row = receipt && !receipt.removed ? state.sources.find(value => value.id === receipt.sourceId && value.generation === receipt.generation) : undefined;
@@ -59,12 +65,14 @@ export function AccountConfigEditor({controller, t, isCurrent, onCancel, onSaved
       : <Button disabled={!editable || !selected || !name.trim() || name.length > 100} onPress={() => {void save();}}>{t('next.remoteSources.saveAndContinue')}</Button>}>
     {view && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.configPath', {path: view.path})}</Text>}
     {view && !view.remotes.length && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(view.path ? 'next.remoteSources.configEmpty' : 'next.remoteSources.configAbsent')}</Text>}
-    {!!view?.remotes.some(value => value.supported) && <Select label={t('next.remoteSources.configRemotes')} value={remote} disabled={!editable}
-      options={view.remotes.filter(value => value.supported).map(value => ({value: value.name, label: t('next.remoteSources.configRemoteLabel', {name: value.name, kind: value.kind})}))}
+    {!!view?.remotes.length && <Select label={t('next.remoteSources.configRemotes')} value={remote} disabled={!editable}
+      options={view.remotes.map((value, index) => ({
+        value: value.supported ? value.name : `unsupported:${index}`,
+        label: `${t('next.remoteSources.configRemoteLabel', {name: value.name, kind: value.kind || t('next.remoteSources.configUnknownKind')})}${value.supported ? '' : ` · ${t(unsupportedReason(value.reason) as never)}`}`,
+        disabled: !value.supported,
+      }))}
       onValueChange={value => {if (flight.current || !current()) return; if (view.remotes.some(row => row.supported && row.name === value)) {revision.current++; setRemote(value); setError(undefined);}}}/>}
-    {view?.remotes.filter(value => !value.supported).map(value => <Text key={value.name} style={[theme.type.caption, {color: theme.colors.textSecondary}]}>
-      {t('next.remoteSources.configRemoteLabel', {name: value.name, kind: value.kind || t('next.remoteSources.configUnknownKind')})}{' · '}{t('next.remoteSources.configUnsupportedKind')}
-    </Text>)}
+    {!!view?.truncated && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.configTruncated')}</Text>}
     <TextField label={t('next.remoteSources.name')} value={name} editable={editable} autoCorrect={false} onChangeText={value => {if (flight.current || !current()) return; revision.current++; setName(value);}}/>
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.configChecksOnSave')}</Text>
     <Button disabled={!editable} variant="text" onPress={() => {void load();}}>{t('next.remoteSources.refresh')}</Button>
