@@ -170,17 +170,27 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const remainingTitle = duration !== undefined && progress !== undefined ? durationText(Math.max(0, duration - progress), text.t) : undefined;
   const playMenu = theme.isTV ? () => props.more(snapshot.entry, titlePlay) : undefined;
   const contentRating = workspace?.show.contentRating ?? detail?.facts?.contentRating ?? snapshot.entry.contentRating;
+  // tv.html frame 3 and tv-detail frame 1 draw one comma genre group, and the
+  // same model context supplies a film's length or a show's real season total.
+  const factsContext = theme.isTV ? show && !props.watch ? 'home-show' as const : 'home-movie' as const : 'home-movie' as const;
   const factSource = titleFactParts({year: workspace?.show.year ?? detail?.item.year ?? snapshot.entry.year, durationSeconds: show ? undefined : duration,
-    genres: workspace?.show.genres ?? detail?.metadata.genres.map(genre => genre.name) ?? snapshot.entry.genres, contentRating}, text, theme.isTV ? 'video' : 'home-movie');
-  // The phone frame draws the rating as its own tag after genre and length; keep it out of the plain facts row.
-  const ratingFact = theme.isTV ? undefined : contentRating ? {id: 'content-rating' as const, text: contentRating, role: 'supplement' as const} : undefined;
-  const facts = theme.isTV ? factSource : [...factSource.filter(fact => fact.id !== 'content-rating'), ...(ratingFact ? [ratingFact] : [])];
+    genres: workspace?.show.genres ?? detail?.metadata.genres.map(genre => genre.name) ?? snapshot.entry.genres, contentRating,
+    seasonCount: show && !props.watch ? workspace?.seasonTotalCount : undefined}, text, factsContext);
+  // The drawn title page keeps the rating in its own tag after the plain facts.
+  const ratingFact = contentRating ? {id: 'content-rating' as const, text: contentRating, role: 'supplement' as const} : undefined;
+  const facts = theme.isTV
+    ? [...factSource, ...(ratingFact && !factSource.some(fact => fact.id === 'content-rating') ? [ratingFact] : [])]
+    : [...factSource.filter(fact => fact.id !== 'content-rating'), ...(ratingFact ? [ratingFact] : [])];
   const heroHeight = props.watch ? 0 : theme.isTV ? 660 : Math.min(660, viewport.height * .69), overview = workspace?.show.overview ?? detail?.item.overview ?? snapshot.entry.overview;
   const watching = props.watch?.source, watchIdentity = watching?.subject ? playbackIdentity(watching.subject, 'full', text) : undefined;
   const remaining = watching && Number.isFinite(watching.playback.positionSeconds) && watching.playback.positionSeconds >= 0
     ? durationText(Math.max(0, watching.playback.duration - watching.playback.positionSeconds), text.t) : undefined;
   const shownFacts = props.watch ? [...facts.filter(fact => fact.id !== 'duration'), ...(remaining ? [{id: 'remaining', text: text.t('next.kit.remaining', {time: remaining}), role: 'supplement' as const}] : [])] : facts;
-  const shownRating = props.watch ? undefined : shownFacts.find(fact => fact.id === 'content-rating'), metadataFacts = shownFacts.filter(fact => fact.id !== 'content-rating');
+  const shownRating = props.watch ? undefined : shownFacts.find(fact => fact.id === 'content-rating');
+  // tv.html frame 3 draws the show's season total as a tag at the end of the facts row.
+  const seasonFact = theme.isTV && !props.watch ? shownFacts.find(fact => fact.id === 'season-count') : undefined;
+  const metadataFacts = shownFacts.filter(fact => fact.id !== 'content-rating' && !(seasonFact && fact.id === 'season-count'));
+  const studio = theme.isTV && !props.watch && show ? workspace?.show.studio : undefined;
   const episodes = snapshot.episodes;
   const selectedSeason = (snapshot.seasons ?? []).find(season => season.id === workspace?.selected.seasonId);
   const currentSeasonLabel = workspace?.selected.group ? workspace.groups.find(group => group.id === workspace.selected.group)?.title ?? t('title.seasons')
@@ -223,10 +233,14 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           <View style={tabletWatch ? {flex: 1, minWidth: 0} : undefined}>
           <Text accessibilityRole="header" numberOfLines={2} style={[nativeType({size: props.watch ? 28 : theme.isTV ? 76 : 40, weight: 800, tracking: props.watch ? -.035 : -.04, lineHeight: props.watch ? 30.8 : theme.isTV ? 84 : 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : 12}]}>{title}</Text>
           {props.watch && watchIdentity?.subtitle.length ? <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 6}]}>{watchIdentity.subtitle.map(part => part.text).join(' ')}</Text> : null}
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10}}>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.isTV ? 26 : 10}}>
             <HeroMetadata facts={metadataFacts}/>
-            {shownRating ? <View style={{borderWidth: 1, borderColor: theme.colors.lineStrong, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 1}}>
-              <Text style={[theme.type.meta, {color: theme.colors.textSecondary}]}>{shownRating.text}</Text></View> : null}
+            {studio ? <Text style={[theme.type.meta, {color: theme.colors.textSecondary}]}>{studio}</Text> : null}
+            {seasonFact ? <View style={{borderWidth: 1.5, borderColor: '#edf5fa47', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 3}}>
+              <Text style={[theme.type.tag, {color: theme.colors.text}]}>{seasonFact.text}</Text></View> : null}
+            {shownRating ? <View style={theme.isTV ? {borderWidth: 1.5, borderColor: '#edf5fa47', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 3}
+              : {borderWidth: 1, borderColor: theme.colors.lineStrong, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 1}}>
+              <Text style={theme.isTV ? [theme.type.tag, {color: theme.colors.text}] : [theme.type.meta, {color: theme.colors.textSecondary}]}>{shownRating.text}</Text></View> : null}
           </View>
           </View>
           <View style={{flexDirection: 'row', gap: 10, marginTop: props.watch ? (tabletWatch ? 0 : 16) : 22, flexShrink: tabletWatch ? 0 : undefined}}>
