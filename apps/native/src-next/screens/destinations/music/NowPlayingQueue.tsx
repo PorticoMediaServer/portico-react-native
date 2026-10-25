@@ -32,7 +32,7 @@ export type NowPlayingQueueProps = Readonly<{
   testID?: string;
 }>;
 
-type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean}>;
+type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean; segmentId?: string}>;
 
 const visibleEntries = (view: QueuePlaybackView): readonly Extract<QueueEntry, {hidden: false}>[] =>
   view.queue.entries.filter((entry): entry is Extract<QueueEntry, {hidden: false}> => !entry.hidden && !entry.removed);
@@ -49,7 +49,7 @@ export function nowPlayingQueueRows(view: QueuePlaybackView): readonly Row[] {
     const detail = [item.artist, item.album && item.album !== item.title ? item.album : undefined]
       .filter((value): value is string => !!value).join(' · ');
     const seconds = item.durationMs !== undefined && item.durationMs > 0 ? item.durationMs / 1000 : undefined;
-    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}), current: entry.id === view.queue.currentEntryId}];
+    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}), current: entry.id === view.queue.currentEntryId, ...(entry.segmentId ? {segmentId: entry.segmentId} : {})}];
   });
 }
 
@@ -60,6 +60,15 @@ const rememberedRow = new Map<string, string>();
 export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
   const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view);
   const current = rows.filter(row => row.current), upcoming = rows.filter(row => !row.current);
+  // The queue's own segments name what each run of upcoming entries came from; a run without
+  // one keeps the plain Up next heading rather than inventing a source.
+  const segmentLabels = new Map(view.queue.segments.map(segment => [segment.id, segment.label]));
+  const groups: {key: string; label: string; rows: Row[]}[] = [];
+  for (const value of upcoming) {
+    const key = value.segmentId ?? '', last = groups.at(-1);
+    if (last && last.key === key) last.rows.push(value);
+    else groups.push({key, label: (value.segmentId && segmentLabels.get(value.segmentId)) || t('next.music.upNext'), rows: [value]});
+  }
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
   const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
@@ -139,8 +148,10 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID 
     <ScrollView contentContainerStyle={{paddingBottom: 16}} showsVerticalScrollIndicator={false}>
       {current.length ? heading(t('player.queueNowPlaying')) : null}
       {current.map(row)}
-      {upcoming.length ? heading(t('player.queue')) : null}
-      {upcoming.map(row)}
+      {groups.map((group, index) => <React.Fragment key={`${group.key}:${index}`}>
+        {heading(group.label)}
+        {group.rows.map(row)}
+      </React.Fragment>)}
       {!current.length && !upcoming.length ? <Text style={[browseType(theme, 14, 400), {paddingHorizontal: 14, paddingVertical: 18, color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
     </ScrollView>
     {rows.length ? <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, paddingHorizontal: 14, paddingVertical: 12}}>
