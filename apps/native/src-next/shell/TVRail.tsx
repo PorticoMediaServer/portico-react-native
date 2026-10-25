@@ -15,8 +15,10 @@ import {useMotion} from '../kit/useMotion';
 import {libraryIcon, visibleLibraries, type ShellAuthority, type ShellDestination} from './model';
 
 type RailEntry = {key: string; label: string; icon: IconName; destination: ShellDestination};
-export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, onProfile, profileRef, onExpandedChange, authority, returnTo, dimmed}: {
+export function TVRail({libraries, hasLiveTV, destination, profile, unread = false, onNavigate, onProfile, profileRef, onExpandedChange, authority, returnTo, dimmed}: {
   authority: ShellAuthority; returnTo?: FocusAddress; libraries: readonly Library[]; hasLiveTV: boolean; destination: ShellDestination; profile: ProfileOption;
+  /** The authorised Inbox unread flag already used by the phone and desktop rails. */
+  unread?: boolean;
   onNavigate: (destination: ShellDestination) => void; onProfile: () => void;
   profileRef: React.RefObject<View | null>; onExpandedChange: (expanded: boolean) => void; dimmed?: boolean;
 }) {
@@ -77,7 +79,11 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
           {item({key: 'settings', label: defaultI18n.t('settings.title'), icon: 'i-settings', destination: {kind: 'settings'}})}
           <Focusable ref={profileRef} {...returnProps} focusId={ids.profile} testID={focusTestID(ids.rail, ids.profile)} accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={14}
             style={{height: 76, width: spec.openItemWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 22}}>
-            <ProfileFace {...profile} size={40} scaleOnFocus={false}/><Animated.View style={[{flex: 1}, labels]}><Text numberOfLines={1} style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{profile.name}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 2}]}>{defaultI18n.t('next.home.native.profileAndServer')}</Text></Animated.View>
+            <View style={{width: 40, height: 40}}>
+              <ProfileFace {...profile} size={40} scaleOnFocus={false}/>
+              {unread && <View pointerEvents="none" style={{position: 'absolute', top: 0, right: 0, width: 7, height: 7, borderRadius: 4,
+                backgroundColor: theme.colors.accentStrong, borderWidth: 2, borderColor: theme.colors.ink}}/>}
+            </View><Animated.View style={[{flex: 1}, labels]}><Text numberOfLines={1} style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{profile.name}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 2}]}>{defaultI18n.t('next.home.native.profileAndServer')}</Text></Animated.View>
           </Focusable>
         </View>
       </Animated.View>
