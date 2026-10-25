@@ -1,5 +1,6 @@
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View, useTVEventHandler} from 'react-native';
+import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
 import {sameFence, activeSegment, skipTarget, skipsAutomatically, followedByScene, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
@@ -109,6 +110,14 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const fence = source.fence;
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
   const visible = current() && state.visible;
+  // tablet-play4: a swipe down on the picture minimises to the dock, the same
+  // thing the chevron does. Taps, horizontal seeks and the equalizer keep
+  // their own gestures; this one only starts on a clear downward drag.
+  const swipeLive = useRef({current, panel: state.panel, fence, minimize: props.onMinimize});
+  swipeLive.current = {current, panel: state.panel, fence, minimize: props.onMinimize};
+  const minimizeSwipe = useMemo(() => Gesture.Pan().enabled(!theme.isTV).runOnJS(true).activeOffsetY(24).failOffsetX([-48, 48])
+    .onEnd(event => {const live = swipeLive.current;
+      if (event.translationY > 64 && Math.abs(event.translationX) < 64 && live.fence && !live.panel && live.current()) live.minimize(live.fence);}), [theme.isTV]);
   const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-controls' && focus.childId === 'watch-seek';
   // tv-player 3: the prompt offers the segment the viewer is in, and an unattended
   // skip leaves a six-second note whose Undo goes back to where the skip happened.
@@ -285,7 +294,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       style={phone ? {height: 44, paddingHorizontal: 16, borderRadius: 10} : undefined} textStyle={phone ? {fontSize: 15, fontWeight: '700'} : undefined}
       onPress={() => skipSegment(prompt)}>{t('player.skip', {kind: prompt.kind})}</Button></> : undefined;
   const skipNodes = skipOfferNode ?? skipNoticeNode ?? skipPromptNode;
-  return <View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
+  return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
       hasTVPreferredFocus={theme.isTV && !visible} focusable={theme.isTV && !visible && !state.panel} onPress={() => {if (theme.isTV) controls.key(fence); else controls.toggleVisibility(fence);}} style={{position: 'absolute', inset: 0}}/>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
@@ -421,5 +430,5 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </FocusRegion>
         : <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>}
     </View>}
-  </View>;
+  </View></GestureDetector>;
 }
