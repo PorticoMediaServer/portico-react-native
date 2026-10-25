@@ -2,7 +2,6 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {loadResourceUsage} from '../../../../../../packages/client-core/src/server-admin/server-forms';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
-import {Tabs} from '../../../kit/controls/Tabs';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
@@ -10,7 +9,6 @@ import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {LimitsTab} from './storage/LimitsTab';
 import {BackupsTab} from './storage/BackupsTab';
-import {MissingTitlesTab} from './storage/MissingTitlesTab';
 import {NativeStorageSpaceUsage} from './storage/SpaceUsage';
 import {NativeEmptyCache} from './storage/EmptyCache';
 import {useSettingsRequestScope} from '../use-settings-request-scope';
@@ -35,18 +33,14 @@ const useRead = <T,>(read: () => Promise<T>, deps: readonly unknown[]) => {
 export function NativeServerStorage({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
   const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
-  const [tab, setTab] = useState('space');
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40}}>
       <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom: 12}}/>
       {!compactHeader && <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.storage')}</Text>}
-      <Tabs testID="server-storage-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.storage')}
-        items={[{value: 'space', label: t('server.space')}, {value: 'limits', label: t('server.limitsAndRetention')}, {value: 'backups', label: t('settings.server.backups')}, {value: 'missing', label: t('settings.server.missingTitles')}]}/>
-      {tab === 'space' && <SpaceTab ports={ports} runtime={runtime} t={t}/>}
-      <NativeEmptyCache context={context} runtime={runtime} visible={tab === 'space'}/>
-      {tab === 'limits' && <LimitsTab ports={ports} runtime={runtime} t={t}/>}
-      {tab === 'backups' && <BackupsTab ports={ports} runtime={runtime} t={t}/>}
-      {tab === 'missing' && <MissingTitlesTab ports={ports} runtime={runtime} t={t}/>}
+      <SpaceTab ports={ports} runtime={runtime} t={t}/>
+      <NativeEmptyCache context={context} runtime={runtime}/>
+      <BackupsTab ports={ports} runtime={runtime} t={t}/>
+      <LimitsTab ports={ports} runtime={runtime} t={t}/>
     </ScrollView>
   </View>;
 }
