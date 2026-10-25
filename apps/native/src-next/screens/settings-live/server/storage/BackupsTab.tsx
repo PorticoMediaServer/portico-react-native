@@ -1,107 +1,106 @@
-import {useSettingsRequestScope} from '../../use-settings-request-scope';
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
-import type {BackupSummary, BackupsDocument, BackupKind} from '../../../../../../../packages/client-core/src/administration';
-import {backupProgressFraction} from '../../../../../../../packages/client-core/src/administration';
-import {deleteBackup, getBackups, restoreBackup, startBackup, waitForBackupCompletion, waitForServerAnswer} from '../../../../../../../packages/client-core/src/backups';
-import {presentError} from '../../../../../../../packages/client-core/src/presentation/errors';
+import {SettingsBackupSource, type SettingsRestoreSelection} from '../../../../../../../packages/client-core/src/server-admin/backup-source';
+import {isAuthenticationFailure} from '../../../../../../../packages/client-core/src/backups';
+import {backupProgressFraction, type BackupSummary, type RestoreSource} from '../../../../../../../packages/client-core/src/administration';
 import {when} from '../../../../../../../packages/client-core/src/server-admin/console-words';
-import type {MessageId} from '../../../../../../../packages/i18n/src';
 import {defaultI18n} from '../../../../../../../packages/i18n/src';
-import {Button} from '../../../../kit/controls/Button';
-import {TextField} from '../../../../kit/controls/TextField';
-import {BottomSheet} from '../../../../kit/overlays/BottomSheet';
-import {Menu, type MenuEntry} from '../../../../kit/overlays';
-import {StateView} from '../../../../kit/states';
+import {Button, TextField} from '../../../../kit/controls';
+import {BottomSheet} from '../../../../kit/overlays';
 import {shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
+import type {NativeShellBootstrapContext} from '../../../../shell/bootstrap';
 import type {NativeSettingsLivePorts} from '../../ports';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
+import {NativeScreenLifetime, screenScopeEnded} from '../../lifetime';
+import {nativeStorageOwner} from './space-source';
 
 type Translate = typeof defaultI18n.t;
-const kindWord = (kind: BackupKind): MessageId => kind === 'scheduled' ? 'web.maintenance.backupKindScheduled' : kind === 'manual' ? 'web.maintenance.backupKindManual' : 'web.maintenance.backupKindPreRestore';
+function createBackups(context: NativeShellBootstrapContext, operationId: () => string, reportError: NativeShellRuntime['reportError']) {
+  const lifetime = new NativeScreenLifetime(context), listeners = new Set<() => void>();
+  const current = () => lifetime.current() && nativeStorageOwner(context);
+  const api = {request: <T,>(path: string, method?: string, body?: unknown, caller?: AbortSignal): Promise<T> => current()
+    ? lifetime.request(signal => context.api.request<T>(path, method, body, signal), caller) : Promise.reject(screenScopeEnded())};
+  const source = new SettingsBackupSource(api, context.authority().serverId, current, () => {for (const listener of listeners) listener();}, operationId);
+  return {context, source, current, backupSubmitted: false, removeUncertain: false,
+    subscribe: (listener: () => void) => {listeners.add(listener);return () => {listeners.delete(listener);};},
+    failure: (error: unknown) => {if (isAuthenticationFailure(error)) {const owned = current();source.dispose();lifetime.dispose();if (owned) reportError(error);}},
+    dispose: () => {source.dispose();lifetime.dispose();listeners.clear();}};
+}
+type Group = ReturnType<typeof createBackups>;
+type Dialog = {abort: AbortController; source: RestoreSource; listed?: BackupSummary; selection?: SettingsRestoreSelection; submitted?: boolean};
 
-/** Settings › Server › Storage & backups › Backups (owner-server.html frame 35b). */
+/** The page owns the original operation and candidate across all restore steps. */
 export function BackupsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
-  const theme = useTheme(), context = ports.context;
-  const {api, lifetime, authority} = useSettingsRequestScope(context);
-  const [doc, setDoc] = useState<BackupsDocument>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
-  const [menu, setMenu] = useState<BackupSummary>(), [restore, setRestore] = useState<BackupSummary | 'path'>(), [deleteTarget, setDeleteTarget] = useState<BackupSummary>(), [typed, setTyped] = useState(''), [path, setPath] = useState('');
-  const refresh = useCallback(() => {
-    if (!lifetime.current()) return;
-    void getBackups(api, authority.serverId).then(value => {if (lifetime.current()) {setDoc(value); setError(undefined);}}, failure => {if (lifetime.current()) setError(failure);});
-  }, [api, authority.serverId, lifetime]);
-  useEffect(() => {refresh();}, [refresh]);
-  const run = (work: () => Promise<unknown>) => {
-    setBusy(true); setProblem(undefined);
-    void work().then(() => {setBusy(false); refresh();}, (failure: unknown) => {setBusy(false); setProblem(presentError(failure, 'server-console').body);});
+  const [group, setGroup] = useState<Group>(), context = ports.context, operationId = ports.requestId, reportError = runtime.reportError;
+  useLayoutEffect(() => {const next = createBackups(context, operationId, reportError);setGroup(next);return next.dispose;}, [context, operationId, reportError]);
+  return group?.context === context ? <Backups group={group} t={t}/> : null;
+}
+function Backups({group, t}: {group: Group; t: Translate}) {
+  const theme = useTheme(), {source} = group;
+  const state = useSyncExternalStore(group.subscribe, source.getSnapshot, source.getSnapshot);
+  const [dialog, setDialog] = useState<Dialog>(), [remove, setRemove] = useState<Dialog>(), [path, setPath] = useState(''), [typed, setTyped] = useState(''), [passphrase, setPassphrase] = useState(''), [problem, setProblem] = useState(false), [uncertain, setUncertain] = useState(false);
+  const [, redraw] = useState(0);
+  const view = useMemo(() => ({source, active: true, dialog: undefined as Dialog | undefined, remove: undefined as Dialog | undefined, flight: undefined as object | undefined}), [source]);
+  useLayoutEffect(() => {view.active = true;return () => {view.active = false;view.dialog?.abort.abort();view.remove?.abort.abort();view.dialog = undefined;view.remove = undefined;view.flight = undefined;};}, [view]);
+  const current = () => view.active && view.source === source && group.current();
+  const load = () => {if (!current()) return;void source.load().then(() => {if (current()) {group.removeUncertain = false;setProblem(false);redraw(value => value + 1);}}, error => {group.failure(error);if (current()) setProblem(true);});};
+  useEffect(() => {void source.load().catch(error => {group.failure(error);if (view.active && group.current()) setProblem(true);});}, [source, group, view]);
+  const listed = (value: Dialog) => !value.listed || !!source.getSnapshot().document?.backups.includes(value.listed);
+  const held = dialog && view.dialog === dialog && !dialog.abort.signal.aborted && current() && listed(dialog) ? dialog : undefined;
+  const heldRemove = remove && view.remove === remove && !remove.abort.signal.aborted && current() && listed(remove) ? remove : undefined;
+  const retireDialog = (captured: Dialog | undefined) => {if (!captured || view.dialog !== captured) return;view.dialog = undefined;captured.abort.abort();if (captured.selection) source.cancelRestoreSelection(captured.selection);setDialog(undefined);setPassphrase('');};
+  const close = () => {if (held && current()) retireDialog(held);};
+  const retireRemove = (captured: Dialog | undefined) => {if (!captured || view.remove !== captured) return;captured.abort.abort();view.remove = undefined;setRemove(undefined);setTyped('');};
+  const closeRemove = () => {if (heldRemove && current()) retireRemove(heldRemove);};
+  const open = (backup?: BackupSummary) => {
+    if (!current() || view.flight || state.busy || backup && !source.getSnapshot().document?.backups.includes(backup)) return;
+    retireDialog(view.dialog);const next: Dialog = {abort: new AbortController(), source: backup ? {backupId: backup.id} : {path: ''}, ...(backup ? {listed: backup} : {})};view.dialog = next;setDialog(next);setPath('');setProblem(false);
   };
-  const backUpNow = () => run(async () => {
-    const jobId = await startBackup(api, authority.serverId, ports.requestId());
-    setDoc(await waitForBackupCompletion(() => getBackups(api, authority.serverId), {expectedJobId: jobId, onProgress: setDoc}));
-  });
-  const doRestore = (source: {backupId: string} | {path: string}) => run(async () => {
-    await restoreBackup(api, authority.serverId, ports.requestId(), source);
-    // The accepted restore job owns its graceful restart; only read its answer.
-    setDoc(await waitForServerAnswer(() => getBackups(api, authority.serverId)));
-    setRestore(undefined);
-  });
-  const doDelete = () => {
-    const target = deleteTarget;
-    if (!target) return;
-    run(async () => {await deleteBackup(api, authority.serverId, target.id); setDeleteTarget(undefined); setMenu(undefined);});
+  const confirm = async () => {
+    const captured = held;if (!captured || view.flight || !current() || view.dialog !== captured || !listed(captured)) return;
+    const flight = {};view.flight = flight;setProblem(false);
+    const active = () => current() && view.flight === flight && view.dialog === captured && !captured.abort.signal.aborted && listed(captured);
+    try {
+      if (!captured.selection) {
+        const selected = captured.listed ? captured.source : {path: path.trim()};if ('path' in selected && !selected.path) return;
+        const selection = await source.prepareRestore(selected, captured.abort.signal);
+        if (!active()) {source.cancelRestoreSelection(selection);return;}
+        captured.selection = selection;redraw(value => value + 1);
+        // Keep the same parent-owned dialog and signal for encrypted input.
+        if (selection.encrypted) return;
+      }
+      if (!active() || !captured.selection?.isCurrent()) return;
+      const secret = captured.selection.encrypted ? passphrase : undefined;setPassphrase('');
+      if (captured.selection.encrypted && !secret) return;
+      const result = await source.restore(captured.selection, secret, captured.abort.signal);
+      if (active() && result) close();
+    } catch (error) {group.failure(error);if (active()) setProblem(true);} finally {if (view.flight === flight) view.flight = undefined;}
   };
-  const running = doc?.running, fraction = running ? backupProgressFraction(running) : undefined;
-  const items = doc?.backups ?? [];
-  const restoreTarget = restore === 'path' ? undefined : restore;
-  const confirmRestore = () => {if (restore === 'path') doRestore({path: path.trim()}); else if (restoreTarget) doRestore({backupId: restoreTarget.id});};
-  const entries = (backup: BackupSummary): readonly MenuEntry[] => [
-    {id: 'restore', label: t('web.maintenance.restoreBackup'), icon: 'i-restart', onSelect: () => {setRestore(backup); setMenu(undefined);}},
-    {id: 'delete', label: t('action.delete'), icon: 'i-trash', destructive: true, onSelect: () => {setTyped(''); setDeleteTarget(backup); setMenu(undefined);}},
-  ];
-  if (error !== undefined && !doc) return <StateView {...runtime.error(error, refresh)}/>;
-  return <View style={{marginTop: 14}} testID="server-storage-backups">
-    <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
-    <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.backupsLedePlain')}</Text>
-    {problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 8}]}>{problem}</Text> : null}
-    {running ? <View style={{marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: theme.colors.raised}}>
-      <Text style={[shellType(14, 700), {color: theme.colors.text}]}>{t('web.maintenance.backingUp')}{fraction === undefined ? '' : ` ${Math.round(fraction * 100)}%`}</Text>
-      <Text style={[shellType(12.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{running.phase}</Text>
-      {fraction !== undefined && <View style={{height: 6, borderRadius: 3, marginTop: 8, backgroundColor: theme.colors.line}}>
-        <View style={{height: 6, borderRadius: 3, width: `${Math.round(fraction * 100)}%`, backgroundColor: theme.colors.accentStrong}}/>
-      </View>}
-    </View> : null}
-    <View style={{flexDirection: 'row', marginTop: 12}}>
-      <Button size="compact" icon="i-refresh" loading={busy} disabled={Boolean(running)} onPress={backUpNow}>{t('web.maintenance.backUpNow')}</Button>
-    </View>
-    <View style={{marginTop: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-      {!busy && !items.length ? <Text style={[shellType(13, 500), {color: theme.colors.textTertiary, padding: 14}]}>{t('web.maintenance.noBackups')}</Text> : null}
-      {items.map((backup, index) => <Button key={backup.id} variant="text" size="compact" onPress={() => setMenu(backup)}
-        style={{alignItems: 'flex-start', minHeight: 0, paddingHorizontal: 14, paddingVertical: 11, borderTopWidth: index ? 1 : 0, borderTopColor: theme.colors.lineSoft}}>
-        <View style={{flex: 1, minWidth: 0}}>
-          <Text numberOfLines={1} style={[shellType(15, 700), {color: theme.colors.text}]}>{when(Date.parse(backup.createdAt))}</Text>
-          <Text numberOfLines={2} style={[shellType(12.5, 500, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('web.maintenance.backupDetails', {kind: t(kindWord(backup.kind)), size: defaultI18n.bytes(backup.bytes), schema: backup.schemaVersion, version: backup.serverVersion})}</Text>
-          <Text numberOfLines={1} style={[shellType(11.5, 400), {color: theme.colors.textTertiary, marginTop: 2}]}>{backup.path}</Text>
-        </View>
-      </Button>)}
-    </View>
-    <View style={{flexDirection: 'row', marginTop: 12}}>
-      <Button size="compact" variant="glass" icon="i-folder" onPress={() => {setPath(''); setRestore('path');}}>{t('web.maintenance.restoreFromFile')}</Button>
-    </View>
-    <Text style={[shellType(12, 400, 17), {color: theme.colors.textTertiary, marginTop: 10}]}>{t('web.maintenance.backupsOpenFiles')}</Text>
-    <Menu open={Boolean(menu)} onOpenChange={open => {if (!open) setMenu(undefined);}} presentation="sheet" testID="server-backup-menu" title={menu ? when(Date.parse(menu.createdAt)) : undefined} items={menu ? entries(menu) : []}/>
-    <BottomSheet open={Boolean(restore)} onOpenChange={open => {if (!open && !busy) setRestore(undefined);}} testID="server-backup-restore" keyboardAvoiding
-      title={restore === 'path' ? t('web.maintenance.restoreFileTitle') : t('web.maintenance.restoreTitle')}
-      description={t('web.maintenance.restoreBody')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={() => setRestore(undefined)}>{t('action.cancel')}</Button>
-        <Button loading={busy} disabled={restore === 'path' && !path.trim()} onPress={confirmRestore}>{t('web.maintenance.restoreConfirm')}</Button></View>}>
-      {restore === 'path' ? <TextField label={t('web.maintenance.chooseBackupLede')} value={path} onChangeText={setPath} autoCapitalize="none" autoCorrect={false}/> : <Text style={[shellType(14, 600), {color: theme.colors.text}]}>{restoreTarget ? when(Date.parse(restoreTarget.createdAt)) : ''}</Text>}
+  const start = async () => {
+    if (!current() || view.flight || group.backupSubmitted || source.getSnapshot().busy || !state.document || state.document.running || state.document.restore) return;
+    const flight = {};view.flight = flight;group.backupSubmitted = true;setProblem(false);
+    try {if (await source.backupNow()) group.backupSubmitted = false;} catch (error) {group.failure(error);if (current()) {setProblem(true);setUncertain(true);}} finally {if (view.flight === flight) view.flight = undefined;}
+  };
+  const erase = async () => {
+    const captured = heldRemove;if (!captured?.listed || captured.submitted || group.removeUncertain || typed.trim() !== 'delete' || !current() || view.remove !== captured || view.flight || !listed(captured)) return;
+    const flight = {};view.flight = flight;captured.submitted = true;group.removeUncertain = true;setProblem(false);
+    try {const done = await source.remove(captured.listed.id, captured.abort.signal);if (done && current() && view.remove === captured) {group.removeUncertain = false;closeRemove();}} catch (error) {group.failure(error);if (current() && view.remove === captured) setProblem(true);} finally {if (view.flight === flight) view.flight = undefined;}
+  };
+  const running = state.document?.running, fraction = running ? backupProgressFraction(running) : undefined;
+  return <View style={{marginTop:22,gap:12}} testID="server-storage-backups">
+    <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
+    <Text style={[shellType(13,400,18),{color:theme.colors.textSecondary}]}>{t('web.maintenance.backupsLedePlain')}</Text>
+    {problem && <Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(uncertain ? 'error.unconfirmedChange' : 'error.unavailable')}</Text>}
+    {running && <Text style={{color:theme.colors.textSecondary}}>{t('web.maintenance.backingUp')}{fraction === undefined ? '' : ` ${Math.round(fraction * 100)}%`}</Text>}
+    {state.restorePhase && <Text style={{color:theme.colors.textSecondary}}>{t(state.restorePhase === 'restarting' ? 'web.maintenance.restartingTitle' : 'web.maintenance.restoreTitle')}</Text>}
+    <View style={{flexDirection:'row',gap:8}}><Button size="compact" disabled={state.busy || group.backupSubmitted || !state.document || !!running || !!state.document.restore} onPress={() => {void start();}}>{t('web.maintenance.backUpNow')}</Button><Button size="compact" variant="glass" disabled={state.busy} onPress={load}>{t('action.tryAgain')}</Button></View>
+    {state.document?.backups.length === 0 && <Text style={{color:theme.colors.textSecondary}}>{t('web.maintenance.noBackups')}</Text>}
+    {state.document?.backups.map(backup => <View key={backup.id} style={{padding:12,gap:8,borderRadius:12,backgroundColor:theme.colors.raised}}><Text style={[shellType(15,700),{color:theme.colors.text}]}>{when(Date.parse(backup.createdAt))}</Text><Text style={{color:theme.colors.textSecondary}}>{defaultI18n.bytes(backup.bytes)}</Text><View style={{flexDirection:'row',gap:8}}><Button size="compact" variant="glass" disabled={state.busy} onPress={() => open(backup)}>{t('web.maintenance.restoreBackup')}</Button><Button size="compact" variant="glass" disabled={state.busy || group.removeUncertain} onPress={() => {if (!current() || view.flight || group.removeUncertain || !source.getSnapshot().document?.backups.includes(backup)) return;retireRemove(view.remove);const next: Dialog = {abort:new AbortController(),source:{backupId:backup.id},listed:backup};view.remove = next;setRemove(next);setProblem(false);}}>{t('action.delete')}</Button></View></View>)}
+    <Button variant="glass" size="compact" disabled={state.busy} onPress={() => open()}>{t('web.maintenance.restoreFromFile')}</Button>
+    <BottomSheet open={!!held} onOpenChange={value => {if (!value) close();}} title={t('web.maintenance.restoreTitle')} description={t('web.maintenance.restoreBody')} footer={<View style={{flexDirection:'row',gap:8}}><Button variant="glass" onPress={close}>{t('action.cancel')}</Button><Button disabled={state.busy || !!held?.selection?.encrypted && !passphrase || !held?.listed && !held?.selection && !path.trim()} loading={state.busy} onPress={() => {void confirm();}}>{t('web.maintenance.restoreConfirm')}</Button></View>}>
+      <View style={{gap:12}}>{held?.listed && <Text style={{color:theme.colors.text}}>{when(Date.parse(held.listed.createdAt))}</Text>}{held && !held.listed && !held.selection && <TextField label={t('web.maintenance.chooseBackupLede')} value={path} editable={!state.busy} onChangeText={value => {if (current() && view.dialog === held && !view.flight) setPath(value);}} autoCapitalize="none" autoCorrect={false}/>} {held?.selection?.encrypted && <TextField label={t('next.settings.backup.passphrase')} value={passphrase} secureTextEntry editable={!state.busy} onChangeText={value => {if (current() && view.dialog === held && !view.flight) setPassphrase(value);}} autoCapitalize="none" autoCorrect={false}/>}</View>
     </BottomSheet>
-    <BottomSheet open={Boolean(deleteTarget)} onOpenChange={open => {if (!open && !busy) setDeleteTarget(undefined);}} testID="server-backup-delete" keyboardAvoiding
-      title={t('web.maintenance.deleteBackupTitle')} description={t('web.maintenance.deleteBackupBody', {id: 'delete'})}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={() => setDeleteTarget(undefined)}>{t('action.cancel')}</Button>
-        <Button variant="glass" textStyle={{color: theme.colors.record}} loading={busy} disabled={typed.trim() !== 'delete'} onPress={doDelete}>{t('web.maintenance.deleteBackupConfirm')}</Button></View>}>
-      <TextField label={t('confirm.typeToConfirm', {token: 'delete'})} value={typed} onChangeText={setTyped} autoCapitalize="none" autoCorrect={false}/>
-    </BottomSheet>
+    <BottomSheet open={!!heldRemove} onOpenChange={value => {if (!value) closeRemove();}} title={t('web.maintenance.deleteBackupTitle')} description={t('web.maintenance.deleteBackupBody',{id:'delete'})} footer={<View style={{flexDirection:'row',gap:8}}><Button variant="glass" onPress={closeRemove}>{t('action.cancel')}</Button><Button disabled={state.busy || !!heldRemove?.submitted || group.removeUncertain || typed.trim() !== 'delete'} loading={state.busy} onPress={() => {void erase();}}>{t('web.maintenance.deleteBackupConfirm')}</Button></View>}><TextField label={t('confirm.typeToConfirm',{token:'delete'})} value={typed} onChangeText={value => {if (current() && view.remove === heldRemove && !view.flight) setTyped(value);}} autoCapitalize="none" autoCorrect={false}/></BottomSheet>
   </View>;
 }
