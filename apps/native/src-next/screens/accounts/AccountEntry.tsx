@@ -154,6 +154,12 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     else if (result.kind === 'challenge') {factorKind.current = 'local'; setCode(''); setRecovery(false); setStage('factor');}
     else onComplete();
   };
+  useEffect(() => {
+    if (stage !== 'member-move' || !memberMove || moveSnapshot?.phase !== 'adopted'
+      || moveSnapshot.result?.kind !== 'challenge' || memberOperation.current !== operation.current) return;
+    const result = memberMove.takeAcceptedResult();
+    if (result?.kind === 'challenge') {stopMemberMove(); consume(result);}
+  }, [stage, memberMove, moveSnapshot]);
   const directory = async () => {
     const move = memberMoveRef.current;
     if (move && memberOperation.current === operation.current && move.getSnapshot().phase === 'portico') {
@@ -353,7 +359,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       onContinue: () => {void run(portico);}, onCreateAccount: () => {void run(createMoveAccount);}}}/>;
     if (moveSnapshot.phase === 'collision' && moveSnapshot.collision) return <PhoneAccountMoveNotice busy={busy || moveSnapshot.busy}
       state={{kind: 'collision', details: moveSnapshot.collision, onDifferentAccount: () => {void run(differentMoveAccount);}, onBack: back}}/>;
-    if (moveSnapshot.phase === 'adopted' && moveSnapshot.result) return <PhoneAccountMoveNotice state={{kind: 'linked', onChooseProfile: () => {
+    if (moveSnapshot.phase === 'adopted' && moveSnapshot.result && moveSnapshot.result.kind !== 'challenge') return <PhoneAccountMoveNotice state={{kind: 'linked', onChooseProfile: () => {
       const result = memberMove.takeAcceptedResult(); if (!result || memberOperation.current !== operation.current) return; stopMemberMove(); consume(result);
     }}}/>;
   }

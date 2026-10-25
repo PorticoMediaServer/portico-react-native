@@ -219,6 +219,7 @@ export class NativeServerSignIn {
       const retained = before.servers.find(value => value.connection.pin.serverId === before.selectedServerId);
       const originalAccount = this.account;
       let preCurrent = true;
+      let releaseAccepted: (() => void) | undefined;
       const off = subscribeNativeAppSessions(() => {preCurrent = false;});
       this.controller.signal.addEventListener('abort', off, {once: true});
       const samePin = () => {
@@ -250,7 +251,7 @@ export class NativeServerSignIn {
         installationId: this.installation!.installationId, signal: this.controller.signal, isCurrent, assertCurrent,
         retainedAppFamilyId: retained?.connection.session.sessionFamilyId, operationAccountFamilyId: () => this.account?.sessionFamilyId,
         retireLateGrant: retireCaptured,
-        release: () => {off(); this.controller.signal.removeEventListener('abort', off);},
+        release: () => {off(); this.controller.signal.removeEventListener('abort', off); releaseAccepted?.(); releaseAccepted = undefined;},
         captureHosted: async () => {
           await assertCurrent();
           const credentials = this.owner.accountCredentials();
@@ -287,7 +288,9 @@ export class NativeServerSignIn {
           off(); this.controller.signal.removeEventListener('abort', off);
           const acceptedAccount = this.account, acceptedSnapshot = this.snapshot, acceptedChallenge = this.challenge;
           let lease = this.current() && this.api === api && this.server === server && samePin();
-          const release = subscribeNativeAppSessions(() => {lease = false;});
+          const unsubscribe = subscribeNativeAppSessions(() => {lease = false;});
+          const release = () => {lease = false; unsubscribe(); this.controller.signal.removeEventListener('abort', release);};
+          releaseAccepted = release;
           this.controller.signal.addEventListener('abort', release, {once: true});
           const state = await nativeAppSessions.read();
           if (accepted.kind === 'complete' && result.kind === 'signed-in') {
