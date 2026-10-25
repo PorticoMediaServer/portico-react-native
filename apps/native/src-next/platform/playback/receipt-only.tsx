@@ -5,6 +5,7 @@ import {PlaybackService} from '../../../../../packages/client-core/src';
 import type {LocalPlaybackFence} from '../../../../../packages/player-core/src';
 import type {OfflineEntry} from '../../../platform/offline-downloads';
 import type {RememberedDownloadsViewer} from '../../shell/remembered-downloads-viewer';
+import {nativeDynamicRangeMatchingAvailable} from './dynamic-range-matching';
 import {chooseEngine, type EngineKind} from './engine-choice';
 import {NativePlaybackCoordinator, type NativePlaybackTransport} from './NativePlaybackCoordinator';
 import {NativeOfflinePlayback, type NativeOfflinePlaybackDevice, type NativeOfflineSource} from './offline-playback';
@@ -28,7 +29,7 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
   isCurrent: () => boolean; settings: () => NativePlaybackSettings; subscribeSettings: (listener: () => void) => () => void;
 }>) {
   let closed = false, epoch = 0, surface: object | undefined, pending: AbortController | undefined;
-  let source: NativeOfflineSource | undefined;
+  let source: NativeOfflineSource | undefined, sourceEntry: OfflineEntry | undefined;
   const current = () => {try {return !closed && options.isCurrent() && options.identity.current();} catch {return false;}};
   if (!current()) throw cancelled();
   const id = NativeModules.PorticoRuntime?.playbackRequestId as (() => string) | undefined;
@@ -61,7 +62,12 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
       choose: () => chooseEngine({setting: options.settings().engine, mpvAvailable: !!transports.mpv,
         nativeOnly: source?.metadata.kind === 'song' || source?.metadata.kind === 'audiobook_file'})});
   let offIdentity = () => {}, offDevice = () => {}, offSettings = () => {}, offPlayback = () => {}, offCoordinator = () => {};
-  const retirePlay = () => {++epoch; pending?.abort(); pending = undefined; playback.leave(false); source = undefined; coordinator.stop(); publish();};
+  const retirePlay = () => {
+    const operation = ++epoch, previous = pending; pending = undefined; source = undefined; sourceEntry = undefined; previous?.abort();
+    if (epoch !== operation) return; coordinator.stop();
+    if (epoch !== operation) return; playback.leave(false);
+    if (epoch === operation) publish();
+  };
   const check = () => {if (!current() || source && !source.current()) dispose();};
   const configure = () => {
     if (!current()) {dispose(); return;}
@@ -69,7 +75,8 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
     const rate = source?.metadata.kind === 'audiobook_file' ? settings.audiobookRate : source?.metadata.kind === 'song' ? 1 : settings.videoRate;
     if (!Number.isFinite(rate) || rate <= 0) {dispose(); return;}
     coordinator.setOptions(rate, null, state.session ? {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'} : null);
-    coordinator.setDisplayMatching(settings.matchFrameRate); coordinator.setDynamicRangeMatching(settings.matchDynamicRange); coordinator.reconsiderEngine();
+    coordinator.setDisplayMatching(Platform.OS === 'android' ? settings.matchFrameRate : undefined);
+    coordinator.setDynamicRangeMatching(nativeDynamicRangeMatchingAvailable() ? settings.matchDynamicRange : undefined); coordinator.reconsiderEngine();
   };
   function dispose() {
     if (closed) return; closed = true; retirePlay(); admission.dispose();
@@ -98,26 +105,43 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
     const ownsSurface = !!ticket && surface === ticket && current();
     return <View lease={ownsSurface ? lease : ''} pointerEvents="none" accessible={false} {...(Platform.OS === 'android' ? {surfaceActive: ownsSurface && !!lease} : {})} style={{flex: 1}} />;
   }
-  const control = (expected: LocalPlaybackFence, action: () => void) => {const actual = fence();
-    if (current() && surface && source?.current() && actual && JSON.stringify(actual) === JSON.stringify(expected)) action();};
-  return Object.freeze({Surface, getSnapshot: playback.getSnapshot,
-    pause: (expected: LocalPlaybackFence) => control(expected, () => playback.pause()), resume: (expected: LocalPlaybackFence) => control(expected, () => playback.resume()), seek: (expected: LocalPlaybackFence, seconds: number) => control(expected, () => playback.seek(seconds)),
-    current, fence, subscribe: (listener: () => void) => {if (closed) return () => {}; listeners.add(listener); return () => {listeners.delete(listener);};},
-    open: async (entry: OfflineEntry, lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => {
+  const open = async (entry: OfflineEntry, lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => {
       if (!current() || !surface || lifetime.signal.aborted || !lifetime.isCurrent()) throw cancelled();
-      const opening = surface; retirePlay(); coordinator.start();
-      const operation = epoch, controller = new AbortController(); pending = controller;
+      // Reserve before any abort/publication can synchronously call open again.
+      // Reentrant successors reserve immediately, but engine/service work begins
+      // only in their own microtask after the retiring call stack has unwound.
+      const opening = surface, operation = ++epoch, previous = pending, controller = new AbortController();
+      pending = controller; source = undefined; sourceEntry = undefined; previous?.abort();
       const abort = () => controller.abort(); lifetime.signal.addEventListener('abort', abort, {once: true});
       const active = () => current() && surface === opening && epoch === operation && !controller.signal.aborted && !lifetime.signal.aborted && lifetime.isCurrent();
       try {
+        await Promise.resolve(); if (!active()) throw cancelled();
+        coordinator.stop(); if (!active()) throw cancelled();
+        playback.leave(false); if (!active()) throw cancelled();
+        publish(); if (!active()) throw cancelled();
+        coordinator.start(); if (!active()) throw cancelled();
         const admitted = await admission.prepare(entry, active);
         if (!active() || !admitted.current()) throw cancelled();
         if (!['movie', 'episode', 'song', 'audiobook_file'].includes(admitted.metadata.kind ?? '')) throw new Error(serviceText('downloads.offline.notPlayableHere'));
-        source = admitted; configure();
+        source = admitted; sourceEntry = entry; configure();
         await playback.playLocal(admitted.itemId, admitted.session, undefined, {signal: controller.signal, isCurrent: active});
         if (!active() || !admitted.current() || !fence()) throw cancelled();
       } catch (error) {if (epoch === operation) retirePlay(); throw error;}
       finally {lifetime.signal.removeEventListener('abort', abort); if (pending === controller) pending = undefined;}
-    }, close: (expected: LocalPlaybackFence) => control(expected, retirePlay), dispose,
+  };
+  const matches = (expected: LocalPlaybackFence) => {const actual = fence();
+    return current() && !!surface && !!source?.current() && !!actual && JSON.stringify(actual) === JSON.stringify(expected);};
+  const control = (expected: LocalPlaybackFence, action: () => void) => {if (matches(expected)) action();};
+  return Object.freeze({Surface, getSnapshot: playback.getSnapshot, open,
+    pause: (expected: LocalPlaybackFence) => control(expected, () => playback.pause()),
+    resume: (expected: LocalPlaybackFence) => control(expected, () => {const phase = playback.getSnapshot().phase; if (phase === 'starting' || phase === 'ready') playback.resume();}),
+    replay: (expected: LocalPlaybackFence, lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => {
+      const entry = sourceEntry;
+      if (!matches(expected) || playback.getSnapshot().phase !== 'ended' || !entry) return Promise.reject(cancelled());
+      return open(entry, lifetime);
+    },
+    seek: (expected: LocalPlaybackFence, seconds: number) => control(expected, () => playback.seek(seconds)),
+    current, fence, subscribe: (listener: () => void) => {if (closed) return () => {}; listeners.add(listener); return () => {listeners.delete(listener);};},
+    close: (expected: LocalPlaybackFence) => control(expected, retirePlay), dispose,
   });
 }
