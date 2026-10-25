@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
+import React, {useLayoutEffect, useMemo, useRef, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {LibraryContentApi} from '../../../../../packages/client-core/src/library-content';
@@ -13,13 +13,14 @@ import {useTheme} from '../../kit/theme';
 /** Setup reuses the real owner library editor and server folder explorer, after
  * normal session admission. No setup token or pending claim can reach this page. */
 export function PhoneFirstLibrary({context, onDone}: {context: NativeShellBootstrapContext; onDone: () => void}) {
-  const theme = useTheme(), active = useRef(true), flight = useRef(false);
+  const theme = useTheme(), live = useRef<{context: NativeShellBootstrapContext; active: boolean; flight: boolean; retire: () => void} | undefined>(undefined);
   const value = useMemo(() => {
     const lifetime = new NativeScreenLifetime(context);
+    const ticket = {context, active: true, flight: false, retire: () => {}};
     const assertOwner = () => {
       lifetime.assert();
       const account = context.account;
-      if (!active.current || account.account.role !== 'owner' || account.account.disabled || !account.canManage
+      if (live.current !== ticket || !ticket.active || account.account.role !== 'owner' || account.account.disabled || !account.canManage
         || !account.capabilities.manageServer || account.account.primaryProfileId !== lifetime.authority.profileId)
         throw Object.assign(new Error('owner_required'), {code: 'owner_required'});
     };
@@ -28,20 +29,24 @@ export function PhoneFirstLibrary({context, onDone}: {context: NativeShellBootst
       assertOwner(); return result;
     }};
     const scope = {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])};
-    return {lifetime, assertOwner, api, controller: new NativeOwnerLibrariesController(api, scope, () => routeBase64(nativeRouteCrypto.random(24)))};
+    const controller = new NativeOwnerLibrariesController(api, scope, () => routeBase64(nativeRouteCrypto.random(24)));
+    ticket.retire = () => {ticket.active = false; controller.dispose(); lifetime.dispose();};
+    return {ticket, lifetime, assertOwner, api, controller};
   }, [context]);
+  if (live.current !== value.ticket) {live.current?.retire(); live.current = value.ticket;}
+  const current = () => live.current === value.ticket && value.ticket.active && value.ticket.context === context && value.lifetime.current();
   const state = useSyncExternalStore(value.controller.subscribe, value.controller.getSnapshot);
-  useEffect(() => {active.current = true; return () => {active.current = false; value.controller.dispose(); value.lifetime.dispose();};}, [value]);
-  const finish = () => {if (!active.current || !value.lifetime.current() || flight.current) return; value.assertOwner(); active.current = false; value.controller.dispose(); value.lifetime.dispose(); onDone();};
+  useLayoutEffect(() => () => {value.ticket.retire(); if (live.current === value.ticket) live.current = undefined;}, [value]);
+  const finish = () => {if (!current() || value.ticket.flight) return; value.assertOwner(); value.ticket.retire(); if (live.current === value.ticket) live.current = undefined; onDone();};
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{paddingHorizontal: 20, paddingTop: 30, paddingBottom: 18}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{defaultI18n.t('web.setup.firstLibrary')}</Text></View>
-    <AddLibraryPage firstRun api={value.api} serverName={context.serverName} busy={state.busy || flight.current} error={state.error}
+    <AddLibraryPage firstRun api={value.api} serverName={context.serverName} busy={state.busy || value.ticket.flight} error={state.error}
       onCancel={finish} onCreate={input => {
-        if (flight.current || !active.current) return; value.assertOwner(); flight.current = true;
+        if (!current() || value.ticket.flight) return; value.assertOwner(); value.ticket.flight = true;
         void value.controller.create(input).then(id => {
-          if (!active.current || !value.lifetime.current()) return;
-          flight.current = false; if (id) finish();
-        }, () => {flight.current = false;});
+          if (!current()) return;
+          value.ticket.flight = false; if (id) finish();
+        }, () => {value.ticket.flight = false;});
       }}/>
   </View>;
 }
