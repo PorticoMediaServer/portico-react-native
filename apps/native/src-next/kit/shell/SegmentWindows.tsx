@@ -3,9 +3,10 @@ import {Text, TextInput, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {runOnJS, useAnimatedStyle, useSharedValue, type SharedValue} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import type {SegmentReviewEntry, SegmentReviewMarker} from '../../../../../packages/client-core/src/segment-review';
+import {segmentKinds, type SegmentKind, type SegmentReviewEntry, type SegmentReviewMarker} from '../../../../../packages/client-core/src/segment-review';
 import {Focusable} from '../controls/Focusable';
 import {Button} from '../controls/Button';
+import {Select} from '../controls/Select';
 import {BottomSheet} from '../overlays/BottomSheet';
 import {Menu} from '../overlays/Menu';
 import {Icon} from '../Icon';
@@ -74,28 +75,31 @@ export type SegmentWindowsProps = {
   windows: readonly [SegmentWindow, SegmentWindow];
   onSave: (marker: SegmentReviewMarker, bounds: MarkerBounds) => void | Promise<void>;
   error?: string;
+  /** Saved together with the bounds, never applied when the picker alone changes. */
+  onKindChange?: (marker: SegmentReviewMarker, kind: SegmentKind) => void | Promise<void>;
   onApprove: (marker: SegmentReviewMarker) => void;
   onDismiss: (marker: SegmentReviewMarker) => void;
   onWatch: (marker: SegmentReviewMarker, fromUS: string) => void;
   onAdd: () => void;
   saving?: boolean;
 };
-export function SegmentWindows({entry, windows, onSave, onApprove, onDismiss, onWatch, onAdd, saving = false, error}: SegmentWindowsProps) {
+export function SegmentWindows({entry, windows, onSave, onKindChange, onApprove, onDismiss, onWatch, onAdd, saving = false, error}: SegmentWindowsProps) {
   const theme = useTheme();
   const [committing, setCommitting] = useState(false);
   const [editing, setEditing] = useState<SegmentReviewMarker | null>(null);
   const [draft, setDraft] = useState<MarkerBounds>({startUS: '0', endUS: '0'});
   const [menuMarker, setMenuMarker] = useState<SegmentReviewMarker | null>(null);
   const [entryMenu, setEntryMenu] = useState(false);
+  const [editingKind, setEditingKind] = useState<SegmentKind>('intro');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const update = (bounds: MarkerBounds) => {setDraft(bounds); setStart(markerTime(bounds.startUS)); setEnd(markerTime(bounds.endUS));};
   const current = editing && entry.markers.find(marker => marker.id === editing.id);
   const valid = Boolean(current && validMarker(draft, entry.durationUS));
-  const save = async () => {if (current && valid && !saving && !committing) {setCommitting(true); try {await onSave(current, draft); setEditing(null);} catch { /* Caller presents its localized save error; preserve the typed draft. */ } finally {setCommitting(false);}}};
+  const save = async () => {if (current && valid && !saving && !committing) {setCommitting(true); try {if (onKindChange && editingKind !== current.kind) await onKindChange({...current, ...draft}, editingKind); else await onSave(current, draft); setEditing(null);} catch { /* Caller presents its localized save error; preserve the typed draft. */ } finally {setCommitting(false);}}};
   const windowForEdit = current ? windows.find(window => markerWindowParts(draft, window)) ?? windows[0] : windows[0];
   const watch = (marker: SegmentReviewMarker) => onWatch(marker, String(Math.max(0, Number(marker.startUS) - 3e6)));
-  const adjust = (marker: SegmentReviewMarker) => {setEditing(marker); update(marker);};
+  const adjust = (marker: SegmentReviewMarker) => {setEditing(marker); setEditingKind(marker.kind); update(marker);};
   const smallAction = (label: string, icon: 'i-play' | 'i-check' | 'i-edit' | 'i-more', action: () => void) => <Focusable accessibilityRole="button" accessibilityLabel={label} onPress={action} hitSlop={5} style={{width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 9}}><Icon name={icon} size={17} color={theme.colors.textSecondary}/></Focusable>;
   if (theme.isTV) return null;
   return <View style={{gap: 12}}>
@@ -103,13 +107,13 @@ export function SegmentWindows({entry, windows, onSave, onApprove, onDismiss, on
     <View style={{flexDirection: theme.platform === 'phone' ? 'column' : 'row', gap: theme.platform === 'phone' ? 10 : 22}}>{windows.map(window => <View key={window.id} style={{flex: 1}}><MarkerWindow window={window} markers={entry.markers} durationUS={entry.durationUS}/>
       {entry.markers.filter(marker => markerWindowParts(marker, window)).map(marker => <View key={marker.id} style={{gap: 2, marginTop: 8}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 34}}><Text style={[shellType(13, 700), {color: theme.colors.text}]}>{defaultI18n.t('web.segments.kind', {kind: marker.kind})}</Text><Text style={[shellType(13), {color: theme.colors.textSecondary, flex: 1, fontVariant: ['tabular-nums']}]}>{defaultI18n.t('web.segments.range', {start: markerTime(marker.startUS), end: markerTime(marker.endUS)})}</Text><View style={{flexDirection: 'row'}}>{smallAction(defaultI18n.t('next.shell.native.watchFromBefore'), 'i-play', () => watch(marker))}{!marker.approved && smallAction(defaultI18n.t('web.segments.approve'), 'i-check', () => onApprove(marker))}{smallAction(defaultI18n.t('web.segments.adjust'), 'i-edit', () => adjust(marker))}{smallAction(defaultI18n.t('next.shell.native.moreOptions'), 'i-more', () => setMenuMarker(marker))}</View></View>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10}}><Text style={[shellType(12, 700), {color: marker.approved || marker.automaticSafe ? theme.colors.healthy : theme.colors.accentStrong}]}>{defaultI18n.t('web.segments.trust', {trust: marker.approved ? 'approved' : marker.automaticSafe ? 'automatic' : marker.viewerVisible ? 'suggested' : 'hidden'})}</Text><Text style={[shellType(12), {color: theme.colors.textTertiary}]}>{defaultI18n.t('web.segments.basis', {basis: marker.basis})}</Text></View>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10}}><Text style={[shellType(12, 700), {color: marker.approved || marker.automaticSafe ? theme.colors.healthy : theme.colors.accentStrong}]}>{defaultI18n.t('web.segments.trust', {trust: marker.approved ? 'approved' : marker.automaticSafe ? 'automatic' : marker.viewerVisible ? 'suggested' : 'hidden'})}</Text><Text style={[shellType(12), {color: theme.colors.textTertiary}]}>{defaultI18n.t('web.segments.basis', {basis: marker.basis})}</Text><Text style={[shellType(12), {color: theme.colors.textTertiary}]}>{defaultI18n.t('web.segments.confidence', {percent: Math.round(marker.confidence * 100)})}</Text></View>
       </View>)}
     </View>)}</View>
     <Menu open={Boolean(menuMarker)} onOpenChange={open => {if (!open) setMenuMarker(null);}} title={menuMarker ? defaultI18n.t('web.segments.kind', {kind: menuMarker.kind}) : entry.title} presentation="sheet" items={menuMarker ? [{id: 'watch', label: defaultI18n.t('next.shell.native.watchFromBefore'), onSelect: () => watch(menuMarker)}, ...(!menuMarker.approved ? [{id: 'approve', label: defaultI18n.t('web.segments.approve'), onSelect: () => onApprove(menuMarker)}] : []), {id: 'adjust', label: defaultI18n.t('web.segments.adjust'), onSelect: () => adjust(menuMarker)}, {id: 'dismiss', label: defaultI18n.t('action.dismiss'), destructive: true, onSelect: () => onDismiss(menuMarker)}] : []}/>
     <Menu open={entryMenu} onOpenChange={setEntryMenu} title={entry.title} presentation="sheet" items={[{id: 'add', label: defaultI18n.t('web.segments.addTitle'), onSelect: onAdd}]}/>
     <BottomSheet open={Boolean(current)} onOpenChange={open => {if (!open) setEditing(null);}} title={defaultI18n.t('next.shell.native.adjustSegment', {kind: current ? defaultI18n.t('web.segments.kind', {kind: current.kind}).toLocaleLowerCase('en-US') : ''})} description={defaultI18n.t('web.segments.timeHelp')} footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 10}}><Button variant="glass" size="small" onPress={() => setEditing(null)}>{defaultI18n.t('action.cancel')}</Button><Button size="small" onPress={save} disabled={!valid} loading={saving || committing}>{defaultI18n.t('action.save')}</Button></View>}>
-      <View style={{padding: 20, gap: 24}}>{error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{error}</Text>}<MarkerWindow window={windowForEdit} markers={entry.markers} durationUS={entry.durationUS} editingId={current?.id} draft={draft} onDraftChange={update}/>
+      <View style={{padding: 20, gap: 24}}>{error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{error}</Text>}{current && onKindChange && <Select label={defaultI18n.t('web.segments.kindLabel')} value={editingKind} options={segmentKinds.map(kind => ({value: kind, label: defaultI18n.t('web.segments.kind', {kind})}))} onValueChange={kind => setEditingKind(kind as SegmentKind)}/>}<MarkerWindow window={windowForEdit} markers={entry.markers} durationUS={entry.durationUS} editingId={current?.id} draft={draft} onDraftChange={update}/>
         <View style={{flexDirection: 'row', gap: 14}}><TimeStepper label={defaultI18n.t('next.shell.start')} value={start} onChange={text => {setStart(text); const parsed = parseMarkerTime(text); setDraft({...draft, startUS: parsed ?? ''});}} onStep={delta => update(moveMarkerEdge(draft, 'start', Number(draft.startUS) + delta * 1e6, Number(entry.durationUS)))}/><TimeStepper label={defaultI18n.t('next.shell.end')} value={end} onChange={text => {setEnd(text); const parsed = parseMarkerTime(text); setDraft({...draft, endUS: parsed ?? ''});}} onStep={delta => update(moveMarkerEdge(draft, 'end', Number(draft.endUS) + delta * 1e6, Number(entry.durationUS)))}/></View>
       {current && <><Button variant="glass" size="small" icon="i-play" onPress={() => {if (valid) watch({...current, ...draft});}} disabled={!valid}>{defaultI18n.t('next.shell.native.watchFromBefore')}</Button><Button variant="text" size="small" onPress={() => {onDismiss(current); setEditing(null);}} textStyle={{color: theme.colors.record}}>{defaultI18n.t('action.dismiss')}</Button></>}
       </View>
