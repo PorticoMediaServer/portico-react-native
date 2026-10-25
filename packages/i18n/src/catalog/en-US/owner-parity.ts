@@ -69,6 +69,5 @@ export const ownerParityMessages = {
   'server.metadata.keyUnsaved': 'Your new key is used once you save.',
   'server.dashboard.freeSpace': 'Free space',
   'server.dashboard.porticoFiles': 'Portico’s own files',
-  'server.dashboard.database': 'Database',
   'server.people.hoursTimeHelp': 'Type a time, such as 8:30 or 20:15.',
 } as const;
