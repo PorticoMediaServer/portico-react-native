@@ -4,10 +4,13 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PinnedResource} from '../../../../../packages/client-core/src/library-pins';
-import type {SavedEntry, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import type {SavedEntry, SavedListFilter, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
-import {Focusable, Tabs} from '../../kit/controls';
+import {CardFrame, Parts} from '../../kit/cards/primitives';
+import {Artwork} from '../../kit/artwork';
+import {Button, Chip, Focusable, Tabs} from '../../kit/controls';
+import {Menu} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {Icon, type IconName} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
@@ -33,6 +36,8 @@ export type NativeSavedActions = Readonly<{
   nextMyList?: (shape: 'posters' | 'squares', sectionId: string) => Promise<void>;
 }>;
 export type NativeSavedSelectionPort = Readonly<{
+  /** Enter the page's real current selection context without selecting an item. */
+  start?: (rendered: SavedSnapshot) => void;
   register: (snapshot: SavedSnapshot) => () => void;
   item: (entry: ContentEntry) => CardSelection;
   render: (artwork?: (path?: string) => React.ReactNode) => React.ReactNode;
@@ -63,6 +68,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   // sidebar and this chrome stay in place; phone keeps the pushed page.
   const tablet = !theme.isTV && theme.platform !== 'phone';
   const [savedTab, setSavedTab] = useState<'watchlist' | 'downloads'>('watchlist');
+  const [gridWidth, setGridWidth] = useState(0), [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [listMode, setListMode] = useState(false);
+  const sortRef = useRef<View>(null), filterRef = useRef<View>(null);
   // A retained but hidden Saved page must never change its local tab or open a
   // downloadable view; the same current activation gates the existing actions.
   const visible = () => activation.getSnapshot().visible;
@@ -79,6 +86,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     actions.openView({view: value as 'favorites' | 'playlists' | 'collections' | 'views' | 'history'});
   };
   const downloadsOpen = tablet && !!downloads && savedTab === 'downloads';
+  const myListColumns = theme.platform === 'tablet' ? 4 : 5;
   useEffect(() => {
     if (!downloadsOpen || !active.visible) return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!visible()) return false; setSavedTab('watchlist'); return true;});
@@ -95,6 +103,37 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   const items = snapshot.myList.projection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
   const localGroups = groupOfflineEntries(deviceState.entries);
   const summary = snapshot.summary;
+  const posterProjection = snapshot.myList.projection, squareProjection = snapshot.myListSquares?.projection;
+  const posterEntries = posterProjection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
+  const squareEntries = squareProjection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
+  const pageTotal = (projection: typeof posterProjection) => projection?.sections.reduce((sum, section) => sum + section.totalCount, 0) ?? 0;
+  // Each drawn shape keeps its own server total; the grid's count is its poster query,
+  // never a local union of the two windows.
+  const myListCount = snapshot.phase === 'ready' && posterProjection ? pageTotal(posterProjection) : undefined;
+  const filterOptions = posterProjection?.filters.flatMap(filter => filter.options.map(option => ({...option, field: filter.id}))) ?? [];
+  const applyMyList = (patch: {sort?: string; direction?: 'asc' | 'desc'; filter?: SavedListFilter}) => {
+    if (!visible() || !actions.selectMyList || !posterProjection || !squareProjection) return;
+    const now = destination.getSnapshot();
+    // The open control belongs to the projection it was drawn from; a hidden page or a
+    // successor query must not apply its old sort/filter to the new watchlist.
+    if (now.phase !== 'ready' || now.myList.projection !== posterProjection || now.myListSquares.projection !== squareProjection) return;
+    const query = posterProjection.query;
+    const filter = patch.filter ?? (query.category && query.category !== 'all' ? query.category as SavedListFilter : undefined);
+    const sort = patch.sort ?? query.sort, direction = patch.direction ?? (query.direction === 'asc' || query.direction === 'desc' ? query.direction : undefined);
+    const base = {view: 'watchlist' as const, ...(filter ? {filter} : {}), ...(sort ? {sort} : {}), ...(direction ? {direction} : {})};
+    void actions.selectMyList({...base, shape: 'posters'});
+    void actions.selectMyList({...base, shape: 'squares'});
+  };
+  const sortItems = (posterProjection?.sorts ?? []).map(sort => ({id: sort.id, label: t(sort.labelKey as MessageId), selected: posterProjection?.query.sort === sort.id,
+    onSelect: () => {setSortOpen(false); applyMyList({sort: sort.id, direction: sort.directions.includes(posterProjection?.query.direction as never) ? posterProjection!.query.direction as 'asc' | 'desc' : sort.directions[0] ?? 'asc'});}}));
+  const filterItems = filterOptions.map(option => ({id: `${option.field}:${option.id}`, label: option.label, trailing: option.count ? defaultI18n.number(option.count) : undefined,
+    selected: posterProjection?.query.category === option.id, onSelect: () => {setFilterOpen(false); applyMyList({filter: option.id as SavedListFilter});}}));
+  const nextMyListPage = (shape: 'posters' | 'squares', projection: NonNullable<typeof posterProjection>, sectionId: string) => {
+    if (!visible() || !actions.nextMyList) return;
+    const now = destination.getSnapshot(), current = shape === 'posters' ? now.myList.projection : now.myListSquares.projection;
+    if (now.phase !== 'ready' || current !== projection) return;
+    void actions.nextMyList(shape, sectionId);
+  };
   const rows: readonly {id: string; label: MessageId; icon: IconName; count?: number; view: SavedRoute}[] = [
     {id: 'favorites', label: 'saved.tab.favorites', icon: 'i-heart', count: summary && summary.favorites.posters + summary.favorites.squares, view: {view: 'favorites'}},
     {id: 'playlists', label: 'saved.tab.playlists', icon: 'i-queue', count: summary?.playlists, view: {view: 'playlists'}},
@@ -119,12 +158,48 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       </View>}
       {snapshot.phase === 'error' && <StateView variant="inline" title={t('saved.loadFailed')} body={presentError(snapshot.error, 'saved', {operation: 'load'}).body}
         primaryAction={{id: 'retry', label: t('saved.retry'), onPress: () => {void destination.load().catch(report);}}}/>}
-      <SavedSection first>
+      {tablet ? <View style={{marginTop: 12}}>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: theme.gutter}}>
+          <Chip ref={filterRef} testID="saved-my-list-filters" icon="i-filter" onPress={() => setFilterOpen(true)} accessibilityLabel={t('next.browse.native.filters')}>{t('next.browse.native.filters')}</Chip>
+          <Chip ref={sortRef} testID="saved-my-list-sort" icon="i-sort" trailingIcon="i-down" onPress={() => setSortOpen(true)} accessibilityLabel={t('next.browse.native.sort')}>{t('next.browse.native.sort')}</Chip>
+          {selection?.start && <Chip testID="saved-my-list-select" icon="i-check" onPress={() => selection.start?.(snapshot)} accessibilityLabel={t('next.selection.select')}>{t('next.selection.select')}</Chip>}
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto'}}>
+            <Focusable testID="saved-my-list-grid" accessibilityLabel={t('next.browse.native.grid')} accessibilityState={{selected: !listMode}} onPress={() => setListMode(false)} focusRadius={8}
+              style={{width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: !listMode ? theme.colors.raisedBright : undefined}}>
+              <Icon name="i-grid" size={18} color={!listMode ? theme.colors.text : theme.colors.textTertiary}/>
+            </Focusable>
+            <Focusable testID="saved-my-list-list" accessibilityLabel={t('next.browse.native.list')} accessibilityState={{selected: listMode}} onPress={() => setListMode(true)} focusRadius={8}
+              style={{width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: listMode ? theme.colors.raisedBright : undefined}}>
+              <Icon name="i-list" size={18} color={listMode ? theme.colors.text : theme.colors.textTertiary}/>
+            </Focusable>
+            {myListCount !== undefined && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, marginLeft: 8}]}>{t('count.titles', {count: myListCount})}</Text>}
+          </View>
+        </View>
+        {!!filterOptions.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 10, gap: 8}}>
+          {filterOptions.map(option => <Chip key={`${option.field}:${option.id}`} variant="quick" selected={posterProjection?.query.category === option.id} count={option.count}
+            onPress={() => applyMyList({filter: option.id as SavedListFilter})}>{option.label}</Chip>)}
+        </ScrollView>}
+        {snapshot.phase !== 'ready' || !posterProjection ? (snapshot.phase === 'loading' ? <View style={{paddingVertical: 32}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View> : null)
+          : !posterEntries.length && !squareEntries.length ? <StateView variant="inline" title={t('web.saved.empty.watchlist')} body={t('web.saved.empty.watchlistBody')}/>
+          : listMode ? <View style={{marginTop: 8}}>{posterEntries.map(entry => <SavedMyListRow key={entry.id} entry={entry} runtime={runtime} actions={actions}/>)}</View>
+          : <View onLayout={event => setGridWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: theme.gutter - 5, marginTop: 8}}>
+            {posterEntries.map(entry => <View key={entry.id} style={{width: `${100 / myListColumns}%`, padding: 5}}>
+              <SavedMyListCard entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)} width={gridWidth ? Math.floor(gridWidth / myListColumns - 10) : undefined}/>
+            </View>)}
+          </View>}
+        {(() => {const section = snapshot.phase === 'ready' ? posterProjection?.sections.find(value => value.nextCursor) : undefined; return section ? <View style={{alignItems: 'center', paddingVertical: 12}}>
+          <Button variant="glass" size="compact" onPress={() => nextMyListPage('posters', posterProjection!, section.id)}>{t('action.showMore')}</Button></View> : null;})()}
+        {!!squareEntries.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 12, gap: 12}}>
+          {squareEntries.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} width={132}/>)}
+        </ScrollView>}
+        {(() => {const section = snapshot.phase === 'ready' ? squareProjection?.sections.find(value => value.nextCursor) : undefined; return section ? <View style={{alignItems: 'center', paddingVertical: 12}}>
+          <Button variant="glass" size="compact" onPress={() => nextMyListPage('squares', squareProjection!, section.id)}>{t('action.showMore')}</Button></View> : null;})()}
+      </View> : <SavedSection first>
         <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
         {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
           {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)}/>)}
         </ScrollView>}
-      </SavedSection>
+      </SavedSection>}
       {!tablet && deviceState.supported && <SavedSection>
         <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(deviceState.usedBytes)})} onPress={showDownloads}/>
         {!!localGroups.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
@@ -144,6 +219,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       </View>}
     </ScrollView>}
     {!downloadsOpen && selection?.render()}
+    <Menu testID="saved-my-list-filter-menu" open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterRef} returnFocusRef={filterRef} title={t('filter.title')} items={filterItems}/>
+    <Menu testID="saved-my-list-sort-menu" open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortRef} returnFocusRef={sortRef} title={t('next.browse.native.sort')} items={sortItems}/>
   </View>;
 }
 
@@ -154,9 +231,23 @@ function SavedSection({first = false, children}: {first?: boolean; children: Rea
   return <View style={{marginTop: first ? 2 : theme.spec.shelf.marginTop[theme.platform]}}>{children}</View>;
 }
 
-function SavedMyListCard({entry, runtime, actions, selection}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection?: CardSelection}) {
+function SavedMyListRow({entry, runtime, actions}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions}) {
+  const theme = useTheme(), text = homeCardText(entry, false, runtime.text), menuAnchorRef = useRef<View>(null);
+  return <View style={{marginHorizontal: 16, borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>
+    <CardFrame title={entry.displayTitle || entry.title} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry)} testID={`saved-my-list-row-${encodeURIComponent(entry.id)}`}
+      onNavigate={() => actions.openEntry(entry)} onMore={() => actions.menuEntry(entry, menuAnchorRef)} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 9}}>
+      {() => <>
+        <Artwork source={runtime.artwork(entry.posterUrl)} width={46} height={69} style={{borderRadius: 6}}/>
+        <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{entry.displayTitle || entry.title}</Text>
+          <Parts parts={text.caption} gap={8} style={[browseType(theme, 12.5, 400), {color: theme.colors.textTertiary, marginTop: 2}]}/></View>
+      </>}
+    </CardFrame>
+  </View>;
+}
+
+function SavedMyListCard({entry, runtime, actions, selection, width}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection?: CardSelection; width?: number}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
-  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.displayTitle || entry.title, caption: text.caption,
+  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.displayTitle || entry.title, caption: text.caption, ...(width === undefined ? {} : {width}),
     artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry, menuAnchorRef), selection,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry)};
   return entry.kind === 'song' || entry.kind === 'album' || entry.kind === 'book' || entry.kind === 'audiobook_file' ? <SquareCard {...props}/> : <PosterCard {...props}/>;

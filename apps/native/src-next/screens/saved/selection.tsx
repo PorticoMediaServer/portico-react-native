@@ -52,7 +52,7 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
   activation: NativeDestinationActivationPort): NativeSavedSelectionPort & {dispose: () => void} {
   const authority = nativeDestinationLifetime(context), feedback = nativeScreenServices(context);
   const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: ContentEntry; sectionId: string; order: number}>();
-  let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false;
+  let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false, started = false;
   let pending: AbortController | undefined, batchGeneration = 0;
   let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, stopPersonal: (() => void) | undefined;
   let personalController: AbortController | undefined, personalCurrent: (() => boolean) | undefined;
@@ -71,7 +71,7 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
   const reset = () => {
     batchGeneration++; closePersonal(); closeDestinations();
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
-    model?.dispose(); model = undefined; windows.clear(); token = ''; emit();
+    model?.dispose(); model = undefined; windows.clear(); token = ''; started = false; emit();
   };
   const contains = (entry: ContentEntry) => visible() && lists(destination.getSnapshot()).some(({list}) =>
     list.projection?.sections.some(section => section.entries.some(value => value === entry)) === true);
@@ -89,6 +89,16 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
       viewerRevision: String(first.list.projection.revision.viewer)}};
     model = new SelectionModel(captured, {maxWindows: 256, maxRegisteredItems: 256}); token = next;
     stopModel = model.subscribe(emit); emit();
+  };
+  /** Enter the actual current selection context with nothing chosen. It is refused
+   * without the page's visible current projection, exactly like the existing actions. */
+  const start = (rendered: {myList: {projection?: NativeSavedSelectionProjection}; favorites: {projection?: NativeSavedSelectionProjection}}) => {
+    if (!visible()) return;
+    const now = destination.getSnapshot();
+    if (now.phase !== 'ready' || now.myList.projection !== rendered.myList.projection || now.favorites.projection !== rendered.favorites.projection) return;
+    reconcile();
+    if (!model) return;
+    started = true; emit();
   };
   const pick = async (entry: ContentEntry, batch?: number) => {
     if (batch === undefined) batchGeneration++;
@@ -130,9 +140,8 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     const snapshot = destination.getSnapshot();
     return lists(snapshot).flatMap(({list}) => (list.projection?.sections ?? []).flatMap(section => section.entries.filter((entry): entry is ContentEntry => 'kind' in entry && leaf(entry as ContentEntry))));
   };
-  const selectLoaded = async () => {
-    if (personal || destinations) return;
-    reconcile();
+  const selectLoaded = async (rendered?: ReturnType<SelectionModel['getSnapshot']>) => {
+    if (personal || destinations || !rendered || model?.getSnapshot() !== rendered || !visible()) return;
     const batch = ++batchGeneration;
     pending?.abort(); pending = undefined;
     if (!model || !visible()) return;
@@ -209,15 +218,16 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, loadedCount: () => loaded().length, snapshot: () => model?.getSnapshot(), personal: () => personal?.service.getSnapshot(),
-    busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy, queueControl,
-    clear: () => {if (personal?.service.getSnapshot().busy || destinations?.snapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); closeDestinations(); model?.clear(); emit();},
+    busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy, queueControl, started: () => started,
+    clear: () => {if (personal?.service.getSnapshot().busy || destinations?.snapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); closeDestinations(); model?.clear(); started = false; emit();},
     selectLoaded, execute, applyPersonal, retryPersonal, openDestination, closeDestinations, destination: () => destinations, destinationKind: () => destinationKind};
   const port: NativeSavedSelectionPort = {
+    start,
     register: () => {reconcile(); return () => {};},
-    item: entry => ({active: model?.getSnapshot().active ?? false,
+    item: entry => ({active: (started && visible()) || (model?.getSnapshot().active ?? false),
       selected: windows.has(JSON.stringify([entry.libraryId, entry.kind, entry.id])) && !!model?.getSnapshot().selectedKeys.includes(windows.get(JSON.stringify([entry.libraryId, entry.kind, entry.id]))!.key),
       onEnter: () => {void pick(entry);}, onToggle: () => {void pick(entry);}}),
-    render: artwork => <SavedSelectionBars store={store} artwork={artwork ?? (() => null)}/>,
+    render: artwork => (started || model?.getSnapshot().active) && visible() ? <SavedSelectionBars store={store} artwork={artwork ?? (() => null)}/> : null,
   };
   return Object.freeze({...port, dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
 }
@@ -225,25 +235,32 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
 type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number; snapshot(): ReturnType<SelectionModel['getSnapshot']> | undefined;
   personal(): ReturnType<ReturnType<typeof createCataloguePersonalSelection>['service']['getSnapshot']> | undefined;
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched'): Promise<void>; retryPersonal(): Promise<void>;
-  loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
+  loadedCount(): number; busy(): boolean; queueControl(): boolean; started(): boolean; clear(): void; selectLoaded(state?: ReturnType<SelectionModel['getSnapshot']>): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
   openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void; destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined};
 
 function SavedSelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   const state = store.snapshot();
-  if (!state?.active) return null;
+  if (!state || (!state.active && !store.started())) return null;
   const actions: SelectionActionOffer[] = [];
-  if (state.summary.every.play) actions.push({id: 'play', disabled: store.busy()});
-  if (state.summary.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
-  if (state.summary.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
-  if (state.summary.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
-  if (state.summary.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
-  if (state.summary.count > 0) actions.push({id: 'playlist', disabled: store.busy()}, {id: 'collection', disabled: store.busy()});
-  if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  if (state.summary.count > 0) {
+    if (state.summary.every.play) actions.push({id: 'play', disabled: store.busy()});
+    if (state.summary.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
+    if (state.summary.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
+    if (state.summary.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
+    if (state.summary.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
+    actions.push({id: 'playlist', disabled: store.busy()}, {id: 'collection', disabled: store.busy()});
+    if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  }
   const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind();
+  // A bounded loaded window in the new empty mode is not the whole query, and the
+  // own shapes are not all in this selection owner; omit Select all unless the target
+  // is a proven whole-query one. No latest-selection mutation from a stale bar.
+  const wholeQuery = state.target?.mode === 'query';
   const props: SelectionBarProps = {count: state.summary.count, selectionLabel: selectedItemsLabel(state.summary),
-    selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: () => {void store.selectLoaded();}, onCancel: () => {setMenu(null); store.clear();},
+    ...(wholeQuery ? {selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: () => {void store.selectLoaded(state);}} : {}),
+    onCancel: () => {setMenu(null); store.clear();},
     actions, menu, onMenuChange: setMenu, topInset: insets.top, fourthSlot: selectionFourthAction(state.summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}
       else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action);}
