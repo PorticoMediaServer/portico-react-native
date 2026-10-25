@@ -18,7 +18,7 @@ export type TVEpisodeBrowserProps = Readonly<{
   selectedSeasonId: string | null;
   episodes: readonly ContentEntry[];
   nextUp?: ContentEntry;
-  show: Readonly<{title: string; overview?: string}>;
+  show: Readonly<{title: string; overview?: string; backdropUrl?: string}>;
   open: NativeTitleEpisodeSnapshot;
   text: TextEnvironment;
   artwork: (path: string | undefined) => ArtworkSource | undefined;
@@ -114,7 +114,7 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
           // tv-detail frames 5 to 8 draw one muted label under the title and the length as a badge on the still.
           return <TVTile key={entry.id} entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={384}
             length={entry.duration === undefined ? undefined : durationText(entry.duration, t)} status={upNext ? t('player.post.upNext') : undefined}
-            watched={entry.watched} progress={model.progress} artwork={props.artwork(entry.stillUrl)} backdropFallback={!entry.stillUrl} more={props.more}
+            watched={entry.watched} progress={model.progress} artwork={props.artwork(entry.stillUrl ?? props.show.backdropUrl)} backdropFallback={!entry.stillUrl} more={props.more}
             primaryAction="play" onLayout={upNext ? event => setRowTag(event.target) : undefined} hasTVPreferredFocus={focus.kind === 'episode' && focus.entry.id === entry.id}
             nextFocusLeft={listTag} onFocus={() => episodeFocus(entry)} onPlay={() => props.onPlayEpisode(entry)}/>;
         })}

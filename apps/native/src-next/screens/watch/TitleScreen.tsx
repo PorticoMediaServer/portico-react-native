@@ -357,7 +357,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const bodyNode = (
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
         {selectedTab === 'episodes' && workspace && (theme.isTV ? <TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
-          episodes={episodes} nextUp={workspace.nextUp} show={{title: workspace.show.title, overview: workspace.show.overview}}
+          episodes={episodes} nextUp={workspace.nextUp} show={{title: workspace.show.title, overview: workspace.show.overview, backdropUrl: workspace.show.backdropUrl}}
           open={openEpisode} text={text} artwork={props.artwork} more={props.more}
           onSeasonFocus={() => controller.episode.close()} onEpisodeFocus={entry => controller.episode.open(entry)}
           onSelectSeason={id => {void controller.season(id).catch(props.reportError);}}
