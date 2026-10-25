@@ -34,9 +34,11 @@ export function NativeUpNextCard({item, artwork, countdown, countdownTotal, scen
   const code = item.episode ? t('next.kit.episodeCode', {season: item.episode.seasonNumber, episode: item.episode.number}) : undefined;
   const minutes = item.durationMs && item.durationMs > 0 ? t('next.kit.duration.minutes', {minutes: Math.round(item.durationMs / 60_000)}) : undefined;
   const still = compact ? {width: 112, height: 63} : {width: 256, height: 144};
+  // tv-player 5 draws the card's own buttons smaller than the player's: 64 high, 22px.
   const button = (id: string, variant: 'primary' | 'glass', icon: 'i-play' | 'i-next' | undefined, label: string, onPress: () => void, first = false) => <Button key={id} focusId={`watch-up-next-${id}`} testID={`watch-up-next-${id}`}
     variant={variant} size={compact ? 'compact' : 'hero'} hasTVPreferredFocus={first && !compact} {...(icon ? {icon} : {})}
-    style={compact ? {height: 40, paddingHorizontal: 15, borderRadius: 10} : undefined} textStyle={compact ? {fontSize: 14.5, fontWeight: '700'} : undefined} onPress={onPress}>{label}</Button>;
+    style={compact ? {height: 40, paddingHorizontal: 15, borderRadius: 10} : {height: 64, paddingHorizontal: 28}}
+    textStyle={compact ? {fontSize: 14.5, fontWeight: '700'} : {fontSize: 22, fontWeight: '700'}} onPress={onPress}>{label}</Button>;
   return <View testID="watch-up-next" style={{width: compact ? sceneAfter ? 424 : 360 : sceneAfter ? 780 : 680, padding: compact ? 14 : 26, borderRadius: compact ? 16 : 22, backgroundColor: compact ? 'rgba(7,16,24,.85)' : 'rgba(9,19,27,.84)',
     boxShadow: compact ? 'inset 0 0 0 1px rgba(237,245,250,.12), 0 20px 40px -16px rgba(0,0,0,.9)' : '0 30px 80px -20px rgba(0,0,0,.85), inset 0 0 0 1px rgba(237,245,250,.1)'}}>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: compact ? 13 : 24}}>
@@ -47,7 +49,7 @@ export function NativeUpNextCard({item, artwork, countdown, countdownTotal, scen
         <Text style={{fontFamily: 'Manrope-Bold', fontSize: compact ? 12.5 : 20, fontWeight: '700', color: compact ? theme.colors.textTertiary : theme.colors.accentStrong}}>{t('player.post.upNext')}</Text>
         <Text numberOfLines={compact ? 1 : 2} style={{fontFamily: 'Manrope-ExtraBold', fontSize: compact ? 16.5 : 34, lineHeight: compact ? 19 : 37.4, fontWeight: '800',
           letterSpacing: compact ? -.25 : -.85, marginTop: compact ? 2 : 6, marginBottom: compact ? 0 : 4, color: theme.colors.text}}>{item.title}</Text>
-        {(code || minutes) && <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 12.5 : 22, fontWeight: '600', marginTop: compact ? 2 : 0, color: compact ? theme.colors.textTertiary : theme.colors.textSecondary}}>{[code, minutes].filter(Boolean).join(' · ')}</Text>}
+        {(code || minutes) && <Text style={{fontFamily: compact ? 'Manrope-SemiBold' : 'Manrope-Regular', fontSize: compact ? 12.5 : 22, fontWeight: compact ? '600' : '400', marginTop: compact ? 2 : 0, color: compact ? theme.colors.textTertiary : theme.colors.textSecondary}}>{[code, minutes].filter(Boolean).join(' · ')}</Text>}
         {countdown && <View style={{flexDirection: 'row', alignItems: 'baseline', marginTop: compact ? 5 : 10}}>
           {countdown.automatic
             ? <Text style={{fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.playingIn', {seconds: countdown.seconds})}</Text>
