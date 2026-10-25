@@ -30,9 +30,11 @@ object PorticoAudioSampleRate {
   const val STRICT = "strict"
   const val OFF = "off"
 
-  /** The listener's chosen mode. The sink does not yet open at a chosen rate and cannot read
-   * its routed device, so no opened rate is recorded anywhere: both stay explicit gaps. */
+  /** The listener's chosen mode and the rate the sink last opened at for the current item.
+   * Set only by the sink on a successful open; cleared by its flush/reset and on a mode change. */
   @Volatile var mode: String = SMART
+  @Volatile var sinkOpenSampleRate: Int = 0
+  fun resetSinkOpen() { sinkOpenSampleRate = 0 }
 
   /** What the routed device says about itself. Unknown and arbitrary are different facts. */
   data class RouteFacts(

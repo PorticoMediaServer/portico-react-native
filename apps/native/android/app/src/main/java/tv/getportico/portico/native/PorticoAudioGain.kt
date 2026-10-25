@@ -146,8 +146,13 @@ internal class PorticoGainQueue(private val gain: PorticoAudioGain) {
 internal class PorticoMusicPipeline(
   private val gain: PorticoAudioGain,
   private val route: () -> PorticoAudioOutput.Route,
+  private val sampleRateMode: () -> String = { PorticoAudioSampleRate.mode },
+  private val preferredSampleRate: () -> Int = { 0 },
 ) {
   private val queue = PorticoGainQueue(gain)
+  private val stage = PorticoRateStage()
+  private var lastTimeUs = 0L
+  private var lastCount = 0
   private var sourceEncoding = C.ENCODING_PCM_16BIT
   private var targetEncoding = C.ENCODING_PCM_16BIT
   private var channels = 0
@@ -167,15 +172,24 @@ internal class PorticoMusicPipeline(
     sampleRate = format.sampleRate
     gain.reset()
     targetEncoding = PorticoAudioOutput.targetEncoding(route(), sampleRate, channels, sourceEncoding)
-    return converted(format, sourceEncoding)
+    // The sink opens at the stage's chosen rate. The routed device is not readable from the
+    // Media3 sink, so a Smart route decision stays unknown rather than assumed supportive.
+    val openRate = stage.configure(sampleRate, channels, targetEncoding, sampleRateMode(),
+        preferredSampleRate(), sampleRate, null)
+    PorticoAudioSampleRate.resetSinkOpen()
+    val delegate = converted(format, sourceEncoding)
+    return if (openRate > 0 && openRate != sampleRate) delegate.buildUpon().setSampleRate(openRate).build() else delegate
   }
 
   fun handle(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int,
              deliver: (ByteBuffer, Long, Int) -> Boolean): Boolean {
-    val outgoing = queue.bufferFor(buffer, sourceEncoding, targetEncoding, channels, sampleRate,
+    val scaled = queue.bufferFor(buffer, sourceEncoding, targetEncoding, channels, sampleRate,
         presentationTimeUs, encodedAccessUnitCount)
+    lastTimeUs = presentationTimeUs; lastCount = encodedAccessUnitCount
+    val outgoing = stage.process(scaled, presentationTimeUs, encodedAccessUnitCount)
     if (!deliver(outgoing, presentationTimeUs, encodedAccessUnitCount)) return false
-    queue.accepted()
+    queue.accepted(); stage.accepted()
+    if (PorticoAudioSampleRate.sinkOpenSampleRate == 0) PorticoAudioSampleRate.sinkOpenSampleRate = stage.openedRate
     return true
   }
 
@@ -187,9 +201,15 @@ internal class PorticoMusicPipeline(
     return if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
   }
 
-  fun flush() { queue.clear(); gain.reset() }
+  fun takeTail(): ByteBuffer? = stage.takeTail()
 
-  fun reset() { queue.clear(); gain.reset() }
+  /** The last presentation time a buffer carried, for the EOS tail. */
+  fun lastPresentationTimeUs(): Long = lastTimeUs
+  fun lastEncodedCount(): Int = lastCount
+
+  fun flush() { queue.clear(); gain.reset(); stage.flush() }
+
+  fun reset() { queue.clear(); gain.reset(); stage.reset() }
 
   private fun converted(format: Format, source: Int, target: Int = targetEncoding): Format =
       if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
@@ -216,14 +236,25 @@ internal class PorticoMusicSink(
         super.handleBuffer(outgoing, time, count)
       }
 
+  fun drainTail(): Boolean = pipeline.drainTail()
+
   override fun flush() {
     super.flush()
     pipeline.flush()
+    PorticoAudioSampleRate.resetSinkOpen()
+  }
+
+  override fun playToEndOfStream() {
+    // Deliver the resampler's retained tail, once, before the delegate finishes the stream.
+    val tail = pipeline.takeTail()
+    if (tail != null) super.handleBuffer(tail, pipeline.lastPresentationTimeUs(), pipeline.lastEncodedCount())
+    super.playToEndOfStream()
   }
 
   override fun reset() {
     super.reset()
     pipeline.reset()
+    PorticoAudioSampleRate.resetSinkOpen()
   }
 
   override fun getFormatSupport(format: Format): Int {
