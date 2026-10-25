@@ -1,3 +1,4 @@
+import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
 import React, {useEffect, useRef, useState} from 'react';
 import {NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
@@ -70,7 +71,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
       if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
-      host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
+      const highlightsSave = {saveHighlights: readingHighlightsSavePort()};
+      host.current = createReadingHost({...highlightsSave, session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
         initialProgress, initialContentsTarget: target.contentsTarget,
