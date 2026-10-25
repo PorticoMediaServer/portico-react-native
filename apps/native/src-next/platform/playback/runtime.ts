@@ -1146,17 +1146,20 @@ export class NativePlaybackRuntime {
     const currentIndex = fence?.kind === 'queue' ? view?.items.findIndex(item => item.entryId === fence.entryId) ?? -1 : -1;
     const ready = !!fence && !this.retired && (playback.phase === 'ready' || playback.phase === 'starting');
     const session = this.currentSession();
-    const editIndex = fence?.kind === 'queue' ? view?.queue.entries.findIndex(entry => entry.id === fence.entryId) ?? -1 : -1;
-    const queueEditReady = ready && !this.preparing && fence?.kind === 'queue' && !!view && editIndex >= 0
+    const offered = view?.window;
+    const rowFacts = view && offered && offered.queueId === view.queue.id && offered.revision === view.queue.revision ? offered.entries : undefined;
+    const currentFact = fence?.kind === 'queue' ? rowFacts?.find(entry => entry.entryId === fence.entryId) : undefined;
+    const currentPosition = currentFact?.position;
+    const queueEditReady = ready && !this.preparing && fence?.kind === 'queue' && !!view
       && session?.queue?.queueId === view.queue.id && session.queue.entryId === fence.entryId && view.queue.currentEntryId === fence.entryId
-      && !view.queue.entries[editIndex]!.hidden && !view.queue.entries[editIndex]!.removed
-      && view.queue.entries.some((entry, index) => index > editIndex && !entry.hidden && !entry.removed);
+      && currentFact?.available === true && currentPosition !== undefined
+      && rowFacts?.some(entry => entry.available === true && entry.position !== undefined && entry.position > currentPosition) === true;
     const videoRows = new Set((view?.items ?? []).filter(item => queueVideoKind(item.kind)).map(item => item.entryId));
     const queueSelectionReady = ready && !this.preparing && fence?.kind === 'queue' && !playback.nativeListening
-      && !this.playback.hasNativeOwner() && session?.kind === 'vod' && session.role === 'local' && !!view && editIndex >= 0
+      && !this.playback.hasNativeOwner() && session?.kind === 'vod' && session.role === 'local' && !!view
       && session.queue?.queueId === view.queue.id && session.queue.entryId === fence.entryId && view.queue.currentEntryId === fence.entryId
-      && !view.queue.entries[editIndex]!.hidden && !view.queue.entries[editIndex]!.removed
-      && view.queue.entries.some(entry => entry.id !== fence.entryId && !entry.hidden && !entry.removed && videoRows.has(entry.id));
+      && currentFact?.available === true && currentPosition !== undefined
+      && rowFacts?.some(entry => entry.entryId !== fence.entryId && entry.available === true && entry.position !== undefined && videoRows.has(entry.entryId)) === true;
     const nativeBinding = this.coordinator.getBinding(), acknowledgement = this.externalPresentationBinding;
     const externalPresentationBinding = acknowledgement === undefined ? undefined : acknowledgement && fence && !this.retired
       && !playback.pendingSeek && !playback.failedSeek && playback.phase !== 'error' && nativeBinding
@@ -1268,10 +1271,11 @@ export class NativePlaybackRuntime {
   selectQueuedEntry = async (fence: PlaybackFence, request: V1QueuedEntrySelection, lifetime: NativePlaybackReadLifetime): Promise<void> => {
     if (!this.matches(fence) || fence.kind !== 'queue' || !this.snapshot.capabilities.queueSelection
       || lifetime.signal.aborted || !lifetime.isCurrent()) return;
-    const session = this.currentSession(), view = this.queue.getSnapshot().view;
-    if (!session?.queue || session.queue.queueId !== request.queueId || session.queue.entryId !== fence.entryId
+    const session = this.currentSession(), view = this.queue.getSnapshot().view, offered = view?.window;
+    const entry = offered?.entries.find(row => row.entryId === request.entryId);
+    if (!offered || offered.queueId !== request.queueId || offered.revision !== request.expectedRevision
+      || entry?.available !== true || entry.position === undefined || !session?.queue || session.queue.queueId !== request.queueId || session.queue.entryId !== fence.entryId
       || view?.queue.id !== request.queueId || view.queue.revision !== request.expectedRevision || request.entryId === fence.entryId
-      || !view.queue.entries.some(entry => entry.id === request.entryId && !entry.hidden && !entry.removed)
       || !queueVideoKind(view.items.find(item => item.entryId === request.entryId)?.kind ?? '')) return;
     const epoch = this.beginOperation();
     // The route/authority survive this intentional source change; core retains the old output binding.
@@ -1290,8 +1294,8 @@ export class NativePlaybackRuntime {
   editQueue = async (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueueEditIntent}>, lifetime: NativePlaybackReadLifetime): Promise<void> => {
     if (!this.matches(fence) || fence.kind !== 'queue' || !this.snapshot.capabilities.queueEdit
       || lifetime.signal.aborted || !lifetime.isCurrent()) return;
-    const session = this.currentSession(), view = this.queue.getSnapshot().view;
-    if (!session?.queue || session.queue.queueId !== request.queueId || session.queue.entryId !== fence.entryId
+    const session = this.currentSession(), view = this.queue.getSnapshot().view, offered = view?.window;
+    if (!offered || offered.queueId !== request.queueId || offered.revision !== request.expectedRevision || !session?.queue || session.queue.queueId !== request.queueId || session.queue.entryId !== fence.entryId
       || view?.queue.id !== request.queueId || view.queue.revision !== request.expectedRevision) return;
     const epoch = this.startEpoch;
     const current = () => epoch === this.startEpoch && this.matches(fence) && !lifetime.signal.aborted && lifetime.isCurrent();
