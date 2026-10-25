@@ -8,6 +8,8 @@ test('the one settings mount registers the Settings destination and owner Dashbo
   const mount = await screenModule(new URL('../src-next/shell/settings-mount.ts', import.meta.url), {
     react: {default: {}},
     '../screens/settings-live/SettingsRoute': {
+      createNativeTVServerSettingsRenderer: (context: unknown) => ({render: (route: unknown) => ({screen: 'server-settings', route})}),
+      createNativeEqualizerSettingsRenderer: (context: unknown) => {built.push(['equalizer', context]); return {render: (route: unknown) => ({screen: 'equalizer', route})};},
       createNativeSettingsRenderer: (context: unknown) => {built.push(['settings', context]); return {render: (route: unknown) => ({screen: 'settings', route})};},
       createNativeServerDashboardRenderer: (context: unknown) => {built.push(['dashboard', context]); return {render: (route: unknown) => ({screen: 'dashboard', route})};},
     },
@@ -16,7 +18,7 @@ test('the one settings mount registers the Settings destination and owner Dashbo
       registerRoute: (kind: string, factory: never) => registrations.push({kind: 'route', route: kind, factory}),
     }},
   });
-  assert.deepEqual(registrations.map(value => [value.kind, value.route]), [['destination', 'settings'], ['route', 'server-dashboard']]);
+  assert.deepEqual(registrations.map(value => [value.kind, value.route]), [['destination', 'settings'], ['route', 'server-dashboard'], ['route', 'server-settings'], ['route', 'settings-equalizer']]);
   assert.deepEqual(built, [], 'registering a factory composes nothing before a viewer binds');
   const context = {serverName: 'Demo server'};
   const settings = registrations[0]!.factory(context) as {render: (route: unknown) => unknown};
@@ -25,4 +27,8 @@ test('the one settings mount registers the Settings destination and owner Dashbo
   assert.deepEqual(settings.render(route), {screen: 'settings', route});
   const dashboard = registrations[1]!.factory(context) as {render: (route: unknown) => unknown};
   assert.deepEqual(dashboard.render({kind: 'server-dashboard'}), {screen: 'dashboard', route: {kind: 'server-dashboard'}});
+  const server = registrations[2]!.factory(context) as {render: (route: unknown) => unknown};
+  assert.deepEqual(server.render({kind: 'server-settings'}), {screen: 'server-settings', route: {kind: 'server-settings'}});
+  const equalizer = registrations[3]!.factory(context) as {render: (route: unknown) => unknown};
+  assert.deepEqual(equalizer.render({kind: 'settings-equalizer'}), {screen: 'equalizer', route: {kind: 'settings-equalizer'}});
 });
