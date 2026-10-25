@@ -343,13 +343,38 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   };
   const engine = useSyncExternalStore(devicePreferences.subscribe, () => devicePreferences.read('playerEngine'));
   const hasDevicePlayer = Platform.OS === 'android' && page.id === 'device' && engine !== undefined;
-  const pageSections: SettingsPage['sections'] = hasDevicePlayer ? [...page.sections, {id: 'device-player', advanced: true, title: 'next.settingsSpec.account.device.advanced.groups.3.title', rows: [
-    {kind: 'composite', id: 'playerEngine', storage: 'device', scope: 'device', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.label', control: {type: 'choice', choices: [
-      {value: 'automatic', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.label'},
-      {value: 'native', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.label'},
-      {value: 'mpv', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.label'},
-    ]}},
-  ]}] : page.sections;
+  // The drawn Player group sits before Connection (settings-spec advanced group 4, rows
+  // device.connection / device.serverAddress) and before Playback fixes. Anchor on those
+  // source row ids, not on a generated section id, and keep the appended fallback.
+  const playerSection: SettingsPage['sections'][number] = {
+    id: 'device-player',
+    advanced: true,
+    title: 'next.settingsSpec.account.device.advanced.groups.3.title',
+    rows: [{
+      kind: 'composite',
+      id: 'playerEngine',
+      storage: 'device',
+      scope: 'device',
+      label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.label',
+      control: {
+        type: 'choice',
+        choices: [
+          {value: 'automatic', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.label'},
+          {value: 'native', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.label'},
+          {value: 'mpv', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.label'},
+        ],
+      },
+    }],
+  };
+  const connectionAt = page.sections.findIndex(section => section.rows.some(row => 'id' in row
+    && (row.id === 'device.connection' || row.id === 'device.playerLink')));
+  // Television alone moves the injected group before Connection; a phone or tablet keeps
+  // the previous appended placement.
+  const pageSections: SettingsPage['sections'] = hasDevicePlayer
+    ? theme.isTV && connectionAt >= 0
+      ? [...page.sections.slice(0, connectionAt), playerSection, ...page.sections.slice(connectionAt)]
+      : [...page.sections, playerSection]
+    : page.sections;
   const sections = pageSections.filter(section => !section.advanced || advanced);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const showEqualizer = page.id === 'music' && equalizer.supported;
@@ -440,9 +465,32 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         <SettingsRow testID="settings-away-limit" label={t('next.settingsSpec.account.quality.groups.0.rows.3.label')} description={t('next.settingsSpec.account.quality.groups.0.rows.3.help')} value={awayLimitLabel}/>
         {!theme.isTV && <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={onStreaming}/>}
       </> : null}</View>
-    </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <>{Platform.OS === 'android' && <><NativeFrameRateRow context={ports.context} runtime={runtime}/><NativePassthroughRow context={ports.context} runtime={runtime}/></>}{showDynamicRange && <NativeDynamicRangeRow context={ports.context} runtime={runtime}/>}<NativeLossNoticesRow context={ports.context} runtime={runtime}/></>}
-    {theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' && <><NativeCapabilityRows/>
-      <View style={{gap: 8, marginBottom: 30}}><Text style={[shellType(20, 700), {color: theme.colors.textTertiary}]}>{t('next.settingsSpec.account.device.advanced.groups.1.title')}</Text>{passthroughFormats.map(format => <NativePassthroughRow key={format} format={format} context={ports.context} runtime={runtime}/>)}</View></>}
+    </View>
+    {theme.isTV && page.id === 'device' && section.id === 'device' && (
+      <>
+        {Platform.OS === 'android' && (
+          <>
+            <NativeFrameRateRow context={ports.context} runtime={runtime}/>
+            <NativePassthroughRow context={ports.context} runtime={runtime}/>
+          </>
+        )}
+        {showDynamicRange && <NativeDynamicRangeRow context={ports.context} runtime={runtime}/>}
+        <NativeLossNoticesRow context={ports.context} runtime={runtime}/>
+      </>
+    )}
+    {theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' && (
+      <>
+        <NativeCapabilityRows/>
+        <View style={{gap: 8, marginBottom: 30}}>
+          <Text style={[shellType(20, 700), {color: theme.colors.textTertiary}]}>
+            {t('next.settingsSpec.account.device.advanced.groups.1.title')}
+          </Text>
+          {passthroughFormats.map(format => (
+            <NativePassthroughRow key={format} format={format} context={ports.context} runtime={runtime}/>
+          ))}
+        </View>
+      </>
+    )}
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
