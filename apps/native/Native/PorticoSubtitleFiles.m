@@ -117,3 +117,85 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId resolver:(RCTPromiseResolveBloc
 
 #endif
 @end
+
+#if TARGET_OS_TV
+@interface PorticoDocumentFiles : NSObject<RCTBridgeModule,RCTInvalidating> @end
+#else
+@interface PorticoDocumentFiles : NSObject<RCTBridgeModule,RCTInvalidating,UIDocumentPickerDelegate> @end
+#endif
+@implementation PorticoDocumentFiles {
+ NSString *_requestId;
+ NSString *_kind;
+ RCTPromiseResolveBlock _resolve;
+ RCTPromiseRejectBlock _reject;
+ BOOL _invalidated;
+#if !TARGET_OS_TV
+ UIDocumentPickerViewController *_picker;
+ BOOL _reading;
+#endif
+}
+RCT_EXPORT_MODULE()
++ (BOOL)requiresMainQueueSetup{return YES;}
+- (dispatch_queue_t)methodQueue{return dispatch_get_main_queue();}
+- (void)finish:(NSDictionary *)result code:(NSString *)code {
+ RCTPromiseResolveBlock resolve=_resolve;RCTPromiseRejectBlock reject=_reject;
+ _requestId=nil;_kind=nil;_resolve=nil;_reject=nil;
+#if !TARGET_OS_TV
+ _picker.delegate=nil;
+ if(_picker.presentingViewController)[_picker dismissViewControllerAnimated:NO completion:nil];
+ _picker=nil;_reading=NO;
+#endif
+ if(result){if(resolve)resolve(result);}else if(reject)reject(code,code,nil);
+}
+- (void)invalidate {
+ if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self invalidate];});return;}
+ _invalidated=YES;[self finish:nil code:@"cancelled"];
+}
+RCT_REMAP_METHOD(cancel,cancel:(NSString *)requestId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ BOOL current=[requestId isKindOfClass:NSString.class]&&[_requestId isEqualToString:requestId];
+ if(current)[self finish:nil code:@"cancelled"];
+ resolve(@(current));
+}
+RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ if(_invalidated){reject(@"bridge_closed",@"bridge_closed",nil);return;}
+ if(![requestId isKindOfClass:NSString.class]||!requestId.length||requestId.length>128||[requestId rangeOfString:@"^[A-Za-z0-9_-]+$" options:NSRegularExpressionSearch].location==NSNotFound||
+    ![kind isKindOfClass:NSString.class]||(![kind isEqualToString:@"playlist"]&&![kind isEqualToString:@"guide"])){reject(@"document_request_invalid",@"document_request_invalid",nil);return;}
+#if TARGET_OS_TV
+ reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);
+#else
+ if(_requestId){reject(@"document_picker_busy",@"document_picker_busy",nil);return;}
+ UIViewController *presenter=RCTPresentedViewController();if(!presenter){reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);return;}
+ _requestId=requestId;_kind=kind;_resolve=resolve;_reject=reject;
+ NSMutableArray<UTType *> *types=[NSMutableArray new];
+ for(NSString *extension in [kind isEqualToString:@"playlist"]?@[@"m3u",@"m3u8"]:@[@"xml"]){[types addObject:[UTType typeWithFilenameExtension:extension]?:UTTypeData];}
+ UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc]initForOpeningContentTypes:types asCopy:NO];
+ _picker=picker;picker.delegate=self;picker.allowsMultipleSelection=NO;[presenter presentViewController:picker animated:YES completion:nil];
+#endif
+}
+#if !TARGET_OS_TV
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+ if(controller==_picker)[self finish:nil code:@"cancelled"];
+}
+- (NSData *)readDocument:(NSURL *)url limit:(NSUInteger)limit {
+ BOOL scoped=[url startAccessingSecurityScopedResource];
+ NSData *data=[NSData dataWithContentsOfURL:url options:0 error:NULL];
+ if(scoped)[url stopAccessingSecurityScopedResource];
+ return data.length>0&&data.length<=limit?data:nil;
+}
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+ if(_invalidated||!_requestId||controller!=_picker||_reading)return;
+ _reading=YES;
+ NSURL *url=urls.count==1?urls.firstObject:nil;
+ NSString *kind=_kind;
+ NSString *extension=url.pathExtension.lowercaseString;
+ BOOL allowed=url.isFileURL&&([kind isEqualToString:@"playlist"]?[extension isEqualToString:@"m3u"]||[extension isEqualToString:@"m3u8"]:[extension isEqualToString:@"xml"]);
+ if(!allowed){[self finish:nil code:@"document_format"];return;}
+ dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
+  NSData *data=[self readDocument:url limit:16*1024*1024];
+  NSString *text=data?[[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding]:nil;
+  NSDictionary *result=text.length?@{@"data":text,@"title":[url.lastPathComponent substringToIndex:MIN((NSUInteger)160,url.lastPathComponent.length)],@"bytes":@(data.length)}:nil;
+  dispatch_async(dispatch_get_main_queue(),^{[self finish:result code:@"document_file"];});
+ });
+}
+#endif
+@end

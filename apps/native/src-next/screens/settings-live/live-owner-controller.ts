@@ -2,9 +2,10 @@ import {liveSourceChoicesService, parseEnvelope, type LiveSourceChoicePage} from
 import {rebaseDraft, sendWithFreshRecord, ALREADY_DONE, type RetryWhenStale} from '../../../../../packages/client-core/src/freshness-actions';
 import {lanConfirmationRoots, previewRemoteSource, remoteSourceDraft, withConfirmedLanRoots, type RemoteSourceDraft, type RemoteSourcePreview, type SourceKind} from '../../../../../packages/client-core/src/linear-api';
 import {normalizeHdHomerunLocator} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import type {LiveSourceInput} from '../../../../../packages/client-core/src/live-source-draft';
 import {NativeScreenLifetime, NativeScreenStore} from './lifetime';
 import {
-  adminResult, parseChannelMapPage, parseLiveDefaults, parseLiveSources, parseLogoImport, parseSourceDocument, parseTunerDiscovery,
+  adminResult, parseChannelMapPage, parseLiveDefaults, parseLiveSourceReceipt, parseLiveSources, parseLogoImport, parseSourceDocument, parseTunerDiscovery, parseUploadPreview, type UploadPreview,
   type ChannelMapEdit, type ChannelMapPage, type LiveDefaults, type LiveSource, type LiveSources, type LiveSourceSettings, type LogoImportOutcome, type TunerDiscovery,
 } from './live-owner-model';
 import {parseAdminRules, parseDVRDocument, parseRecordingPolicy, parseTunerView, type AdminRule, type DVRDefaults, type DVRDocument, type RecordingPolicy, type TunerView} from './recording-owner-model';
@@ -140,6 +141,11 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     return previewRemoteSource({request: this.request}, this.lifetime.authority.serverId, normalized);
   };
   saveRemote = (previewId: string) => this.act(async () => parseSourceDocument(await this.request<unknown>('/v1/admin/live-sources/remote/save', 'POST', {previewId, requestId: this.operationId()}), this.lifetime.authority.serverId), () => undefined);
+  previewFiles = async (draft: LiveSourceInput): Promise<UploadPreview> => {
+    this.lifetime.assert();
+    return parseUploadPreview(await this.request<unknown>('/v1/admin/live-sources/preview', 'POST', draft), this.lifetime.authority.serverId);
+  };
+  saveFiles = (draft: LiveSourceInput) => this.act(async () => parseLiveSourceReceipt(await this.request<unknown>('/v1/admin/live-sources', 'POST', draft), this.lifetime.authority.serverId), () => undefined);
   tuners = async (): Promise<TunerView> => parseTunerView(await this.request<unknown>('/v1/admin/dvr/tuners'), this.lifetime.authority.serverId);
   policy = async (): Promise<RecordingPolicy> => {
     const [owners, grants] = await Promise.all([this.request<unknown>('/v1/admin/dvr/recording-owners?limit=200'), this.request<unknown>('/v1/admin/dvr/recording-permissions')]);

@@ -203,3 +203,91 @@ class PorticoSubtitleFiles(context: ReactApplicationContext) : ReactContextBaseJ
     val FORMATS = setOf("srt", "vtt", "ass", "ssa", "sup", "idx")
   }
 }
+
+/**
+ * `NativeModules.PorticoDocumentFiles.pick(requestId, kind)`: one M3U/M3U8 or XML
+ * file from the system picker as bounded UTF-8 text. Phones and tablets only;
+ * no path or lasting permission crosses the bridge.
+ */
+class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+  private var pending: Promise? = null
+  private var pendingId: String? = null
+  private var pendingKind: String? = null
+
+  private val listener: ActivityEventListener = object : BaseActivityEventListener() {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+      if (requestCode != REQUEST) return
+      val promise = pending ?: return
+      val kind = pendingKind ?: return
+      pending = null; pendingId = null; pendingKind = null
+      val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
+      if (uri == null) { promise.resolve(null); return }
+      pickerWork.execute { read(uri, kind, promise) }
+    }
+  }
+
+  init { context.addActivityEventListener(listener) }
+
+  override fun getName(): String = "PorticoDocumentFiles"
+
+  override fun invalidate() {
+    reactApplicationContext.removeActivityEventListener(listener)
+    pending?.resolve(null); pending = null; pendingId = null; pendingKind = null
+    super.invalidate()
+  }
+
+  @ReactMethod
+  fun pick(requestId: String, kind: String, promise: Promise) {
+    if (TelevisionDisplay.isTelevision) { promise.reject("document_picker_unavailable", "Choose playlist files on a phone or tablet."); return }
+    if (!requestId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) || (kind != "playlist" && kind != "guide")) { promise.reject("document_request_invalid", "Invalid document request."); return }
+    if (pending != null) { promise.reject("document_picker_busy", "Another file is being read."); return }
+    val activity = reactApplicationContext.currentActivity
+    if (activity == null) { promise.reject("document_picker_unavailable", "Open the app before choosing a file."); return }
+    pending = promise; pendingId = requestId; pendingKind = kind
+    try {
+      activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQUEST)
+    } catch (_: Exception) {
+      pending = null; pendingId = null; pendingKind = null
+      promise.reject("document_picker_unavailable", "Open the app before choosing a file.")
+    }
+  }
+
+  @ReactMethod
+  fun cancel(requestId: String, promise: Promise) {
+    val current = pendingId == requestId
+    if (current) { pending?.resolve(null); pending = null; pendingId = null; pendingKind = null }
+    promise.resolve(current)
+  }
+
+  private fun read(uri: Uri, kind: String, promise: Promise) {
+    val context = reactApplicationContext
+    val name = displayName(context, uri)
+    val extension = name.substringAfterLast('.', "").lowercase()
+    val allowed = if (kind == "playlist") setOf("m3u", "m3u8") else setOf("xml")
+    if (extension !in allowed) { promise.reject("document_format", if (kind == "playlist") "Choose an M3U playlist file." else "Choose an XMLTV guide file."); return }
+    val bytes = boundedDocument(context, uri, 16 * 1024 * 1024)
+    if (bytes == null) { promise.reject("document_file", "Read failed, the file is empty, or it is larger than 16 MB."); return }
+    val text = try { String(bytes, Charsets.UTF_8) } catch (_: Exception) { null }
+    if (text.isNullOrEmpty()) { promise.reject("document_file", "Read failed, the file is empty, or it is larger than 16 MB."); return }
+    val result = Arguments.createMap()
+    result.putString("data", text)
+    result.putString("title", name.take(160))
+    result.putInt("bytes", bytes.size)
+    promise.resolve(result)
+  }
+
+  private fun boundedDocument(context: Context, uri: Uri, limit: Int): ByteArray? = try {
+    context.contentResolver.openInputStream(uri)?.use { input ->
+      val out = ByteArrayOutputStream()
+      val chunk = ByteArray(65536)
+      while (out.size() <= limit) {
+        val read = input.read(chunk, 0, Math.min(chunk.size, limit + 1 - out.size()))
+        if (read <= 0) break
+        out.write(chunk, 0, read)
+      }
+      if (out.size() in 1..limit) out.toByteArray() else null
+    }
+  } catch (_: Exception) { null }
+
+  private companion object { const val REQUEST = 0x5044 }
+}
