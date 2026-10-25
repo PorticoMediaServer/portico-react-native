@@ -2,20 +2,16 @@ import {Platform} from 'react-native';
 import type {NativePlaybackRuntimeSnapshot} from '../../../platform/playback/types';
 import type {DeviceEqualizer} from '../../../platform/playback/equalizer';
 import type {MusicFormatFacts, MusicOutputFacts, MusicServerSignal, MusicSignalInput} from '../../../../../../packages/client-core/src/music-signal';
+import type {PlaybackSoundFacts} from '../../../../../../packages/client-core/src/playback-v1/playback-info';
 
-const LOSSLESS = new Set(['flac', 'alac', 'wavpack', 'ape', 'tta', 'mlp', 'truehd', 'pcm']);
-
-type AudioFacts = Readonly<{codec?: string; profile?: string; variant?: string; objectAudio?: string; channels?: number; layout?: string; sampleRate?: number; bitDepth?: number; delivery?: string}>;
-
-function format(facts: AudioFacts | undefined): MusicFormatFacts | undefined {
+function format(facts: PlaybackSoundFacts | undefined): MusicFormatFacts | undefined {
   if (!facts?.codec) return undefined;
   const codec = facts.codec.toLowerCase();
   return Object.freeze({
-    codec, lossless: LOSSLESS.has(codec) || codec.startsWith('pcm_') || codec.startsWith('dsd'),
+    codec, ...(facts.lossless !== undefined ? {lossless: facts.lossless} : {}),
     ...(facts.bitDepth ? {bitDepth: facts.bitDepth} : {}), ...(facts.sampleRate ? {sampleRate: facts.sampleRate} : {}),
     ...(facts.channels ? {channels: facts.channels} : {}), ...(facts.layout ? {layout: facts.layout} : {}),
     ...(facts.objectAudio === 'atmos' ? {atmos: true} : {}),
-    ...(codec.startsWith('dsd_') ? {dsdMultiple: codec.endsWith('64') ? 64 : codec.endsWith('128') ? 128 : codec.endsWith('256') ? 256 : undefined} : {}),
   });
 }
 
@@ -25,25 +21,26 @@ function format(facts: AudioFacts | undefined): MusicFormatFacts | undefined {
 export function nativeMusicSignal(snapshot: Pick<NativePlaybackRuntimeSnapshot, 'session' | 'playback'>, equalizer: DeviceEqualizer | undefined): MusicSignalInput | undefined {
   const info = snapshot.session?.playbackInfo, listening = snapshot.playback.nativeListening;
   const effects = snapshot.playback.audioEffects;
-  const source = format(info?.source.audio as AudioFacts | undefined);
+  const source = format(info?.source.audio);
   if (!source) return undefined;
-  const delivered = format(info?.delivered.audio as AudioFacts | undefined);
+  const delivered = format(info?.delivered.audio);
   const atmosLost = info?.losses?.some(loss => loss.feature === 'atmos') === true;
   const dsdConverted = info?.route === 'converted' && !!info.source.audio?.codec?.toLowerCase().startsWith('dsd_');
+  const serverGain = snapshot.session?.presentation.audio?.loudnessAppliedDb;
   const server: MusicServerSignal | undefined = info ? Object.freeze({
     route: info.route,
     ...(delivered ? {delivered} : {}),
     ...(dsdConverted ? {dsdConverted: true} : {}),
     ...(atmosLost ? {atmosLost: true} : {}),
+    ...(serverGain !== undefined ? {loudnessAppliedDb: serverGain} : {}),
   }) : undefined;
-  const delivery = (info?.delivered.audio as AudioFacts | undefined)?.delivery;
   // The output route is an engine observation, never a setting: an unreported rate is left out.
   const observed = snapshot.session?.observedPlayback?.audio;
   const platform: MusicOutputFacts['platform'] = Platform.OS === 'ios' ? 'apple' : Platform.OS === 'android' ? 'android' : 'other';
   const sampleRate = observed?.sampleRate && Number.isFinite(observed.sampleRate) ? observed.sampleRate : undefined;
   const output: MusicOutputFacts = Object.freeze({
     platform, device: Platform.isTV ? 'tv' : 'phone',
-    ...(delivery === 'passthrough' || observed?.handling === 'passthrough' ? {passthrough: true} : {}),
+    ...(observed?.handling === 'passthrough' ? {passthrough: true} : {}),
     ...(sampleRate ? {sampleRate} : {}),
     ...(observed?.bitDepth ? {bitDepth: observed.bitDepth} : {}),
     ...(observed?.layout ? {decodedLayout: observed.layout} : {}),
@@ -59,6 +56,7 @@ export function nativeMusicSignal(snapshot: Pick<NativePlaybackRuntimeSnapshot, 
     eqOn: equalizer?.on === true, eqApplied: (listening?.eqApplied ?? effects.eqApplied) === true,
     normalization: effects.settings.normalization,
     levelingApplied: (listening?.levelingApplied ?? effects.levelingApplied) === true,
+    ...(effects.levelingGainDb !== undefined ? {levelingGainDb: effects.levelingGainDb} : {}),
     // The engine's own lasting fallback for this song: the line says what was lost. Unreported
     // stays absent, so nothing invents a fallback.
     ...(snapshot.playback.musicFallback === 'eq' ? {fallback: 'eq' as const} : {}),
