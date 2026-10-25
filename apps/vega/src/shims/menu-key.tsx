@@ -1,5 +1,5 @@
 import {useTVEventHandler} from '@amazon-devices/react-native-kepler';
-import {runFocusedMenu} from '../../../native/src/ui/Focusable';
+import {dispatchMenuKey} from '../overrides/native-next/platform/menu-key';
 
 /**
  * The remote's Menu key (≡) opens what a long press of Select opens on the focused control, and
@@ -13,7 +13,7 @@ import {runFocusedMenu} from '../../../native/src/ui/Focusable';
 export function MenuKey(): null {
   useTVEventHandler(event => {
     // Once per press, on release (a held key repeats its "down").
-    if ((event?.eventType === 'menu' || event?.eventType === 'context_menu') && event.eventKeyAction === 1) runFocusedMenu();
+    dispatchMenuKey(event);
   });
   return null;
 }

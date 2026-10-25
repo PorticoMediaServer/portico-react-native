@@ -1,6 +1,8 @@
 import {capabilityDocumentProblem, vegaDeclaredProfile, withViewerSettings, type CapabilityDocument, type CapabilityOverrides, type EngineCapabilities} from '../../../../packages/client-core/src/client-profile';
 import type {AudioDecodeCapability} from '../../../../packages/client-core/src/playback-v1/audio-render';
-import {noDeclaredOutputs, type DeclaredOutputs} from '../../../native/src/player/engine-setting-store';
+// Pure output declarations; loading a profile must not start the retired native UI's stores.
+export type DeclaredOutputs = Readonly<{hdr: boolean; surround: boolean}>;
+const noDeclaredOutputs: DeclaredOutputs = Object.freeze({hdr: false, surround: false});
 
 /** What `PorticoCapabilities.facts()` answers on Vega. */
 export type VegaFacts = Readonly<{model?: string; osVersion?: string; deviceName?: string; appVersion?: string}>;

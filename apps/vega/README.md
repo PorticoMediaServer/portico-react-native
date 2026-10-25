@@ -1,7 +1,7 @@
 # Portico for Fire TV (Vega OS)
 
 The Portico television app for Amazon's Vega OS, built with the Vega SDK's React Native. The
-screens are the Apple app's (`../native/src`), imported in place and never copied; this folder
+screens are the shared native app's (`../native/src-next`), imported in place and never copied; this folder
 holds only what Vega needs to run them.
 
 | Path | Role |
@@ -21,6 +21,21 @@ holds only what Vega needs to run them.
 | `test/` | Tests of the bridge that need no device: the stream reader, the player engine, subtitles, event streams and the capability document, against stand-ins for the media element and a server (`test/stubs`). |
 | `metro.config.js` | Resolves `react-native` to the shim, community package names to the SDK's builds, and shared files to their overrides. |
 | `scripts/vega.mjs` | Build, install, launch, remote keys, screenshots and logs. |
+
+## Current shared shell
+
+`../native/App.tsx` mounts `src-next/App`, including the TV entry, actual restore lifetime and
+shared playback coordinator. `src/overrides/native-next/platform` supplies Vega installation
+metadata, capability publishing input, listening support and physical Menu handling. The
+installation host keeps the shared generation, persisted-installation and saved-session checks;
+it classifies the device as `vega`. The capability adapter uses `PorticoCapabilities.facts()`'s
+actual bounded Vega probe, one W3C engine and no native audio decoder. Late probe answers and
+app resume republish the output facts. It never selects an Apple capability profile.
+
+Physical Menu is heard once from the SDK and sent to the new shell's actual focused-menu
+registration or top overlay. Back retains its separate navigation meaning. There is no separate
+native listening owner, playback-speed control, gapless, crossfade or volume-levelling engine.
+The `native` overrides below remain for legacy sources that the bridges still import.
 
 ## Requirements
 
@@ -59,6 +74,9 @@ Checks: `npx tsc --noEmit` (this app and the shared sources together), `npx tsc 
   and `vda` a fork of `adb`, with the same default ports, so each tool sees (and may stop) the
   other's devices. The script starts the virtual device on port 5701 (`PORTICO_VEGA_DEVICE_PORT`)
   and talks to it through its own device-tool server on port 5039 (`PORTICO_VEGA_ADB_PORT`).
+- **Headless graphics.** `PORTICO_VEGA_GL_ACCEL=0 node scripts/vega.mjs device start` selects the
+  SDK's supported `--gl-accel-off` backend. This is an opt-in diagnostic/setup option; it does
+  not reset the saved device or change Android's bridge server.
 
 ## How the shared screens run unchanged
 

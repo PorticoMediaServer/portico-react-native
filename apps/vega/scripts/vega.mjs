@@ -216,6 +216,7 @@ function startVirtualDevice() {
   const args = ['exec', 'virtualdevice', 'create-and-launch', '--image-path', path.join(sdk, 'vvd/images/tv'), '--log-path', path.join(sdk, 'vvd'), '--instances-path', path.join(sdk, 'vvd/instances'),
     '--name', 'default_instance', '--timeout-sec', '300', '--vda-port', String(devicePort)];
   if (process.env.PORTICO_VEGA_GUI !== '1') args.push('--gui-off');
+  if (process.env.PORTICO_VEGA_GL_ACCEL === '0') args.push('--gl-accel-off');
   vega(args);
 }
 

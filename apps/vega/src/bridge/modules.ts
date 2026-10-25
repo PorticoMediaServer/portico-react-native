@@ -1,5 +1,8 @@
 import DeviceInfo from '@amazon-devices/react-native-device-info';
-import {Platform} from '@amazon-devices/react-native-kepler';
+import {AppState, Platform} from '@amazon-devices/react-native-kepler';
+import {probeVegaPlayer} from './capability-probe';
+import {boundedVegaProbe} from './capability-output';
+import type {CapabilityDocument} from '../../../../packages/client-core/src/client-profile';
 import {base64Url} from './encoding';
 import {ModuleEvents, failure, withEvents} from './events';
 import {randomBytes, uuid} from './random';
@@ -36,10 +39,31 @@ function deviceName(): Promise<string> {
  * `portico.capabilities`, sent when the answer may have changed.
  */
 export const capabilityEvents = new ModuleEvents();
+let playerProfile: CapabilityDocument | null = null;
+let probing: Promise<CapabilityDocument | null> | undefined;
+let capabilityGeneration = 0;
+/** A late device answer republishes capabilities; unknown never becomes an invented fact. */
+function capabilityProfile(refresh = false): Promise<CapabilityDocument | null> {
+  if (refresh) {++capabilityGeneration; probing = undefined; playerProfile = null;}
+  const generation = capabilityGeneration;
+  probing ??= probeVegaPlayer(refresh).then(profile => {
+    if (generation !== capabilityGeneration) return null;
+    playerProfile = profile;
+    if (profile) capabilityEvents.emit('portico.capabilities');
+    return profile;
+  });
+  return boundedVegaProbe(probing, 2000).then(profile => generation === capabilityGeneration ? profile ?? playerProfile : null);
+}
+// Output facts must be asked again after the television/receiver could have changed.
+AppState.addEventListener('change', state => {
+  if (state !== 'active') return;
+  void capabilityProfile(true);
+  capabilityEvents.emit('portico.capabilities');
+});
 export const PorticoCapabilities = withEvents({
-  async facts(): Promise<{model: string; osVersion: string; deviceName: string; appVersion: string}> {
+  async facts(): Promise<{model: string; osVersion: string; deviceName: string; appVersion: string; vegaProfile: CapabilityDocument | null}> {
     const constants = Platform.constants as {Model?: string; Release?: string};
-    return {model: constants.Model ?? '', osVersion: constants.Release ?? String(Platform.Version ?? ''), deviceName: await deviceName(), appVersion};
+    return {model: constants.Model ?? '', osVersion: constants.Release ?? String(Platform.Version ?? ''), deviceName: await deviceName(), appVersion, vegaProfile: await capabilityProfile()};
   },
 }, capabilityEvents);
 
