@@ -25,7 +25,7 @@ import {forcedChoiceOf, parseSubtitleLines} from '../../../../../packages/client
 import {forcedImageLinesPath} from './forced-image';
 import type {PlaybackSubject, CardSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker} from '../../../../../packages/player-core/src';
+import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker, type RemoteDock} from '../../../../../packages/player-core/src';
 import {NativePlaybackCoordinator, type NativeBinding} from './NativePlaybackCoordinator';
 import {nativeExternalPresentationBinding, sameNativePresentation} from './external-presentation';
 import {NativePlayback, automaticSteps} from './native-playback';
