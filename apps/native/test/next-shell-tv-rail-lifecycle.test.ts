@@ -78,12 +78,16 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     assert.equal(railBack!(), true);
     assert.equal(requests.at(-1), 'library-card', 'rail return memory follows the actual destination page, not a former Home address');
     await act(() => {snapshot = {...snapshot, destination: {kind: 'library', libraryId: 'movies'}, railDestination: {kind: 'library', libraryId: 'movies'},
-      contentVisible: false, libraries: [{id: 'movies'}]}; sessionHost!.rerender();});
-    assert.deepEqual(rail().props.destination, {kind: 'library', libraryId: 'movies'});
-    const topsBefore = tops.length;
-    await act(() => rail().props.onNavigate({kind: 'library', libraryId: 'movies'}));
-    assert.deepEqual(navigations.at(-1), {kind: 'library', libraryId: 'movies'}, 'OK on a title-highlighted library opens the real page');
-    assert.equal(tops.length, topsBefore, 'a retained hidden origin is not scrolled instead of navigating');
+      libraries: [{id: 'movies'}]}; sessionHost!.rerender();});
+    assert.deepEqual(rail().props.destination, {kind: 'library', libraryId: 'movies'}, 'the rail follows the actual title-highlighted page');
+    const topsBefore = tops.length, navigationsBefore = navigations.length;
+    // cb0ef443: a pushed destination hides the shell chrome. The rail is then absent,
+    // so there is no retained hidden origin to act on; hiding alone navigates and
+    // scrolls nothing.
+    await act(() => {snapshot = {...snapshot, contentVisible: false}; sessionHost!.rerender();});
+    assert.equal(nodes(tree).some(node => node.type === 'TVRail'), false, 'a pushed destination hides the rail');
+    assert.equal(navigations.length, navigationsBefore, 'hiding the chrome by itself navigates nowhere');
+    assert.equal(tops.length, topsBefore, 'hiding the chrome never scrolls the hidden origin');
   } finally {
     sessionHost?.unmount(); rootHost.unmount();
     globalThis.requestAnimationFrame = previousFrame; globalThis.cancelAnimationFrame = previousCancel;

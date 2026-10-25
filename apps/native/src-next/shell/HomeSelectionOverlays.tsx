@@ -53,9 +53,12 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
       if (current.menu?.key !== menu.key || current.menu.windowId !== menu.windowId) return;
       // Pick before closing: a retained menu window may be released by closeMenu.
       if (!current.selection.selectedKeys.includes(menu.key)) {
+        // The opening state must be read before the toggle: the controller's snapshot is
+        // live, so reading it afterwards sees the selection it just made.
+        const wasActive = current.selection.active;
         const result = controller.toggle(menu.windowId, menu.key);
         if (!result.ok) {reportError(Object.assign(new Error(result.reason), {code: result.reason})); return;}
-        if (!current.selection.active && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
+        if (!wasActive && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
       }
       controller.closeMenu();
     }};
