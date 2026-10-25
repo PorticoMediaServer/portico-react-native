@@ -5,6 +5,7 @@ import {createWindowedCollection, type FetchPage, type WindowedCollection} from 
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {NativeLibraryFilterDraft} from './filters';
+import type {LibrarySavedViewIntent} from './saved-view-intent';
 
 export const nativeLibraryEntryKey = (entry: ContentEntry): string => JSON.stringify([entry.kind, entry.libraryId, entry.id]);
 const cancelled = () => Object.assign(new Error('native_library_retired'), {name: 'AbortError'});
@@ -45,7 +46,7 @@ export function nativeLibraryCanSave(source: NativeLibrarySnapshot, draft: Nativ
 /** One authorized library in one actual session. This holds sparse native pages,
  * never an array sized by the library's count or a client-filtered catalogue. */
 export class NativeLibraryDestination {
-  private readonly options: Readonly<{api: LibraryContentApi; scope: ContentScope; library: Library; current: () => boolean; /** An explicit opening tab, for a surface whose pivot came from the server's own reading pivots. */ tab?: LibraryTab}>;
+  private readonly options: Readonly<{api: LibraryContentApi; scope: ContentScope; library: Library; current: () => boolean; /** An explicit opening tab, for a surface whose pivot came from the server's own reading pivots. */ tab?: LibraryTab; /** One exact saved definition offered by the Saved page, applied once. */ initial?: LibrarySavedViewIntent}>;
   private readonly discover: LibraryContentService;
   private readonly unsubscribe: () => void;
   private state: NativeLibrarySnapshot;
@@ -59,11 +60,16 @@ export class NativeLibraryDestination {
   private readonly filters = new Set<NativeLibraryFilterDraft>();
   private readonly totals = new BrowseTotalsMemory();
   private entries = new WeakSet<ContentEntry>();
+  private readonly initialOffered: boolean;
+  private initialApplied = false;
 
   constructor(options: NativeLibraryDestination['options']) {
     this.options = options;
     this.discover = new LibraryContentService({api: {request: this.request}, scope: options.scope});
-    const tab = options.tab ?? libraryTabs(options.library.kind).find(value => value.id === 'browse') ?? libraryTabs(options.library.kind)[0]!;
+    const tabs = libraryTabs(options.library.kind);
+    const offered = options.initial ? tabs.find(value => value.pivot === options.initial!.definition.pivot) : undefined;
+    this.initialOffered = !!offered;
+    const tab = options.tab ?? offered ?? tabs.find(value => value.id === 'browse') ?? tabs[0]!;
     this.state = Object.freeze({library: options.library, tab, phase: 'idle', predicates: [], queryRevision: 0, discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}});
     this.unsubscribe = this.discover.subscribe(() => this.publish({discover: this.discover.getSnapshot()}));
   }
@@ -136,12 +142,28 @@ export class NativeLibraryDestination {
       const sort = tab.defaultSort && capabilities.sorts.some(value => value.id === tab.defaultSort!.field && pivot.sorts?.includes(value.id) && value.directions.includes(tab.defaultSort!.direction))
         ? tab.defaultSort : pivot.defaultSort[0];
       if (!sort) throw new Error('native_library_sort_required');
-      const predicates = (tab.fixedFilter ?? []).map(value => ({...value})) as readonly BrowseNode[];
+      if (this.options.initial && !this.initialOffered && !this.initialApplied) throw new Error('native_library_view_pivot_unavailable');
+      const fixed = (tab.fixedFilter ?? []).map(value => ({...value})) as readonly BrowseNode[];
+      let predicates = fixed, chosenSort = sort;
+      if (this.options.initial && this.initialOffered && !this.initialApplied) {
+        const definition = this.options.initial.definition;
+        if (definition.libraryId !== this.options.library.id || definition.pivot !== tab.pivot) throw new Error('native_library_view_pivot_unavailable');
+        if (definition.presentation !== 'grid') throw new Error('native_library_view_presentation_unavailable');
+        if (definition.sort.length !== 1) throw new Error('native_library_view_sort_unavailable');
+        const first = definition.sort[0]!;
+        const offeredSort = capabilities.sorts.find(value => value.id === first.field && pivot.sorts?.includes(value.id) && value.directions.includes(first.direction));
+        if (!offeredSort) throw new Error('native_library_view_sort_unavailable');
+        chosenSort = Object.freeze({field: offeredSort.id, direction: first.direction, ...(first.seed === undefined ? {} : {seed: first.seed})});
+        predicates = Object.freeze([...fixed, ...(definition.query ? [definition.query] : [])]);
+      }
       // The canonical builder validates every predicate, direction and request bound.
-      this.build(capabilities, tab, predicates, sort, 0, 1);
-      const collection = createWindowedCollection({fetchPage: this.pages(capabilities, tab, predicates, sort),
+      // The initial definition stays pending until this exact build succeeds, so a
+      // retry re-applies it or fails honestly rather than opening defaults.
+      this.build(capabilities, tab, predicates, chosenSort, 0, 1);
+      const collection = createWindowedCollection({fetchPage: this.pages(capabilities, tab, predicates, chosenSort),
         pageSize: Math.min(60, capabilities.queryLimits.maximumLimit), maxResidentPages: 4, prefetchPages: 1, maxConcurrent: 1, keyOf: nativeLibraryEntryKey});
-      this.publish({phase: 'ready', capabilities, predicates, sort, defaultSort: sort, collection});
+      this.publish({phase: 'ready', capabilities, predicates, sort: chosenSort, defaultSort: sort, collection});
+      if (this.options.initial && this.initialOffered) this.initialApplied = true;
       collection.ensureRange(0, 0);
     } catch (error) {if (this.current() && revision === this.operation && !controller.signal.aborted) this.publish({phase: 'error', error});}
   }

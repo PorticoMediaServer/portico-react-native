@@ -1,4 +1,5 @@
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
+import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeEntryActions} from '../destinations/entry-actions';
@@ -8,6 +9,8 @@ import type {NativeSavedActions} from './SavedScreen';
 import {createNativeSavedHubController, createNativeSavedViewController, type NativeSavedRouteTarget} from './navigation';
 import {createNativeSavedViewSummaryOwner, type NativeSavedViewSummaryOwner} from './view-summary-owner';
 import {createNativeSavedViewRenameController, type NativeSavedViewRenameController} from './rename-view';
+import {askHomeCustomizeView, clearHomeCustomizeIntent} from '../home/customize-intent';
+import {askLibrarySavedView, clearLibrarySavedViewIntent} from '../library/saved-view-intent';
 
 /** The read ports a retained views-directory route exposes. Disposal stays
  * internal to the parent state, which owns construction and retirement. */
@@ -23,10 +26,44 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
   const current = () => !disposed && lifetime.current();
   const entries = createNativeEntryActions(context, {current: () => current() && hub.activation.getSnapshot().visible,
     contains: hub.source.contains, subscribe: hub.source.subscribe});
+  const intentOwners = new Map<object, () => void>();
+  /** One intent's subscriptions live only while its exact target route is current or
+   * pending; leaving that route, losing authority, or a successor clears only its own
+   * token. */
+  const ownIntent = (target: NativeShellRoute, clear: (token?: object) => void) => {
+    const token = {};
+    let offNav = () => {}, offAuthority = () => {};
+    const release = () => {offNav(); offAuthority(); intentOwners.delete(token);};
+    const clearThis = () => clear(token);
+    offNav = context.navigation.subscribe(() => {if (context.navigation.getSnapshot().route !== target) clearThis();});
+    offAuthority = context.subscribeAuthority(clearThis);
+    intentOwners.set(token, clearThis);
+    return {token, release};
+  };
   const actions: NativeSavedActions = Object.freeze({
     menuState: entries.menuState, openView: hub.openView, openEntry: entries.open, menuEntry: entries.menu, isMenuOpen: entries.isMenuOpen,
     openDownloads: hub.openDownloads, openPin: hub.openPin, editPins: hub.editPins,
     selectMyList: hub.source.selectMyList, nextMyList: hub.source.nextMyList,
+    showOnHome: resource => {
+      if (!current() || resource.kind !== 'view') return;
+      const session = context.session(); if (!session) return;
+      const route = Object.freeze({kind: 'home-customize' as const}), authority = context.authority();
+      const owned = ownIntent(route, clearHomeCustomizeIntent);
+      askHomeCustomizeView({token: owned.token, release: owned.release, route, authority, sessionFamilyId: session.sessionFamilyId, serverId: resource.serverId,
+        resourceId: resource.id, revision: resource.revision, viewerFence: resource.viewerFence});
+      if (!context.navigation.open(route, authority)) clearHomeCustomizeIntent(owned.token);
+    },
+    openInLibrary: resource => {
+      if (!current() || resource.kind !== 'view' || !resource.definition) return;
+      const library = context.libraries().find(value => value.id === resource.definition!.libraryId);
+      const session = context.session();
+      if (!library || !session) return;
+      const route = Object.freeze({kind: 'shell' as const, destination: Object.freeze({kind: 'library' as const, libraryId: library.id})}), authority = context.authority();
+      const owned = ownIntent(route, clearLibrarySavedViewIntent);
+      askLibrarySavedView({token: owned.token, release: owned.release, route, libraryId: library.id, authority, sessionFamilyId: session.sessionFamilyId, definition: resource.definition,
+        resourceId: resource.id, revision: resource.revision, viewerFence: resource.viewerFence});
+      if (!context.navigation.open(route, authority)) clearLibrarySavedViewIntent(owned.token);
+    },
   });
   type View = ReturnType<typeof createView>;
   const views = new Map<NativeSavedRouteTarget, View>(), cleanups: (() => void)[] = [];
@@ -102,7 +139,7 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
   }
   const dispose = () => {
     if (disposed) return;
-    disposed = true; cleanups.splice(0).forEach(stop => stop());
+    disposed = true; for (const clear of [...intentOwners.values()]) clear(); intentOwners.clear(); cleanups.splice(0).forEach(stop => stop());
     for (const view of views.values()) view.dispose();
     views.clear(); entries.dispose(); hub.dispose(); device.dispose();
   };

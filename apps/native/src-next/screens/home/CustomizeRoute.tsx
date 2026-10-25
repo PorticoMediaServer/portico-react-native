@@ -1,4 +1,4 @@
-import React, {useEffect, useSyncExternalStore} from 'react';
+import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {NativeModules, Platform} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {PersonalSavedService} from '../../../../../packages/client-core/src/personal-saved';
@@ -6,12 +6,14 @@ import {StateView} from '../../kit/states';
 import {HomeCustomize, type NativeHomeCustomizeCopy} from './HomeCustomize';
 import {NativeHomeCustomizeController} from './customize-controller';
 import {NativeHomeSavedViewSummaries} from './saved-view-summaries';
+import {takeHomeCustomizeView, type HomeCustomizeViewIntent} from './customize-intent';
+import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 
-type Source = Readonly<{route: NativeShellRoute; key: number; controller: NativeHomeCustomizeController; views: PersonalSavedService; summaries: NativeHomeSavedViewSummaries}>;
+type Source = Readonly<{route: NativeShellRoute; key: number; controller: NativeHomeCustomizeController; views: PersonalSavedService; summaries: NativeHomeSavedViewSummaries; current: () => boolean; initialIntent?: HomeCustomizeViewIntent}>;
 
 /** Authority-local route factory. Registration belongs to this screen module;
  * the shell only binds its factories to the restored context. */
@@ -60,7 +62,7 @@ export function createNativeHomeCustomization(context: NativeShellBootstrapConte
       savedViews: {serverId: context.authority().serverId, isCurrent: view => current() && views.getSnapshot().resources.includes(view)
         && !!view.definition && context.libraries().some(library => library.id === view.definition!.libraryId)}});
     const summaries = new NativeHomeSavedViewSummaries({api: context.api, serverId: context.authority().serverId, current, libraryIds: () => context.libraries().map(library => library.id)});
-    source = {route, controller, views, summaries, key: ++sequence};
+    source = {route, controller, views, summaries, current, initialIntent: takeHomeCustomizeView(route, context.authority(), session.sessionFamilyId), key: ++sequence};
   };
   return {reconcile, owns: (route: NativeShellRoute) => source?.route === route,
     render: (runtime: NativeShellRuntime) => source && current() ? <Customization key={source.key} source={source} runtime={runtime}
@@ -75,8 +77,48 @@ function Customization({source, runtime, close}: {source: Source; runtime: Nativ
   useEffect(() => {void source.summaries.load(views.resources);}, [source, views.resources]);
   const retry = () => {void source.views.select({view: 'views'});};
   const labels = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale}, copy = customizeCopy(runtime.text);
+  const intentAdded = useRef(false), intentStarted = useRef(false), searchGeneration = useRef(0);
+  const [intentProblem, setIntentProblem] = useState<string>();
+  const [intentMore, setIntentMore] = useState(false);
+  const [freshView, setFreshView] = useState<PersonalResource>();
+  const searchRef = useRef<() => void>(() => {});
+  searchRef.current = () => {
+    const intent = source.initialIntent;
+    if (!intent || intentAdded.current) return;
+    const generation = ++searchGeneration.current;
+    setIntentProblem(undefined); setIntentMore(false);
+    void (async () => {
+      try {
+        if (!source.views.getSnapshot().route) await source.views.select({view: 'views'});
+        for (let page = 0; source.current() && generation === searchGeneration.current && page < 20; page++) {
+          const list = source.views.getSnapshot();
+          const fresh = list.resources.find(value => value.id === intent.resourceId && value.kind === 'view' && value.status === 'ready'
+            && value.revision === intent.revision && value.serverId === intent.serverId && value.viewerFence === intent.viewerFence
+            && !!value.definition && value.actions.includes('pin'));
+          if (fresh) {if (fresh.onHome) {intentAdded.current = true; return;} setFreshView(fresh); return;}
+          if (!list.nextCursor) {if (source.current()) setIntentProblem(runtime.text.t('error.unavailable')); return;}
+          await source.views.next();
+        }
+        // The cursor is not exhausted; leave the remainder to an explicit continue
+        // instead of calling an unexamined page unavailable.
+        if (source.current() && generation === searchGeneration.current) setIntentMore(true);
+      } catch {if (source.current() && generation === searchGeneration.current) setIntentProblem(runtime.text.t('error.unavailable'));}
+    })();
+  };
+  useEffect(() => {
+    if (!source.initialIntent || intentStarted.current) return;
+    intentStarted.current = true;
+    searchRef.current();
+    return () => {searchGeneration.current++;};
+  }, [source]);
+  useEffect(() => {
+    if (!freshView || intentAdded.current || state.phase !== 'ready') return;
+    if (source.controller.addSavedView(freshView)) intentAdded.current = true;
+    else setIntentProblem(runtime.text.t('error.unavailable'));
+    setFreshView(undefined);
+  }, [freshView, runtime, source, state.phase]);
   return state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, () => {void source.controller.load();})}/>
-    : <HomeCustomize summary={view => source.summaries.line(view, labels)} controller={source.controller} copy={copy} i18n={labels} onClose={close} onAddView={retry} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
+    : <HomeCustomize summary={view => source.summaries.line(view, labels)} controller={source.controller} copy={copy} i18n={labels} onClose={close} onAddView={retry} notice={intentProblem} noticeAction={intentMore ? {label: runtime.text.t('action.showMore'), onPress: () => searchRef.current()} : undefined} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
       views={{items: views.resources, loading: views.loading, error: views.error, retry, hasMore: !!views.nextCursor,
         loadMore: () => {void source.views.next().catch(runtime.reportError);},
         renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>}}/>;

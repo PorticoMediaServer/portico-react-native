@@ -20,9 +20,9 @@ export type NativeHomeCustomizeCopy = Readonly<{
   move: string; drop: string; putBack: string;
 }>;
 
-export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views, summary, renderError, testID}: {
+export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views, summary, notice, noticeAction, renderError, testID}: {
   controller: NativeHomeCustomizeController; copy: NativeHomeCustomizeCopy; i18n: Pick<I18n, 't' | 'has'>;
-  onClose: () => void; onAddView: () => void; testID: string; summary: (view: PersonalResource) => string | undefined;
+  onClose: () => void; onAddView: () => void; testID: string; summary: (view: PersonalResource) => string | undefined; notice?: string; noticeAction?: Readonly<{label: string; onPress: () => void}>;
   renderError?: (error: unknown, retry: () => void) => React.ReactNode;
   views?: Readonly<{items: readonly PersonalResource[]; loading: boolean; error?: unknown; hasMore: boolean; loadMore: () => void; renderError: (error: unknown, retry: () => void) => React.ReactNode; retry: () => void}>;
 }) {
@@ -154,7 +154,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     <Button focusId="save" disabled={state.pending || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
   const body = choosing && views ? views.loading && !views.items.length ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} hasMore={views.hasMore} i18n={i18n} firstRef={firstView}
-    onChoose={view => {if (!controller.addSavedView(view, theme.isTV)) return; if (theme.isTV) returning.current = true; setChoosing(false);}}/> : <>{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
+    onChoose={view => {if (!controller.addSavedView(view, theme.isTV)) return; if (theme.isTV) returning.current = true; setChoosing(false);}}/> : <>{(notice || noticeAction) && <View style={{paddingVertical: 12, gap: 8}}>{notice && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{notice}</Text>}{noticeAction && <Button variant="text" onPress={noticeAction.onPress}>{noticeAction.label}</Button>}</View>}{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
     <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
   </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {void controller.save();})}{rows}</>;
   return <>

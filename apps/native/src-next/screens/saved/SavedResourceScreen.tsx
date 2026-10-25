@@ -1,7 +1,7 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {defaultI18n} from '../../../../../packages/i18n/src';
+import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {Library} from '../../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -24,6 +24,7 @@ import {nativeDestinationFocusIds, type NativeDestinationActivationPort} from '.
 import type {NativeSavedViewDestination} from './view-model';
 import {homeCardText} from '../home/model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
+import {isReadingLibraryKind} from '../read/platform';
 import {exactDurationSeconds, personalMosaic, playlistEntryMosaic, savedDuration, savedItemCount, savedLibraryName, savedPlaylistEyebrow,
   savedResourceEyebrow, savedTitleCount, savedViewConditionCount, savedVisibility, savedVisibilityHelp} from './presentation';
 
@@ -48,6 +49,10 @@ export type NativeSavedResourceProps = Readonly<{
   libraries: readonly Library[];
   back: () => void;
   changed?: () => void;
+  /** Real shortcut into Customize Home for this loaded saved view. */
+  showOnHome?: (resource: PersonalResource) => void;
+  /** Exact saved definition opened in its real library. */
+  openInLibrary?: (resource: PersonalResource) => void;
 }>;
 
 type Row = Readonly<{id: string; media: ContentEntry}>;
@@ -68,7 +73,7 @@ function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnaps
 
 /** collections.html 11a–13c and 18–20. The page reads the actual Saved route
  * through its canonical service; commands go back through the same service. */
-export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed}: NativeSavedResourceProps) {
+export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed, showOnHome, openInLibrary}: NativeSavedResourceProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -271,6 +276,23 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const changeableHere = !(theme.isTV && resource);
     if (isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin')) items.push({id: 'pin', label: t(pinned ? 'pins.unpin' : 'pins.pin'),
       icon: pinned ? 'i-bookmark-f' : 'i-bookmark', onSelect: () => {setPageMenu(false); pin();}});
+    const library = !isPlaylist && resource?.definition ? libraries.find(value => value.id === resource.definition!.libraryId) : undefined;
+    // The shortcut may only act on the exact resource the page rendered and still shows.
+    const shortcut = (action: ((value: PersonalResource) => void) | undefined) => {
+      if (!action || !resource || !active.visible) return;
+      const nowActivation = activation.getSnapshot();
+      // The exact activation snapshot this render drew must still be the current one:
+      // leaving and coming back produces a new revision and cannot reuse this menu.
+      if (!nowActivation.visible || nowActivation.revision !== active.revision || nowActivation.intent !== active.intent) return;
+      const live = destination.getSnapshot().personal?.resource;
+      if (live !== resource || live.revision !== resource.revision) return;
+      action(resource);
+    };
+    if (!theme.isTV && !isPlaylist && resource?.kind === 'view' && resource.definition && library && !isReadingLibraryKind(library.kind) && openInLibrary
+      && defaultI18n.has('next.saved.openInLibrary' as MessageId)) items.push({id: 'openInLibrary',
+      label: t('next.saved.openInLibrary' as MessageId, {library: library.name}), icon: 'i-grid', onSelect: () => {setPageMenu(false); shortcut(openInLibrary);}});
+    if (!theme.isTV && !isPlaylist && resource?.kind === 'view' && resource.onHome !== true && showOnHome) items.push({id: 'showOnHome',
+      label: t('home.customize.showRow', {title: name ?? ''}), icon: 'i-home', onSelect: () => {setPageMenu(false); shortcut(showOnHome);}});
     if (changeableHere && (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update'))) items.push({id: 'rename', label: t('web.saved.rename'),
       icon: 'i-edit', onSelect: () => {setPageMenu(false); setRenaming(true);}});
     if (changeableHere && (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete'))) items.push({id: 'delete',
