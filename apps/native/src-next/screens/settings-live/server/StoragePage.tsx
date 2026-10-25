@@ -12,6 +12,7 @@ import {LimitsTab} from './storage/LimitsTab';
 import {BackupsTab} from './storage/BackupsTab';
 import {MissingTitlesTab} from './storage/MissingTitlesTab';
 import {NativeStorageSpaceUsage} from './storage/SpaceUsage';
+import {NativeEmptyCache} from './storage/EmptyCache';
 import {useSettingsRequestScope} from '../use-settings-request-scope';
 
 type ViewerRole = 'owner' | 'administrator' | 'member';
@@ -42,6 +43,7 @@ export function NativeServerStorage({ports, runtime, compactHeader = false}: {po
       <Tabs testID="server-storage-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.storage')}
         items={[{value: 'space', label: t('server.space')}, {value: 'limits', label: t('server.limitsAndRetention')}, {value: 'backups', label: t('settings.server.backups')}, {value: 'missing', label: t('settings.server.missingTitles')}]}/>
       {tab === 'space' && <SpaceTab ports={ports} runtime={runtime} t={t}/>}
+      <NativeEmptyCache context={context} runtime={runtime} visible={tab === 'space'}/>
       {tab === 'limits' && <LimitsTab ports={ports} runtime={runtime} t={t}/>}
       {tab === 'backups' && <BackupsTab ports={ports} runtime={runtime} t={t}/>}
       {tab === 'missing' && <MissingTitlesTab ports={ports} runtime={runtime} t={t}/>}
