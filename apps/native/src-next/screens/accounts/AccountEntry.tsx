@@ -625,8 +625,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (factorKind.current === 'portico') {await account.current!.factor(value); await directory();}
     else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(value) : operation.current!.completeSecondFactor(value)));
   };
-  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string, help?: string, placeholder?: string) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
-    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid} description={help} placeholder={placeholder}/>;
+  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string, help?: string, placeholder?: string, oneTime = false) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
+    keyboardType={oneTime && !theme.isTV ? 'number-pad' : undefined} inputMode={oneTime && !theme.isTV ? 'numeric' : undefined}
+    textContentType={oneTime && !theme.isTV ? 'oneTimeCode' : credential} autoComplete={oneTime && !theme.isTV ? 'one-time-code' : credential === 'password' ? 'current-password' : credential}
+    autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid} description={help} placeholder={placeholder}/>;
+  const codeField = (label: string, value: string, change: (next: string) => void) => field(label, value, change, false, undefined, undefined, undefined, undefined, true);
   const fields = (...children: React.ReactNode[]) => <View style={{alignSelf: 'stretch', width: theme.isTV ? 720 : undefined, gap: 14, marginBottom: 20}}>{children}</View>;
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
@@ -1079,7 +1082,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const admitted = () => formLive() && !!opening && opening.source.factorChallengeIdentity() === opening.witness;
     const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
     return layout(t('auth.enterVerificationCode'), t('services.signin.twoStep'),
-      fields(field(recovery ? t('services.signin.recovery') : t('auth.verificationCode'), entered, recovery ? edit(setRecoveryCode) : edit(setCode))),
+      fields(recovery ? field(t('services.signin.recovery'), entered, edit(setRecoveryCode)) : codeField(t('auth.verificationCode'), entered, edit(setCode))),
       action('factor', t('action.continue'), async () => {
         const source = opening?.source;
         if (!opening || !source || !entered || !admitted()) return;
@@ -1097,7 +1100,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       }, !entered),
       recovery ? undefined : <Button variant="text" disabled={busy} onPress={() => {if (!formLive()) return; registerDraftRev.current++; setRecoveryCode(''); setRecovery(true);}}>{`${t('services.signin.lostPhone')} ${t('services.signin.recovery')}`}</Button>);
   }
-  if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
+  if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(codeField(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
       const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);
     } else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(code) : operation.current!.completeSecondFactor(code)));
@@ -1159,7 +1162,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         }
       }, theme.isTV ? (!username || !name || !password || !email) : (!username || !password || !email)));
   }
-  if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
+  if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(codeField(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
   if (stage === 'provider') {
     // The transaction this form was drawn for and the draft it shows; both must still
     // be live before any completion or proof refresh and again after the answer.
@@ -1184,7 +1187,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         theme.isTV ? undefined : t('services.provider.usernameHelp')),
       tx?.needsUsername && (theme.isTV ? field(t('auth.yourName'), name, edit(setName))
         : field(`${t('auth.yourName')} · ${t('field.optional')}`, name, edit(setName), false, undefined, undefined, undefined, t('services.signup.sameUsername'))),
-      tx?.mfaRequired && field(t('auth.verificationCode'), code, edit(setCode)), !tx?.contactVerified && field(t('auth.email'), email, edit(setEmail))),
+      tx?.mfaRequired && codeField(t('auth.verificationCode'), code, edit(setCode)), !tx?.contactVerified && field(t('auth.email'), email, edit(setEmail))),
       action('provider-complete', t('action.continue'), async () => {
         const source = opening?.source;
         if (!opening || !source || !live()) return;
@@ -1209,7 +1212,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         }
       }));
   }
-  if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
+  if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(codeField(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
     await account.current!.verifyContact(contact.current!, code); setTransaction(value => value && {...value, contactVerified: true}); setCode(''); setStage('provider');
   }, !code));
   if (stage === 'servers' && directoryList === 'loading') return <StateLayout testID="accounts-server-list-loading" title={t('web.chooser.loading')}/>;
