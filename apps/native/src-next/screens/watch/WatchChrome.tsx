@@ -157,15 +157,18 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const offer = fence && fence.kind === 'queue' && view ? upNextOffer({markers: segments, positionSeconds: source.playback.positionSeconds,
     durationSeconds: source.playback.duration, kind: currentItem?.kind ?? source.entry?.kind, mode: props.skipModes.credits, nextAvailable: view.next.available, passoutDue: view.postPlay.passoutCheckDue}) : null;
   const [, tick] = useState(0), dismissedOffer = useRef<string | undefined>(undefined), offerId = useRef<string | undefined>(undefined), offerSince = useRef(Date.now());
-  useEffect(() => {if (!offer) return; if (offerId.current !== offer.id) {offerId.current = offer.id; offerSince.current = Date.now();}}, [offer?.id]);
+  const currentOfferId = offer?.id;
+  useEffect(() => {if (!currentOfferId) return; if (offerId.current !== currentOfferId) {offerId.current = currentOfferId; offerSince.current = Date.now();}}, [currentOfferId]);
   const countdown = offer && view ? upNextCountdown({offer, positionSeconds: source.playback.positionSeconds, durationSeconds: source.playback.duration,
     rate: source.effectiveRate, autoplay: view.postPlay.autoplay, countdownSeconds: view.postPlay.countdownSeconds,
     elapsedSeconds: (Date.now() - offerSince.current) / 1000, startDuringCredits: view.postPlay.startDuringCredits}) : null;
   useEffect(() => {if (!countdown?.automatic) return; const timer = setInterval(() => tick(value => value + 1), 1000); return () => clearInterval(timer);}, [countdown?.automatic]);
+  const wasSeekFocused = useRef(false);
   useEffect(() => {
-    if (!seekFocused) {setLanding(undefined); return;}
-    setReturnAt(source.playback.positionSeconds);
-  }, [seekFocused]); // The return point is where the viewer was when the bar took focus.
+    if (seekFocused && !wasSeekFocused.current) setReturnAt(source.playback.positionSeconds);
+    if (!seekFocused) setLanding(undefined);
+    wasSeekFocused.current = seekFocused;
+  }, [seekFocused, source.playback.positionSeconds]); // The return point is where the viewer was when the bar took focus.
   useEffect(() => {
     if (!theme.isTV || !visible) return;
     const timer = setInterval(() => setNow(Date.now()), 20_000);
@@ -370,8 +373,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             ? <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center'}}>
               {hint(0, keycap('', ['i-left', 'i-right']), t('player.hint.move'))}
               {hint(1, keycap('Hold'), t('player.hint.faster'))}
-              {hint(2, keycap('OK'), t('player.hint.playFrom', {time: clockText(landing ?? returnAt)}))}
-              {hint(3, keycap('Back'), t('player.hint.returnTo', {time: clockText(returnAt)}))}
+              {hint(2, keycap(t('cast.receiver.key.ok')), t('player.hint.playFrom', {time: clockText(landing ?? returnAt)}))}
+              {hint(3, keycap(t('action.back')), t('player.hint.returnTo', {time: clockText(returnAt)}))}
             </View>
             : <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
               <View style={{flex: 1}}>{linear
