@@ -209,8 +209,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const publish = () => {
       if (!current()) return;
       const avatar = avatars.find(value => value.profileId === profile.id), picture = profilePictureSource(local, session!.accessToken, avatar, Platform.isTV ? 80 : 90);
+      // Frame 28: "Show a dot for new notifications" turns the dot off without hiding the count.
+      const badges = preferences?.effective['notifications.badges'];
       snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, serverName: server.name, unreadNotificationCount: unread,
-        profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0, account: bound.account});
+        profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0 && badges !== false, account: bound.account});
       for (const listener of [...listeners]) listener();
     };
     publish();
