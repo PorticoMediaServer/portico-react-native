@@ -22,6 +22,8 @@ export type PlayerPresentation = Readonly<{
   content?: PlayerRect;
   details?: PlayerRect;
   panel?: PlayerRect;
+  /** foldable3d/3g: the panel is a physical page, so its edge is the crease. */
+  panelPaged?: boolean;
   hingeBand?: PlayerRect;
   hideNavigation: boolean;
   hideStatusBar: boolean;
@@ -70,7 +72,8 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
       const surface = rect(0, 0, b.left, Math.min(height, b.left * 9 / 16)), content = rect(right, 0, width - right, height);
       return {...common, mode: 'book', surface, picture: surface, controls: rect(0, 0, left, surface.height), content,
         details: rect(0, surface.height, left, height - surface.height),
-        panel: panelOpen ? rect(b.right, 0, width - b.right, height) : undefined, hingeBand: rect(left, 0, right - left, height)};
+        panel: panelOpen ? rect(b.right, 0, width - b.right, height) : undefined, panelPaged: panelOpen ? true : undefined,
+        hingeBand: rect(left, 0, right - left, height)};
     }
     const top = Math.max(0, b.top - 16), bottom = Math.min(height, b.bottom + 16);
     const surface = rect(0, 0, width, top), controls = rect(0, bottom, width, height - bottom);
@@ -89,7 +92,7 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
     // Q7: the right page exactly, so the divider is the crease; a flat crease does
     // not split the unpanelled player. The picture keeps playing on the left page.
     const page = rect(0, 0, fold.bounds.left, height);
-    return {...common, mode: 'full-window', surface: page, picture: letterboxPlayerPicture(page), hideStatusBar: true, controlsHidden: true,
+    return {...common, mode: 'full-window', surface: page, picture: letterboxPlayerPicture(page), hideStatusBar: true, controlsHidden: true, panelPaged: true,
       panel: rect(fold.bounds.right, 0, width - fold.bounds.right, height)};
   }
   if (panelOpen && width < 900) {

@@ -283,11 +283,13 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     watch: Object.freeze({render: (runtime: NativeShellRuntime) => alive() && ports.player
       ? <NativeWatchHost authority={ports.authority} current={ports.current} playback={ports.playback} outlet={ports.watch} runtime={runtime}
           controls={controls} bindings={ports.player} setPresentation={setPresentation} isTV={ports.isTV}/> : null,
-      /** Phone-player4 reuses a real retained title body. Its controller is
-       * separate from the underlying route's memory and survives geometry. */
+      /** Phone-player4 reuses a real retained title body; foldable3g draws that
+       * same real show page, episodes and all, on the right page beside the
+       * playing picture. Its controller is separate from the underlying route's
+       * memory and survives geometry. */
       body: (host: NativeWatchHostContext) => {
         const source = host.source, entry = source.entry, pane = host.layout.content;
-        if (!alive() || ports.isTV || host.layout.mode !== 'watch' || !pane || !entry?.libraryId || source.retired || host.fence.kind !== 'queue'
+        if (!alive() || ports.isTV || (host.layout.mode !== 'watch' && host.layout.mode !== 'book') || !pane || !entry?.libraryId || source.retired || host.fence.kind !== 'queue'
           || !sameFence(ports.playback.getSnapshot().fence, host.fence) || entry.id !== host.fence.itemId) return null;
         const key = `watch:${titleKey(entry)}`;
         let controller = controllers.get(key);
