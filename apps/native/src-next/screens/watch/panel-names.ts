@@ -2,7 +2,9 @@ import {qualityControlModel, type TextEnvironment} from '../../../../../packages
 import {qualityOptionSelected} from '../../../../../packages/client-core/src/playback-v1/quality';
 import {videoTrackName, videoTrackWords} from '../../../../../packages/client-core/src/video-track-labels';
 import {defaultI18n} from '../../../../../packages/i18n/src';
+import {sameFence} from '../../../../../packages/player-core/src';
 import type {NativeWatchPanelNames} from './panel-model';
+import {nativeWatchLossNotice} from './playback-info';
 
 /** VS-3e names from the actual offers. Codec, layout and subtitle origin are
  * file facts; none of them establishes how the engine is rendering the track. */
@@ -34,12 +36,17 @@ export function createNativeWatchPanelNames(text: TextEnvironment): NativeWatchP
     // tv-player 4 / phone-player 3: the audio footer names what this device loses,
     // and the quality footer says what the server is doing with the picture.
     audioFooter: source => {
-      const decision = source.session?.presentation.decision.audio;
-      const version = source.options?.versions.find(value => value.id === source.session?.versionId);
-      const chosen = version?.audio.find(value => value.id === source.session?.presentation.audioTrackId) ?? version?.audio.find(value => value.default) ?? version?.audio[0];
-      if (!decision || decision.action !== 'transcode' || chosen?.objectAudio !== 'atmos') return [];
-      const layout = decision.to;
-      return [defaultI18n.t('player.signal.server.atmosUnavailable', {device: 'other'}), ...(layout ? [defaultI18n.t('player.audioLoss.playing', {layout})] : [])];
+      const session = source.session, fence = source.fence;
+      if (source.retired || !session || !fence || fence.kind !== 'queue' || !sameFence(source.dock.local?.fence, fence)
+        || session.kind !== 'vod' || session.role !== 'local' || session.end || session.state === 'ended'
+        || session.id !== fence.sessionId || session.itemId !== fence.itemId || session.versionId !== fence.sourceId
+        || session.presentation.generation !== fence.generation || session.queue?.entryId !== fence.entryId || !session.playbackInfo) return [];
+      // Offered/default tracks and transcode codec names cannot establish an
+      // audible loss or an output layout. Use only this presentation's committed
+      // audio losses; absent handling observations never imply passthrough.
+      const info = session.playbackInfo;
+      const notice = nativeWatchLossNotice({...info, losses: info.losses.filter(loss => loss.feature === 'atmos' || loss.feature === 'dtsx')});
+      return notice ? [notice.message] : [];
     },
     qualityFooter: source => {
       const plan = source.options?.plan;
