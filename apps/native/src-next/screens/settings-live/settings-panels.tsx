@@ -115,8 +115,8 @@ function nativeRequestId(): string {
 export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSettingsPanelDeps, _runtime: NativeShellRuntime): React.ReactNode {
   switch (id) {
     case 'identity': return <IdentityPanel {...deps}/>;
-    case 'profiles': return <SettingsRow first label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
-    case 'servers': return <SettingsRow first label={deps.t('settings.section.servers')} value={deps.context.serverName} onPress={() => deps.openRoute({kind: 'servers'})}/>;
+    case 'profiles': return <SettingsRow first testID="settings-panel-profiles" label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
+    case 'servers': return <SettingsRow first testID="settings-panel-servers" label={deps.t('settings.section.servers')} value={deps.context.serverName} onPress={() => deps.openRoute({kind: 'servers'})}/>;
     case 'porticoAccount': return <PorticoAccountPanel {...deps}/>;
     case 'about': return <AboutPanel {...deps}/>;
     case 'privacyNote': return <PrivacyNotePanel {...deps}/>;
