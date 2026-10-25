@@ -1,0 +1,63 @@
+import React from 'react';
+import {ScrollView, Text, View} from 'react-native';
+import {defaultI18n} from '../../../../../packages/i18n/src';
+import type {PhoneServerRow} from './PhoneServerChooser';
+import type {nativeAccounts} from '../../platform/accounts';
+import {Button, Focusable} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
+import {nativeType, useTheme} from '../../kit/theme';
+
+type Snapshot = Awaited<ReturnType<typeof nativeAccounts.snapshot>>;
+
+/** Connect24. Presence is omitted until a real directory observation exists. */
+export function TVServerChooser({snapshot, busy, error, owner, onBack, onSelect, onSignOut, onRefresh, onAdd, certificates, footer}: {
+  snapshot?: Snapshot; busy: boolean; error?: React.ReactNode; owner: boolean; onBack?: () => void;
+  onSelect: (row: PhoneServerRow) => void; onSignOut: (row: PhoneServerRow) => void;
+  onRefresh: () => void; onAdd: () => void; certificates?: React.ReactNode; footer?: React.ReactNode;
+}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  const selected = snapshot?.servers.find(row => row.id === snapshot.selectedServerId);
+  const groups = [
+    {id: 'portico', title: t('servers.yours'), rows: snapshot?.servers.filter(row => row.id !== selected?.id && row.signIn === 'portico') ?? []},
+    {id: 'local', title: t('accounts.servers.local'), rows: snapshot?.servers.filter(row => row.id !== selected?.id && row.signIn === 'local') ?? []},
+  ];
+  const preferred = groups.flatMap(group => group.rows)[0]?.id;
+  const row = (value: PhoneServerRow, connected = false) => <View key={value.id} style={{gap: 6, padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>
+    <Focusable disabled={busy || connected} accessibilityRole="button" hasTVPreferredFocus={!connected && value.id === preferred} accessibilityLabel={value.name} accessibilityState={{selected: connected}}
+      onPress={() => onSelect(value)} focusRadius={12} style={{minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 16}}>
+      <Icon name="i-server" size={28} color={theme.colors.accentStrong}/>
+      <View style={{flex: 1, gap: 6}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{value.name}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(value.labelKey)}</Text>
+      </View>
+      {connected && owner && <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('accounts.settings.owner')}</Text>}
+      {!connected && <Icon name="i-right" size={26} color={theme.colors.textTertiary}/>}
+    </Focusable>
+    <Button variant="text" size="small" disabled={busy} onPress={() => onSignOut(value)} style={{alignSelf: 'flex-start'}}>{t('accounts.signOut.server', {server: value.name})}</Button>
+  </View>;
+  return <View testID="tv-server-chooser" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    <ScrollView contentContainerStyle={{padding: 48, gap: 24}}>
+      {onBack && <Button variant="text" size="small" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
+      <View style={{gap: 12}}>
+        <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700}, theme.textScale), {color: theme.colors.text}]}>{t('web.servers.switchServer')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.lede')}</Text>
+        {error}
+        {!snapshot && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
+      </View>
+      {selected && <View style={{gap: 12}}>
+        <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{t('servers.connectedTo')}</Text>
+        <View style={{backgroundColor: theme.colors.raised, borderRadius: 16}}>{row(selected, true)}</View>
+      </View>}
+      {groups.filter(group => group.rows.length).map(group => <View key={group.id} style={{gap: 12}}>
+        <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{group.title}</Text>
+        <View style={{backgroundColor: theme.colors.raised, borderRadius: 16}}>{group.rows.map(value => row(value))}</View>
+      </View>)}
+      {certificates}
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>
+        <Button variant="glass" hasTVPreferredFocus={!preferred} icon="i-refresh" disabled={busy} onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
+        <Button variant="glass" disabled={busy} onPress={onAdd}>{t('accounts.signIn.local')}</Button>
+      </View>
+      {footer}
+    </ScrollView>
+  </View>;
+}
