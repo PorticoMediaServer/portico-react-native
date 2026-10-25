@@ -81,7 +81,7 @@ function TVMusicSignalSheet({view, onClose, contextTitle, returnFocusRef}: {view
     <View pointerEvents="none" style={{position: 'absolute', inset: 0}}><Svg width="100%" height="100%"><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0">
       <Stop offset="0" stopColor="#071018" stopOpacity={.3}/><Stop offset=".55" stopColor="#071018" stopOpacity={.62}/><Stop offset="1" stopColor="#071018" stopOpacity={.75}/>
     </LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${gradient})`}/></Svg></View>
-    <SidePanel open onOpenChange={open => {if (!open) onClose();}} title={t('player.signal.title')} width={640} topInset={0} showClose={false}
+    <SidePanel open onOpenChange={open => {if (!open) onClose();}} title={t('player.signal.title')} logicalCanvas={{width: 640, height: 1080}} topInset={0} showClose={false}
       initialFocusRef={done} returnFocusRef={returnFocusRef} testID="music-signal-sheet" accessibilityLabel={t('player.signal.title')}
       headerContext={contextTitle ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: -4}}>
         <Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{contextTitle}</Text>
