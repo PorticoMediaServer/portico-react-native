@@ -1,3 +1,4 @@
+import {DeviceAboutPanel} from './DeviceAboutPanel';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
 import React, {useEffect, useMemo, useState} from 'react';
 import {NativeModules, Text, View} from 'react-native';
@@ -42,13 +43,6 @@ function PorticoAccountPanel({context, t}: NativeSettingsPanelDeps) {
   return <SettingsRow first testID="settings-panel-portico-account" label={t('settings.row.porticoAccount')}
     value={t(hosted ? 'accounts.session.portico' : 'accounts.session.local')}
     description={t(hosted ? 'accounts.settings.porticoPrivacy' : 'accounts.settings.localPrivacy')}/>;
-}
-
-function AboutPanel({context, t}: NativeSettingsPanelDeps) {
-  return <View testID="settings-panel-about">
-    <SettingsRow first label={t('about.appVersion')} value={context.appVersion}/>
-    <SettingsRow label={t('about.server')} value={context.serverName}/>
-  </View>;
 }
 
 function PrivacyNotePanel({t}: NativeSettingsPanelDeps) {
@@ -120,7 +114,7 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
     case 'profiles': return <SettingsRow first testID="settings-panel-profiles" label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
     case 'servers': return <SettingsRow first testID="settings-panel-servers" label={deps.t('settings.section.servers')} value={deps.context.serverName} onPress={() => deps.openRoute({kind: 'servers'})}/>;
     case 'porticoAccount': return <PorticoAccountPanel {...deps}/>;
-    case 'about': return <AboutPanel {...deps}/>;
+    case 'about': return <DeviceAboutPanel {...deps} runtime={_runtime}/>;
     case 'privacyNote': return <PrivacyNotePanel {...deps}/>;
     case 'remoteControls': return <RemoteControlsPanel {...deps}/>;
     default: return undefined;
