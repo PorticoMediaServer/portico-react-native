@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Text} from 'react-native';
 import type {RcloneConfigView, RemoteSource} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -14,12 +14,16 @@ export function AccountConfigEditor({controller, t, isCurrent, onCancel, onSaved
   controller: NativeRemoteSourcesController; t: typeof defaultI18n.t; isCurrent: () => boolean;
   onCancel: () => void; onSaved: (source: RemoteSource) => void;
 }) {
-  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false);
+  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0);
+  const renderedRevision = revision.current;
   const [view, setView] = useState<RcloneConfigView>(), [remote, setRemote] = useState(''), [name, setName] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>();
+  const draft = useMemo(() => Object.freeze({view, remote, name}), [view, remote, name]);
+  const latestDraft = useRef(draft); latestDraft.current = draft;
+  const ownsDraft = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
   const load = async () => {
     if (flight.current || !current()) return;
-    flight.current = true; setBusy(true); setError(undefined);
+    flight.current = true; revision.current++; setBusy(true); setError(undefined);
     try {const result = await controller.accountConfig(current); if (current()) {setView(result); setRemote('');}}
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
@@ -36,9 +40,9 @@ export function AccountConfigEditor({controller, t, isCurrent, onCancel, onSaved
     else if (current()) setError(remoteSourceError(t, {code: state.errorCode}));
   };
   const save = async () => {
-    if (flight.current || !current() || !selected || !name.trim() || name.length > 100 || recovery) return;
+    if (flight.current || !ownsDraft() || !selected || !name.trim() || name.length > 100 || recovery) return;
     flight.current = true; setBusy(true); setError(undefined);
-    try {await controller.configureFromAccount({name, remote: selected.name}, current); if (current()) finish();}
+    try {await controller.configureFromAccount({name: draft.name, remote: selected.name}, ownsDraft); if (ownsDraft()) finish();}
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
   };
@@ -57,11 +61,11 @@ export function AccountConfigEditor({controller, t, isCurrent, onCancel, onSaved
     {view && !view.remotes.length && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(view.path ? 'next.remoteSources.configEmpty' : 'next.remoteSources.configAbsent')}</Text>}
     {!!view?.remotes.some(value => value.supported) && <Select label={t('next.remoteSources.configRemotes')} value={remote} disabled={!editable}
       options={view.remotes.filter(value => value.supported).map(value => ({value: value.name, label: t('next.remoteSources.configRemoteLabel', {name: value.name, kind: value.kind})}))}
-      onValueChange={value => {if (view.remotes.some(row => row.supported && row.name === value)) {setRemote(value); setError(undefined);}}}/>}
+      onValueChange={value => {if (flight.current || !current()) return; if (view.remotes.some(row => row.supported && row.name === value)) {revision.current++; setRemote(value); setError(undefined);}}}/>}
     {view?.remotes.filter(value => !value.supported).map(value => <Text key={value.name} style={[theme.type.caption, {color: theme.colors.textSecondary}]}>
       {t('next.remoteSources.configRemoteLabel', {name: value.name, kind: value.kind || t('next.remoteSources.configUnknownKind')})}{' · '}{t('next.remoteSources.configUnsupportedKind')}
     </Text>)}
-    <TextField label={t('next.remoteSources.name')} value={name} editable={editable} autoCorrect={false} onChangeText={setName}/>
+    <TextField label={t('next.remoteSources.name')} value={name} editable={editable} autoCorrect={false} onChangeText={value => {if (flight.current || !current()) return; revision.current++; setName(value);}}/>
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.configChecksOnSave')}</Text>
     <Button disabled={!editable} variant="text" onPress={() => {void load();}}>{t('next.remoteSources.refresh')}</Button>
     <Problem message={error}/>

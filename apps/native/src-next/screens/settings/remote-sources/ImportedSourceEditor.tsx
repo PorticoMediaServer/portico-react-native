@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Text} from 'react-native';
 import type {RemoteSource, RcloneProgram, RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -13,11 +13,16 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   controller: NativeRemoteSourcesController; source?: RemoteSource; t: typeof defaultI18n.t;
   isCurrent: () => boolean; onCancel: () => void; onSaved: (source: RemoteSource) => void;
 }) {
-  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedRevision = useRef(-1);
+  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedDraft = useRef<Readonly<{name: string; remote: string; config: string}> | undefined>(undefined);
   const [name, setName] = useState(source?.name ?? ''), [remote, setRemote] = useState(''), [config, setConfig] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [tested, setTested] = useState<RcloneTestResult>();
   const [program, setProgram] = useState<RcloneProgram>(), [providers, setProviders] = useState<readonly string[]>([]);
-  const invalidate = () => {revision.current++; testedRevision.current = -1; setTested(undefined); setError(undefined);};
+  const draft = useMemo(() => Object.freeze({name, remote, config}), [name, remote, config]);
+  const latestDraft = useRef(draft); latestDraft.current = draft;
+  const saveTicket = useRef<object | undefined>(undefined);
+  const renderedRevision = revision.current;
+  const ownsDraft = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
+  const invalidate = () => {revision.current++; testedDraft.current = undefined; setTested(undefined); setError(undefined);};
   const facts = async () => {
     if (flight.current || !current()) return;
     flight.current = true; setBusy(true); setError(undefined);
@@ -31,10 +36,10 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const snapshot = controller.getSnapshot().sources, recovery = receiptCheckRequired(snapshot);
   const valid = !!name.trim() && name.length <= 100 && !!remote.trim() && remote.length <= 512 && !!config.trim() && config.length <= 65536;
   const test = async () => {
-    if (flight.current || !current() || !valid || !program?.available || recovery) return;
-    flight.current = true; const captured = revision.current, guard = () => current() && revision.current === captured;
-    setBusy(true); setError(undefined); setTested(undefined); testedRevision.current = -1;
-    try {const result = await controller.testImported({remote, config}, guard); if (guard()) {setTested(result); testedRevision.current = captured;}}
+    if (flight.current || !ownsDraft() || !valid || !program?.available || recovery) return;
+    flight.current = true; const guard = ownsDraft;
+    setBusy(true); setError(undefined); setTested(undefined); testedDraft.current = undefined;
+    try {const result = await controller.testImported({remote: draft.remote, config: draft.config}, guard); if (guard()) {setTested(result); testedDraft.current = draft;}}
     catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
   };
@@ -45,12 +50,14 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     else if (current()) setError(remoteSourceError(t, {code: state.errorCode}));
   };
   const save = async () => {
-    if (flight.current || !current() || !valid || !tested || testedRevision.current !== revision.current || recovery) return;
-    flight.current = true; const draft = {name, remote, config};
-    setConfig(''); setTested(undefined); testedRevision.current = -1; setBusy(true); setError(undefined);
-    try {await controller.configureImported(source, draft, current); if (current()) finish();}
-    catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
-    finally {flight.current = false; if (current()) setBusy(false);}
+    if (flight.current || !ownsDraft() || !valid || !tested || testedDraft.current !== draft || recovery) return;
+    flight.current = true;
+    const ticket = Object.freeze({draft, revision: renderedRevision}); saveTicket.current = ticket;
+    const guard = () => current() && saveTicket.current === ticket && revision.current === ticket.revision;
+    setConfig(''); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
+    try {await controller.configureImported(source, ticket.draft, guard); if (guard()) finish();}
+    catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
+    finally {if (saveTicket.current === ticket) saveTicket.current = undefined; flight.current = false; if (current()) setBusy(false);}
   };
   const recover = async () => {
     if (flight.current || !current()) return;
@@ -69,12 +76,12 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     {!!providers.length && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.providers', {providers: defaultI18n.list(providers)})}</Text>}
     {(!program || !program.available) && <Button disabled={busy} variant="text" onPress={() => {void facts();}}>{t('next.remoteSources.refresh')}</Button>}
     <TextField label={t('next.remoteSources.name')} value={name} editable={editable} autoCorrect={false}
-      onChangeText={value => {invalidate(); setName(value);}}/>
+      onChangeText={value => {if (flight.current || !current()) return; invalidate(); setName(value);}}/>
     <TextField label={t('next.remoteSources.remoteName')} description={t('next.remoteSources.remoteNameHelp')} value={remote} editable={editable} autoCapitalize="none" autoCorrect={false}
-      onChangeText={value => {invalidate(); setConfig(''); setRemote(value);}}/>
+      onChangeText={value => {if (flight.current || !current()) return; invalidate(); setConfig(''); setRemote(value);}}/>
     <TextField label={t('next.remoteSources.configuration')} description={t(source ? 'next.remoteSources.replaceConfiguration' : 'next.remoteSources.configurationHelp')}
       value={config} editable={editable} multiline autoCapitalize="none" autoCorrect={false} textContentType="none"
-      onChangeText={value => {invalidate(); setConfig(value);}}/>
+      onChangeText={value => {if (flight.current || !current()) return; invalidate(); setConfig(value);}}/>
     <Button variant="glass" disabled={!editable || !valid || !program?.available} onPress={() => {void test();}}>{t('next.remoteSources.test')}</Button>
     {tested && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{tested.version ? t('next.remoteSources.testedRclone', {version: tested.version}) : t('next.remoteSources.testedRcloneUnknown')}</Text>}
     <Problem message={error}/>
