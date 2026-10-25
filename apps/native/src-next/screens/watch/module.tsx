@@ -19,7 +19,7 @@ import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
 import {NativeWatchPostPlay} from './PostPlayScreen';
-import {isTablet} from '../../bridge/device-platform';
+import {isTablet} from '../../../src/bridge/device-platform';
 import {createNativeWatchPanelNames} from './panel-names';
 import {nativeServerPreferences} from '../../platform/server-preferences';
 import {browseValueLabel} from '../../../../../packages/client-core/src/presentation/browse-toolbar';

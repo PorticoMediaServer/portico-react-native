@@ -72,17 +72,18 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
   const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
   const [lossNotice, setLossNotice] = useState<{key: string; value: NativeWatchNotice}>();
-  const noticeLive = useRef({read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.disposed, expanded});
-  noticeLive.current = {read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.disposed, expanded};
+  const noticeLive = useRef({read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.retired, expanded});
+  noticeLive.current = {read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.retired, expanded};
   const noticeKey = fence ? JSON.stringify(fence) : undefined;
   useEffect(() => {
     const live = noticeLive.current;
     if (!live.read || !live.fence || !live.expanded || live.disposed || !noticeKey || lossNotice?.key === noticeKey) return;
+    const readFence = live.fence;
     const abort = new AbortController();
     const isLive = () => !abort.signal.aborted && noticeLive.current.runtime === live.runtime && noticeLive.current.playback === live.playback
-      && !!noticeLive.current.fence && sameFence(noticeLive.current.fence, live.fence) && noticeLive.current.authority === live.authority
+      && !!noticeLive.current.fence && sameFence(noticeLive.current.fence, readFence) && noticeLive.current.authority === live.authority
       && !noticeLive.current.disposed;
-    void live.read(live.fence, {signal: abort.signal, isCurrent: isLive}).then(value => {
+    void live.read(readFence, {signal: abort.signal, isCurrent: isLive}).then(value => {
       if (value && isLive()) setLossNotice({key: noticeKey, value});
     }).catch(() => {});
     return () => abort.abort();
@@ -123,7 +124,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
-      <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice?.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
+      <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice && lossNotice.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
