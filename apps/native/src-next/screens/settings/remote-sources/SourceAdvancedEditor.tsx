@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Text} from 'react-native';
 import type {RemoteSource, SourceAdvanced, SourceAdvancedSettings} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -14,13 +14,17 @@ const GIB = 1024 * 1024 * 1024;
 export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel}: {
   controller: NativeRemoteSourcesController; source: RemoteSource; t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void;
 }) {
-  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false);
+  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0);
   const [settings, setSettings] = useState<SourceAdvancedSettings>(), [values, setValues] = useState<SourceAdvanced>();
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [saved, setSaved] = useState(false);
+  const draft = useMemo(() => Object.freeze({settings, values}), [settings, values]);
+  const latestDraft = useRef(draft); latestDraft.current = draft;
+  const renderedRevision = revision.current;
+  const ownsDraft = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
   const accept = (next: SourceAdvancedSettings) => {setSettings(next); setValues(next.values);};
   const load = async () => {
     if (flight.current || !current()) return;
-    flight.current = true; setBusy(true); setError(undefined); setSaved(false);
+    flight.current = true; revision.current++; setBusy(true); setError(undefined); setSaved(false);
     try {const next = await controller.readAdvanced(source, current); if (current()) accept(next);}
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
@@ -29,13 +33,13 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const save = async () => {
-    if (flight.current || !current() || !settings || !values) return;
+    if (flight.current || !ownsDraft() || !draft.settings || !draft.values) return;
     flight.current = true; setBusy(true); setError(undefined); setSaved(false);
-    try {const next = await controller.saveAdvanced(settings, values, current); if (current()) {accept(next); setSaved(true);}}
+    try {const next = await controller.saveAdvanced(draft.settings, draft.values, ownsDraft); if (ownsDraft()) {accept(next); setSaved(true);}}
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
   };
-  const set = <K extends keyof SourceAdvanced>(key: K, value: SourceAdvanced[K]) => {if (values && !flight.current) {setValues({...values, [key]: value}); setSaved(false);}};
+  const set = <K extends keyof SourceAdvanced>(key: K, value: SourceAdvanced[K]) => {if (values && !flight.current && ownsDraft()) {revision.current++; setValues({...values, [key]: value}); setSaved(false);}};
   const spec = 'next.settingsSpec.server.remote-sources.panels.source';
   const label = (suffix: string) => t(`${spec}.${suffix}` as never);
   const intervals = [900, 3600, 21600, 86400, 604800, 0], days = [7, 14, 30, 0], cache = [0, 2, 4, 8, 16, 32, 64], floors = [1, 2, 4, 8, 16];
