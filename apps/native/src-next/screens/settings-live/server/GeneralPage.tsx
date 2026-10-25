@@ -3,6 +3,7 @@ import {ScrollView, Text, View} from 'react-native';
 import {parseUpdateReport, type UpdateReport} from '../../../../../../packages/client-core/src/administration';
 import {pauseBackgroundWork, type MaintenanceDocument, type MaintenanceSettings} from '../../../../../../packages/client-core/src/server-admin/server-forms';
 import {restartServer} from '../../../../../../packages/client-core/src/backups';
+import {broadcastBody, broadcastProblem, utf8Length} from '../../../../../../packages/client-core/src/server-admin/panel-logic';
 import type {RuntimeSettings} from '../../../../../../packages/client-core/src/console';
 import type {MessageId} from '../../../../../../packages/i18n/src';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -32,6 +33,7 @@ export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLive
   const maintenanceState = useFormState<MaintenanceSettings, MaintenanceDocument>(forms.maintenance);
   const [updates, setUpdates] = useState<UpdateReport>(), [updateError, setUpdateError] = useState<unknown>(), [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>(), [restarting, setRestarting] = useState(false);
+  const [messageOpen, setMessageOpen] = useState(false), [messageTitle, setMessageTitle] = useState(''), [messageBody, setMessageBody] = useState(''), [audience, setAudience] = useState<'profile' | 'account-admin'>('profile'), [severity, setSeverity] = useState<'info' | 'warning' | 'critical'>('info');
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
   const loadUpdates = () => {setChecking(true); void api.request<unknown>('/v1/admin/updates').then(raw => setUpdates(parseUpdateReport(raw)), setUpdateError).finally(() => setChecking(false));};
   useEffect(() => {loadUpdates();}, [context]);
@@ -43,6 +45,12 @@ export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLive
   const restart = () => {
     setBusy(true); setProblem(undefined);
     void restartServer(api).then(() => setRestarting(false), error => {setBusy(false); setProblem(presentError(error, 'server-console').body);});
+  };
+  const messageProblem = broadcastProblem(messageTitle, messageBody);
+  const sendMessage = () => {
+    setBusy(true); setProblem(undefined);
+    void api.request('/v1/admin/notifications/broadcast', 'POST', broadcastBody(ports.requestId(), {audience, severity, title: messageTitle.trim(), body: messageBody.trim()}))
+      .then(() => {setMessageOpen(false); setMessageTitle(''); setMessageBody('');}, error => setProblem(presentError(error, 'server-console').body)).finally(() => setBusy(false));
   };
   if (runtimeState.loadError !== undefined && !runtimeState.draft) return <StateView {...runtime.error(runtimeState.loadError, () => {void forms.runtime.load();})}/>;
   const draft = runtimeState.draft;
@@ -78,6 +86,9 @@ export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLive
           <Button size="compact" variant="glass" loading={busy} onPress={pause}>{t(paused ? 'settings.server.resumeBackground' : 'settings.server.pauseBackground')}</Button>
         </View>
       </> : null}
+      <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('server.messageEveryone')}</Text>
+      <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('web.broadcast.lede')}</Text>
+      <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="glass" icon="i-mail" onPress={() => {setMessageTitle(''); setMessageBody(''); setProblem(undefined); setMessageOpen(true);}}>{t('server.messageEveryone')}</Button></View>
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('web.maintenance.serverRestart')}</Text>
       <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('server.restart.body')}</Text>
       <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="glass" textStyle={{color: theme.colors.record}} disabled={busy} onPress={() => setRestarting(true)}>{t('web.maintenance.serverRestart')}</Button></View>
@@ -88,6 +99,23 @@ export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLive
       </View> : null}
       {state.problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 8}]}>{t(state.problem as MessageId)}</Text> : null}
     </ScrollView>
+    <BottomSheet open={messageOpen} onOpenChange={open => {if (!open && !busy) setMessageOpen(false);}} testID="server-general-message" keyboardAvoiding
+      title={t('server.messageEveryone')} description={t('web.broadcast.lede')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={() => setMessageOpen(false)}>{t('action.cancel')}</Button>
+        <Button loading={busy} disabled={!messageTitle.trim() || Boolean(messageProblem)} onPress={sendMessage}>{t('feedback.send')}</Button></View>}>
+      <View style={{gap: 12}}>
+        <TextField label={t('web.broadcast.title')} value={messageTitle} onChangeText={setMessageTitle} maxLength={120} placeholder={t('web.broadcast.titleExample')}/>
+        <TextField label={t('web.broadcast.message')} value={messageBody} onChangeText={setMessageBody} maxLength={2000} multiline/>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+          <Button size="compact" variant={audience === 'profile' ? 'primary' : 'glass'} onPress={() => setAudience('profile')}>{t('web.together.everyone')}</Button>
+          <Button size="compact" variant={audience === 'account-admin' ? 'primary' : 'glass'} onPress={() => setAudience('account-admin')}>{t('web.broadcast.adminOnly')}</Button>
+        </View>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+          {(['info', 'warning', 'critical'] as const).map(level => <Button key={level} size="compact" variant={severity === level ? 'primary' : 'glass'} onPress={() => setSeverity(level)}>{t(level === 'info' ? 'web.broadcast.info' : level === 'warning' ? 'web.broadcast.notice' : 'web.broadcast.urgent')}</Button>)}
+        </View>
+        {messageProblem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record}]}>{t(messageProblem === 'title-too-long' ? 'web.broadcast.titleTooLong' : 'web.broadcast.bodyTooLong', {count: utf8Length(messageProblem === 'title-too-long' ? messageTitle.trim() : messageBody.trim())})}</Text> : null}
+      </View>
+    </BottomSheet>
     <BottomSheet open={restarting} onOpenChange={open => {if (!open && !busy) setRestarting(false);}} testID="server-general-restart"
       title={t('web.maintenance.serverRestart')} description={t('server.restart.body')}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={() => setRestarting(false)}>{t('action.cancel')}</Button>
