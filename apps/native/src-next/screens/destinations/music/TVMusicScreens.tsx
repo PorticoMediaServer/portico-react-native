@@ -14,6 +14,7 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
 import {MusicErrorView} from './MusicErrorView';
+import {MusicFormatBadges} from './MusicFormatBadges';
 
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen'>;
 type DetailRow = Readonly<{id: string; label: string; value: string}>;
@@ -123,8 +124,9 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
         </View>
         <Text style={[browseType(theme, 22, 700), {position: 'absolute', left: 760, top: 150, color: theme.colors.textSecondary, zIndex: 2}]}>{t('search.kind.album')}</Text>
         <Text numberOfLines={2} style={[browseType(theme, 120, 800, -.045, 117.6), {position: 'absolute', left: 760, top: 186, width: 1000, color: theme.colors.text, zIndex: 2}]}>{entry.displayTitle ?? entry.title}</Text>
-        <View style={{position: 'absolute', left: 760, top: 336, flexDirection: 'row', alignItems: 'center', gap: 26, zIndex: 2}}>
-          {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, 24, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
+        <View style={{position: 'absolute', left: 760, top: 336, maxWidth: 1000, flexDirection: 'row', alignItems: 'center', gap: 26, zIndex: 2}}>
+          {facts.map((fact, index) => <Text key={`${fact}-${index}`} numberOfLines={1} style={[browseType(theme, 24, index === 0 ? 700 : 400), {flexShrink: index === 0 ? 1 : 0, color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
+          <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="tv"/>
         </View>
         <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} onPlaylist={onPlaylist} style={{position: 'absolute', left: 760, top: 410}}/>
         {snapshot.phase === 'error' && <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}

@@ -25,6 +25,7 @@ export type NativeTVMusicSnapshot = Readonly<{
   favorite: boolean;
   allSongs: Readonly<{phase: 'idle' | 'loading' | 'ready' | 'error'; songs: readonly ContentEntry[]; total?: number; error?: unknown}>;
   artistDetails?: ContentEntry;
+  albumDetails?: ContentEntry;
   error?: unknown;
 }>;
 
@@ -121,7 +122,7 @@ export class NativeTVMusicController {
     this.controller?.abort();
     this.controller = controller;
     const generation = ++this.generation;
-    this.publish({phase: 'loading', error: undefined});
+    this.publish({phase: 'loading', error: undefined, albumDetails: undefined});
     const task = (this.options.entry.kind === 'album' ? this.loadAlbum(controller.signal) : this.loadArtist(controller.signal))
       .catch(error => { if (this.current() && generation === this.generation && !controller.signal.aborted) this.publish({phase: 'error', error}); })
       .finally(() => { if (this.pending === task) this.pending = undefined; });
@@ -180,9 +181,9 @@ export class NativeTVMusicController {
   }
   private async loadAlbum(signal: AbortSignal): Promise<void> {
     const libraryId = this.options.entry.libraryId!, capabilitiesPath = browseCapabilitiesPath(libraryId, 'songs');
-    const [capabilities, favorite] = await Promise.all([
+    const [capabilities, favorite, details] = await Promise.all([
       this.capabilities('songs', signal).catch(error => {throw stageFailure('capabilities', error, signal, diagnose('capabilities', 'GET', capabilitiesPath, error));}),
-      this.favoriteState(signal),
+      this.favoriteState(signal), this.entityDetails('album', signal),
     ]);
     if (!this.current() || signal.aborted) return;
     const page = await this.browseAll(capabilities, builder => builder.where('memberOf', 'equals', this.options.entry.id).sort('groupOrder', 'asc')
@@ -191,9 +192,9 @@ export class NativeTVMusicController {
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
     const complete = page.complete && page.entries.length === page.total;
-    const duration = complete && page.entries.length > 0 && page.entries.every(entry => entry.duration !== undefined)
-      ? page.entries.reduce((sum, entry) => sum + entry.duration!, 0) : undefined;
-    this.publish({phase: 'ready', songs: page.entries, songTotal: page.total, songDurationSeconds: duration, favorite});
+    const duration = details?.duration ?? (complete && page.entries.length > 0 && page.entries.every(entry => entry.duration !== undefined)
+      ? page.entries.reduce((sum, entry) => sum + entry.duration!, 0) : undefined);
+    this.publish({phase: 'ready', songs: page.entries, songTotal: details?.count ?? page.total, songDurationSeconds: duration, albumDetails: details, favorite});
     // Recommendations must not prevent the album's own tracks from loading.
     // A failure still reaches the existing error presenter, retaining the tracks.
     if (!this.current() || signal.aborted) return;
@@ -204,7 +205,7 @@ export class NativeTVMusicController {
   private async loadArtist(signal: AbortSignal): Promise<void> {
     // The Details producer is secondary: it may arrive after the songs and
     // releases, and its failure leaves the real grid-entry facts in place.
-    void this.artistDetails(signal).then(details => {if (details && this.current() && !signal.aborted) this.publish({artistDetails: details});});
+    void this.entityDetails('artist', signal).then(details => {if (details && this.current() && !signal.aborted) this.publish({artistDetails: details});});
     const [capabilities, favorite, similar, albums] = await Promise.all([
       this.capabilities('songs', signal), this.favoriteState(signal), this.similar(signal), this.artistAlbums(signal),
     ]);
@@ -215,20 +216,27 @@ export class NativeTVMusicController {
     this.publish({phase: 'ready', songs: page.entries, songTotal: page.pageInfo.total, albums,
       similar: similar.filter(entry => entry.kind === 'artist' && entry.id !== this.options.entry.id), favorite});
   }
-  /** The artist page's own entity projection: the server's country, active
-   * years, type and (when present) biography. A details failure leaves the
-   * real grid entry facts in place rather than blanking the page. */
-  private async artistDetails(signal: AbortSignal): Promise<ContentEntry | undefined> {
+  /** The page's own bounded entity projection, independent of its track pages.
+   * Album format badges are composed by the server, never by browsing songs. */
+  private async entityDetails(view: 'album' | 'artist', signal: AbortSignal): Promise<ContentEntry | undefined> {
     const libraryId = this.options.entry.libraryId;
     if (!libraryId) return undefined;
-    const path = `/v1/libraries/${encodeURIComponent(libraryId)}/content?view=artist&entityId=${encodeURIComponent(this.options.entry.id)}&limit=1`;
-    const service = new LibraryContentService({api: this.options.api, scope: this.options.lifetime.scope, pageSize: 1});
+    const path = `/v1/libraries/${encodeURIComponent(libraryId)}/content?view=${view}&entityId=${encodeURIComponent(this.options.entry.id)}&limit=1`;
+    const api = {request: async <T>(path: string, method?: string, body?: unknown, input?: AbortSignal): Promise<T> => {
+      if (!this.current() || signal.aborted) throw membershipFailure('native_music_retired');
+      const value = await this.options.api.request<T>(path, method, body, input);
+      if (!this.current() || signal.aborted) throw membershipFailure('native_music_retired');
+      return value;
+    }};
+    const service = new LibraryContentService({api, scope: this.options.lifetime.scope, pageSize: 1});
     const abort = () => service.dispose();
     signal.addEventListener('abort', abort, {once: true});
     try {
-      await service.select({view: 'artist', libraryId, entityId: this.options.entry.id});
       if (!this.current() || signal.aborted) return undefined;
-      return service.getSnapshot().projection?.entity;
+      await service.select({view, libraryId, entityId: this.options.entry.id});
+      if (!this.current() || signal.aborted) return undefined;
+      const entry = service.getSnapshot().projection?.entity;
+      return entry?.id === this.options.entry.id && entry.kind === view && entry.libraryId === libraryId ? entry : undefined;
     } catch (error) {
       if (!signal.aborted) diagnose('details', 'GET', path, error);
       return undefined;

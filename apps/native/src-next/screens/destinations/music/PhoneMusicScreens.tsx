@@ -14,6 +14,7 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
 import {MusicErrorView} from './MusicErrorView';
+import {MusicFormatBadges} from './MusicFormatBadges';
 
 const t = defaultI18n.t;
 type Actions = Pick<NativeEntryActions, 'menu'>;
@@ -151,7 +152,10 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
             <Text style={[browseType(theme, 15, 600), {color: theme.colors.textSecondary, marginBottom: 10}]}>{t('next.browse.native.album')}</Text>
             <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 58, 800, -.04, 61), {color: theme.colors.text}]}>{title}</Text>
             {entry.artist?.name ? <Text numberOfLines={1} style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong, marginTop: 4}]}>{entry.artist.name}</Text> : null}
-            {facts.length ? <Facts facts={facts}/> : null}
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
+              {facts.length ? <Facts facts={facts}/> : null}
+              <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="tablet"/>
+            </View>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20}}>
               <Button style={{height: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius, paddingHorizontal: 24}} icon="i-play" textStyle={browseType(theme, 15, 700)} onPress={() => {void controller.play().catch(runtime.reportError);}}>{t('entry.play')}</Button>
               <Button variant="glass" style={{height: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius, paddingHorizontal: 24}} icon="i-shuffle" textStyle={browseType(theme, 15, 700)} onPress={() => {void controller.play(undefined, true).catch(runtime.reportError);}}>{t('title.shuffle')}</Button>
@@ -192,6 +196,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
         <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, phoneMusicGeometry.albumTitle, 800, -.035), {color: theme.colors.text, textAlign: 'center', marginTop: 20}]}>{title}</Text>
         {entry.artist?.name ? <Text numberOfLines={1} style={[browseType(theme, phoneMusicGeometry.albumArtist, 700), {color: theme.colors.accentStrong, marginTop: 4}]}>{entry.artist.name}</Text> : null}
         {facts.length ? <Facts facts={facts}/> : null}
+        <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="phone"/>
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false} download={download}/></View>
       {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
