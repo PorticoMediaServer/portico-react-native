@@ -44,7 +44,9 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
   }
   const remoteLine = remoteStatusLine(t, {unavailable: remoteState.status === undefined, remote: remoteState.status, connectivity: connectivityState.status, certificate});
   const secure = secureConnectionView({certificate, own: connectivityState.status?.tls.customCertificate});
-  const secureBody = certificateState.loadError === undefined ? t(secure.body, secure.address ? {address: secure.address} : undefined) : undefined;
+  const secureBody = certificateState.loadError !== undefined || certificateState.loading ? undefined
+    : certificate ? t(secure.body, secure.address ? {address: secure.address} : undefined)
+      : certificateState.unavailable ? t('web.connectivity.customCertNotInUse') : undefined;
   const role = context.account.account.role === 'owner' ? 'owner' : 'administrator';
   const signInOptions = [
     {value: 'allow', label: t('settings.server.signIn.allow')},
@@ -100,11 +102,11 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
           <Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{t('next.settingsSpec.server.remote.groups.1.rows.0.label')}</Text>
           <Switch checked={connectivity.ownAddressEnabled === true} onCheckedChange={value => forms.connectivity.set(current => ({...current, ownAddressEnabled: value}))}/>
         </View>
-        <TextField label={t('web.connectivity.customCertDomain')} value={connectivity.customCertificateDomain} editable={connectivity.ownAddressEnabled === true}
+        <TextField label={t('next.settingsSpec.server.remote.groups.1.rows.0.children.0.label')} description={t('next.settingsSpec.server.remote.groups.1.rows.0.children.0.help')} value={connectivity.customCertificateDomain} editable={connectivity.ownAddressEnabled === true}
           onChangeText={value => forms.connectivity.set(current => ({...current, customCertificateDomain: value}))}/>
-        <TextField label={t('web.connectivity.customCertPath')} value={connectivity.customCertificatePath} editable={connectivity.ownAddressEnabled === true}
+        <TextField label={t('next.settingsSpec.server.remote.groups.1.rows.0.children.1.label')} description={t('next.settingsSpec.server.remote.groups.1.rows.0.children.1.help')} value={connectivity.customCertificatePath} editable={connectivity.ownAddressEnabled === true}
           onChangeText={value => forms.connectivity.set(current => ({...current, customCertificatePath: value}))}/>
-        <TextField label={t('web.connectivity.customCertKey')} value={connectivity.customCertificateKeyPath} editable={connectivity.ownAddressEnabled === true}
+        <TextField label={t('next.settingsSpec.server.remote.groups.1.rows.0.children.2.label')} description={t('next.settingsSpec.server.remote.groups.1.rows.0.children.2.help')} value={connectivity.customCertificateKeyPath} editable={connectivity.ownAddressEnabled === true}
           onChangeText={value => forms.connectivity.set(current => ({...current, customCertificateKeyPath: value}))}/>
         <TextField label={t('web.network.publicPort')} value={String(remote.publicPort)} keyboardType="number-pad"
           onChangeText={value => {const next = Number(value); if (Number.isInteger(next) && next >= 1 && next <= 65535) forms.remote.set(current => ({...current, publicPort: next}));}}/>
