@@ -38,8 +38,9 @@ export class NativeReadSeries {
       && selected.sessionFamilyId === captured.sessionFamilyId && sameAuthority(this.authority, this.context.authority());
   };
   private reading(): ReadingClient {
-    if (!this.current()) throw refused();
-    return this.client ??= this.context.api.reading({viewer: this.captured!.viewer, isCurrent: this.current});
+    const captured = this.captured;
+    if (!captured || !this.current()) throw refused();
+    return this.client ??= this.context.api.reading({viewer: captured.viewer, isCurrent: this.current});
   }
   private publish(next: NativeReadSeriesState): void {
     if (this.disposed || !this.current()) return;

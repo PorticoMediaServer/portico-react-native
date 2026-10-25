@@ -1,7 +1,7 @@
 import React from 'react';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
-import {nativeDestinationLifetime} from '../lifetime';
+import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {openNativeReadingSettings} from '../settings/ReadingSettingsRoute';
 import {NativeReadBook} from './read-book-model';
 import {NativeReadSeries} from './read-series-model';
@@ -28,10 +28,10 @@ export function createNativeReadBookRenderer(context: NativeShellBootstrapContex
       page = Object.freeze({key, item: {id: route.item.id, sourceId: route.item.sourceId}, controller});
       pages.set(key, page);
       while (pages.size > 3) {
-        const oldest = pages.entries().next().value as [string, BookPage] | undefined;
-        if (!oldest) break;
-        pages.delete(oldest[0]);
-        oldest[1].controller.dispose();
+        const oldest = pages.entries().next();
+        if (oldest.done) break;
+        pages.delete(oldest.value[0]);
+        oldest.value[1].controller.dispose();
       }
       void controller.load();
     } else if (page.item.sourceId !== route.item.sourceId) {
@@ -73,10 +73,10 @@ export function createNativeReadSeriesRenderer(context: NativeShellBootstrapCont
       page = Object.freeze({controller, comic: context.libraries().find(library => library.id === route.libraryId)?.kind === 'comic'});
       pages.set(key, page);
       while (pages.size > 3) {
-        const oldest = pages.entries().next().value as [string, SeriesPage] | undefined;
-        if (!oldest) break;
-        pages.delete(oldest[0]);
-        oldest[1].controller.dispose();
+        const oldest = pages.entries().next();
+        if (oldest.done) break;
+        pages.delete(oldest.value[0]);
+        oldest.value[1].controller.dispose();
       }
       void controller.load();
     }
