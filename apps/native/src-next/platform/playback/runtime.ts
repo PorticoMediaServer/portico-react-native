@@ -750,6 +750,8 @@ export class NativePlaybackRuntime {
     const current = () => !lifetime.signal.aborted && lifetime.isCurrent() && this.currentAuthority() && principal !== undefined && startupPrincipal(this.o.session()) === principal && epoch === this.startEpoch && menu === this.versionMenuEpoch && authority === authorityKey(this.bound) && (!dispatching || this.startOperationCurrent(epoch)) && (dispatching || sameSource());
     if (!current()) return;
     if (!wireId(input.target.itemId) || !wireId(versionId) || selection.options.itemId !== input.target.itemId || selection.options.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
+    const drawnTitle = selection.options.versions.find(value => value.id === versionId)?.discTitle;
+    if (drawnTitle && (drawnTitle.id !== discTitle?.id || drawnTitle.revision !== discTitle?.revision)) throw new Error(serviceText('queuePlayer.unsupported'));
     if (discTitle && !selection.options.versions.some(value => value.id === versionId
       && value.discTitle?.id === discTitle.id && value.discTitle.revision === discTitle.revision)) throw new Error(serviceText('queuePlayer.unsupported'));
     const scoped = this.selectionScope(lifetime.signal, current);
