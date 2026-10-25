@@ -1,3 +1,4 @@
+import {NativeTVReceiver} from '../screens/settings-live/NativeTVReceiver';
 import React, {type RefObject} from 'react';
 import {BackHandler, Platform, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
@@ -316,6 +317,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       // Instantiate the current module before asking it for retained native views.
       const active = route.kind === 'shell' ? null : render(route);
       return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
+        {Platform.isTV && <NativeTVReceiver context={context} runtime={runtime}/>}
         {(routes.renderRetained(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
         {active}
         {(routes.renderOverlays(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}

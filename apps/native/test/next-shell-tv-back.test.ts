@@ -43,7 +43,8 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}, nativeMenuRouteAvailable: () => true}, './library-scan': {libraryScanReadiness: () => ({ok: true})}, '../screens/downloads/DownloadSheet': {NativeDownloadSheet: 'NativeDownloadSheet'},
     './home-windows': {planHomeWindows},
     './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return ['retained'];}, renderOverlays: () => ['overlay'], back: () => routeConsumes, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
-    '../screens/read/platform': readPlatform, '../screens/native-screen-services': screenServices,
+    '../screens/read/platform': readPlatform, '../screens/settings-live/NativeTVReceiver': {NativeTVReceiver: 'NativeTVReceiver'},
+    '../screens/native-screen-services': screenServices,
     '../screens/home/entry-lifetime': {nativeHomeEntryLifetime},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
