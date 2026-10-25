@@ -119,14 +119,24 @@ export class NativeTVSavedController {
       return summary.myList;
     } catch (error) {if (this.live()) this.publish({error});}
   };
-  clearHistory = async (period?: HistoryPeriod): Promise<void> => {
-    if (!this.live()) return;
-    const personal = this.views.get('history')?.getSnapshot().personal;
-    if (personal?.revision === undefined) return;
+  /** The personal history revision a clear confirmation must be drawn against. */
+  historyRevision = (): number | undefined => this.live() ? this.views.get('history')?.getSnapshot().personal?.revision : undefined;
+  /** The clear itself is profile-wide, exactly as the drawn sentence says; `period` only picks
+   * the History filter reloaded afterwards. The captured revision, the caller's signal and a
+   * live check before and after the request id keep a replaced opening from clearing, and its
+   * completion from reloading a view that moved on. */
+  clearHistory = async (operation: Readonly<{revision: number; period?: HistoryPeriod; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
+    const {revision, period, signal, isCurrent} = operation;
+    // The caller's own scope is the authority here: the signal alone depends on the retirement
+    // having rendered, so the captured operation is asked directly before and after the id.
+    const live = () => this.live() && !signal.aborted && isCurrent();
+    if (!live() || this.historyRevision() !== revision) return;
     const operationId = await this.options.requestId();
+    if (!live() || this.historyRevision() !== revision) return;
     await this.options.api.request(routePath('post_personal_history_actions'), 'POST',
-      {operationId, expectedRevision: personal.revision, action: 'clear-history'});
-    await this.select('history', {period});
+      {operationId, expectedRevision: revision, action: 'clear-history'}, signal);
+    if (!live()) return;
+    if (this.state.tab === 'history') await this.select('history', {period});
   };
   dispose = (): void => {
     if (this.disposed) return;

@@ -120,7 +120,17 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const theme = useTheme(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [tab, setTab] = useState<Tab>(initialTab), [sort, setSort] = useState<Exclude<SavedListSort, 'updated'>>('added');
   const [filter, setFilter] = useState<SavedListFilter>('all'), [period, setPeriod] = useState<HistoryPeriod>('7d');
-  const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false);
+  // The confirm belongs to the exact opening it was drawn for. The ref is the synchronous
+  // truth (React state is only what this render draws), so a retained close or confirm can
+  // never act on a successor, and one flight is held by a ref, not by a rendered flag.
+  type ClearOpening = Readonly<{token: number; scope: string; period: HistoryPeriod; controller: NativeTVSavedController; authority: ShellAuthority; routeRevision: number; historyRevision: number; abort: AbortController}>;
+  const clear = useRef<ClearOpening | undefined>(undefined), clearToken = useRef(0), clearAlive = useRef(true);
+  // The dialog may close while its command is still running: the pending operation stays tracked
+  // here so it can be aborted on a real scope change and so its completion owns only itself.
+  const clearFlight = useRef<ClearOpening | undefined>(undefined);
+  const clearPending = useRef(false), clearPendingToken = useRef(0);
+  const [clearOpening, setClearOpening] = useState<ClearOpening>(), [clearing, setClearing] = useState(false);
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
   // tv-more1: Jump to is drawn only under a title sort, over the titles this page has actually
   // loaded; nothing claims an index for a page it has not read. Every measurement is kept
@@ -136,6 +146,12 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     jumpAlive.current = true;
     return () => {jumpAlive.current = false; jump.current = undefined;};
   }, []);
+  // The confirm and its flight die with the screen; a late completion cannot touch a successor.
+  useLayoutEffect(() => {clearAlive.current = true; return () => {
+    clearAlive.current = false;
+    const sheet = clear.current; if (sheet) {sheet.abort.abort(); clear.current = undefined;}
+    const flight = clearFlight.current; if (flight) {flight.abort.abort(); clearFlight.current = undefined;}
+  };}, []);
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const run = useCallback((work: Promise<unknown>) => {void work.catch(runtime.reportError);}, [runtime]);
@@ -183,6 +199,52 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   if (replaced || measured.current.scope !== scope) measured.current = {scope, region: 0, body: 0, grids: new Map(), cards: new Map()};
   if (jump.current && (replaced || jump.current.scope !== scope || !active.visible)) jump.current = undefined;
   const opening = jumpOpening && jump.current === jumpOpening && jumpOpening.scope === scope && active.visible ? jumpOpening : undefined;
+  // The confirm retires with the query, the period, the destination revision, the authority or
+  // a replaced controller, before any of its callbacks can run. Leaving Saved is a navigation
+  // change: the activation revision is the route proof here, because the destination lifetime
+  // only covers the session's authority.
+  const clearScope = `${scope}:${period}`;
+  const retireClear = () => {
+    const sheet = clear.current; if (sheet) {sheet.abort.abort(); clear.current = undefined;}
+    const flight = clearFlight.current; if (flight) {flight.abort.abort(); clearFlight.current = undefined;}
+  };
+  if (clear.current && (replaced || clear.current.scope !== clearScope || !active.visible || clear.current.routeRevision !== active.revision || !sameAuthority(clear.current.authority, authority))) retireClear();
+  const clearView = clearOpening && clear.current === clearOpening && clearOpening.scope === clearScope && active.visible
+    && clearOpening.routeRevision === active.revision && sameAuthority(clearOpening.authority, authority) ? clearOpening : undefined;
+  const openClear = () => {
+    if (clearPending.current) return;
+    const historyRevision = controller.historyRevision();
+    // Nothing to clear, or already replaced: no confirmation is drawn at all.
+    if (historyRevision === undefined || !active.visible) return;
+    const next: ClearOpening = {token: ++clearToken.current, scope: clearScope, period, controller, authority, routeRevision: active.revision, historyRevision, abort: new AbortController()};
+    clear.current?.abort.abort();
+    clear.current = next; setClearOpening(next);
+  };
+  const closeClear = (target: ClearOpening) => {if (clear.current !== target) return; target.abort.abort(); clear.current = undefined; setClearOpening(current => current === target ? undefined : current);};
+  const confirmClear = (target: ClearOpening) => {
+    if (clear.current !== target || clearPending.current || target.abort.signal.aborted) return;
+    if (target.controller !== controller || !sameAuthority(target.authority, authority)) return;
+    // The live activation is read at dispatch, not the destination lifetime.
+    const live = activation.getSnapshot();
+    if (!live.visible || live.revision !== target.routeRevision) return;
+    clearPending.current = true; clearPendingToken.current = target.token;
+    // Closing the dialog must not lose the command: the pending operation stays tracked so a real
+    // scope change or unmount can still abort it, and its completion owns only itself.
+    clear.current = undefined; clearFlight.current = target;
+    setClearOpening(current => current === target ? undefined : current);
+    setClearing(true);
+    const own = () => clearAlive.current && clearFlight.current === target && !target.abort.signal.aborted
+      && (() => {const now = activation.getSnapshot(); return now.visible && now.revision === target.routeRevision;})();
+    void target.controller.clearHistory({revision: target.historyRevision, period: target.period, signal: target.abort.signal, isCurrent: own})
+      .catch(error => {if (own()) runtime.reportError(error);})
+      .finally(() => {
+        // Only the operation this screen still tracks may release its own pending state.
+        if (clearFlight.current !== target) return;
+        clearFlight.current = undefined;
+        if (clearPendingToken.current !== target.token) return;
+        clearPendingToken.current = 0; clearPending.current = false; setClearing(false);
+      });
+  };
   /** The exact object this render draws into; a late callback from another scope writes only its
    * own retired object, never this one. */
   const measurement = measured.current;
@@ -277,7 +339,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
           {periods.map(value => <Chip focusId={`saved-period-${value}`} key={value} selected={period === value} onPress={() => {setPeriod(value); run(controller.select(tab, {sort, filter, period: value}));}}>
             {value === '30d' || value === '90d' ? t('web.saved.days', {count: value === '30d' ? 30 : 90}) : t(periodLabel[value])}
           </Chip>)}
-          <Button focusId="saved-clear-history" variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={() => setClearOpen(true)}>{t('web.saved.clearHistory')}</Button>
+          <Button focusId="saved-clear-history" variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={openClear}>{t('web.saved.clearHistory')}</Button>
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
@@ -294,9 +356,9 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
     {/* tv-more3 draws History's Clear history confirm as the saved pages' own destructive
         confirm: Cancel first, then the red verb, and the sentence naming what stays. */}
-    <SavedConfirmSheet open={clearOpen} title={t('web.saved.clearHistoryTitle')} body={t('web.saved.clearHistoryBody')} action={t('web.saved.clearHistoryAction')}
-      busy={false} destructive testID="saved-clear-history" onClose={() => setClearOpen(false)}
-      onConfirm={() => {setClearOpen(false); run(controller.clearHistory(period));}}/>
+    <SavedConfirmSheet open={clearView !== undefined} title={t('web.saved.clearHistoryTitle')} body={t('web.saved.clearHistoryBody')} action={t('web.saved.clearHistoryAction')}
+      busy={clearing} destructive testID="saved-clear-history" onClose={() => {if (clearView) closeClear(clearView);}}
+      onConfirm={() => {if (clearView) confirmClear(clearView);}}/>
     {opening && <LibraryJumpSheet open panelId={`${ids.savedGrid}.jump`} letters={jumpLetters.map(letter => ({key: letter.key, index: letter.index}))} selected={selectedLetter}
       onSelect={key => {
         if (!jumpCurrent(opening)) return;
