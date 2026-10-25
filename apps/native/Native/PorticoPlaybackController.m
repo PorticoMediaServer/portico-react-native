@@ -99,6 +99,10 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  // Television: the display is being asked to match the title before it is announced ready, so
  // the opening seconds are not played into a screen that is still changing mode.
  BOOL _displayWaiting; NSInteger _displayEpoch; __weak AVPlayerItem *_displayMatchedItem; id _displayStartObserver; id _displayEndObserver;
+ // Only the exact criteria installed by this controller may be withdrawn.
+#if TARGET_OS_TV
+ AVDisplayCriteria *_ownedDisplayCriteria; __weak AVDisplayManager *_ownedDisplayManager;
+#endif
  // This controller activated the audio session for a video and has not yet given it back.
  BOOL _videoSessionActive;
 #if DEBUG
@@ -214,7 +218,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  _source=nil;_binding=nil;_command=nil;_timelineOriginMS=nil;_lease=nil;_owner=nil;_seeking=NO;_routeSuspended=NO;_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;
  _subtitleStyle=nil;_displayWaiting=NO;_displayEpoch++;
 #if TARGET_OS_TV
- [self endDisplayObservation];
+ [self endDisplayObservation];[self clearOwnedDisplayCriteria];
 #endif
  [[NSNotificationCenter defaultCenter] postNotificationName:@"PorticoPlaybackAttachmentChanged" object:self];
  // The audio session a video activated is given back, so music another app was playing may
@@ -245,6 +249,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (NSString *)acceptCommand:(NSDictionary *)command {
  if(_invalidated)return @"Playback controller is closed.";
  if(![command isKindOfClass:NSDictionary.class]||![command[@"binding"]isKindOfClass:NSDictionary.class])return @"Invalid playback binding.";
+ if(command[@"matchDynamicRange"] && ![command[@"matchDynamicRange"] isEqual:@"auto"] && ![command[@"matchDynamicRange"] isEqual:@"off"])return @"Invalid dynamic range matching choice.";
  if(_listeningOwner && !_applyingListening) {
   // Delayed JS commands may attach the current visual surface, but cannot undo
   // native Pause, timers, an interruption or authority expiry.
@@ -357,7 +362,8 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  BOOL changed=![binding[@"sessionId"] isEqual:media[@"id"]]||![binding[@"generation"] isEqual:media[@"generation"]];
  if(changed){binding[@"intentId"]=@([binding[@"intentId"] integerValue]+1);binding[@"sessionId"]=media[@"id"];binding[@"generation"]=media[@"generation"];binding[@"itemId"]=desired[@"context"][@"itemId"];}
  double denominator=[desired[@"rate"][@"denominator"] doubleValue];double rate=denominator>0?[desired[@"rate"][@"numerator"] doubleValue]/denominator:1;
- NSDictionary *command=@{@"binding":binding,@"commandRevision":@(_commandRevision+1),@"source":[_listeningOrigin stringByAppendingString:media[@"streamUrl"]],@"connectionState":_listeningRouteReady?@"ready":@"verifying",@"routeRevision":@(_listeningRouteRevision),@"paused":@((BOOL)(!_listeningRouteReady||!_listeningAllowed||![desired[@"state"] isEqual:@"playing"])),@"rate":@(rate),@"timelineOriginMs":NSNull.null,@"pendingSeek":_listeningSeek?:NSNull.null,@"audioRender":_listeningRender?:NSNull.null,@"audio":attachment[@"audio"]?:_command[@"audio"]?:NSNull.null,@"subtitles":attachment[@"subtitles"]?:_command[@"subtitles"]?:NSNull.null};
+ NSMutableDictionary *command=[@{@"binding":binding,@"commandRevision":@(_commandRevision+1),@"source":[_listeningOrigin stringByAppendingString:media[@"streamUrl"]],@"connectionState":_listeningRouteReady?@"ready":@"verifying",@"routeRevision":@(_listeningRouteRevision),@"paused":@((BOOL)(!_listeningRouteReady||!_listeningAllowed||![desired[@"state"] isEqual:@"playing"])),@"rate":@(rate),@"timelineOriginMs":NSNull.null,@"pendingSeek":_listeningSeek?:NSNull.null,@"audioRender":_listeningRender?:NSNull.null,@"audio":attachment[@"audio"]?:_command[@"audio"]?:NSNull.null,@"subtitles":attachment[@"subtitles"]?:_command[@"subtitles"]?:NSNull.null} mutableCopy];
+ if(attachment[@"matchDynamicRange"])command[@"matchDynamicRange"]=attachment[@"matchDynamicRange"];
  // Skip no-op updates so native facts do not churn the JS command barrier.
  NSMutableDictionary *before=[_command mutableCopy],*after=[command mutableCopy];[before removeObjectForKey:@"commandRevision"];[after removeObjectForKey:@"commandRevision"];
  if([before isEqual:after])return;
@@ -392,7 +398,17 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(!sameBinding){_routeResume=NO;_routeSeeking=NO;_routeSuspended=NO;_routeFailed=NO;_routeEpoch++;}
  BOOL changed=![_source isEqualToString:source];
  if(sameBinding&&(verifying||changed)&&!_routeResume&&!_routeSuspended){double position=_routeFailed?_routePosition:[self sourcePosition];if(isfinite(position)&&(_timelineOriginMS||position>=0)){_routePosition=position;_routeResume=YES;_routeFailed=NO;_routeEpoch++;}}
+ BOOL matchingWasWaiting=_displayWaiting;
+ BOOL matchingWasOff=[_command[@"matchDynamicRange"] isEqual:@"off"];
  _command=[command copy];_paused=[command[@"paused"] boolValue];
+#if TARGET_OS_TV
+ if([command[@"matchDynamicRange"] isEqual:@"off"]){
+  // Retire pending asset callbacks before withdrawing only our app-owned request.
+  _displayWaiting=NO;_displayEpoch++;[self endDisplayObservation];[self clearOwnedDisplayCriteria];
+ }else if(matchingWasOff){_displayMatchedItem=nil;}
+#else
+ (void)matchingWasOff;(void)matchingWasWaiting;
+#endif
  if(verifying){
   [_audioRender invalidate];
   if(!_routeSuspended){[_subtitleSelection invalidate];[_subtitleOverlay invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_routeSeeking=NO;_seeking=NO;}
@@ -440,6 +456,12 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  // the same-session replan; enable external playback only after that command removes them.
  _player.allowsExternalPlayback=!self.subtitleOverlayActive;
  if(wasOverlayActive!=self.subtitleOverlayActive)[NSNotificationCenter.defaultCenter postNotificationName:@"PorticoPlaybackSubtitleChanged" object:self];
+#if TARGET_OS_TV
+ if(!reload && _player.currentItem.status==AVPlayerItemStatusReadyToPlay && !_routeResume && !_routeSuspended && !_routeFailed){
+  if(matchingWasOff && ![command[@"matchDynamicRange"] isEqual:@"off"])[self matchDisplayForItem:_player.currentItem];
+  else if(matchingWasWaiting && [command[@"matchDynamicRange"] isEqual:@"off"])[self itemReady];
+ }
+#endif
  [self applyRouteResume];[self applyPendingSeek];[self applyIntent];
 }
 // A transport rebind is not a new playback intent or a user seek. Restore the
@@ -572,7 +594,14 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  * for less than half a second. Music does not ask. Once per item. Returns NO when nothing is
  * waited for.
  */
+// Withdraw our matching request, never another controller's criteria or OS policy.
+- (void)clearOwnedDisplayCriteria {
+ AVDisplayManager *manager=_ownedDisplayManager;AVDisplayCriteria *criteria=_ownedDisplayCriteria;
+ _ownedDisplayManager=nil;_ownedDisplayCriteria=nil;
+ if(criteria && manager.preferredDisplayCriteria==criteria)manager.preferredDisplayCriteria=nil;
+}
 - (BOOL)matchDisplayForItem:(AVPlayerItem *)item {
+ if([_command[@"matchDynamicRange"] isEqual:@"off"])return NO;
  if(_displayWaiting&&_displayMatchedItem==item)return YES;
  if(!item||_displayMatchedItem==item||_listeningOwner||_audioRender.active)return NO;
  AVDisplayManager *manager=[self displayManager];
@@ -591,12 +620,15 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   PorticoPlaybackController *view=weakSelf;if(!view||view->_displayEpoch!=epoch||!view->_displayWaiting)return;
   if(view->_player.currentItem!=item){finish();return;}
   AVDisplayManager *display=[view displayManager];
-  if(!display){finish();return;}
+  if(!display || !display.isDisplayCriteriaMatchingEnabled || [view->_command[@"matchDynamicRange"] isEqual:@"off"]){finish();return;}
   __block BOOL started=display.isDisplayModeSwitchInProgress;
   view->_displayStartObserver=[[NSNotificationCenter defaultCenter]addObserverForName:AVDisplayManagerModeSwitchStartNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){started=YES;}];
   // The picture is steady a moment after the switch is reported over.
   view->_displayEndObserver=[[NSNotificationCenter defaultCenter]addObserverForName:AVDisplayManagerModeSwitchEndNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)),dispatch_get_main_queue(),finish);}];
-  display.preferredDisplayCriteria=item.asset.preferredDisplayCriteria;
+  [view clearOwnedDisplayCriteria];
+  AVDisplayCriteria *criteria=item.asset.preferredDisplayCriteria;
+  display.preferredDisplayCriteria=criteria;
+  view->_ownedDisplayManager=display;view->_ownedDisplayCriteria=display.preferredDisplayCriteria;
   // A switch, when one is needed, begins at once. None begun shortly after asking: none is coming.
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
    PorticoPlaybackController *owner=weakSelf;if(!owner||owner->_displayEpoch!=epoch)return;

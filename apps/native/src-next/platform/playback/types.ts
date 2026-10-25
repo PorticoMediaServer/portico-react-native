@@ -55,6 +55,7 @@ export type NativePlaybackSettings = Readonly<{
   passthroughFormats?: import('./passthrough-formats').PassthroughFormats;
   /** Android display matching; absent is the platform's existing Automatic behavior. */
   matchFrameRate?: 'auto' | 'off';
+  matchDynamicRange?: 'auto' | 'off';
   audiobook?: import('../../../../../packages/client-core/src/audiobook-preferences').AudiobookPreferences;
   /** The profile's Music > Sound settings, as the listening engine renders them. */
   audioEffects?: import('../../../../../packages/client-core/src/audio-effects').AudioEffectsSettings;
@@ -83,6 +84,7 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */
 export type NativePlaybackRuntimeOptions = Readonly<{
   androidDisplayMatching?: true;
+  nativeDynamicRangeMatching?: true;
   api: HttpLocalApi;
   authority: () => PlaybackAuthority;
   session: () => LocalSession | undefined;

@@ -2,6 +2,7 @@ import {passthroughFormats} from '../src-next/platform/playback/passthrough-form
 import {nativeEqualizer} from '../src-next/platform/playback/equalizer';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as routes from '../../../packages/contracts/src/routes';
 import * as structure from '../../../packages/client-core/src/presentation/settings-structure';
 import * as languages from '../../../packages/client-core/src/presentation/language-list';
 import * as regionChoices from '../../../packages/client-core/src/presentation/region-choices';
@@ -28,12 +29,15 @@ async function fixture() {
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
     './use-tv-voice-search': {useTVVoiceSearch: () => ({start: undefined, busy: false})},
     './NativeSafeModeRow': safeMode,
+    '../../platform/playback/dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
+    './NativeDynamicRangeRow': {NativeDynamicRangeRow: 'NativeDynamicRangeRow', nativeDynamicRangeFocusId: 'settings-device-match-dynamic-range'},
     './NativeFrameRateRow': {NativeFrameRateRow: 'NativeFrameRateRow', nativeFrameRateFocusId: 'settings-device-match-frame-rate'},
     '../../platform/playback/passthrough-formats': {passthroughFormats},
     './NativePassthroughRow': {NativePassthroughRow: 'NativePassthroughRow', nativePassthroughFocusId: 'settings-device-audio-passthrough'},
     './NativeLossNoticesRow': {NativeLossNoticesRow: 'NativeLossNoticesRow', nativeLossNoticesFocusId: 'settings-device-loss-notices'},
     react,
     'react-native': {Dimensions: {get: () => ({width: 800, height: 1024})}, Platform: {OS: 'ios', isTV: false, isPad: true}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    '../../../../../packages/contracts/src/routes': routes,
     '../../../../../packages/client-core/src/presentation/settings-structure': structure,
     '../../../../../packages/client-core/src/presentation/language-list': languages,
     '../../../../../packages/client-core/src/presentation/region-choices': regionChoices,
