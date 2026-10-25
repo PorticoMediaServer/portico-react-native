@@ -20,7 +20,7 @@ import {nativeAccounts} from '../../platform/accounts';
 import {NativeServerSignIn} from '../../platform/server-sign-in';
 import {NativeSetupEnded} from '../../platform/setup-outcome';
 import {HostedSignInUnavailable} from '../../platform/hosted-sign-in-unavailable';
-import {NativePorticoSignIn} from '../../platform/portico-sign-in';
+import {NativePorticoSignIn, porticoUsernameUnavailable} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
@@ -64,6 +64,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
+  // Root 43: only the server's confirmed public-handle collision may mark this
+  // field, and only for the form opening that asked. The opening retires with its
+  // stage, so a retained Submit or a late refusal cannot mark a successor form.
+  const [usernameUnavailable, setUsernameUnavailable] = useState(false);
+  const [registerOpening, setRegisterOpening] = useState<Readonly<{source: NativePorticoSignIn; owner: {live: boolean}}>>();
   type SetupReview = Awaited<ReturnType<NativeServerSignIn['reviewHostedSetup']>>;
   const [setupReview, setSetupReview] = useState<SetupReview>();
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
@@ -126,6 +131,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const directoryConnectRef = useRef<(value: HostedServer, automatic?: boolean, expectedTarget?: HostedServer) => void>(() => {});
   const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
+  // An opaque revision, advanced by every editable register field (the password
+  // included), so a Submit drawn against an older draft cannot send its old values.
+  const registerOpeningRef = useRef(registerOpening), registerDraftRev = useRef(0);
+  registerOpeningRef.current = registerOpening;
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
@@ -170,6 +179,18 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   }, []);
   useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useLayoutEffect(() => {if (stage !== 'servers') retireOwnerRecoveryContact();}, [stage]);
+  // Open one signup form per entry to the register stage. Its layout cleanup retires
+  // that exact opening before the next effect or the unmount commit finishes, so a
+  // late answer cannot mark a form that has already left.
+  useLayoutEffect(() => {
+    setUsernameUnavailable(false);
+    if (stage !== 'register') {setRegisterOpening(undefined); return;}
+    const source = account.current;
+    if (!source) {setRegisterOpening(undefined); return;}
+    const owner = {live: true};
+    setRegisterOpening(Object.freeze({source, owner}));
+    return () => {owner.live = false;};
+  }, [stage]);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useLayoutEffect(() => {
     if (stage !== 'address') return;
@@ -578,8 +599,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (factorKind.current === 'portico') {await account.current!.factor(value); await directory();}
     else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(value) : operation.current!.completeSecondFactor(value)));
   };
-  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password') => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
-    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy}/>;
+  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
+    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid}/>;
   const fields = (...children: React.ReactNode[]) => <View style={{alignSelf: 'stretch', width: theme.isTV ? 720 : undefined, gap: 14, marginBottom: 20}}>{children}</View>;
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
@@ -1049,8 +1070,34 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 16}]}>{t('auth.privacySameAnswer')}</Text>,
     action('back-to-sign-in', t('auth.backToSignIn'), async () => {if (lifetime.current) setStage('portico');}),
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 10}]}>{t('auth.noPasswordForSocial')}</Text>);
-  if (stage === 'register') return layout(t('auth.createYourAccount'), undefined, fields(field(t('auth.username'), username, setUsername), field(t('auth.yourName'), name, setName), field(t('auth.email'), email, setEmail), field(t('auth.password'), password, setPassword, true)),
-    action('register', t('auth.createAccount'), async () => {const value = await account.current!.register(username, name, password, email); setPassword(''); setMasked(value.maskedAddress); setStage('verify');}, !username || !name || !password || !email));
+  if (stage === 'register') {
+    // The opening this Submit was drawn for and the draft revision it drew. Both must
+    // still be the live ones before the call and again when the answer arrives.
+    const opening = registerOpening, revision = registerDraftRev.current, submitted = {username, name, email};
+    const live = (source: NativePorticoSignIn) => lifetime.current && stageRef.current === 'register' && !!opening
+      && opening.owner.live && registerOpeningRef.current === opening && opening.source === source && account.current === source
+      && registerDraftRev.current === revision;
+    const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
+    return layout(t('auth.createYourAccount'), undefined, fields(
+      field(t('auth.username'), username, next => {setUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
+        !theme.isTV && usernameUnavailable ? t('web.signIn.error.accountTaken') : undefined),
+      field(t('auth.yourName'), name, edit(setName)), field(t('auth.email'), email, edit(setEmail)), field(t('auth.password'), password, edit(setPassword), true)),
+      action('register', t('auth.createAccount'), async () => {
+        const source = opening?.source;
+        if (!source || !live(source)) return;
+        try {
+          const value = await source.register(submitted.username, submitted.name, password, submitted.email);
+          if (!live(source)) return;
+          setPassword(''); setMasked(value.maskedAddress); setStage('verify');
+        } catch (refusal) {
+          if (!live(source)) return;
+          // The drawn username-field state is only the confirmed public-handle collision;
+          // every other refusal keeps the ordinary form error path unchanged.
+          if (!theme.isTV && porticoUsernameUnavailable(refusal)) {setUsernameUnavailable(true); return;}
+          throw refusal;
+        }
+      }, !username || !name || !password || !email));
+  }
   if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
   if (stage === 'provider') return layout(t('accounts.signIn.portico'), undefined, fields(
     transaction?.needsUsername && field(t('auth.username'), username, setUsername), transaction?.needsUsername && field(t('auth.yourName'), name, setName),

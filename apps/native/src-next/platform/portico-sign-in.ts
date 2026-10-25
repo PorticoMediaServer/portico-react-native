@@ -1,10 +1,16 @@
 import {NativeModules} from 'react-native';
 import {MFARequiredError, parseAccountReturn, parseNativeAccountContinuation,
   type HostedAccountClient, type IdentityProvider, type IdentityTransaction, type NativeAccountContinuation, type Registration} from '../../../../packages/client-core/src/hosted-security';
-import type {HostedSession} from '../../../../packages/client-core/src';
+import {ApiError, type HostedSession} from '../../../../packages/client-core/src';
 import {routePath as hostedPath, routeBody as hostedBody} from '../../../../packages/contracts/src/hosted/routes';
 import {nativeAccounts} from './accounts';
 import {hostedUrl} from './account-authority';
+
+/** Root 43: the one typed early outcome the signup form may put on the username
+ * field. Only a confirmed public-handle collision carries this closed code; a
+ * generic conflict, a transport failure or an email/provider answer never does. */
+export const porticoUsernameUnavailable = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 409 && error.code === 'username_unavailable';
 
 /** Explicit Portico sign-in only. Native continuation storage contains a binding and
  * one-time completion, never a password, provider assertion or session credential. */
