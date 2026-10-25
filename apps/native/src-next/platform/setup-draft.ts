@@ -2,7 +2,8 @@ import type {SetupDraft, SetupDraftStore} from '../../../../packages/client-core
 import {NativeQueueStore} from './queue-storage';
 
 /** Setup secrets use the protected native record store, never preferences or Git. */
-export function nativeSetupDraft(serverId: string): SetupDraftStore {
+export type NativeSetupDraftStore = Omit<SetupDraftStore, 'change'> & {change(update: (old: SetupDraft | undefined) => SetupDraft | undefined, beforeCommit?: () => void): Promise<void>};
+export function nativeSetupDraft(serverId: string): NativeSetupDraftStore {
   const key = 'initialize:' + serverId, storage = new NativeQueueStore();
   const parse = (raw: unknown): SetupDraft | undefined => {
     if (raw == null) return undefined;
@@ -15,6 +16,6 @@ export function nativeSetupDraft(serverId: string): SetupDraftStore {
   };
   return {
     read: () => storage.change(key, raw => ({record: raw, value: parse(raw)})),
-    change: async update => {await storage.change(key, raw => ({record: update(parse(raw)) ?? null, value: undefined}));},
+    change: async (update, beforeCommit) => {await storage.change(key, raw => ({record: update(parse(raw)) ?? null, value: undefined}), undefined, beforeCommit);},
   };
 }
