@@ -60,11 +60,16 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   // sidebar and this chrome stay in place; phone keeps the pushed page.
   const tablet = !theme.isTV && theme.platform !== 'phone';
   const [savedTab, setSavedTab] = useState<'watchlist' | 'downloads'>('watchlist');
+  // A retained but hidden Saved page must never change its local tab or open a
+  // downloadable view; the same current activation gates the existing actions.
+  const visible = () => activation.getSnapshot().visible;
   const showDownloads = useCallback(() => {
+    if (!visible()) return;
     if (tablet) {setSavedTab('downloads'); return;}
     actions.openDownloads();
-  }, [actions, tablet]);
+  }, [activation, actions, tablet]);
   const chooseTab = (value: string) => {
+    if (!visible()) return;
     if (value === 'downloads') {setSavedTab('downloads'); return;}
     setSavedTab('watchlist');
     if (value === 'watchlist') return;
@@ -72,10 +77,10 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   };
   const downloadsOpen = tablet && !!downloads && savedTab === 'downloads';
   useEffect(() => {
-    if (!downloadsOpen) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {setSavedTab('watchlist'); return true;});
+    if (!downloadsOpen || !active.visible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!visible()) return false; setSavedTab('watchlist'); return true;});
     return () => subscription.remove();
-  }, [downloadsOpen]);
+  }, [active.visible, activation, downloadsOpen]);
   const tabItems = [
     {value: 'watchlist', label: t('saved.tab.watchlist')}, {value: 'favorites', label: t('saved.tab.favorites')},
     {value: 'playlists', label: t('saved.tab.playlists')}, {value: 'collections', label: t('saved.tab.collections')},
