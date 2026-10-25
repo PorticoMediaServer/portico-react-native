@@ -26,7 +26,7 @@ type ViewerRole = 'owner' | 'administrator' | 'member';
 const IDS = ['runtime', 'maintenance'] as const;
 
 /** Settings › Server › General on the phone (slots server-general group 1–2 and the drawn background/restart rows). */
-export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeServerGeneral({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
   const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context, authority = context.authority();
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
   const {forms, set, state} = useStorageForms(ports, IDS);
@@ -58,7 +58,7 @@ export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLive
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40}}>
       <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom: 12}}/>
-      <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.general')}</Text>
+      {!compactHeader && <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.general')}</Text>}
       {draft ? <View style={{marginTop: 16}}>
         <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('web.general.serverName')}</Text>
         <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('web.general.serverNameHelp')}</Text>
