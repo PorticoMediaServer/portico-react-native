@@ -76,7 +76,9 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     assert.equal(tree.type, 'Credentials');
     await act(() => {tree.props.onUsernameChange('person'); tree.props.onPasswordChange('test password');});
     await act(() => tree.props.onSubmit());
-    await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Picker').props.onSelect(profile.id));
+    const picker = nodes(tree.props.beforeActions).find(n => n.type === 'Picker');
+    assert.equal(picker.props.preferredProfileId, profile.id, 'the TV picker names its first profile as the native focus target');
+    await act(() => picker.props.onSelect(profile.id));
     assert.equal(tree.type, 'PIN');
     await act(() => tree.props.onCodeChange('12'));
     const baseline = [...calls];
