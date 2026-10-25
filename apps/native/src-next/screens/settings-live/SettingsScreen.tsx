@@ -37,6 +37,7 @@ import {nativeRouteCrypto} from '../../platform/server-connections';
 import {NativeServerTroubleshooting} from './server/TroubleshootingPage';
 import {NativeServerStorage} from './server/StoragePage';
 import {NativeServerIntegrations} from './server/IntegrationsPage';
+import {NativeServerGeneral} from './server/GeneralPage';
 import QRCode from 'react-native-qrcode-svg';
 import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
 
@@ -53,7 +54,13 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
   const managesServer = ports.context.account.account.role === 'owner';
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
-  const serverPages = useMemo(() => theme.isTV ? [] : (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'live' || value.id === 'integrations')), [structure, theme.isTV, managesServer]);
+  const serverPages = useMemo(() => {
+    if (theme.isTV) return [];
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations'));
+    // settings.html wins over the group's old order: General comes first.
+    const general = pages.find(value => value.id === 'general');
+    return general ? [general, ...pages.filter(value => value.id !== 'general')] : pages;
+  }, [structure, theme.isTV, managesServer]);
   const [selected, setSelected] = useState(accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
   // tv-more frame 22: the list keeps the spec's three groups, in the drawn order; Reading is not on TV.
   const tvPageOrder = ['profile', 'privacy', 'playback', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
@@ -104,6 +111,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const troubleshootingPage = !theme.isTV && page.id === 'troubleshooting';
   const storagePage = !theme.isTV && page.id === 'storage';
   const integrationsPage = !theme.isTV && page.id === 'integrations';
+  const generalPage = !theme.isTV && page.id === 'general';
   const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
@@ -143,9 +151,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
         {compact && <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t(serverPage ? 'next.shell.settings' : 'action.back')}</Button>}
-        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
             {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
