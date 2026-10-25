@@ -32,9 +32,16 @@ function joinWithAnd(values: readonly string[]): string {
   return values.length === 2 ? t('next.watch.notice.and', {first: values[0]!, second: values[1]!})
     : t('next.watch.notice.and', {first: values.slice(0, -1).join(', '), second: values[values.length - 1]!});
 }
+/** One loss in the frames' own words: what is lost, where, and what plays instead. */
+export function lossSentence(loss: PlaybackLoss): string | undefined {
+  const t = defaultI18n.t, value = playing(loss.replacement);
+  if (!value) return undefined;
+  const where = t(loss.feature === 'hdr' ? 'next.watch.notice.onScreen' : 'next.watch.notice.onDevice');
+  return t('next.watch.notice.one', {feature: t(featureKeys[loss.feature]), where, playing: value});
+}
 /** A loss the plan itself made, never one a viewer's choice in the player caused.
  * HDR lost because the screen is not HDR says so; every other loss is the device. */
-export function nativeWatchLossNotice(info: PlaybackInfo): NativeWatchNotice | undefined {
+export function nativeWatchLossNotice(info: Pick<PlaybackInfo, 'losses'>): NativeWatchNotice | undefined {
   if (!info.losses.length) return undefined;
   const t = defaultI18n.t;
   const features = [...new Set(info.losses.map(loss => t(featureKeys[loss.feature])))];

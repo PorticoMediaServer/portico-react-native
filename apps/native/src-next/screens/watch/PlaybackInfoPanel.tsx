@@ -9,7 +9,7 @@ import type {NativePlaybackReadLifetime} from '../../platform/playback/types';
 import {Button, Focusable} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeWatchHostContext} from './WatchHost';
-import type {NativePlaybackInfo} from './playback-info';
+import {lossSentence, type NativePlaybackInfo} from './playback-info';
 
 const t = defaultI18n.t;
 const fieldLabels: Record<PlaybackInfoField, MessageId> = {
@@ -38,7 +38,7 @@ export function playbackInfoWords(): PlaybackInfoWords {
           : reason.kind === 'quality' ? t('next.info.reason.quality')
             : reason.videoCodec && reason.audioCodec ? t('next.info.reason.both')
               : reason.audioCodec ? t('next.info.reason.audio') : reason.videoCodec ? t('next.info.reason.video') : t('next.kit.reason.videoCodec'),
-    loss: loss => t('next.watch.info.lost', {feature: t(loss.feature === 'dolbyVision' ? 'next.kit.hdr.dolbyVision'
+    loss: loss => lossSentence(loss) ?? t('next.watch.info.lost', {feature: t(loss.feature === 'dolbyVision' ? 'next.kit.hdr.dolbyVision'
       : loss.feature === 'hdr10plus' ? 'next.kit.hdr.hdr10Plus' : loss.feature === 'hdr' ? 'next.kit.hdr' : loss.feature === 'atmos' ? 'next.kit.object.atmos' : 'next.kit.object.dtsx')}),
     network: (network, measured) => [network === 'home' ? t('next.kit.session.local') : network === 'away' ? t('next.kit.session.remote') : undefined,
       measured ? t('next.kit.kbps', {rate: measured}) : undefined].filter(Boolean).join(' ') || undefined,
@@ -55,8 +55,8 @@ export type NativePlaybackInfoReader = (fence: PlaybackFence, words: PlaybackInf
 /** playback-info frames 3 and 4: the TV panel keeps the route and the column
  * heads still, and each section is one focus stop. Phone keeps its inline list. */
 type Comparison = NonNullable<NativePlaybackInfo['comparison']>;
-function TvComparison({context, comparison}: {context: NativeWatchHostContext; comparison: Comparison}) {
-  const theme = useTheme(), first = useRef<View>(null);
+function TvComparison({context, comparison, restoreOffset}: {context: NativeWatchHostContext; comparison: Comparison; restoreOffset: number}) {
+  const theme = useTheme(), first = useRef<View>(null), scroll = useRef<ScrollView>(null), pending = useRef(restoreOffset);
   const entry = context.source.entry, title = entry ? entry.displayTitle ?? entry.title : undefined;
   const label = nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale);
   const valueType = nativeType({size: 22, weight: 500, tracking: 0, lineHeight: 29}, theme.textScale);
@@ -87,7 +87,14 @@ function TvComparison({context, comparison}: {context: NativeWatchHostContext; c
       <Text style={[nativeType({size: 19, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flex: 1, color: theme.colors.textTertiary}]}>{t('next.info.inFile')}</Text>
       <Text style={[nativeType({size: 19, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flex: 1, color: theme.colors.textTertiary}]}>{t('next.info.playingHere')}</Text>
     </View>
-    <ScrollView style={{flex: 1, minHeight: 0}} scrollEventThrottle={32} contentContainerStyle={{paddingTop: 10, paddingBottom: 72}}
+    <ScrollView ref={scroll} style={{flex: 1, minHeight: 0}} scrollEventThrottle={32} contentContainerStyle={{paddingTop: 10, paddingBottom: 72}}
+      onContentSizeChange={() => {
+        // The host remembered this panel's offset for the same panel and fence lifetime.
+        const offset = pending.current;
+        if (!offset) return;
+        pending.current = 0;
+        if (context.state.panel === 'playback-info' && sameFence(context.state.fence, context.fence)) scroll.current?.scrollTo({y: offset, animated: false});
+      }}
       onScroll={event => {if (theme.isTV) context.rememberPanel(event.nativeEvent.contentOffset.y);}}>
       {comparison.sections.map((section, index) => <Focusable key={section.kind} ref={index === 0 ? first : undefined} focusId={`watch-info-${section.kind}`} testID={`watch-info-${section.kind}`}
         focusKind="row" focusRadius={18} hasTVPreferredFocus={index === 0} accessibilityLabel={t(sectionLabels[section.kind])}
@@ -123,6 +130,12 @@ export function NativePlaybackInfoPanel({context, read, renderError}: {
 }) {
   const theme = useTheme(), latest = useRef(context); latest.current = context;
   const [retry, setRetry] = useState(0), [result, setResult] = useState<{identity: string; runtime: NativeWatchHostContext['runtime']; value?: NativePlaybackInfo; error?: unknown}>();
+  // The host remembers a panel's offset only for that panel and its fence; take it
+  // once, when this panel opens, and let its own content apply it after layout.
+  const remembered = useRef<number | undefined>(undefined);
+  if (remembered.current === undefined) remembered.current = context.state.panel === 'playback-info' && sameFence(context.state.fence, context.fence)
+    ? context.state.panelOffset : 0;
+  const restoreOffset = remembered.current;
   const identity = JSON.stringify([context.fence, context.source.lease]);
   const runtime = context.runtime;
   useEffect(() => {
@@ -147,7 +160,7 @@ export function NativePlaybackInfoPanel({context, read, renderError}: {
   const comparison = result.value?.comparison;
   if (!comparison) return <View style={{gap: 12}}><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.watch.info.unavailable')}</Text>
     <Button variant="glass" onPress={() => setRetry(value => value + 1)}>{t('action.tryAgain')}</Button></View>;
-  if (theme.isTV && comparison) return <TvComparison context={context} comparison={comparison}/>;
+  if (theme.isTV && comparison) return <TvComparison context={context} comparison={comparison} restoreOffset={restoreOffset}/>;
   const label = [theme.type.caption, {color: theme.colors.textSecondary}], value = [theme.type.body, {color: theme.colors.text}];
   return <View testID="watch-playback-info-comparison" style={{gap: 18, padding: 16}}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t(routeLabels[comparison.route])}</Text>
