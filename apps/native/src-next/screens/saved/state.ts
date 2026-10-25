@@ -26,6 +26,7 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
   const actions: NativeSavedActions = Object.freeze({
     menuState: entries.menuState, openView: hub.openView, openEntry: entries.open, menuEntry: entries.menu, isMenuOpen: entries.isMenuOpen,
     openDownloads: hub.openDownloads, openPin: hub.openPin, editPins: hub.editPins,
+    selectMyList: hub.source.selectMyList, nextMyList: hub.source.nextMyList,
   });
   type View = ReturnType<typeof createView>;
   const views = new Map<NativeSavedRouteTarget, View>(), cleanups: (() => void)[] = [];

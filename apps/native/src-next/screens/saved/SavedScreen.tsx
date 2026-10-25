@@ -28,6 +28,9 @@ export type NativeSavedActions = Readonly<{
   openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
   openDownloads: () => void; openPin: (pin: PinnedResource) => void; editPins: () => void;
+  /** The wider My List grid re-reads the real watchlist by server sort/filter/shape. */
+  selectMyList?: (route: SavedRoute) => Promise<void>;
+  nextMyList?: (shape: 'posters' | 'squares', sectionId: string) => Promise<void>;
 }>;
 export type NativeSavedSelectionPort = Readonly<{
   register: (snapshot: SavedSnapshot) => () => void;
