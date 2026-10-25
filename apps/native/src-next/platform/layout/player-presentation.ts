@@ -79,8 +79,11 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
   }
   if (width <= height) {
     const surface = rect(0, 0, width, Math.min(height, width * 9 / 16));
-    return {...common, mode: 'watch', surface, picture: surface, controls: surface,
-      content: rect(0, surface.height, width, height - surface.height)};
+    const sheet = rect(0, surface.height, width, height - surface.height);
+    // phone-player 3/4: upright, the options sheet stops under the picture so a
+    // subtitle change shows as it is made; the picture keeps playing behind it.
+    return {...common, mode: 'watch', surface, picture: surface, controls: panelOpen ? undefined : surface,
+      content: sheet, ...(panelOpen ? {panel: sheet} : {})};
   }
   let surface = whole, panel: PlayerRect | undefined;
   if (panelOpen) {
