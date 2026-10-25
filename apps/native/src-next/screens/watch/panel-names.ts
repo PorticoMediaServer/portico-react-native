@@ -1,28 +1,30 @@
-import {audioTrackModels, subtitleTrackModels, qualityControlModel, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
+import {qualityControlModel, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {qualityOptionSelected} from '../../../../../packages/client-core/src/playback-v1/quality';
-import type {TrackFacts} from '../../../../../packages/client-core/src/presentation/kit-model/tracks';
+import {videoTrackName, videoTrackWords} from '../../../../../packages/client-core/src/video-track-labels';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {NativeWatchPanelNames, NativeWatchSubtitleOffer} from './panel-model';
+import type {NativeWatchPanelNames} from './panel-model';
 
-/** Existing canonical menu vocabulary, fed actual offered streams. This is not
- * the VS-3e File info/version formatter or a decoded-output observation. */
+/** VS-3e names from the actual offers. Codec, layout and subtitle origin are
+ * file facts; none of them establishes how the engine is rendering the track. */
 export function createNativeWatchPanelNames(text: TextEnvironment): NativeWatchPanelNames {
-  const subtitleFact = (track: NativeWatchSubtitleOffer): TrackFacts => ({...track,
-    external: 'origin' in track ? track.origin !== 'embedded' : track.source !== 'embedded',
-    hearingImpaired: 'origin' in track ? track.hearingImpaired : track.sdh});
+  const words = videoTrackWords(defaultI18n.t, text.locale);
+  const unnamed = (rows: readonly {id: string}[], id: string) => text.t('next.kit.track', {number: Math.max(0, rows.findIndex(row => row.id === id)) + 1});
   return {
     audio: (track, source) => {
       const version = source.options?.versions.find(value => value.id === source.session?.versionId);
       const rows = version?.audio ?? [track];
-      const model = audioTrackModels(rows.map(value => ({...value, channelLayout: value.layout, objectAudio: value.atmos ? 'atmos' as const : undefined})), text).find(value => value.id === track.id)!;
-      return {primary: model.name.text, secondary: model.detail.map(part => part.text).join(' · ') || undefined};
+      const name = videoTrackName(track, words);
+      // Keep the canonical ordinal fallback when neither a title nor a language
+      // was supplied; counts alone never become an invented speaker layout.
+      return {primary: name.first || unnamed(rows, track.id), secondary: name.rest || undefined};
     },
     subtitle: (track, source) => {
       const version = source.options?.versions.find(value => value.id === source.session?.versionId), plan = source.subtitles?.plan;
       const actual = [...(version?.subtitles ?? []), ...(plan?.resources ?? []).filter(value => !version?.subtitles.some(offered => offered.id === value.id))];
       const rows = actual.some(value => value.id === track.id) ? actual : [track];
-      const model = subtitleTrackModels(rows.map(subtitleFact), text).find(value => value.id === track.id)!;
-      return {primary: model.name.text, secondary: model.detail.map(part => part.text).join(' · ') || undefined};
+      const origin = 'origin' in track ? track.origin === 'embedded' || track.origin === 'sidecar' ? track.origin : track.origin === 'provider' ? 'downloaded' : 'other' : track.source;
+      const name = videoTrackName({...track, source: origin}, words);
+      return {primary: name.first || unnamed(rows, track.id), secondary: name.rest || undefined};
     },
     quality: choice => {
       if (choice.mode === 'cd-quality') return {primary: defaultI18n.t('quality.cdQuality'), unavailable: choice.applicable === false};
