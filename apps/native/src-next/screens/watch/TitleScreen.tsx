@@ -86,6 +86,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   // tablet-play3: an upright tablet draws the phone's watch page with larger
   // targets, the title block and its buttons on one row, and 224 pt episode stills.
   const tabletWatch = !!props.watch && props.watch.width >= 600;
+  // tablet6: the expanded film page is the desktop one at touch size, with every
+  // hover-only explanation written out beside its control.
+  const wide = !theme.isTV && theme.platform !== 'phone' && viewport.width >= 1024;
   // foldable3g splits the watch page's own sections across the two book pages.
   const titleOnly = props.watch?.sections === 'title', episodesOnly = props.watch?.sections === 'episodes';
   const leftWidth = twoPane ? divider - rail : viewport.width, rightWidth = twoPane ? viewport.width - divider : viewport.width;
@@ -249,7 +252,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const copyBlock = props.watch && !titleOnly ? null : <>
     {overview ? <Text numberOfLines={2} style={[theme.isTV ? theme.type.synopsis : theme.type.body, {color: theme.colors.textSecondary,
       maxWidth: theme.isTV ? 800 : undefined, marginTop: theme.isTV ? 0 : 18, marginBottom: theme.isTV ? 30 : 0}]}>{overview}</Text> : null}
-    {theme.isTV && (directors.length > 0 || castNames.length > 0) ? <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 24, rowGap: 6, marginTop: -10, marginBottom: 30}}>
+    {(theme.isTV || wide) && (directors.length > 0 || castNames.length > 0) ? <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: theme.isTV ? 24 : 16, rowGap: 6, marginTop: theme.isTV ? -10 : 8, marginBottom: theme.isTV ? 30 : 0}}>
       {directors.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text>}
       {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: defaultI18n.list(castNames.slice(0, 3))})}</Text>}
     </View> : null}
@@ -258,17 +261,18 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <View style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
         <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}/>
         <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
-          {theme.isTV && !props.watch && detail?.collections?.[0] ? <Focusable testID="watch-title-collection" focusKind="row" focusRadius={8}
+          {(theme.isTV || wide) && !props.watch && detail?.collections?.[0] ? <Focusable testID="watch-title-collection" focusKind="row" focusRadius={8}
             onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
-            style={{alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12}}>
-            <Icon name="i-layers" size={24} color={theme.colors.accentStrong}/>
-            <Text style={[nativeType({size: 24, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong}]}>{detail.collections[0].name}</Text>
-            <Text style={[nativeType({size: 22, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.browse.filmCount', {count: detail.collections[0].memberCount})}</Text>
+            style={{alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 10 : 8, marginBottom: theme.isTV ? 12 : 6}}>
+            <Icon name="i-layers" size={theme.isTV ? 24 : 18} color={theme.colors.accentStrong}/>
+            <Text style={[nativeType({size: theme.isTV ? 24 : 14.5, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong}]}>{detail.collections[0].name}</Text>
+            <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.browse.filmCount', {count: detail.collections[0].memberCount})}</Text>
           </Focusable> : null}
           <View style={tabletWatch ? {flexDirection: 'row', alignItems: 'flex-end', gap: 24} : undefined}>
           <View style={tabletWatch ? {flex: 1, minWidth: 0} : undefined}>
           <Text accessibilityRole="header" numberOfLines={theme.isTV && !props.watch ? undefined : 2} style={[props.watch ? nativeType({size: 28, weight: 800, tracking: -.035, lineHeight: 30.8}, theme.textScale)
-            : theme.isTV ? theme.type.lockup : nativeType({size: 40, weight: 800, tracking: -.04, lineHeight: 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : theme.isTV ? 22 : 12}]}>{title}</Text>
+            : theme.isTV ? theme.type.lockup : wide ? nativeType({size: 64, weight: 800, tracking: -.045, lineHeight: 64}, theme.textScale)
+            : nativeType({size: 40, weight: 800, tracking: -.04, lineHeight: 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : theme.isTV ? 22 : 12}]}>{title}</Text>
           {props.watch && watchIdentity?.subtitle.length ? <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 6}]}>{watchIdentity.subtitle.map(part => part.text).join(' ')}</Text> : null}
           <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.isTV ? 26 : 10, marginBottom: theme.isTV ? 18 : 0}}>
             <HeroMetadata facts={metadataFacts}/>
@@ -279,8 +283,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               : {borderWidth: 1, borderColor: theme.colors.lineStrong, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 1}}>
               <Text style={theme.isTV ? [theme.type.tag, {color: theme.colors.text}] : [theme.type.meta, {color: theme.colors.textSecondary}]}>{shownRating.text}</Text></View> : null}
           </View>
+          {wide && !props.watch && detail?.facts?.tagline ? <Text numberOfLines={2} style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 14}]}>{detail.facts.tagline}</Text> : null}
           {/* tv.html frame 3 and tv-detail frame 1 draw the synopsis and credits above the buttons. */}
-          {theme.isTV ? copyBlock : null}
+          {theme.isTV || wide ? copyBlock : null}
           </View>
           <View style={{flexDirection: 'row', gap: theme.isTV ? 18 : 10, marginTop: props.watch ? (tabletWatch ? 0 : 16) : theme.isTV ? 0 : 22, flexShrink: tabletWatch ? 0 : undefined}}>
             {props.watch ? <Button testID="watch-body-toggle" focusId="watch-body-toggle" style={tabletWatch ? undefined : {flex: 1}} disabled={!watching?.fence || watching.retired || !watching.capabilities.play && !watching.capabilities.pause}
@@ -290,11 +295,11 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
                     progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{primaryCode ? t('title.resumeEpisode', {code: primaryCode.text}) : t('entry.resume')}</ResumeButton>
                 : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}>{primaryCode ? t(resuming ? 'title.resumeEpisode' : 'title.playEpisode', {code: primaryCode.text}) : t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
             {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" nextFocusDown={focusDown} onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
-            {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} nextFocusDown={focusDown} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
-            {!props.watch && theme.isTV && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly nextFocusDown={focusDown}
+            {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV && !wide} nextFocusDown={focusDown} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
+            {!props.watch && (theme.isTV || wide) && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly={!theme.isTV} nextFocusDown={focusDown}
               accessibilityLabel={t(detail.personal.watched ? 'entry.markUnwatched' : 'entry.markWatched')} accessibilityState={{selected: detail.personal.watched}}
-              onPress={() => {void controller.personal({action: 'watched', value: !detail.personal.watched}).catch(props.reportError);}}/>}
-            {props.download && !theme.isTV && <Button variant="glass" icon="i-dl" iconOnly accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}/>}
+              onPress={() => {void controller.personal({action: 'watched', value: !detail.personal.watched}).catch(props.reportError);}}>{t('next.detail.watched')}</Button>}
+            {props.download && !theme.isTV && <Button variant="glass" icon="i-dl" iconOnly={!wide} accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}>{t('next.cards.download')}</Button>}
             <Button ref={titleMore} variant="glass" icon="i-more" iconOnly nextFocusDown={focusDown} accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
           </View>
           </View>
@@ -305,7 +310,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               {startOver && <Button variant="text" size="small" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
             </View>
           </View>}
-          {theme.isTV ? null : copyBlock}
+          {theme.isTV || wide ? null : copyBlock}
         </View>
       </View>
   );
