@@ -192,6 +192,21 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
+  const openAccountWorkspace = (scope: Readonly<{accountId: string; familyId: string}> | undefined, isCurrent: () => boolean) => {
+    if (!isCurrent() || busyRef.current || acting.current || adoptingTV.current || !scope) return;
+    const session = nativeAccounts.accountCredentials().getSnapshot().session; if (!session) return;
+    cancelDirectory(); retireAccountWorkspace();
+    const ticket: WorkspaceOpening = {active: true, username: session.account.username, scope: {...scope}}; accountWorkspace.current = ticket;
+    stageRef.current = 'account-workspace';
+    ticket.createSource = () => {
+      if (!ticket.active || accountWorkspace.current !== ticket || !lifetime.current || stageRef.current !== 'account-workspace')
+        throw Object.assign(new Error('native_account_changed'), {code: 'account_changed'});
+      ticket.source?.dispose();
+      return ticket.source = new NativeAccountWorkspace(nativeAccounts, ticket.scope,
+        () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace');
+    };
+    setStage('account-workspace');
+  };
   const openInvitationEntry = (returnAddress?: string) => {
     if (!lifetime.current || busyRef.current || acting.current) return;
     retireInvitationEntry(); retireInvitationSwitch(); retireInvitation(); stopMemberMove(); cancelDirectory(); operation.current = undefined;
@@ -527,17 +542,25 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const status = failure && !failure.silent ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
   const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
   const hostedWaiting = stage === 'servers' && !!target && error instanceof HostedSignInUnavailable;
-  const offlineRows = Platform.isTV && stage === 'servers' && directoryList === 'ready' ? directoryRows(servers) : [];
-  const allTVOffline = offlineRows.length > 0 && offlineRows.every(row => row.offline);
+  const directoryScope = accountScope.current;
+  const offlineRows = stage === 'servers' && directoryList === 'ready' ? directoryRows(servers) : [];
+  const allDirectoryOffline = offlineRows.length > 0 && offlineRows.every(row => row.offline);
   useEffect(() => {
-    if (allTVOffline && !target && !busy && appActive && servers[0]) directoryConnectRef.current(servers[0]);
-  }, [allTVOffline, target, busy, appActive, servers]);
+    if (!allDirectoryOffline || !lifetime.current || stageRef.current !== 'servers' || !directoryScope) return;
+    const live = nativeAccounts.accountCredentials().getSnapshot().session;
+    if (allDirectoryOffline && lifetime.current && stageRef.current === 'servers' && !target && !targetRef.current && !busy && !busyRef.current
+      && !acting.current && !adoptingTV.current && appActive && activeRef.current && servers[0] && directoryScope
+      && accountScope.current === directoryScope && live?.account.id === directoryScope.accountId && live.familyId === directoryScope.familyId)
+      directoryConnectRef.current(servers[0]);
+  }, [allDirectoryOffline, target, busy, appActive, servers, directoryScope]);
   useEffect(() => {
-    if (stage !== 'servers' || !target || (directoryView !== 'waiting' && !(allTVOffline && directoryView === 'unreachable') && !hostedWaiting) || busy || !appActive) return;
-    const attempt = directoryAttempt.current, epoch = ++retryEpoch.current, capturedTarget = target;
+    if (stage !== 'servers' || !target || (directoryView !== 'waiting' && !(allDirectoryOffline && directoryView === 'unreachable') && !hostedWaiting) || busy || !appActive) return;
+    const attempt = directoryAttempt.current, epoch = ++retryEpoch.current, capturedTarget = target, capturedScope = directoryScope;
     const current = () => lifetime.current && retryEpoch.current === epoch && directoryAttempt.current === attempt
       && stageRef.current === 'servers' && targetRef.current === capturedTarget && activeRef.current
-      && !busyRef.current && !acting.current && !adoptingTV.current;
+      && !busyRef.current && !acting.current && !adoptingTV.current && capturedScope !== undefined && accountScope.current === capturedScope
+      && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === capturedScope.accountId
+      && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === capturedScope.familyId;
     const tick = () => {
       if (!current()) return;
       const seconds = remainingRetry.current;
@@ -545,7 +568,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       if (seconds <= 0) {
         retryDelay.current = nextRetryDelay(retryDelay.current);
         const index = servers.indexOf(capturedTarget);
-        const next = allTVOffline && !hostedWaiting && index >= 0 ? servers[(index + 1) % servers.length] : capturedTarget;
+        const next = allDirectoryOffline && !hostedWaiting && index >= 0 ? servers[(index + 1) % servers.length] : capturedTarget;
         directoryConnectRef.current(next ?? capturedTarget, true, capturedTarget); return;
       }
       retryTimer.current = setTimeout(() => {if (!current()) return; remainingRetry.current -= 1; tick();}, 1000);
@@ -553,7 +576,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     tick();
     const stopOwnedRetry = () => {if (retryEpoch.current === epoch) stopRetry();};
     return stopOwnedRetry;
-  }, [stage, target, directoryView, hostedWaiting, busy, appActive, allTVOffline, servers]);
+  }, [stage, target, directoryView, hostedWaiting, busy, appActive, allDirectoryOffline, servers, directoryScope]);
   const resumeSetupRef = useRef<() => void>(() => {});
   resumeSetupRef.current = () => {void run(async () => {
     const source = operation.current;
@@ -1005,14 +1028,18 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: chooseAnother}}/>;
   if (stage === 'servers' && target && directoryAccessRefused(error) && !singleTVFailure && !singlePhoneRefusal) return <DirectoryAccessRefused serverName={target.name} busy={busy}
     onOther={chooseAnother} onRefresh={() => {cancelDirectory(); void run(directory);}}/>;
-  if (stage === 'servers' && target && directoryView === 'opening' && !allTVOffline) return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
+  if (stage === 'servers' && target && directoryView === 'opening' && !allDirectoryOffline) return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
     primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
-  if (allTVOffline && !hostedWaiting && !directoryAccessRefused(error) && (!target || directoryView === 'opening' || directoryView === 'waiting' || directoryView === 'unreachable')) {
+  if (allDirectoryOffline && !hostedWaiting && !directoryAccessRefused(error) && (!target || directoryView === 'opening' || directoryView === 'waiting' || directoryView === 'unreachable')) {
     const captured = servers, scope = accountScope.current, attempt = directoryAttempt.current;
     const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && directoryAttempt.current === attempt && accountScope.current === scope
       && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope.accountId
       && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope.familyId;
-    return <TVOfflineServers rows={offlineRows} scope={scope} revision={attempt} isCurrent={current} busy={busy} activeId={target?.id}
+    return <TVOfflineServers username={nativeAccounts.accountCredentials().getSnapshot().session?.account.username}
+      onSettings={() => openAccountWorkspace(scope, current)}
+      onJoin={() => {if (current() && !busyRef.current) openInvitationEntry();}}
+      onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
+      rows={offlineRows} scope={scope} revision={attempt} isCurrent={current} busy={busy} activeId={target?.id}
       retryIn={target ? retryIn : undefined} onRetry={id => {if (!current()) return; const row = captured.find(value => value.id === id); if (row) connectDirectory(row);}}
       onBack={() => {if (current()) back();}} onRefresh={() => {if (current()) {cancelDirectory(); void run(directory);}}}/>;
   }
@@ -1051,21 +1078,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       ? {title: t('web.chooser.refusedTitle', {server: capturedTarget.name}), body: t('web.chooser.refusedBody')} : undefined;
     const EmptyDirectory = Platform.isTV ? TVNoServers : PhoneNoServers;
     return <EmptyDirectory {...(!Platform.isTV ? {username: nativeAccounts.accountCredentials().getSnapshot().session?.account.username,
-      onSettings: () => {
-        if (!current() || busyRef.current || !scope) return;
-        const session = nativeAccounts.accountCredentials().getSnapshot().session; if (!session) return;
-        cancelDirectory(); retireAccountWorkspace();
-        const ticket: WorkspaceOpening = {active: true, username: session.account.username, scope: {...scope}}; accountWorkspace.current = ticket;
-        stageRef.current = 'account-workspace';
-        ticket.createSource = () => {
-          if (!ticket.active || accountWorkspace.current !== ticket || !lifetime.current || stageRef.current !== 'account-workspace')
-            throw Object.assign(new Error('native_account_changed'), {code: 'account_changed'});
-          ticket.source?.dispose();
-          return ticket.source = new NativeAccountWorkspace(nativeAccounts, ticket.scope,
-            () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace');
-        };
-        setStage('account-workspace');
-      }} : {})} isCurrent={current} notice={notice} busy={busy} error={notice ? undefined : status} onBack={() => {if (current()) back();}}
+      onSettings: () => openAccountWorkspace(scope, current)} : {})} isCurrent={current} notice={notice} busy={busy} error={notice ? undefined : status} onBack={() => {if (current()) back();}}
       onJoin={(raw, origin) => {
         if (!current() || busyRef.current || acting.current) return;
         const link = NativeServerSignIn.parseInvitationEntry(raw, origin);

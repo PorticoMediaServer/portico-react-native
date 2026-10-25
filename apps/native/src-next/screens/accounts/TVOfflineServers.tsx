@@ -6,8 +6,10 @@ import {Button} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {DirectoryRow} from './directory-chooser';
+import {PhoneOfflineServers} from './PhoneOfflineServers';
 
 type Props = {rows: readonly DirectoryRow[]; scope: object | undefined; revision: number; isCurrent: () => boolean;
+  username?: string; onSettings?: () => void; onJoin?: () => void; onFind?: () => void;
   busy: boolean; retryIn?: number; activeId?: string; onRetry: (id: string) => void; onBack: () => void; onRefresh: () => void};
 type Ticket = {live: boolean; scope: object};
 /** Actual directory observations only. The parent owns one serialized connection
@@ -20,6 +22,12 @@ export function TVOfflineServers(props: Props) {
   useLayoutEffect(() => {const ticket = {scope, live: true}; active.current = ticket; setCommitted(ticket);
     return () => {ticket.live = false; if (active.current === ticket) active.current = undefined;};}, [scope]);
   const current = () => !!committed?.live && committed.scope === scope && active.current === committed && props.isCurrent();
+  if (!theme.isTV) {
+    const action = (command?: () => void) => () => {if (current() && !props.busy) command?.();};
+    return <PhoneOfflineServers rows={props.rows} busy={props.busy} activeId={props.activeId} retryIn={props.retryIn} username={props.username}
+      onRetry={id => {if (current() && !props.busy && props.rows.some(row => row.id === id)) props.onRetry(id);}}
+      onSettings={props.onSettings ? action(props.onSettings) : undefined} onJoin={props.onJoin ? action(props.onJoin) : undefined} onFind={props.onFind ? action(props.onFind) : undefined} onRefresh={action(props.onRefresh)} onBack={action(props.onBack)}/>;
+  }
   return <View testID="tv-offline-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
     <ScrollView contentContainerStyle={{padding: 64, gap: 24}}>
