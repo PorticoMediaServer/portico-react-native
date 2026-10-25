@@ -14,7 +14,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'book'; entry: ContentEntry}
   | {kind: 'audiobook'; entry: ContentEntry}
   | {kind: 'person'; personId: string}
-  | {kind: 'read'; itemId: string; sourceId: string; downloadId?: string; contentsTarget?: ReadingHostContentsTarget}
+  | {kind: 'read'; itemId: string; sourceId: string; downloadId?: string; /** Root54: the exact source revision a search hit named, proven again before the guest mounts. */ expectedSourceRevision?: string; contentsTarget?: ReadingHostContentsTarget}
   | {kind: 'read-book'; libraryId: string; item: ReadingItem}
   | {kind: 'read-series'; libraryId: string; seriesId: string}
   | {kind: 'read-periodical'; libraryId: string; groupId: string; publicationType: 'magazine' | 'newspaper'}

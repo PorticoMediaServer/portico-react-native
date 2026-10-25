@@ -25,10 +25,12 @@ export async function nativeReadEligibility(client: ReadingClient, itemId: strin
 }
 /** The caller supplies an actual selected version. There is no format/default
  * preference, inventory fallback, URL, or server credential in a route. */
-export async function openNativeRead(context: NativeReadNavigationContext, target: Readonly<{itemId: string; sourceId: string; contentsTarget?: ReadingHostContentsTarget}>, signal?: AbortSignal, origin?: NativeReadOrigin): Promise<boolean> {
+export async function openNativeRead(context: NativeReadNavigationContext, target: Readonly<{itemId: string; sourceId: string; expectedSourceRevision?: string; contentsTarget?: ReadingHostContentsTarget}>, signal?: AbortSignal, origin?: NativeReadOrigin): Promise<boolean> {
   const selected = context.session(), snapshot = context.navigation.getSnapshot();
   if (origin && (snapshot.route !== origin.route || snapshot.revision !== origin.revision)) return false;
-  const destination: NativeShellRoute = {kind: 'read', itemId: target.itemId, sourceId: target.sourceId, ...(target.contentsTarget ? {contentsTarget: target.contentsTarget} : {})};
+  const destination: NativeShellRoute = {kind: 'read', itemId: target.itemId, sourceId: target.sourceId,
+    ...(target.expectedSourceRevision ? {expectedSourceRevision: target.expectedSourceRevision} : {}),
+    ...(target.contentsTarget ? {contentsTarget: target.contentsTarget} : {})};
   if (target.contentsTarget && (target.contentsTarget.sourceId !== target.sourceId || !target.contentsTarget.sourceRevision
     || !Number.isInteger(target.contentsTarget.index) || target.contentsTarget.index < 0 || target.contentsTarget.index > 511)) return false;
   if (signal?.aborted || !selected || !context.current() || !context.navigation.allows(destination)) return false;
