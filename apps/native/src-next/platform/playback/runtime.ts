@@ -757,10 +757,14 @@ export class NativePlaybackRuntime {
     this.expanded = !audioKind(offered.kind);
     try {
       if (!current()) return;
-      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined, lifetime);
-      if (epoch === this.startEpoch && this.active() && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false && this.queue.getSnapshot().error) { this.playback.pause(); throw new Error(serviceText('queuePlayer.startFailed')); }
-    }
-    finally { if (epoch === this.startEpoch) { this.preparing = false; this.changed(); } }
+      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined,
+        {...lifetime, isCurrent: current, propagateError: true});
+    } catch (error) {
+      // Keep the original typed admission refusal, including its closed reason,
+      // retry policy and account detail. A retired operation cannot publish it.
+      if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
+      throw error;
+    } finally { if (epoch === this.startEpoch) { this.preparing = false; this.changed(); } }
   }
 
   /** Info reads borrow the actual queue occurrence. Unlike a replan, a read must
