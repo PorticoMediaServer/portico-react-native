@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {sourceStateText} from '../../../../../../packages/client-core/src/server-admin/storage-words';
@@ -14,11 +14,11 @@ import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
 import {ConnectionEditor, DisconnectEditor, ReadingEditor, remoteSourceError} from './RemoteSourceForms';
 
-type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime};
+type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
 type Mode = {kind: 'connection'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect'; source: RemoteSource};
 
 /** Supported WebDAV cohort only. Settings owns the entry. Unavailable producer flows are not offered. */
-export function NativeRemoteSourcesScreen({ports, runtime}: Props) {
+export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
   const next = useRef(0);
   const [owned, setOwned] = useState<{controller: NativeRemoteSourcesController; ports: NativeSettingsLivePorts; key: number}>();
   useEffect(() => {
@@ -27,23 +27,32 @@ export function NativeRemoteSourcesScreen({ports, runtime}: Props) {
     void controller.load();
     return () => controller.dispose();
   }, [ports]);
-  return owned ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime}/>
+  return owned ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime} onBackHandlerChange={onBackHandlerChange}/>
     : <StateView title={runtime.text.t('next.remoteSources.loading')}/>;
 }
 
-function Viewport({controller, ports, runtime}: Props & {controller: NativeRemoteSourcesController}) {
+function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {controller: NativeRemoteSourcesController}) {
   const theme = useTheme(), t = runtime.text.t as typeof defaultI18n.t;
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [mode, setMode] = useState<Mode>(), [error, setError] = useState<string>();
+  const attempt = useRef(0);
+  const close = useCallback(() => {attempt.current++; setMode(undefined); setError(undefined);}, []);
+  const open = (next: Mode) => {attempt.current++; setMode(next); setError(undefined);};
+  const subpage = snapshot.allowed && !!mode;
+  useEffect(() => {
+    onBackHandlerChange?.(subpage ? () => {close(); return true;} : undefined);
+    return () => onBackHandlerChange?.(undefined);
+  }, [subpage, close, onBackHandlerChange]);
+  const captured = attempt.current;
+  const isCurrent = () => controller.getSnapshot().allowed && attempt.current === captured;
   if (!snapshot.allowed) {
     const problem = presentError({code: 'forbidden'}, 'server-console');
     return <StateView title={problem.title} body={problem.body} tone="error"/>;
   }
-  const close = () => {setMode(undefined); setError(undefined);};
-  if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} onCancel={close}
-    onSaved={source => setMode({kind: 'reading', source})}/>;
-  if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} onCancel={close} onSaved={close}/>;
-  if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} onCancel={close} onSaved={close}/>;
+  if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close}
+    onSaved={source => open({kind: 'reading', source})}/>;
+  if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
+  if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
   const state = snapshot.sources, blocked = state.busy || state.ambiguous;
   const recover = async () => {
     setError(undefined);
@@ -62,12 +71,12 @@ function Viewport({controller, ports, runtime}: Props & {controller: NativeRemot
       {!!selected.origin && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{selected.origin}</Text>}
       <Button variant="text" onPress={close}>{t('next.remoteSources.back')}</Button>
       {selected.kind === 'webdav' && <>
-        <Button variant="glass" disabled={blocked} onPress={() => setMode({kind: 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>
-        <Button variant="glass" disabled={blocked} onPress={() => setMode({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
-        <Button variant="text" disabled={blocked} onPress={() => setMode({kind: 'disconnect', source: selected})}>{t('next.remoteSources.disconnect')}</Button>
+        <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>
+        <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
+        <Button variant="text" disabled={blocked} onPress={() => open({kind: 'disconnect', source: selected})}>{t('next.remoteSources.disconnect')}</Button>
       </>}
     </> : <>
-      <Button disabled={blocked} onPress={() => setMode({kind: 'connection'})}>{t('next.remoteSources.add')}</Button>
+      <Button disabled={blocked} onPress={() => open({kind: 'connection'})}>{t('next.remoteSources.add')}</Button>
       <Button variant="text" disabled={blocked || state.loading} onPress={() => {void controller.load();}}>{t('next.remoteSources.refresh')}</Button>
       {state.loading && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.loading')}</Text>}
       {!state.loading && !state.error && !state.sources.length && <StateView title={t('next.remoteSources.empty')} body={t('next.remoteSources.emptyHelp')}/>}
@@ -75,7 +84,7 @@ function Viewport({controller, ports, runtime}: Props & {controller: NativeRemot
         <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), source)}</Text>
         {!!source.origin && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{source.origin}</Text>}
-        <Button variant="text" disabled={blocked} onPress={() => setMode({kind: 'detail', source})}>{t('next.remoteSources.manage')}</Button>
+        <Button variant="text" disabled={blocked} onPress={() => open({kind: 'detail', source})}>{t('next.remoteSources.manage')}</Button>
       </View>)}
     </>}
   </ScrollView>;
