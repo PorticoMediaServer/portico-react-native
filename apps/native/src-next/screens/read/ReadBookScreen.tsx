@@ -5,7 +5,7 @@ import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingListMembership, ReadingManifest, ReadingReadMark} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
-import {Button, Focusable, Tabs} from '../../kit/controls';
+import {Button, Focusable, ResumeButton, Tabs} from '../../kit/controls';
 import {Icon, type IconName} from '../../kit/Icon';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView, SkeletonBlock} from '../../kit/states';
@@ -195,9 +195,9 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   </>;
   const actions = <View style={{paddingHorizontal: rowHero ? 0 : 20, marginTop: 18}}>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-      <Button icon="i-book" progress={saved} onPress={() => onRead(manifest)} style={{flex: 1}}>
-        {t(saved !== undefined ? 'next.cards.read' : 'next.reader.read')}
-      </Button>
+      {saved === undefined
+        ? <Button icon="i-book" onPress={() => onRead(manifest)} style={{flex: 1}}>{t('next.reader.read')}</Button>
+        : <ResumeButton icon="i-book" progress={saved} onPress={() => onRead(manifest)} style={{flex: 1}}>{t('next.cards.read')}</ResumeButton>}
       <Button variant="icon" icon={listed?.listed ? 'i-check' : 'i-plus'} iconOnly disabled={!listed}
         accessibilityLabel={t(listed?.listed ? 'next.home.removeMyList' : 'next.home.addMyList')}
         onPress={() => {if (listed) onList(listed);}} style={{height: 48, width: 48}}/>
