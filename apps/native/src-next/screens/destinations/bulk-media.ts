@@ -219,7 +219,7 @@ export class NativeBulkMedia {
     for (const receipt of this.state.receipts) for (const row of receipt.results) latest.set(row.id, row.ok);
     const failed = new Set([...latest].filter(([, ok]) => !ok).map(([id]) => id));
     if (failedIds.some(id => !failed.has(id)) || new Set(failedIds).size !== failedIds.length) return;
-    const targets = preview.targets.filter(target => failedIds.includes(target.id));
+    const targets = this.targets.filter(target => failedIds.includes(target.id));
     if (!targets.length) return;
     if (!this.claim(epoch, {phase: 'saving', error: undefined})) return;
     try {

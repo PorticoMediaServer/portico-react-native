@@ -36,7 +36,7 @@ export type NowPlayingQueueProps = Readonly<{
   testID?: string;
 }>;
 
-type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean; position: number; available: boolean; segmentId?: string}>;
+type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean}>;
 /** Everything one open sheet may act on; never read from a later render. */
 type RowOpening = Readonly<{row: Row; previous?: Row; next?: Row; queueId: string; revision: string; fenceKey: string; lease?: object;
   apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
@@ -56,7 +56,7 @@ export function nowPlayingQueueRows(view: QueuePlaybackView): readonly Row[] {
     const detail = [item.artist, item.album && item.album !== item.title ? item.album : undefined]
       .filter((value): value is string => !!value).join(' · ');
     const seconds = item.durationMs !== undefined && item.durationMs > 0 ? item.durationMs / 1000 : undefined;
-    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}), current: entry.id === view.queue.currentEntryId, position: entry.position, available: entry.available, ...(entry.segmentId ? {segmentId: entry.segmentId} : {})}];
+    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}), current: entry.id === view.queue.currentEntryId}];
   });
 }
 
@@ -67,15 +67,6 @@ const rememberedRow = new Map<string, string>();
 export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
   const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view), [rowMenu, setRowMenu] = useState<RowOpening>(), rowMenuRef = useRef<RowOpening | undefined>(undefined);
   const current = rows.filter(row => row.current), upcoming = rows.filter(row => !row.current);
-  // The queue's own segments name what each run of upcoming entries came from; a run without
-  // one keeps the plain Up next heading rather than inventing a source.
-  const segmentLabels = new Map(view.queue.segments.map(segment => [segment.id, segment.label]));
-  const groups: {key: string; label: string; rows: Row[]}[] = [];
-  for (const value of upcoming) {
-    const key = value.segmentId ?? '', last = groups.at(-1);
-    if (last && last.key === key) last.rows.push(value);
-    else groups.push({key, label: (value.segmentId && segmentLabels.get(value.segmentId)) || t('next.music.upNext'), rows: [value]});
-  }
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
   const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
@@ -95,10 +86,15 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
   }, [queueEdit?.enabled, queueEdit?.fenceKey, queueEdit?.lease, view.queue.id, view.queue.revision, retire]);
   useLayoutEffect(() => () => {rowMenuRef.current = undefined;}, []);
   const openMenu = (value: Row) => {
-    if (!editable || !queueEdit || value.current || !value.available || !upcoming.some(entry => entry.entryId === value.entryId)) return;
-    const rows = upcoming.filter(entry => entry.available), at = rows.findIndex(entry => entry.entryId === value.entryId);
-    if (at < 0) return;
-    const previous = at > 0 ? rows[at - 1] : undefined, next = at < rows.length - 1 ? rows[at + 1] : undefined;
+    if (!editable || !queueEdit || value.current || !upcoming.some(entry => entry.entryId === value.entryId)) return;
+    // The loaded entry list is the drawn window: a neighbour is only the immediately adjacent
+    // entry there, so a hidden/removed hole can never be treated as a contiguous move.
+    const raw = view.queue.entries, at = raw.findIndex(entry => entry.id === value.entryId);
+    const adjacent = (offset: -1 | 1) => {
+      const entry = at >= 0 ? raw[at + offset] : undefined;
+      return entry && !entry.hidden && !entry.removed ? upcoming.find(row => row.entryId === entry.id) : undefined;
+    };
+    const previous = adjacent(-1), next = adjacent(1);
     const opening: RowOpening = {row: value, ...(previous ? {previous} : {}), ...(next ? {next} : {}), queueId: view.queue.id, revision: view.queue.revision,
       fenceKey: queueEdit.fenceKey, ...(queueEdit.lease ? {lease: queueEdit.lease} : {}), apply: queueEdit.apply};
     rowMenuRef.current = opening;
@@ -107,19 +103,18 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
   // Disabled is presentation; each press also proves its captured neighbour is still the one
   // adjacent loaded position before it asks for anything.
   const menuItems = (opening: RowOpening): readonly MenuEntry[] => {
-    const canUp = !!opening.previous && opening.previous.position + 1 === opening.row.position;
-    const canDown = !!opening.next && opening.next.position === opening.row.position + 1;
+    const canUp = !!opening.previous, canDown = !!opening.next;
     return [
       {id: 'move-up', label: t('web.profile.moveUp'), disabled: !canUp, onSelect: () => {
         if (rowMenuRef.current !== opening) return;
         const previous = opening.previous;
-        if (!previous || previous.position + 1 !== opening.row.position) return;
+        if (!previous) return;
         opening.apply({action: 'reorder', entryIds: [opening.row.entryId, previous.entryId]}, opening.queueId, opening.revision);
       }},
       {id: 'move-down', label: t('web.profile.moveDown'), disabled: !canDown, onSelect: () => {
         if (rowMenuRef.current !== opening) return;
         const next = opening.next;
-        if (!next || next.position !== opening.row.position + 1) return;
+        if (!next) return;
         opening.apply({action: 'reorder', entryIds: [next.entryId, opening.row.entryId]}, opening.queueId, opening.revision);
       }},
       {id: 'remove', label: t('web.together.removeFromQueue'), destructive: true,
@@ -148,7 +143,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
         onPress={() => onPlay!(view.queue.id, value.entryId, view.queue.revision)}
         style={({focused}) => ({flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 10,
           backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>{body}</Focusable>;
-    if (!editable || value.current || !value.available) return main;
+    if (!editable || value.current) return main;
     return <View key={value.entryId} style={{flexDirection: 'row', alignItems: 'center'}}>{main}
       <Focusable testID={`${testID}-row-menu-${value.entryId}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t('server.row.actions', {name: value.title})}
         onPress={() => openMenu(value)} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
@@ -210,10 +205,8 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
     <ScrollView contentContainerStyle={{paddingBottom: 16}} showsVerticalScrollIndicator={false}>
       {current.length ? heading(t('player.queueNowPlaying')) : null}
       {current.map(row)}
-      {groups.map((group, index) => <React.Fragment key={`${group.key}:${index}`}>
-        {heading(group.label)}
-        {group.rows.map(row)}
-      </React.Fragment>)}
+      {upcoming.length ? heading(t('player.queue')) : null}
+      {upcoming.map(row)}
       {!current.length && !upcoming.length ? <Text style={[browseType(theme, 14, 400), {paddingHorizontal: 14, paddingVertical: 18, color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
     </ScrollView>
     {rows.length ? <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, paddingHorizontal: 14, paddingVertical: 12}}>

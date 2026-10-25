@@ -24,7 +24,8 @@ export function MusicMixCard({row, artwork, width = 186, onPlay, onFocus, onMenu
   // style word, title, caption and fan offsets, and Home's track gap.
   const radius = tv ? 14 : 10, fanWidth = width * .62, fanHeight = width * .52, cover = fanWidth * .56;
   const styleSize = tv ? 32 : phone ? 18 : 26;
-  const name = tv ? {size: 22, weight: 700, top: 14, color: theme.colors.textSecondary} : phone ? {size: 13, weight: 600, top: 8, color: theme.colors.text} : {size: 14, weight: 600, top: 10, color: theme.colors.text};
+  const name: Readonly<{size: number; weight: 400 | 500 | 600 | 700 | 800; top: number; color: string}> =
+    tv ? {size: 22, weight: 700, top: 14, color: theme.colors.textSecondary} : phone ? {size: 13, weight: 600, top: 8, color: theme.colors.text} : {size: 14, weight: 600, top: 10, color: theme.colors.text};
   const caption = tv ? {size: 20, top: 3} : phone ? {size: 12, top: 2} : {size: 13, top: 2};
   const at = tv ? {left: 18, right: 18, bottom: 16} : phone ? {left: 10, right: 10, bottom: 9} : {left: 14, right: 14, bottom: 12};
   const gradient = `mix${row.id.replace(/[^a-zA-Z0-9]/g, '')}`;
