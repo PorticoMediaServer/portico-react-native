@@ -119,6 +119,7 @@ type SafeRecord = {
   code?: string;
   class?: string;
   frames?: readonly (readonly [number, number])[];
+  componentFrames?: readonly (readonly [number, number])[];
 };
 const statusOf = (value: unknown): number | undefined =>
   typeof value === 'number' &&
@@ -127,6 +128,17 @@ const statusOf = (value: unknown): number | undefined =>
   value <= 599
     ? value
     : undefined;
+function safeFrames(stack: unknown, skipMessage: boolean): [number, number][] {
+  const frames: [number, number][] = [];
+  if (typeof stack !== 'string') return frames;
+  for (const line of stack.slice(0, 8000).split('\n').slice(skipMessage ? 1 : 0, 17)) {
+    // Keep coordinates only, never a function/component name or source address.
+    const match = /[:@](\d{1,7}):(\d{1,9})\)?$/.exec(line.trim());
+    if (match) frames.push([Number(match[1]), Number(match[2])]);
+    if (frames.length === 6) break;
+  }
+  return frames;
+}
 function safeError(
   error: unknown,
 ): Pick<SafeRecord, 'code' | 'class' | 'status' | 'frames'> {
@@ -142,15 +154,7 @@ function safeError(
     const code = value.code,
       name = value.name,
       stack = value.stack;
-    const frames: [number, number][] = [];
-    if (typeof stack === 'string')
-      for (const line of stack.slice(0, 8000).split('\n').slice(1, 17)) {
-        // Keep numeric JS coordinates only. Discard the message, function and source
-        // names, addresses and everything preceding the final line/column pair.
-        const match = /[:@](\d{1,7}):(\d{1,9})\)?$/.exec(line.trim());
-        if (match) frames.push([Number(match[1]), Number(match[2])]);
-        if (frames.length === 6) break;
-      }
+    const frames = safeFrames(stack, true);
     return {
       code: typeof code === 'string' && codes.has(code) ? code : 'other',
       class: typeof name === 'string' && classes.has(name) ? name : 'unknown',
@@ -203,9 +207,11 @@ export function createHomeActionDiagnostics(
         /* passive */
       }
     },
-    error(origin: ErrorOrigin, error: unknown): void {
+    error(origin: ErrorOrigin, error: unknown, componentStack?: unknown): void {
       try {
-        write(origin, {operation: 'report-error', ...safeError(error)});
+        const componentFrames = origin === 'app-render' ? safeFrames(componentStack, false) : [];
+        write(origin, {operation: 'report-error', ...safeError(error),
+          ...(componentFrames.length ? {componentFrames} : {})});
       } catch {
         /* passive */
       }

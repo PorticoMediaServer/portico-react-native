@@ -19,10 +19,10 @@ type BoundaryState = {failedAt?: number; generation: number};
 export class AppErrorBoundary extends React.Component<{children: React.ReactNode}, BoundaryState> {
   state: BoundaryState = {generation: 0};
   static getDerivedStateFromError(): Partial<BoundaryState> {return {failedAt: Date.now()};}
-  componentDidCatch(error: unknown) {
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
     // Reuse the bounded, allowlisted receipt: numeric bundle coordinates only,
     // without exception text, component names, URLs or account/session data.
-    homeActionDiagnostics.error('app-render', error);
+    homeActionDiagnostics.error('app-render', error, info.componentStack);
   }
   private retry = () => {this.setState(value => ({failedAt: undefined, generation: value.generation + 1}));};
   render() {

@@ -110,7 +110,7 @@ export function RestoredShell() {
           if (!restored || owned) {restart(); return;}
         }
         selection = key;
-      } catch (error) {if (rootCurrent()) {const previous = owned; owned = undefined; previous?.dispose(); if (rootCurrent()) publishState({phase: 'ended', error});}}
+      } catch (error) {if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); const previous = owned; owned = undefined; previous?.dispose(); if (rootCurrent()) publishState({phase: 'ended', error});}}
     };
     const unsubscribe = subscribeNativeAppSessions(() => {if (rootCurrent()) void checkSelection();});
     // A ready shell refreshes when a publication settles. While an entry is publishing
