@@ -85,6 +85,7 @@ export class NativeAnnotationSync {
   private state: NativeAnnotationSyncState = Object.freeze({phase: 'idle', queued: 0, unresolved: 0});
   private life: Life = new AbortController();
   private running?: Promise<void>;
+  private retired = false;
   constructor(context: NativeShellBootstrapContext, journal = new NativeAnnotationJournal(), active: () => boolean = () => true) {
     this.context = context; this.journal = journal; this.active = active;
   }
@@ -140,7 +141,8 @@ export class NativeAnnotationSync {
     const control = new AbortController();
     const stop = () => {if (!control.signal.aborted) control.abort(life.signal.reason ?? deadline.signal.reason ?? new ReadingError('cancelled'));};
     const offLife = () => life.signal.addEventListener('abort', stop, {once: true}), offDeadline = () => deadline.signal.addEventListener('abort', stop, {once: true});
-    offLife(); offDeadline();
+    const offLive = () => live?.signal.addEventListener('abort', stop, {once: true});
+    offLife(); offDeadline(); offLive();
     if (life.signal.aborted || deadline.signal.aborted) stop();
     const signal = control.signal;
     let client: ReadingClient | undefined, session: NativeAnnotationLivePort | undefined, owned: ReadingSession | undefined;
@@ -234,6 +236,7 @@ export class NativeAnnotationSync {
       clearTimeout(timer);
       life.signal.removeEventListener('abort', stop);
       deadline.signal.removeEventListener('abort', stop);
+      live?.signal.removeEventListener('abort', stop);
       if (owned && !signal.aborted) await owned.close().catch(() => {});
       client?.dispose();
     }
@@ -241,7 +244,8 @@ export class NativeAnnotationSync {
   }
   /** Retry every queued source for the current profile. Never reports success for a queued op. */
   flush = (live?: NativeAnnotationLivePort): Promise<void> => {
-    if (this.life.signal.aborted) this.life = new AbortController(); // A committed replay starts its own life.
+    if (this.retired) return Promise.resolve(); // A permanently disposed owner is never rearmed.
+    if (this.life.signal.aborted) this.life = new AbortController(); // A stopped (not retired) owner starts a fresh life.
     const life = this.life;
     if (this.running) return this.running;
     const identity = this.capture();
@@ -274,7 +278,7 @@ export class NativeAnnotationSync {
     if (!this.life.signal.aborted) this.life.abort(new ReadingError('cancelled'));
     this.running = undefined;
   }
-  dispose(): void {this.stop(); this.listeners.clear();}
+  dispose(): void {this.retired = true; this.stop(); this.listeners.clear();}
 }
 
 /** The already-open reader's own annotation port, reused only for a merge when it is the same

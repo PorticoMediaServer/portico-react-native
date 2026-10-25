@@ -66,8 +66,14 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     const snapshot = annotations.getSnapshot();
     if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) {
       // Closed codes only: never the parser/transport message, which can carry private text.
-      const raw = typeof (snapshot.error as {code?: unknown} | undefined)?.code === 'string' ? String((snapshot.error as {code: string}).code) : '';
-      const code = raw ? raw.replace(/[^a-z_]/g, '').slice(0, 40) : snapshot.error ? 'native_error' : '';
+      const known = new Set(['cancelled', 'invalid_document', 'invalid_revision', 'invalid_location', 'not_permitted',
+        'conflict', 'source_changed', 'response_size', 'invalid_response', 'native_annotation_journal_invalid',
+        'native_annotation_journal_full', 'native_annotation_journal_retired', 'native_annotation_journal_unbound',
+        'native_annotation_journal_foreign_profile', 'native_annotation_journal_attempt_missing',
+        'native_annotation_journal_migration_conflict', 'native_annotation_journal_migration_overflow',
+        'native_annotation_local_conflict', 'offline_annotations_incomplete']);
+      const supplied = (snapshot.error as {code?: unknown} | undefined)?.code;
+      const code = typeof supplied === 'string' && known.has(supplied) ? supplied : snapshot.error ? 'native_error' : '';
       console.warn('portico_annotation_journal', JSON.stringify({phase: snapshot.phase, queued: snapshot.queued,
         unresolved: snapshot.unresolved, ...(code ? {error: code} : {})}));
     }
@@ -79,12 +85,12 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     const apiCurrent = () => !life.signal.aborted && context.current() && context.session()?.sessionFamilyId === captured.sessionFamilyId;
     const current = () => alive && apiCurrent();
     const client = context.api.reading({viewer: captured.viewer, isCurrent: apiCurrent, signal: life.signal});
-    const authority = context.subscribeAuthority(() => {if (!context.current()) life.abort();});
+    const authority = context.subscribeAuthority(() => {if (!context.current()) {annotations.stop(); journal.unbind(); life.abort();}});
     const offPreferences = preferences.subscribe(() => {if (current()) host.current?.confirm();});
     let disposal: Promise<void> | undefined;
     const dispose = () => {
       if (disposal) return disposal;
-      alive = false; livePort.current = undefined; journal.unbind(); authority(); offPreferences(); host.current?.dispose(); host.current = undefined;
+      alive = false; livePort.current = undefined; annotations.stop(); journal.unbind(); authority(); offPreferences(); host.current?.dispose(); host.current = undefined;
       // Explicit close uses the captured current viewer, before local retirement.
       disposal = (async () => {
         const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(), 2000);
@@ -109,7 +115,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         // A downloaded publication's queued edits live in that exact download's private
         // lease state; an ordinary session uses the protected record store. Bind before the
         // bridge can accept an edit, and only for this captured profile.
-        await journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
+        await journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session), {current: apiCurrent, signal: life.signal});
         if (current()) void annotations.flush(livePort.current);
       }
       const initialProgress = await session.progress(life.signal);

@@ -79,6 +79,7 @@ export type NativeAnnotationResolution = NativeAnnotationOperationRef & (
 export type NativeAnnotationView = Readonly<{revision: number; entries: readonly ReadingAnnotation[]; complete: boolean}>;
 
 /** The OfflineCore publication lease's private state namespace, structurally. */
+export type NativeAnnotationOrigin = Readonly<{current: () => boolean; signal?: AbortSignal}>;
 export type NativeAnnotationLeaseState = Readonly<{
   current: () => boolean;
   readState: (name: string) => Promise<string>;
@@ -300,12 +301,14 @@ export class NativeAnnotationJournal {
    * becomes visible, and the legacy record is removed only after the new one is durable. */
   /** Exact bind identity: a later bind/unbind retires this one before it can install, and a
    * migration that was overtaken must not publish its ticket over the successor. */
-  bind = async (identity: NativeAnnotationIdentity, lease?: NativeAnnotationLeaseState): Promise<void> => {
+  bind = async (identity: NativeAnnotationIdentity, lease?: NativeAnnotationLeaseState, origin?: NativeAnnotationOrigin): Promise<void> => {
     const token = ++this.binding;
     if (this.life) this.life.alive = false; // Retire the previous ticket synchronously.
     const life = {alive: true};
     this.life = life;
-    const still = () => this.binding === token && life.alive;
+    // The ticket is alive only while the journal token, the captured reader/session authority
+    // and its signal are all current. A retired caller can never copy/clear/install afterwards.
+    const still = () => this.binding === token && life.alive && (!origin || (origin.current() && !origin.signal?.aborted));
     const ticket = Object.freeze({identity: Object.freeze({...identity}),
       backend: lease ? leaseBackend(lease, identity, still) : nativeQueueBackend(identity, this.local, still), live: still});
     try {
