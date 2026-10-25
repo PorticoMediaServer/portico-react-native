@@ -16,7 +16,7 @@ export function DeviceReportRow(props: NativeSettingsPanelDeps & {runtime: Nativ
   type Ticket = {context: typeof context; lifetime: typeof lifetime; controller: AbortController};
   const [sent, setSent] = useState(false), [ticket, setTicket] = useState<Ticket>();
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
-  const active = useRef<Ticket>(), pending = useRef<Ticket>(), cancel = useRef<View>(null);
+  const active = useRef<Ticket | undefined>(undefined), pending = useRef<Ticket | undefined>(undefined), cancel = useRef<View>(null);
   const owner = useRef({context, lifetime});
   const invalidate = () => {const held = active.current; active.current = undefined; held?.controller.abort();};
   if (owner.current.context !== context || owner.current.lifetime !== lifetime) {
