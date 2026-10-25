@@ -111,7 +111,12 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       {secondary && <Text style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 2 : 1, color: theme.colors.textTertiary}]}>{secondary}</Text>}</View>
     <Icon name="i-right" size={theme.isTV ? 24 : 18} color={theme.colors.textTertiary}/>
   </Focusable>;
-  const footer = (lines: readonly string[]) => lines.map((line, index) => <Text key={index} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale), {marginHorizontal: theme.isTV ? 14 : 18, marginTop: index ? 0 : 10, color: theme.colors.textTertiary}]}>{line}</Text>);
+  // tv-player 4 and playback-info 8: the footer under a list states what this device does, over a hairline.
+  const footer = (lines: readonly string[]) => !lines.length ? null : <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: theme.isTV ? 8 : 0,
+    paddingTop: theme.isTV ? 12 : 0, borderTopWidth: theme.isTV ? 1 : 0, borderTopColor: 'rgba(237,245,250,.08)'}}>
+    {lines.map((line, index) => <Text key={index} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: theme.isTV ? 700 : 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale),
+      {marginTop: theme.isTV ? (index ? 6 : 0) : (index ? 0 : 10), color: theme.isTV ? theme.colors.textSecondary : theme.colors.textTertiary}]}>{line}</Text>)}
+  </View>;
   const retry = () => {void options.load(fence);};
   let body: React.ReactNode = null;
   if (state.panel === 'playback-info') body = playbackInfo?.(context);
@@ -184,27 +189,38 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       </View>
     </View>)}</View>;
   else if (state.panel === 'chapters') body = list(ready.chapters.map((chapter, index) => ({id: `${index}:${chapter.startMs}`, primary: chapter.title || t('player.chapter.numbered', {number: index + 1}), secondary: clockText(chapter.startMs / 1000), selected: source.playback.positionSeconds * 1000 >= chapter.startMs && (!ready.chapters[index + 1] || source.playback.positionSeconds * 1000 < ready.chapters[index + 1]!.startMs), value: chapter})), chapter => playback.seek(fence, chapter.startMs / 1000));
-  const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
-    focusId={`watch-option-${panel}`} testID={`watch-option-${panel}`} focusKind="row" accessibilityRole="button" onPress={() => {if (current()) context.openPanel(panel);}}
-    style={({focused}) => ({minHeight: theme.isTV ? 60 : 44, paddingHorizontal: theme.isTV ? 20 : 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: theme.isTV ? 14 : 0, backgroundColor: focused ? '#edf5fa29' : undefined})}>
-    {!theme.isTV && <Icon name={icon} size={18}/>}<Text style={[nativeType({size: theme.isTV ? 24 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flex: 1}]}>{labels[panel as keyof typeof labels]}</Text>
-    {value && <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{value}</Text>}<Icon name="i-right" size={theme.isTV ? 24 : 18}/>
-  </Focusable>;
+  const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => {
+    const open = state.panel === panel;
+    return <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
+      focusId={`watch-option-${panel}`} testID={`watch-option-${panel}`} focusKind="row" accessibilityRole="button" accessibilityState={{expanded: open}} onPress={() => {if (current()) context.openPanel(panel);}}
+      style={({focused}) => ({minHeight: theme.isTV ? 60 : 44, paddingHorizontal: theme.isTV ? 20 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
+        borderRadius: theme.isTV ? open ? 0 : 14 : 0, ...(theme.isTV && open ? {borderTopLeftRadius: 14, borderTopRightRadius: 14} : {}),
+        backgroundColor: theme.isTV && open ? 'rgba(237,245,250,.05)' : focused ? '#edf5fa29' : undefined})}>
+      {!theme.isTV && <Icon name={icon} size={18}/>}<Text style={[nativeType({size: theme.isTV ? 24 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flex: 1}]}>{labels[panel as keyof typeof labels]}</Text>
+      {value && <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: theme.isTV && open ? 700 : 500, tracking: 0, lineHeight: 'normal'}, theme.textScale),
+        {color: theme.isTV && open ? theme.colors.accentStrong : theme.isTV ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{value}</Text>}
+      {theme.isTV && open ? <Icon name="i-chdown" size={24} color={theme.colors.accentStrong}/> : <Icon name="i-right" size={theme.isTV ? 24 : 18}/>}
+    </Focusable>;
+  };
+  // tv-player 4 and playback-info 8: the open row and its list share one well.
+  const well = (panel: NativeWatchPanel, content: React.ReactNode) => theme.isTV && state.panel === panel
+    ? <View style={{backgroundColor: 'rgba(237,245,250,.05)', borderBottomLeftRadius: 14, borderBottomRightRadius: 14, paddingTop: 4, paddingHorizontal: 10, paddingBottom: 14}}>{content}</View>
+    : content;
   const expandedBody = body;
   if (state.panel !== 'style' && (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info')) body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
     {option('subtitles', 'i-cc', selected.subtitlesOff ? t('player.opt.off') : rows?.subtitles.find(row => row.selected)?.primary)}
-    {state.panel === 'subtitles' && expandedBody}
+    {state.panel === 'subtitles' && well('subtitles', expandedBody)}
     {option('audio', 'i-audio', rows?.audio.find(row => row.selected)?.primary)}
-    {state.panel === 'audio' && expandedBody}
+    {state.panel === 'audio' && well('audio', expandedBody)}
     {option('quality', 'i-quality', rows?.qualities.find(row => row.selected)?.primary)}
-    {state.panel === 'quality' && expandedBody}
+    {state.panel === 'quality' && well('quality', expandedBody)}
     {option('speed', 'i-gauge', rateLabel(source.effectiveRate))}
-    {state.panel === 'speed' && expandedBody}
+    {state.panel === 'speed' && well('speed', expandedBody)}
     {sleep && option('sleep', 'i-moon', sleep.minutes == null ? t('player.opt.off') : t('player.opt.minutes', {count: sleep.minutes}))}
-    {state.panel === 'sleep' && expandedBody}
+    {state.panel === 'sleep' && well('sleep', expandedBody)}
     {(!!ready?.chapters.length || playbackInfo) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 18 : 10, marginBottom: 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('player.more')}</Text>}
     {!!ready?.chapters.length && option('chapters', 'i-queue')}
-    {state.panel === 'chapters' && expandedBody}
+    {state.panel === 'chapters' && well('chapters', expandedBody)}
     {playbackInfo && option('playback-info', 'i-pulse')}
   </View>;
   const upright = !theme.isTV && context.layout.mode === 'watch';
