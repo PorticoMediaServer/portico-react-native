@@ -3,6 +3,7 @@ import type {PreferenceSnapshot} from '../../../../../packages/client-core/src/p
 import type {DirectSnapshot} from '../../../../../packages/client-core/src/profile-management';
 import type {SettingsContext, SettingsCustomId, SettingsPlatform} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import {playerSettingsSupport} from '../../platform/playback/native-listening-kinds';
+import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 
 export type NativeSettingsContextSource = Readonly<{
   account: DirectSnapshot;
@@ -13,7 +14,7 @@ export type NativeSettingsContextSource = Readonly<{
 /**
  * The Settings structure's capabilities, from this viewer's real account and the server's
  * published preference keys. A capability is present only where this build draws the genuine
- * surface for it: password, two-step, devices, device naming, member tokens and downloads
+ * surface for it: password, two-step, devices, member tokens and downloads
  * storage are not wired here yet, so their rows stay out rather than opening an empty panel.
  */
 export function nativeSettingsContext(source: NativeSettingsContextSource, platform: SettingsPlatform = 'phone'): SettingsContext {
@@ -32,7 +33,7 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
       manageSignIn: false,
       manageDevices: false,
       accessTokens: false,
-      deviceName: false,
+      deviceName: !!installationIdentity()?.name,
       downloads: false,
       playbackSpeed: playerSettingsSupport.playbackSpeed,
       audioEffects: playerSettingsSupport.audioEffects,
@@ -41,7 +42,7 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
 }
 
 /** The account pages' custom rows this build draws, each from its own real reader or route. */
-export const nativeAccountPanelIds: readonly SettingsCustomId[] = Object.freeze(['identity', 'profiles', 'servers', 'porticoAccount', 'about', 'privacyNote', 'remoteControls']);
+export const nativeAccountPanelIds: readonly SettingsCustomId[] = Object.freeze(['identity', 'profiles', 'servers', 'porticoAccount', 'about', 'privacyNote', 'remoteControls', 'deviceName']);
 
 /** Drawn rows whose genuine native surface is not built yet; their capability stays off. */
 export const nativeSettingsUnavailablePanelIds: readonly SettingsCustomId[] = Object.freeze(['password', 'twoStep', 'devices', 'deviceName', 'downloadsStorage', 'accessTokens', 'subtitlePreview']);

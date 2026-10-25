@@ -18,6 +18,7 @@ import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {MessageId, MessageValues} from '../../../../../packages/i18n/src';
 import type {NativeScreenLifetime} from './lifetime';
+import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 
 /** The full catalogue translator; the page passes it down with every other word. */
 export type Translate = (id: MessageId, values?: MessageValues) => string;
@@ -109,6 +110,11 @@ function nativeRequestId(): string {
 /** The account pages' custom surfaces this build draws with real data. Server pages are their own routes. */
 export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSettingsPanelDeps, _runtime: NativeShellRuntime): React.ReactNode {
   switch (id) {
+    case 'deviceName': {
+      deps.lifetime.assert();
+      const identity = installationIdentity();
+      return identity?.name ? <SettingsRow first testID="settings-device-name" label={deps.t('settings.row.deviceName')} value={identity.name}/> : null;
+    }
     case 'server.segments': return <IntroCreditsReview {...deps} runtime={_runtime}/>;
     case 'identity': return <IdentityPanel {...deps}/>;
     case 'profiles': return <SettingsRow first testID="settings-panel-profiles" label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
