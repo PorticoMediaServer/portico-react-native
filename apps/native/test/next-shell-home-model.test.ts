@@ -17,10 +17,11 @@ const row = (id: string, overrides: Partial<HomeRow> = {}): HomeRow => ({
 const document = (rows: readonly HomeRow[]): HomeDocument => ({serverId: 'server-a', viewerFence: 'viewer-a', rows, spotlight: [], layout: {revision: 1, rowOrder: [], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-22T00:00:00Z'});
 
 test('Libraries opens only an authorized remembered library, including the one-library first-use case', () => {
-  const libraries = [{id: 'a', name: 'a', kind: 'movie'}];
-  assert.deepEqual(librariesDestination(undefined, libraries), {kind: 'libraries'});
-  assert.deepEqual(librariesDestination('removed', libraries), {kind: 'libraries'});
-  assert.deepEqual(librariesDestination('a', libraries), {kind: 'library', libraryId: 'a'});
+  const libraries = [{id: 'a', name: 'a', kind: 'movie'}, {id: 'b', name: 'b', kind: 'movie'}];
+  assert.deepEqual(librariesDestination(undefined, libraries, false), {kind: 'libraries'});
+  assert.deepEqual(librariesDestination('removed', libraries, false), {kind: 'libraries'});
+  assert.deepEqual(librariesDestination('a', libraries, false), {kind: 'library', libraryId: 'a'});
+  assert.deepEqual(librariesDestination(undefined, [libraries[0]], false), {kind: 'library', libraryId: 'a'});
   assert.equal(selectedTab({kind: 'library', libraryId: 'a'}), 'libraries');
 });
 
