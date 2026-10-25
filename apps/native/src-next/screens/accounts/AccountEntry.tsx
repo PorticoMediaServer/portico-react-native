@@ -56,6 +56,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
   const retireSetupReview = () => {const ticket = setupReviewTicket.current; setupReviewTicket.current = undefined; ticket?.controller.abort(); ticket?.review?.approval.dispose(); setSetupReview(undefined);};
   const [resetLocation, setResetLocation] = useState<ResetFileLocation>();
+  const ownerResetOpening = useRef<{source: NativeServerSignIn; controller: AbortController} | undefined>(undefined);
+  const retireOwnerReset = () => {const ticket = ownerResetOpening.current; ownerResetOpening.current = undefined; ticket?.controller.abort(); ticket?.source.dispose();};
   const [setupAddress, setSetupAddress] = useState('');
   const [setupApprovalURL, setSetupApprovalURL] = useState<string>();
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
@@ -93,7 +95,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
-  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; memberMoveRef.current?.dispose(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; memberMoveRef.current?.dispose(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) stopRetry(); setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useEffect(() => {
     if (stage !== 'address') return;
@@ -128,10 +130,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
-  const cancelDirectory = () => {retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
+  const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
     if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {reset(); setCode(''); setResetLocation(undefined); setStage('address'); return;}
     if (stage === 'setup-review') {retireSetupReview(); setError(undefined); setStage('setup-choice'); return;}
@@ -224,7 +226,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     void (async () => {
       let next: NativeServerSignIn | undefined;
       try {
-        retireSetupReview(); retireRecovery(); operation.current?.dispose(); next = operation.current = new NativeServerSignIn();
+        retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); next = operation.current = new NativeServerSignIn();
         const result = await next.connectPortico(value);
         if (!lifetime.current || attempt !== directoryAttempt.current) return;
         if (result.kind !== 'complete') setServer(next.serverDescriptor()); consume(result);
@@ -305,7 +307,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     if (lifetime.current) {setPassword(''); setCode(''); setStage('forgot-sent');}
   };
   const inspect = async (origin = address) => {
-    retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV});
+    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV});
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
@@ -466,32 +468,54 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
       {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}</Button>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}</View>);
-  if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') return <PhoneOwnerReset
-    phase={stage === 'owner-reset' ? 'intro' : stage === 'owner-reset-code' ? 'code' : 'done'} serverName={server!.name}
-    location={resetLocation} code={code} onCodeChange={setCode} busy={busy} error={status} onBack={back}
-    onWrite={() => {const source = operation.current; void run(async () => {
-      if (!source || source !== operation.current || stageRef.current !== 'owner-reset') return;
-      const location = await source.requestOwnerReset();
-      if (lifetime.current && operation.current === source && stageRef.current === 'owner-reset') {setResetLocation(location); setCode(''); setStage('owner-reset-code');}
-    });}}
-    onVerify={() => {const source = operation.current; void run(async () => {
-      if (!source || source !== operation.current || stageRef.current !== 'owner-reset-code') return;
-      await source.verifyOwnerReset(code);
-      if (lifetime.current && operation.current === source && stageRef.current === 'owner-reset-code') {setCode(''); setStage('owner-reset-done');}
-    });}}
-    onContinue={() => {const source = operation.current; void run(async () => {
-      if (!source || source !== operation.current || stageRef.current !== 'owner-reset-done') return;
-      consume(await source.acceptOwnerReset());
-    });}}/>;
-  if (stage === 'uses-portico') return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico),
-    !Platform.isTV && <View style={{gap: 12}}>
-      {server?.move === 'to_portico' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberMove);}}>{t('accounts.move.oldPasswordAction')}</Button>}
-      <Button variant="text" disabled={busy} onPress={() => {const source = operation.current; void run(async () => {
-        if (!source || source !== operation.current || stageRef.current !== 'uses-portico') return;
-        await source.prepareOwnerReset();
-        if (lifetime.current && operation.current === source && stageRef.current === 'uses-portico') {setCode(''); setResetLocation(undefined); setStage('owner-reset');}
-      });}}>{t('accounts.signIn.cannotUsePortico')}</Button>
-    </View>);
+  if (stage === 'owner-reset' || stage === 'owner-reset-code' || stage === 'owner-reset-done') {
+    const ticket = ownerResetOpening.current, source = ticket?.source, renderedStage = stage;
+    const current = () => !!ticket && ownerResetOpening.current === ticket && operation.current === source
+      && !ticket.controller.signal.aborted && lifetime.current && stageRef.current === renderedStage;
+    const actionRun = (work: () => Promise<void>) => {if (!current()) return; void run(async () => {
+      if (!current()) return;
+      try {await work();} catch (error) {if (current()) throw error;}
+    });};
+    return <PhoneOwnerReset phase={stage === 'owner-reset' ? 'intro' : stage === 'owner-reset-code' ? 'code' : 'done'} serverName={server!.name}
+      location={resetLocation} code={code} onCodeChange={value => {if (current()) setCode(value);}} busy={busy} error={status}
+      onBack={() => {if (current()) back();}}
+      onWrite={() => actionRun(async () => {
+        if (!current() || !source || renderedStage !== 'owner-reset') return;
+        const location = await source.requestOwnerReset();
+        if (current()) {setResetLocation(location); setCode(''); setStage('owner-reset-code');}
+      })}
+      onVerify={() => actionRun(async () => {
+        if (!current() || !source || renderedStage !== 'owner-reset-code') return;
+        await source.verifyOwnerReset(code);
+        if (current()) {setCode(''); setStage('owner-reset-done');}
+      })}
+      onContinue={() => actionRun(async () => {
+        if (!current() || !source || renderedStage !== 'owner-reset-done') return;
+        const accepted = await source.acceptOwnerReset();
+        if (current()) consume(accepted);
+      })}/>;
+  }
+  if (stage === 'uses-portico') {
+    const source = operation.current;
+    const current = () => !!source && operation.current === source && lifetime.current && stageRef.current === 'uses-portico';
+    return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico),
+      !Platform.isTV && <View style={{gap: 12}}>
+        {server?.move === 'to_portico' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberMove);}}>{t('accounts.move.oldPasswordAction')}</Button>}
+        <Button variant="text" disabled={busy} onPress={() => {
+          if (!current() || !source) return;
+          retireOwnerReset();
+          const ticket = {source, controller: new AbortController()}; ownerResetOpening.current = ticket;
+          const openingCurrent = () => current() && ownerResetOpening.current === ticket && !ticket.controller.signal.aborted;
+          void run(async () => {
+            if (!openingCurrent()) return;
+            try {
+              await source.prepareOwnerReset();
+              if (openingCurrent()) {setCode(''); setResetLocation(undefined); setStage('owner-reset');}
+            } catch (error) {if (openingCurrent()) {retireOwnerReset(); throw error;}}
+          });
+        }}>{t('accounts.signIn.cannotUsePortico')}</Button>
+      </View>);
+  }
   if (stage === 'member-move' && memberMove && moveSnapshot && memberOperation.current === operation.current) {
     if (moveSnapshot.phase === 'code' || moveSnapshot.phase === 'local') return <PhoneMoveCode controller={memberMove} onBack={back}/>;
     if (moveSnapshot.phase === 'password') return <PhoneMovePassword controller={memberMove} serverName={server!.name} onBack={back}/>;
