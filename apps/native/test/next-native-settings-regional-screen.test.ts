@@ -1,3 +1,4 @@
+import {passthroughFormats} from '../src-next/platform/playback/passthrough-formats';
 import {nativeEqualizer} from '../src-next/platform/playback/equalizer';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -27,6 +28,7 @@ async function fixture() {
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
     './NativeSafeModeRow': safeMode,
     './NativeFrameRateRow': {NativeFrameRateRow: 'NativeFrameRateRow', nativeFrameRateFocusId: 'settings-device-match-frame-rate'},
+    '../../platform/playback/passthrough-formats': {passthroughFormats},
     './NativePassthroughRow': {NativePassthroughRow: 'NativePassthroughRow', nativePassthroughFocusId: 'settings-device-audio-passthrough'},
     './NativeLossNoticesRow': {NativeLossNoticesRow: 'NativeLossNoticesRow', nativeLossNoticesFocusId: 'settings-device-loss-notices'},
     react,

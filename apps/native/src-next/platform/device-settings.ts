@@ -1,3 +1,4 @@
+import {passthroughFormats, readPassthroughFormats, type PassthroughFormat} from './playback/passthrough-formats';
 import type {CompositeId} from '../../../../packages/client-core/src/presentation/settings-structure';
 import {engineSettings, parseEngineSetting} from './playback/engine-choice';
 import type {NativeQueueStore} from './queue-storage';
@@ -30,6 +31,25 @@ export class NativeDeviceSettings {
     // never overridden what the TV reports, which is not the same as Off.
     if (id === 'tvHdr' || id === 'tvSurround') return typeof record[id] === 'boolean' ? record[id] as boolean : undefined;
     return (id === 'lossNotices' || id === 'receiveFromDevices') ? record[id] !== false : record[id] === true;
+  };
+  readPassthroughFormat = (format: PassthroughFormat): 'auto' | 'off' => {
+    this.assert(); const raw = this.ports.readRecord();
+    if (object(raw) && raw.disablePassthrough === true) return 'off';
+    return readPassthroughFormats(object(raw) ? raw.passthroughFormats : undefined)[format] ?? 'auto';
+  };
+  writePassthroughFormat = async (format: PassthroughFormat | 'all', value: 'auto' | 'off'): Promise<void> => {
+    this.assert();
+    if ((format !== 'all' && !passthroughFormats.includes(format)) || (value !== 'auto' && value !== 'off')) throw new Error('native_device_setting_value_invalid');
+    await this.ports.storage.change('preferences:v1', raw => {
+      this.assert();
+      if (raw != null && !object(raw)) throw new Error('native_device_settings_record_invalid');
+      const existing = object(raw) ? raw : {}, formats = {...(object(existing.passthroughFormats) ? existing.passthroughFormats : {})};
+      if (format !== 'all' && existing.disablePassthrough === true) for (const key of passthroughFormats) formats[key] = 'off';
+      for (const key of format === 'all' ? passthroughFormats : [format]) formats[key] = value;
+      return {record: {...existing, passthroughFormats: formats, disablePassthrough: format === 'all' && value === 'off'}, value: undefined};
+    });
+    const observed = await this.ports.storage.change('preferences:v1', raw => {this.assert(); return {record: raw, value: raw};});
+    this.assert(); this.ports.acceptRecord(observed);
   };
   subscribe = (listener: () => void): (() => void) => {
     this.assert(); return this.owner.subscribePreferences(() => {if (this.owner.current()) listener();});
