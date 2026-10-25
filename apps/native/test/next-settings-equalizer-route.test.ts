@@ -14,7 +14,7 @@ async function fixture() {
   };
   const {react} = hooks();
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsRoute.tsx', import.meta.url), {
-    react,
+    react, 'react-native': {Platform: {isTV: true, OS: 'android'}},
     '../../../../../packages/client-core/src/playback-v1/admin-sessions': {},
     '../../../../../packages/client-core/src/playback-v1/local-http': {},
     '../../../../../packages/client-core/src/console': {},
