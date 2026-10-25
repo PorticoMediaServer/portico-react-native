@@ -19,15 +19,23 @@ import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {nativeScreenServices} from '../native-screen-services';
 import {NativeLoadedDestinations} from '../search/loaded-destinations';
 import {NativeDestinationPicker} from '../destinations/DestinationPicker';
-import type {SavedProjection} from '../../../../../packages/client-core/src/saved';
+
 
 /** The two authorized Saved projections and their change signal: everything this selection
  * reads from a destination. The phone hub is one source; the TV Saved destination is adapted
  * into the same shape, so both screens share one selection owner with no second store. */
+/** The projection facts this selection reads. Both the phone hub's saved projection and the TV
+ * landing's SavedProjection carry them, so one selection source serves both screens without a
+ * cast or a second source. */
+export type NativeSavedSelectionProjection = Readonly<{
+  scope: Readonly<{viewerFence: string; entityId: string}>;
+  revision: Readonly<{catalog: string | number; viewer: string | number}>;
+  sections: readonly Readonly<{id: string; entries: readonly ContentEntry[]}>[];
+}>;
 export type NativeSavedSelectionSource = Readonly<{
   getSnapshot: () => Readonly<{phase: string;
-    myList: Readonly<{projection?: SavedProjection; route?: Readonly<{view?: string}>}>;
-    favorites: Readonly<{projection?: SavedProjection; route?: Readonly<{view?: string}>}>}>;
+    myList: Readonly<{projection?: NativeSavedSelectionProjection; route?: Readonly<{view?: string}>}>;
+    favorites: Readonly<{projection?: NativeSavedSelectionProjection; route?: Readonly<{view?: string}>}>}>;
   subscribe: (listener: () => void) => () => void;
   snapshot: () => Readonly<{busy: boolean}>;
 }>;
