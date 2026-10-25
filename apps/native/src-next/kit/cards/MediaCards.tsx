@@ -126,12 +126,15 @@ export type EpisodeTileProps = CardProps & Media & {
   status?: string;
   synopsis?: string;
   layout?: 'tile' | 'row';
+  /** The drawn still width of a row tile; the phone's own row is 136 pt, and a
+   * page that draws a larger still (the tablet's watch page) passes its size. */
+  artWidth?: number;
   onDownload?: () => void;
 };
 
 export function EpisodeTile(props: EpisodeTileProps) {
   const t = useTheme(), row = props.layout === 'row' || (!t.isTV && props.layout !== 'tile');
-  const width = props.width ?? (row ? 350 : t.spec.episode.width[t.platform]), artWidth = row ? 136 : width, height = artWidth * 9 / 16;
+  const width = props.width ?? (row ? 350 : t.spec.episode.width[t.platform]), artWidth = row ? props.artWidth ?? 136 : width, height = artWidth * 9 / 16;
   const art = (focused: boolean, hovered: boolean, holding: boolean) => <ArtFrame width={artWidth} height={height} radius={row ? 8 : undefined} focused={focused} hovered={hovered} holding={holding} hoverScale={t.spec.card.hover.episodeScale} selected={props.selection?.selected}>
     <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="still" backdropFallback={props.backdropFallback} source={props.artwork} fallback={props.artworkFallback} width={artWidth} height={height} />
     {props.length && !row && <View style={{position: 'absolute', right: t.spec.episode.duration.inset[t.platform], top: t.spec.episode.duration.inset[t.platform]}}><Badge>{props.length}</Badge></View>}
