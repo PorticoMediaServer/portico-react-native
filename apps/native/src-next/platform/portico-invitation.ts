@@ -65,8 +65,7 @@ export class NativePorticoInvitation<T> {
   failure(error: unknown): 'expired' | 'other-account' | 'unavailable' | undefined {
     if (this.shortEntry && (error instanceof InvitationExpired || error instanceof ApiError && (
       error.status === 410 && error.code === 'invitation_expired'
-      || error.status === 403 && error.code === 'invitation_for_another_account'
-      || error.status === 404 && error.code === 'not_found'))) return 'unavailable';
+      || error.status === 403 && error.code === 'invitation_for_another_account'))) return 'unavailable';
     if (error instanceof InvitationExpired || error instanceof ApiError && error.status === 410 && error.code === 'invitation_expired') return 'expired';
     if (error instanceof ApiError && error.status === 403 && error.code === 'invitation_for_another_account') return 'other-account';
     return undefined;
