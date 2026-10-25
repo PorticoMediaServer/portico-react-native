@@ -1,3 +1,4 @@
+import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,6 +34,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy,
+    '../../platform/setup-outcome': setupOutcome,
     './PhoneOwnerReset': {PhoneOwnerReset: 'PhoneOwnerReset'},
     './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': directoryChooser,

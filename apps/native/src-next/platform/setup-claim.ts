@@ -8,6 +8,7 @@ import {resumeServerSetup, type SetupDraft, type SetupDraftStore} from '../../..
 import {parseDirectSignIn, type DirectSignIn} from '../../../../packages/client-core/src/profile-management.ts';
 import {assertFirstContactIdentity, routeBase64, routeBytes, routeOrigin, sameServerPin, type ServerPin, type RouteCrypto} from '../../../../packages/client-core/src/route-identity.ts';
 import {connectPairedServer, connectPairedPorticoServer, type ConnectionEnvironment} from '../../../../packages/client-core/src/server-connections.ts';
+import {NativeSetupEnded} from './setup-outcome';
 import {NativeSetupApproval} from './setup-approval';
 import {CodedError} from '../../../../packages/client-core/src/server-messages.ts';
 import {routePath} from '../../../../packages/contracts/src/routes.ts';
@@ -16,7 +17,7 @@ type Pending = Readonly<{
   version: 1; kind: 'setup'; attemptId: string; origin: string; hostedOrigin: string; pin: ServerPin;
   expectedRevision: number; setupRequestId: string; setupToken: string; setupRevision: string;
   installationId: string; state: string; verifier: string; codeChallenge: string; createdAt: number; expiresAt: string;
-  expected?: ClaimExpected; handoff?: SetupClaimHandoff; approvalURL?: string;
+  expected?: ClaimExpected; handoff?: SetupClaimHandoff; approvalURL?: string; retired?: true;
 }>;
 type Journal = Readonly<{assertAvailable: () => void; read: () => Promise<Pending | undefined>;
   change: (update: (old: Pending | undefined) => Pending | undefined) => Promise<void>}>;
@@ -41,6 +42,7 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
  * Initial setup has no Local owner or authorization family. Its only authority
  * is the original protected setup request/token and Server-supplied revision. */
 export class NativeSetupClaim {
+  private ended?: Pending;
   private epoch = 0;
   private controller?: AbortController;
   private attemptId?: string;
@@ -59,7 +61,7 @@ export class NativeSetupClaim {
     const draft = await this.ports.draft(record.pin.serverId).read(), selection = await this.ports.sessions.read();
     if (!operation.current() || record.version !== 1 || record.kind !== 'setup' || record.origin !== this.ports.pageOrigin() ||
       record.installationId !== this.ports.installationId() || selection.revision !== record.expectedRevision ||
-      !draft || draft.version !== 1 || draft.authMode !== 'hosted' || draft.serverId !== record.pin.serverId || draft.requestId !== record.setupRequestId || draft.setupToken !== record.setupToken ||
+      (!draft ? !record.retired : draft.version !== 1 || draft.authMode !== 'hosted' || draft.serverId !== record.pin.serverId || draft.requestId !== record.setupRequestId || draft.setupToken !== record.setupToken) ||
       !Number.isSafeInteger(record.createdAt) || record.createdAt < 0 || record.createdAt > this.now() + 60_000 || !Number.isFinite(Date.parse(record.expiresAt)) ||
       Date.parse(record.expiresAt) <= this.now() || Date.parse(record.expiresAt) > record.createdAt + 300_000) throw cancelled();
     return draft;
@@ -87,6 +89,7 @@ export class NativeSetupClaim {
       const proof = await verifySetupClaimStart(record.handoff.claim, record.handoff.start, binding, this.now(), this.ports.crypto);
       await this.current(record, operation);
       if (record.handoff.expiresAt !== proof.start.expiresAt || Date.parse(record.expiresAt) > Date.parse(proof.start.expiresAt)) throw invalid();
+      if (record.retired) {this.ended = record; throw new NativeSetupEnded('cancelled');}
       if (record.approvalURL) {
         const url = new URL(record.approvalURL), fragment = new URLSearchParams(url.hash.slice(1));
         if (url.origin !== record.hostedOrigin || url.pathname !== '/claim' || url.search || url.username || url.password
@@ -175,9 +178,28 @@ export class NativeSetupClaim {
       if (!code.startsWith('claim_')) throw invalid(); routeBytes(code.slice(6), 32);
       const approval = new NativeSetupApproval({code, serverId: record.pin.serverId, name: proof.claim.name, origin: record.origin,
         transactionId: record.handoff.transactionId, expiresAt: record.handoff.expiresAt},
-        async () => {await this.current(record, operation);}, operation.signal, opening);
+        async () => {await this.current(record, operation);}, operation.signal, opening, () => {if (!operation.current() || !opening.current()) throw cancelled(); this.ended = record;});
       try {const display = await approval.review(); return {approval, display};}
       catch (error) {approval.dispose(); throw error;}
+    } finally {this.busy = false;}
+  }
+  /** Explicit user restart retires only this terminal local journal/draft.
+   * A tombstone prevents a crash between keys from reviving the old handoff. */
+  async abandonEnded() {
+    const operation = this.operation(), record = this.ended;
+    try {
+      if (!record || !same(await this.ports.journal.read(), record)) throw invalid();
+      const selection = await this.ports.sessions.read();
+      if (!operation.current() || record.installationId !== this.ports.installationId() || selection.revision !== record.expectedRevision) throw cancelled();
+      const retired: Pending = {...record, retired: true};
+      await this.ports.journal.change(old => {if (!operation.current() || !same(old, record)) throw cancelled(); return retired;});
+      this.ended = retired;
+      await this.ports.draft(record.pin.serverId).change(old => {
+        if (!operation.current() || old && (old.requestId !== record.setupRequestId || old.setupToken !== record.setupToken || old.authMode !== 'hosted')) throw cancelled();
+        return undefined;
+      });
+      await this.ports.journal.change(old => {if (!operation.current() || !same(old, retired)) throw cancelled(); return undefined;});
+      this.ended = undefined; this.attemptId = undefined;
     } finally {this.busy = false;}
   }
   private async retire(api: HttpLocalApi, session: LocalSession, initial: ReadonlySet<string>) {
@@ -214,6 +236,7 @@ export class NativeSetupClaim {
       const digest = routeBase64(await this.ports.crypto.sha256(new TextEncoder().encode(record.verifier)));
       routeBytes(record.verifier, 32);
       if (digest !== proof.start.codeChallenge || handoff.expiresAt !== proof.start.expiresAt) throw invalid();
+      if (record.retired) {this.ended = record; throw new NativeSetupEnded('cancelled');}
       await current();
       const environment = this.ports.environment(record.pin.serverId);
       connected = await (this.ports.connect ?? connectPairedServer)(record.origin, record.pin, environment, operation.signal);
@@ -221,6 +244,11 @@ export class NativeSetupClaim {
       const raw = await connected.api.request<unknown>(routePath('get_networking_claim'), 'GET', undefined, operation.signal);
       await current();
       const status = parseClaimStatus(raw, record.pin), setup = object(raw) ? raw.setupContinuation : undefined;
+      if (status.state === 'cancelled' && status.identity.localGeneration === record.expected.localGeneration
+        && status.operation?.operationId === record.expected.operationId && status.operation.localGeneration === record.expected.localGeneration
+        && BigInt(status.operation.revision) >= BigInt(record.expected.revision) && object(setup) && setup.phase === 'cancelled'
+        && setup.transactionId === handoff.transactionId && typeof setup.expiresAt === 'string' && Date.parse(setup.expiresAt) === Date.parse(handoff.expiresAt)
+        && Object.keys(setup).sort().join(',') === 'expiresAt,phase,transactionId') {this.ended = record; throw new NativeSetupEnded('cancelled');}
       if (status.state !== 'installed') return undefined;
       if (status.identity.localGeneration !== record.expected.localGeneration || status.operation?.operationId !== record.expected.operationId
         || status.operation.localGeneration !== record.expected.localGeneration || BigInt(status.operation.revision) < BigInt(record.expected.revision)

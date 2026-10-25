@@ -4,6 +4,7 @@ import {routeBytes, routeOrigin} from '../../../../packages/client-core/src/rout
 import {CodedError} from '../../../../packages/client-core/src/server-messages';
 import {decodeServerClaimLookupResponse, decodeServerClaimApproveCodeResponse} from '../../../../packages/contracts/src/hosted/decoders';
 import {routePath} from '../../../../packages/contracts/src/hosted/routes';
+import {NativeSetupEnded} from './setup-outcome';
 import {nativeAccounts} from './accounts';
 import {nativeNetworkFetch} from './server-connections';
 import {hostedUrl} from './account-authority';
@@ -21,7 +22,7 @@ export class NativeSetupApproval {
   private account?: {id: string; family: string; name: string};
   constructor(private readonly expected: {code: string; serverId: string; name: string; origin: string; transactionId: string; expiresAt: string},
     private readonly sourceCurrent: () => Promise<void>, sourceSignal: AbortSignal,
-    private readonly opening: {signal: AbortSignal; current: () => boolean; canApprove: () => boolean}) {
+    private readonly opening: {signal: AbortSignal; current: () => boolean; canApprove: () => boolean}, private readonly declined: () => void) {
     const abort = () => this.controller.abort();
     sourceSignal.addEventListener('abort', abort, {once: true}); opening.signal.addEventListener('abort', abort, {once: true});
     if (sourceSignal.aborted || opening.signal.aborted) abort();
@@ -58,12 +59,13 @@ export class NativeSetupApproval {
     if (value.code !== expected.code || value.purpose !== 'setup' || value.ownerTransactionId !== undefined
       || value.setupTransactionId !== expected.transactionId || value.serverId !== expected.serverId
       || value.name !== expected.name || value.address !== expected.origin || routeOrigin(value.address) !== expected.origin
-      || value.status !== 'pending' && value.status !== 'approved'
       || !currentUTCTimestamp(value.requestedAt) || Date.parse(value.requestedAt) > now + 60_000
       || !currentUTCTimestamp(value.expiresAt) || Date.parse(value.expiresAt) !== Date.parse(expected.expiresAt)
       || Date.parse(value.expiresAt) <= now || Date.parse(value.expiresAt) <= Date.parse(value.requestedAt)
       || value.currentOwnerUsername !== undefined || value.previousOwnerRole !== undefined || value.otherPeopleCount !== undefined) throw invalid();
     routeBytes(value.serverId.slice(4), 32);
+    if (value.status === 'denied') {if (value.returnRegistration !== undefined) throw invalid(); this.declined(); throw new NativeSetupEnded('declined');}
+    if (value.status !== 'pending' && value.status !== 'approved') throw invalid();
     if (value.returnRegistration) {
       const registration = value.returnRegistration;
       if (value.status !== 'approved' || !registration.id.startsWith('ret_') || !registration.origin.startsWith('https:')
