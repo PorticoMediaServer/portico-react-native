@@ -155,7 +155,8 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   if (failureKey === undefined) failureRef.current = undefined;
   else if (failureRef.current?.key !== failureKey) failureRef.current = {key: failureKey,
     failure: Object.freeze({fence, sessionId: source.playback.session?.id, positionSeconds: source.playback.positionSeconds, itemId: source.playback.itemId})};
-  const failed = bindings.failed && !panelOpen && (isTV || layout.mode === 'full-window') && failureRef.current
+  // states 11 is the ten-foot state: it is drawn on TV only, and phone keeps its own surface.
+  const failed = bindings.failed && isTV && !panelOpen && failureRef.current
     ? bindings.failed(context, failureRef.current.failure, state.visible) : undefined;
   const content = <Animated.View testID="watch-panes" pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
     {postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>

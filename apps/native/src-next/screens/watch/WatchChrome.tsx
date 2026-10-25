@@ -482,7 +482,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           {landing !== undefined && <View style={{height: 30, marginTop: 10}}>
             {[...new Map<string, SegmentMarker>(segments.filter(segment => segment.kind === 'intro' || segment.kind === 'recap' || segment.kind === 'credits')
               .map(segment => [segment.kind, segment] as const)).values()].map(segment => {
-              const at = source.playback.duration > 0 ? Math.min(1, (segment.startMs / 1000) / source.playback.duration) : 0;
+              const at = source.playback.duration > 0 ? Math.min(1, segment.startSeconds / source.playback.duration) : 0;
               const label = segment.kind === 'intro' ? t('player.marker.intro') : segment.kind === 'recap' ? t('player.marker.recap') : t('player.marker.credits');
               return <Text key={segment.kind} numberOfLines={1} style={[theme.type.bodyStrong, {position: 'absolute', top: 2, fontSize: 20, fontWeight: '700', color: theme.colors.textSecondary},
                 at >= .9 ? {right: 0} : {left: `${at * 100}%`}]}>{label}</Text>;

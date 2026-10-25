@@ -26,23 +26,27 @@ export function NativePlaybackFailed({context, failure, retry, details, chromeVi
 }) {
   const theme = useTheme(), t = defaultI18n.t;
   const identity = context.source.subject ? playbackIdentity(context.source.subject, 'full', context.runtime.text) : undefined;
+  // states 11 places the block at left 96, top 486 and centres it on its own height.
+  const [blockHeight, setBlockHeight] = React.useState(0);
   const position = clockText(failure.positionSeconds);
   const body = t('next.states.native.tvStoppedBody', {position: position ?? ''});
   return <View testID="watch-playback-failed" pointerEvents="box-none" style={StyleSheet.absoluteFill}>
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, {backgroundColor: '#03080c8c'}]}/>
-    {!chromeVisible && identity && <View pointerEvents="none" style={{position: 'absolute', left: 96, right: 96, top: 80}}>
-      <Text numberOfLines={1} style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 44, lineHeight: 52, fontWeight: '800', letterSpacing: -1.32, color: theme.colors.text}}>{identity.title}</Text>
+    {!chromeVisible && identity && <View pointerEvents="none" style={{position: 'absolute', left: 96, right: 96, top: 72}}>
+      <Text numberOfLines={1} style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 44, lineHeight: 48.4, fontWeight: '800', letterSpacing: -1.32, marginBottom: 6, color: theme.colors.text}}>{identity.title}</Text>
       <View style={{flexDirection: 'row', alignItems: 'baseline', marginTop: 4}}>
         {identity.subtitle.map((part, index) => <Text key={`${part.role}:${index}`} numberOfLines={1} ellipsizeMode="tail"
           style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 24, lineHeight: 32, fontWeight: index === 0 ? '700' : '600',
             marginRight: 22, color: index === 0 ? theme.colors.text : theme.colors.textSecondary}}>{part.text}</Text>)}
       </View>
     </View>}
-    <View pointerEvents="box-none" style={{position: 'absolute', left: 96, right: 96, top: '50%', transform: [{translateY: -220}], width: 1000, maxWidth: '100%'}}>
-      <View style={{width: 88, height: 88, borderRadius: 44, marginBottom: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(241,121,121,.16)'}}>
-        <Icon name="i-warn" size={44} color={theme.colors.record}/>
+    <View pointerEvents="box-none" onLayout={event => {const height = event.nativeEvent.layout.height; if (height !== blockHeight) setBlockHeight(height);}}
+      style={{position: 'absolute', left: 96, top: 486, transform: [{translateY: -blockHeight / 2}], width: 1000, maxWidth: '100%'}}>
+      <View style={{width: 88, height: 88, borderRadius: 44, marginBottom: 34, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: 'rgba(237,245,250,.1)', borderWidth: 1, borderColor: 'rgba(237,245,250,.12)'}}>
+        <Icon name="i-warn" size={40} color={theme.colors.amber}/>
       </View>
-      <Text accessibilityRole="header" style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 72, lineHeight: 76, fontWeight: '800', letterSpacing: -3.24,
+      <Text accessibilityRole="header" style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 72, lineHeight: 72, fontWeight: '800', letterSpacing: -3.24,
         marginBottom: 24, color: theme.colors.text, textShadowColor: 'rgba(7,16,24,.5)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 30}}>{t('next.states.playbackStopped')}</Text>
       <Text style={{fontSize: 28, lineHeight: 40.6, fontWeight: '400', marginBottom: 28, maxWidth: 900, color: theme.colors.textSecondary}}>{body}</Text>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 18}}>

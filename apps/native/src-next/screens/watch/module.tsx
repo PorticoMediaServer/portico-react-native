@@ -91,7 +91,16 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       retries.delete(operation);
     }
   });
-  const stopAuthority = context.subscribeAuthority(() => abortAll());
+  // Only an operation whose captured authority is no longer current is aborted; an
+  // unrelated authority notification leaves the rest alone.
+  const stopAuthority = context.subscribeAuthority(() => {
+    const live = context.authority(), retired = !context.current();
+    for (const operation of [...retries]) {
+      if (!retired && sameAuthority(operation.route.authority, live)) continue;
+      operation.controller.abort();
+      retries.delete(operation);
+    }
+  });
   /** Dispatch one failure the viewer actually saw, under the route it was drawn on.
    * The captured route travels with the operation; nothing reads a later route. */
   const retryFailed = (failure: NativePlaybackFailure, route: Readonly<{authority: ReturnType<typeof context.authority>; revision: number}>,
