@@ -442,7 +442,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       </> : null}</View>
     </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <>{Platform.OS === 'android' && <><NativeFrameRateRow context={ports.context} runtime={runtime}/><NativePassthroughRow context={ports.context} runtime={runtime}/></>}{showDynamicRange && <NativeDynamicRangeRow context={ports.context} runtime={runtime}/>}<NativeLossNoticesRow context={ports.context} runtime={runtime}/></>}
     {theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' && <><NativeCapabilityRows/>
-      <View style={{gap: 8, marginBottom: 30}}><Text style={[shellType(20, 700), {color: theme.colors.textTertiary}]}>{t('next.settingsSpec.account.device.advanced.groups.1.title')}</Text>{passthroughFormats.map(format => <NativePassthroughRow key={format} format={format} context={ports.context} runtime={runtime}/>)}</View></></>}
+      <View style={{gap: 8, marginBottom: 30}}><Text style={[shellType(20, 700), {color: theme.colors.textTertiary}]}>{t('next.settingsSpec.account.device.advanced.groups.1.title')}</Text>{passthroughFormats.map(format => <NativePassthroughRow key={format} format={format} context={ports.context} runtime={runtime}/>)}</View></>}
     {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
