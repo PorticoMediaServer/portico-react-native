@@ -96,12 +96,17 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const remoteBack = useRef<(() => boolean) | undefined>(undefined);
   const setRemoteBack = useCallback((handler: (() => boolean) | undefined) => {remoteBack.current = handler;}, []);
   const back = useCallback(() => {
-    if (remoteSourcesPage) {if (remoteBack.current?.()) return true; setPushed(false); return true;}
+    if (remoteSourcesPage) {
+      if (remoteBack.current?.()) return true;
+      setPushed(false);
+      if (theme.width >= 600 && accountPages[0]) setSelected(accountPages[0].id);
+      return true;
+    }
     if (searching) {setSearching(false); setQuery(''); setRestoreRevision(value => value + 1); return true;}
     if (registry.capture()?.regionId === rows && page) return registry.focus({regionId: column, childId: page.id});
     if (page && page.id !== accountPages[0]?.id) {setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
     return false;
-  }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage]);
+  }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage, theme.width]);
   const compact = !theme.isTV && theme.width < 600;
   // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
   useEffect(() => {
