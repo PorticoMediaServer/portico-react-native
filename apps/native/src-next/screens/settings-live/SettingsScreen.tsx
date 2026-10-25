@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Dimensions, Platform, ScrollView, Text, View} from 'react-native';
+import {Dimensions, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, readComposite, compositePatch, type SettingsPage, type SettingsRow as Row} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
@@ -24,6 +24,7 @@ import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeSettingsController} from './settings-controller';
 import type {NativeDevicePreferences} from './device-preference-consumer';
+import {setNativeScreenChromeHidden} from '../../shell/chrome';
 import {Screen, useScreenBack, useScreenEntry} from './Screen';
 import {nativeSettingsActionTarget} from './settings-actions';
 import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
@@ -81,9 +82,14 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     if (page && page.id !== accountPages[0]?.id) {setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
     return false;
   }, [registry, column, rows, page, accountPages, searching]);
+  const compact = !theme.isTV && theme.width < 600;
+  // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
+  useEffect(() => {
+    setNativeScreenChromeHidden('settings-pushed', compact && pushed);
+    return () => setNativeScreenChromeHidden('settings-pushed', false);
+  }, [compact, pushed]);
   useScreenBack(runtime, back, theme.isTV);
   if (!page) throw new Error('native_settings_structure_empty');
-  const compact = !theme.isTV && theme.width < 600;
   // Libraries and Live TV draw their own pages and own their scrolling; they are not
   // stacks of rows inside the generic Settings body.
   const librariesPage = !theme.isTV && page.id === 'libraries';
@@ -94,7 +100,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
-  return <Screen style={!theme.isTV ? {paddingTop: insets.top + 14} : undefined}>
+  // Android may report 0 here while the surface still draws under the status bar; StatusBar.currentHeight is the measured fallback.
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0);
+  return <Screen style={!theme.isTV ? {paddingTop: topInset + 14} : undefined}>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
       {(!compact || !pushed) && <View style={{width: compact ? '100%' : theme.isTV ? searching ? 500 : 480 : 280}}>
         {(!theme.isTV || !searching) && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 30, 800), {color: theme.colors.text, marginBottom: 24, marginHorizontal: 20}]}>{t('next.shell.settings')}</Text>}

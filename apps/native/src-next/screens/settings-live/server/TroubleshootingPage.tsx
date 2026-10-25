@@ -1,10 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {ConsoleClient, type FeedbackReport, type FeedbackStatus} from '../../../../../../packages/client-core/src/console';
-import {logCategories, logLevels, parseLogPage, type LogCategory, type LogLevel, type LogRecord} from '../../../../../../packages/client-core/src/server-administration';
+import {logCategories, logLevels, parseLogPage, parseLogSettings, type LogCategory, type LogLevel, type LogRecord} from '../../../../../../packages/client-core/src/server-administration';
 import {feedbackCategoryName, feedbackStatusName} from '../../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {sentence, when} from '../../../../../../packages/client-core/src/server-admin/console-words';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
+import {routePath} from '../../../../../../packages/contracts/src/routes';
 import {deleteClientReport, listClientReports, readClientReport, type ClientReport} from '../../../../../../packages/client-core/src/client-reports';
 import {readCatalogueFailures, type CatalogueFailures} from '../../../../../../packages/client-core/src/catalogue-failures';
 import {CAPABILITY_BEHIND_PRESENCE, CAPABILITY_ROWS, capabilityReasonId, parseCapabilities, type ServerCapability} from '../../../../../../packages/client-core/src/server-admin/capabilities';
@@ -62,7 +63,7 @@ export function NativeServerTroubleshooting({ports, runtime}: {ports: NativeSett
       <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.troubleshooting')}</Text>
       <Tabs testID="server-troubleshooting-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.troubleshooting')}
         items={[{value: 'messages', label: t('web.logs.messages')}, {value: 'feedback', label: openReports ? `${t('server.feedbackTab')} ${openReports}` : t('server.feedbackTab')}, {value: 'reports', label: t('server.reportsTab')}, {value: 'support', label: t('server.support')}]}/>
-      {tab === 'messages' && <MessagesTab api={api} runtime={runtime} t={t}/>}
+      {tab === 'messages' && <MessagesTab api={api} ports={ports} runtime={runtime} t={t}/>}
       {tab === 'feedback' && <FeedbackTab consoleClient={consoleClient} reports={reports.data?.items ?? []} loading={reports.loading} error={reports.error} runtime={runtime} t={t} reload={reports.reload}/>}
       {tab === 'reports' && <ReportsTab api={api} authority={authority} runtime={runtime} t={t}/>}
       {tab === 'support' && <SupportTab api={api} consoleClient={consoleClient} t={t}/>}
@@ -70,8 +71,18 @@ export function NativeServerTroubleshooting({ports, runtime}: {ports: NativeSett
   </View>;
 }
 
-function MessagesTab({api, runtime, t}: {api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}; runtime: NativeShellRuntime; t: Translate}) {
+function MessagesTab({api, ports, runtime, t}: {api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
   const theme = useTheme();
+  const [debugUntil, setDebugUntil] = useState<number>(), [debugBusy, setDebugBusy] = useState(false), [debugProblem, setDebugProblem] = useState<string>();
+  const [now, setNow] = useState(() => Date.now());
+  const readDebug = () => {void api.request<unknown>(routePath('get_admin_logs_settings')).then(raw => {const settings = parseLogSettings((raw as {result?: unknown}).result ?? raw); setDebugUntil(settings.debugWindowUntil ? Date.parse(settings.debugWindowUntil) : undefined);}, () => {});};
+  useEffect(() => {readDebug(); const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer);}, [api]);
+  const setDebug = (on: boolean) => {
+    setDebugBusy(true); setDebugProblem(undefined);
+    void api.request(routePath('post_admin_logs_debug_window'), 'POST', {operationId: ports.requestId(), minutes: on ? 30 : 0})
+      .then(() => readDebug(), error => setDebugProblem(presentError(error, 'server-console').body)).finally(() => setDebugBusy(false));
+  };
+  const recording = debugUntil !== undefined && debugUntil > now;
   const [level, setLevel] = useState<LogLevel | ''>(''), [category, setCategory] = useState<LogCategory | ''>('');
   const [picking, setPicking] = useState<'level' | 'category'>();
   const read = useRead(() => {
@@ -92,6 +103,16 @@ function MessagesTab({api, runtime, t}: {api: {request<T>(path: string, method?:
     ...logCategories.map((value): MenuEntry => ({id: value, label: t(`server.logCategory.${value}` as MessageId), selected: category === value, onSelect: () => {setCategory(value); setPicking(undefined);}})),
   ];
   return <View style={{marginTop: 14}} testID="server-troubleshooting-messages">
+    <View style={{borderRadius: 14, padding: 14, backgroundColor: theme.colors.raised, marginBottom: 16}} testID="server-messages-detail-window">
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+        <View style={{flex: 1, minWidth: 0}}>
+          <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{t('settings.server.detailWindow')}</Text>
+          <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textSecondary, marginTop: 2}]}>{recording && debugUntil ? t('settings.server.detailWindow.until', {time: defaultI18n.time(debugUntil)}) : t('settings.server.detailWindow.help')}</Text>
+        </View>
+        <Button size="compact" variant={recording ? 'glass' : 'primary'} loading={debugBusy} onPress={() => setDebug(!recording)}>{t(recording ? 'settings.server.detailWindow.stop' : 'settings.server.detailWindow.start')}</Button>
+      </View>
+      {debugProblem ? <Text accessibilityRole="alert" style={[shellType(12.5, 600), {color: theme.colors.record, marginTop: 6}]}>{debugProblem}</Text> : null}
+    </View>
     <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('web.logs.messages')}</Text>
     <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.logs.messagesLede')}</Text>
     <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12}}>
