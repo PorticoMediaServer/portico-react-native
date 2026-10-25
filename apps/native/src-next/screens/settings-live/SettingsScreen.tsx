@@ -38,6 +38,7 @@ import {NativeServerTroubleshooting} from './server/TroubleshootingPage';
 import {NativeServerStorage} from './server/StoragePage';
 import {NativeServerIntegrations} from './server/IntegrationsPage';
 import {NativeServerGeneral} from './server/GeneralPage';
+import {PhoneServerPageHeader} from './server/PhoneServerPageHeader';
 import {NativeRemoteSourcesScreen} from '../settings/remote-sources/NativeRemoteSourcesScreen';
 import QRCode from 'react-native-qrcode-svg';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
@@ -161,7 +162,8 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
         </ScrollView>}
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
-        {compact && <Button variant="text" size="small" icon="i-left" onPress={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}>{t(serverPage ? 'next.shell.settings' : 'action.back')}</Button>}
+        {compact && (serverPage ? <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>
+          : <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t('action.back')}</Button>)}
         {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
         {remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>

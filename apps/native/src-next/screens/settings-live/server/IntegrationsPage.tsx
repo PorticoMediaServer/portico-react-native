@@ -67,12 +67,9 @@ function ApiKeysTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtim
   };
   if (error !== undefined && !keys.length) return <StateView {...runtime.error(error, reload)}/>;
   return <View style={{marginTop: 14}} testID="server-integrations-keys">
-    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10}}>
-      <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('web.access.apiKeys')}</Text>
-      <Button size="compact" icon="i-plus" onPress={() => {setName(''); setScopes(['read', 'playback']); setProblem(undefined); setCreating(true);}}>{t('web.access.createKey')}</Button>
-    </View>
     <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('api.tokens.lede')}</Text>
     {options ? <Text style={[shellType(12, 400, 17), {color: theme.colors.textTertiary, marginTop: 4}]}>{t('api.credential.limitNote', {count: options.requestsPerMinute})}</Text> : null}
+    <Button size="compact" icon="i-plus" style={{alignSelf: 'stretch', marginTop: 14}} onPress={() => {setName(''); setScopes(['read', 'playback']); setProblem(undefined); setCreating(true);}}>{t('web.access.createKey')}</Button>
     {problem && !creating && !revoking ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 8}]}>{problem}</Text> : null}
     <View style={{marginTop: 10, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {!keys.length ? <Text style={[shellType(13, 500), {color: theme.colors.textTertiary, padding: 14}]}>{t('web.access.noApiKeys')}</Text> : null}
