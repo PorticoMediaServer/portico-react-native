@@ -2,6 +2,7 @@ import type {LocalSession, PlaybackApi, PlaybackSession} from '../../../../../pa
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
 import {localPlaybackFence, type LocalPlaybackFence, type LocalPlaybackScope} from '../../../../../packages/player-core/src';
 import {LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
+import type {RememberedDownloadsViewer} from '../../shell/remembered-downloads-viewer';
 import type {OfflineDownloads, OfflineEntry} from '../../../platform/offline-downloads';
 
 /** Captured from the genuine installation session, never a server queue/controller scope. */
@@ -23,20 +24,29 @@ const unavailable = () => new Error(serviceText('downloads.offline.notPlayableHe
  * another player nor another store. Only a verified current-owner artifact can supply a file. */
 export class NativeOfflinePlayback {
   private readonly local: LocalPlayback;
-  private readonly session: () => LocalSession | undefined;
+  private readonly identity: (() => LocalSession | undefined) | RememberedDownloadsViewer;
   private readonly device: NativeOfflinePlaybackDevice;
   private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number; sequence: number; run?: number; journalCurrent: () => boolean}>();
   private disposed = false;
-  constructor(session: () => LocalSession | undefined, device: NativeOfflinePlaybackDevice) {
-    this.session = session;
+  constructor(identity: (() => LocalSession | undefined) | RememberedDownloadsViewer, device: NativeOfflinePlaybackDevice) {
+    this.identity = identity;
     this.device = device;
     this.local = new LocalPlayback(progress => this.progress(progress));
   }
   owner(): NativeOfflineOwner | undefined {
-    const session = this.session(), viewer = session?.viewer;
+    try {
+    if (typeof this.identity !== 'function') return this.identity.current() ? this.identity.owner : undefined;
+    const session = this.identity(), viewer = session?.viewer;
     if (!session || !viewer || viewer.authority !== 'local' && viewer.authority !== 'hosted'
       || ![viewer.serverId, viewer.accountId, viewer.profileId, session.sessionFamilyId].every(text)) return;
     return Object.freeze({authority: viewer.authority, serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId, sessionFamilyId: session.sessionFamilyId});
+    } catch {return undefined;}
+  }
+  /** A closed local transport. Ordinary create/progress/stop can never reach a server.
+   * PlaybackService.playLocal explicitly uses only the admitted journal owner. */
+  localOnlyApi(): PlaybackApi {
+    const refuse = () => Promise.reject(unavailable());
+    return this.wrap({createPlayback: refuse, progressPlayback: refuse, stopPlayback: refuse});
   }
   wrap(api: PlaybackApi): ReturnType<LocalPlayback['wrap']> {
     const wrapped = this.local.wrap(api);
@@ -97,6 +107,7 @@ export class NativeOfflinePlayback {
       || !Number.isSafeInteger(claims.artifact.bytes) || claims.artifact.bytes < 1) throw unavailable();
     const artifact = Object.freeze({...claims.artifact}), preparationId = claims.preparationId;
     const currentEntry = (): OfflineEntry | undefined => {
+      try {
       const currentOwner = this.owner();
       if (!currentOwner || ownerKey(currentOwner) !== ownerKey(owner)) return;
       const matches = this.device.getSnapshot().entries.filter(value => value.id === entry.id);
@@ -107,6 +118,7 @@ export class NativeOfflinePlayback {
         || (['authority', 'serverId', 'accountId', 'profileId'] as const).some(key => receipt.viewer[key] !== owner[key])
         || this.device.playabilityReason(live) !== null) return;
       return live;
+      } catch {return undefined;}
     };
     const before = currentEntry();
     if (!isCurrent() || !before) throw unavailable();
