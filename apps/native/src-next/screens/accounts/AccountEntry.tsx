@@ -70,6 +70,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const retireSetupReview = () => {const ticket = setupReviewTicket.current; setupReviewTicket.current = undefined; ticket?.controller.abort(); ticket?.review?.approval.dispose(); setSetupReview(undefined);};
   type OwnerRecoveryOpening = {active: boolean; contact?: {open: () => Promise<void>; dispose: () => void}; finish?: () => void};
   const ownerRecoveryContact = useRef<OwnerRecoveryOpening | undefined>(undefined);
+  const ownerRecoveryMounted = useRef(false);
   const retireOwnerRecoveryContact = () => {
     const ticket = ownerRecoveryContact.current; ownerRecoveryContact.current = undefined;
     if (ticket) {ticket.active = false; ticket.contact?.dispose(); ticket.finish?.();}
@@ -161,6 +162,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
+  // This public browser contact retires during the unmount commit, before passive
+  // account cleanup; a late proof cannot navigate after this view has left.
+  useLayoutEffect(() => {
+    ownerRecoveryMounted.current = true;
+    return () => {ownerRecoveryMounted.current = false; retireOwnerRecoveryContact();};
+  }, []);
   useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useLayoutEffect(() => {if (stage !== 'servers') retireOwnerRecoveryContact();}, [stage]);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
@@ -1126,10 +1133,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
           const ticket: OwnerRecoveryOpening = {active: true}; ownerRecoveryContact.current = ticket;
           const contactCurrent = () => {
             const live = credentials?.getSnapshot().session;
-            return current() && activeRef.current && ticket.active && ownerRecoveryContact.current === ticket &&
+            return ownerRecoveryMounted.current && current() && activeRef.current && ticket.active && ownerRecoveryContact.current === ticket &&
               accountScope.current === scope && live?.account.id === accountId && live.familyId === familyId;
           };
-          ticket.finish = () => {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);};
+          ticket.finish = () => {acting.current = false; if (ownerRecoveryMounted.current && lifetime.current) setBusy(adoptingTV.current);};
           acting.current = true; setBusy(true);
           void (async () => {
             try {
