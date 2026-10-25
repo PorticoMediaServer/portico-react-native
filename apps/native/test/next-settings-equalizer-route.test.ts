@@ -19,7 +19,7 @@ async function fixture() {
     '../../../../../packages/client-core/src/playback-v1/local-http': {},
     '../../../../../packages/client-core/src/console': {},
     './lifetime': {NativeScreenLifetime}, './settings-controller': {}, './device-preference-consumer': {},
-    './dashboard-controller': {}, './SettingsScreen': {}, './DashboardScreen': {}, './settings-ports': {},
+    './dashboard-controller': {}, './server/tv-server-reader': {}, './server/TVServerScreen': {}, './SettingsScreen': {}, './DashboardScreen': {}, './settings-ports': {},
     './EqualizerSettingsScreen': {NativeEqualizerSettingsScreen: () => null},
   });
   const renderer = module.createNativeEqualizerSettingsRenderer(context);
