@@ -20,7 +20,7 @@ import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
 import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 
-type Target = Readonly<{itemId: string; sourceId: string; downloadId?: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
+type Target = Readonly<{itemId: string; sourceId: string; downloadId?: string; expectedSourceRevision?: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
 const annotationDiagnosticCodes = new Set(['cancelled', 'conflict', 'invalid_document', 'invalid_location', 'invalid_response',
   'invalid_revision', 'not_permitted', 'response_size', 'source_changed']);
 /** Only trusted immutable app code is loaded. The real API/session never enters
@@ -101,6 +101,16 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     };
     observedBridge.current.clear();
     setState({});
+    /** Root54: a search hit named one exact source revision. The freshly opened
+     * publication proves it again here, before any annotation flush, progress read
+     * or guest document: converted sources compare their original revision, exactly
+     * as the reader's own source-change check does. A mismatch refuses through the
+     * existing failed state and never opens the latest revision instead. */
+    const assertExpectedSource = (opened: Pick<ReadingHostSession, 'manifest'>): void => {
+      if (target.expectedSourceRevision === undefined) return;
+      const revision = opened.manifest.conversion?.originalRevision ?? opened.manifest.revision;
+      if (revision !== target.expectedSourceRevision) throw new ReadingError('source_changed');
+    };
     void (async () => {
       if (target.downloadId) {
         if (!downloads) throw new Error('reading_unavailable');
@@ -115,12 +125,14 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           try {return preferenceValue(preferences.getSnapshot(), 'privacy.pauseWatchHistory') !== false;} catch {return true;}
         };
         session = await offlineDownloads.readingSession(entry, {signal: life.signal, current, paused});
+        assertExpectedSource(session);
       } else {
         if (!client) throw new Error('reading_unavailable');
         const versions = await client.versions(target.itemId, life.signal);
         if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
-        const onlineSession = await client.open(target, life.signal);
+        const onlineSession = await client.open({itemId: target.itemId, sourceId: target.sourceId}, life.signal);
         session = onlineSession;
+        assertExpectedSource(onlineSession);
         if (NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
           livePort.current = onlineSession.manifest.canAnnotate === true
             && typeof onlineSession.annotations === 'function' && typeof onlineSession.mutateAnnotation === 'function' ? onlineSession : undefined;
