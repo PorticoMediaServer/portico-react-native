@@ -63,10 +63,12 @@ export function TouchStartFailure({failure, wait, runtime}: {
     return () => {alive = false;off();};
   }, [failure, owner]);
   useEffect(() => {
-    if (!wait || wait !== owner) return;
-    const timer = setInterval(() => {if (wait.isCurrent()) setNow(Date.now());}, 250);
+    if (!owner || owner !== wait && (owner !== failure || failure?.scope !== 'account')) return;
+    // Display only: the retained port owns the budget/deadline and the permission to retry.
+    // Its exhaustion getter can change without an event; never poll GET/POST from this clock.
+    const timer = setInterval(() => {if (owner.isCurrent()) setNow(Date.now());}, 250);
     return () => clearInterval(timer);
-  }, [wait, owner]);
+  }, [wait, failure, owner]);
   if (!owner || !owner.isCurrent() || theme.isTV) return null;
   const cancel = () => {const ticket = opening.current; if (current(ticket)) ticket!.owner.cancel();};
   const close = () => {
@@ -100,7 +102,8 @@ export function TouchStartFailure({failure, wait, runtime}: {
   const waiting = wait === owner ? wait : undefined, refused = failure === owner ? failure : undefined;
   const limit = refused?.scope === 'account' ? refused.streamLimit : undefined;
   const conversion = !!waiting || refused?.code === 'conversion_capacity';
-  const retry = !!waiting || refused?.retryable === true && refused.scope !== 'account';
+  const exhausted = refused?.scope === 'account' && refused.automaticRecoveryExhausted;
+  const retry = !!waiting || refused?.retryable === true && (refused.scope !== 'account' || exhausted);
   const title = report ? t('about.report.confirmTitle', {server: runtime.getSnapshot().serverName ?? ''})
     : conversion ? t('next.states.convertingBusy') : limit ? t('next.states.streamLimit', {count: limit.playing})
     : refused?.retryable ? t('next.states.playbackStopped') : t('next.states.cannotPlay');
@@ -118,7 +121,7 @@ export function TouchStartFailure({failure, wait, runtime}: {
       <Icon name={conversion ? 'i-clock' : refused?.scope === 'account' || refused?.scope === 'server' ? 'i-monitor' : 'i-info'} size={22}
         color={conversion || refused?.scope === 'account' || refused?.scope === 'server' ? theme.colors.amber : theme.colors.text}/>
     </View></View>}
-    footer={!report && refused?.scope === 'account' ? undefined : <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+    footer={!report && refused?.scope === 'account' && !exhausted ? undefined : <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
       {report ? <><Button testID="touch-start-report-cancel" variant="primary" style={buttonStyle} onPress={close}>{t('action.cancel')}</Button>
         <Button testID="touch-start-report-send" variant="glass" style={buttonStyle} disabled={!!busy} loading={busy === 'report'} onPress={sendReport}>{t('about.report.send')}</Button></>
         : <>{retry && <Button testID="touch-start-retry" variant="primary" style={buttonStyle} disabled={!!busy} loading={busy === 'retry'} onPress={() => {

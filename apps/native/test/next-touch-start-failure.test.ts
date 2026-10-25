@@ -9,13 +9,13 @@ import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const text = (node: any): string => Array.isArray(node) ? node.map(text).join('') : typeof node === 'string' ? node : node?.props ? text(node.props.children) : '';
-function failure(scope = 'account', streamLimit: any = {scope: 'account', playing: 3, limit: 2}) {
+function failure(scope = 'account', streamLimit: any = {scope: 'account', playing: 3, limit: 2}, exhausted = () => false) {
   let live = true, listener: ((rows: readonly any[]) => void) | undefined;
   const calls = {retry: 0, cancel: 0, remote: 0, stopped: [] as any[]};
   const row = {sessionId: 'original-session', revision: '4', state: 'playing', positionMs: 0, kind: 'video', actions: ['stop'], device: {id: 'original-device', name: 'Original device'}};
   const port = {scope, code: 'stream_limit_reached', retryable: true, streamLimit,
     error: {code: 'stream_limit_reached', reason: scope === 'account' ? 'owner_account_cap' : 'owner_server_cap'},
-    isCurrent: () => live,
+    get automaticRecoveryExhausted() {return exhausted();}, isCurrent: () => live,
     retry: async () => {calls.retry++; live = false;}, cancel: () => {calls.cancel++; live = false;},
     remote: async () => {calls.remote++; return {items: [row], nextCursor: ''};},
     subscribeSessions: (next: typeof listener) => {listener = next; return () => {listener = undefined;};},
@@ -111,4 +111,26 @@ test('conversion countdown invokes only the offered retryNow and cancellation po
     assert.equal(retries, 1);
     await act(() => d.button('touch-start-back').props.onPress()); assert.equal(cancelled, 1);
   } finally {d.close();}
+});
+
+test('an exhausted account wait exposes its original explicit retry without a new server event or read', async t => {
+  t.mock.timers.enable({apis: ['setInterval', 'Date'], now: 100000});
+  const f = failure('account', {scope: 'account', playing: 3, limit: 2}, () => Date.now() >= 130000);
+  const d = await fixture({failure: f.port});
+  try {
+    assert.equal(d.button('touch-start-retry'), undefined);
+    assert.equal(f.calls.remote, 1);
+    await act(() => {t.mock.timers.tick(30000);});
+    assert.ok(d.button('touch-start-retry'));
+    assert.ok(d.button('touch-start-back'));
+    assert.equal(d.tree().props.title, defaultI18n.t('next.states.streamLimit', {count: 3}));
+    assert.equal(d.tree().props.description, defaultI18n.t('next.states.streamLimitBody', {count: 2}));
+    assert.equal(f.calls.remote, 1, 'the local display clock never refreshes or starts backend work');
+    const stop = nodes(d.list().props.renderItem({item: f.row, index: 0})).find(node => node.type === 'Button');
+    await act(() => stop.props.onPress());
+    assert.equal(f.calls.stopped[0], f.row);assert.equal(f.calls.retry, 0);
+    assert.ok(d.button('touch-start-retry'), 'explicit Stop does not replenish the automatic recovery budget');
+    await act(() => d.button('touch-start-retry').props.onPress());
+    assert.equal(f.calls.retry, 1);assert.equal(f.calls.cancel, 0);
+  } finally {d.close();t.mock.timers.reset();}
 });
