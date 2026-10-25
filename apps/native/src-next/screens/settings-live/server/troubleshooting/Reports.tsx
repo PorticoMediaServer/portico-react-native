@@ -39,7 +39,7 @@ export function NativeReports({group}:{group:Group}){
   const held=dialog&&scope?.dialog===dialog&&current()&&source.listed(dialog.report)?dialog:undefined;
   const heldConfirmation=confirmation&&scope?.confirmation===confirmation&&current()&&source.listed(confirmation.report)?confirmation:undefined;
   const close=()=>{if(!scope||scope.dialog!==held)return;scope.dialog=undefined;scope.confirmation=undefined;held?.abort.abort();setDialog(undefined);setConfirmation(undefined);setBody(undefined);setError(false);};
-  const closeConfirmation=()=>{if(!scope||scope.confirmation!==heldConfirmation)return;scope.confirmation=undefined;setConfirmation(undefined);};
+  const closeConfirmation=()=>{if(!scope||scope.confirmation!==heldConfirmation)return;if(scope.flight){close();return;}scope.confirmation=undefined;setConfirmation(undefined);};
   const open=async(report:ClientReport)=>{
     if(!scope||!current()||scope.dialog||scope.flight||state.phase!=='ready'||source.getSnapshot()!==state||!source.listed(report))return;
     const captured:Dialog={report,abort:new AbortController()};scope.dialog=captured;setDialog(captured);setBody(undefined);setError(false);setBusy(true);
@@ -50,8 +50,8 @@ export function NativeReports({group}:{group:Group}){
   const remove=async()=>{
     const captured=heldConfirmation;if(!scope||!captured||scope.confirmation!==captured||scope.flight||!current()||!source.listed(captured.report)||source.getSnapshot().phase!=='ready')return;
     const flight={};scope.flight=flight;setBusy(true);setError(false);
-    const owns=()=>current()&&scope.flight===flight&&scope.confirmation===captured;
-    try{if(!owns())return;const done=await source.remove(captured.report.id,captured.report);if(owns()){if(done){scope.dialog=undefined;scope.confirmation=undefined;captured.dialog.abort.abort();setDialog(undefined);setConfirmation(undefined);setBody(undefined);}else{scope.confirmation=undefined;setConfirmation(undefined);setError(true);}}}catch{if(owns())setError(true);}finally{if(scope.flight===flight){scope.flight=undefined;if(current())setBusy(false);}}
+    const owns=()=>current()&&scope.flight===flight&&scope.confirmation===captured&&scope.dialog===captured.dialog&&!captured.dialog.abort.signal.aborted;
+    try{if(!owns())return;const done=await source.remove(captured.report.id,captured.report,{signal:captured.dialog.abort.signal,isCurrent:()=>owns()&&source.listed(captured.report)});if(owns()){if(done){scope.dialog=undefined;scope.confirmation=undefined;captured.dialog.abort.abort();setDialog(undefined);setConfirmation(undefined);setBody(undefined);}else{scope.confirmation=undefined;setConfirmation(undefined);setError(true);}}}catch{if(owns())setError(true);}finally{if(scope.flight===flight){scope.flight=undefined;if(current())setBusy(false);}}
   };
   const refresh=()=>{if(current()&&!scope?.dialog&&!scope?.flight)void source.load();};
   const records=state.records;
