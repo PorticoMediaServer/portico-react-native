@@ -58,6 +58,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
   const retireSetupReview = () => {const ticket = setupReviewTicket.current; setupReviewTicket.current = undefined; ticket?.controller.abort(); ticket?.review?.approval.dispose(); setSetupReview(undefined);};
   const [resetLocation, setResetLocation] = useState<ResetFileLocation>();
+  const ownerResetIntent = useRef<Readonly<{origin: string; serverId: string}> | undefined>(undefined);
   const ownerResetOpening = useRef<{source: NativeServerSignIn; controller: AbortController} | undefined>(undefined);
   const retireOwnerReset = () => {const ticket = ownerResetOpening.current; ownerResetOpening.current = undefined; ticket?.controller.abort(); ticket?.source.dispose();};
   const [setupEndedReason, setSetupEndedReason] = useState<'declined' | 'cancelled'>('cancelled');
@@ -141,7 +142,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
@@ -318,6 +319,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     if (lifetime.current) {setPassword(''); setCode(''); setStage('forgot-sent');}
   };
   const inspect = async (origin = address) => {
+    const resetIntent = ownerResetIntent.current;
     retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current});
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
@@ -326,13 +328,24 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       setServer(undefined); setIdentityCode(''); setIdentityWrong(false); setStage('identity-code'); return;
     }
     if (!value) throw Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
+    if (resetIntent && (ownerResetIntent.current !== resetIntent || routeOrigin(origin) !== resetIntent.origin || value.id !== resetIntent.serverId || value.signIn !== 'portico' || value.setupRequired))
+      throw Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
     setServer(value);
     if (value.setupRequired && !Platform.isTV) {
       setSetupAddress(routeOrigin(origin)); setSetupMode(value.hostedConfigured ? 'hosted' : 'local');
       setName(value.name); setUsername(''); setPassword(''); setSetupPasswordConfirm(''); setStage('setup-confirm'); return;
     }
     if (value.setupRequired) throw Object.assign(new Error('native_setup_phone_required'), {code: 'access_refused'});
-    if (value.signIn === 'portico') {setStage('uses-portico'); return;}
+    if (value.signIn === 'portico') {
+      if (resetIntent) {
+        const ticket = {source: next, controller: new AbortController()}; ownerResetOpening.current = ticket;
+        await next.prepareOwnerReset();
+        if (lifetime.current && operation.current === next && ownerResetOpening.current === ticket && ownerResetIntent.current === resetIntent && !ticket.controller.signal.aborted) {
+          ownerResetIntent.current = undefined; setCode(''); setResetLocation(undefined); setStage('owner-reset');
+        }
+      } else setStage('uses-portico');
+      return;
+    }
     await next.confirmLocal(await next.inspectLocalIdentity());
     if (lifetime.current) {setServer(next.serverDescriptor()); if (Platform.isTV) await startTV('local'); else setStage('local');}
     return next;
@@ -670,10 +683,21 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       primaryAction={{id: 'try-again', label: t('web.chooser.tryAgain'), loading: busy, onPress: () => connectDirectory(target, true)}}
       secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   }
-  if (hostedWaiting && target) return <StateLayout testID="accounts-hosted-waiting" icon="i-cloud-off" title={t('web.chooser.accountWaitingTitle')}
-    body={t('web.chooser.accountWaitingBody', {server: target.name})} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
-    primaryAction={{id: 'check-hosted-now', label: t('web.chooser.checkNow'), loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
-    secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
+  if (hostedWaiting && target) {
+    const captured = target, source = operation.current, attempt = directoryAttempt.current;
+    const current = () => lifetime.current && stageRef.current === 'servers' && targetRef.current === captured
+      && operation.current === source && directoryAttempt.current === attempt;
+    return <StateLayout testID="accounts-hosted-waiting" icon="i-cloud-off" title={t('web.chooser.accountWaitingTitle')}
+      body={t('web.chooser.accountWaitingBody', {server: captured.name})} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
+      primaryAction={{id: 'check-hosted-now', label: t('web.chooser.checkNow'), loading: busy, disabled: busy, onPress: () => {if (current()) connectDirectory(captured, true);}}}
+      secondaryAction={Platform.isTV ? {id: 'choose-another', label: t('web.chooser.otherServer'), onPress: () => {if (current()) chooseAnother();}}
+        : {id: 'account-owner-help', label: t('accounts.signIn.cannotUsePortico'), disabled: busy, onPress: () => {
+          if (!current()) return;
+          let origin: string; try {origin = routeOrigin(captured.baseUrl);} catch (failure) {setError(failure); return;}
+          cancelDirectory(); ownerResetIntent.current = Object.freeze({origin, serverId: captured.id}); setAddress(origin); setStage('address');
+          void run(async () => {await inspect(origin);});
+        }}}/>;
+  }
   if (stage === 'servers' && target && directoryView === 'waiting') return <StateLayout testID="accounts-server-waiting" title={t('web.chooser.waitingTitle', {server: target.name})}
     body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
     primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
