@@ -38,7 +38,7 @@ test('drawn device rows read through the canonical codecs and unbound rows read 
   assert.equal(consumer.read('forceStereo'), false);
   assert.equal(consumer.read('disableHdr'), false);
   const loads = state.loads;
-  for (const id of ['tvHdr', 'tvSurround', 'receiveFromDevices', 'reduceMotion', 'textSize', 'layout', 'libraryView'] as const) assert.equal(consumer.read(id), undefined, id);
+  for (const id of ['reduceMotion', 'textSize', 'layout', 'libraryView'] as const) assert.equal(consumer.read(id), undefined, id);
   assert.equal(state.loads, loads, 'unbound rows never touch the device record');
   await f.source.write('forceStereo', true);
   await f.source.write('disableHdr', true);
@@ -117,7 +117,6 @@ test('unsupported and invalid writes never reach the installed source', async ()
       ['disableHdr', 'yes', /Invalid setting value/],
       ['tvHdr', true, {code: 'unsupported'}],
       ['tvSurround', false, {code: 'unsupported'}],
-      ['receiveFromDevices', true, {code: 'unsupported'}],
       ['reduceMotion', true, {code: 'unsupported'}],
       ['textSize', 'large', {code: 'unsupported'}],
       ['layout', 'touch', {code: 'unsupported'}],

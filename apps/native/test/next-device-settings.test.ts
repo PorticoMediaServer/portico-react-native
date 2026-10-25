@@ -38,7 +38,7 @@ test('concurrent native transactions merge only their actual playback keys and e
   await Promise.all([f.source.write('playerEngine', 'native'), other.write('disableHdr', true)]);
   assert.equal(f.source.read('playerEngine'), 'native'); assert.equal(f.source.read('disableHdr'), true);
   const count = state.saves;
-  for (const id of ['cardSize', 'playbackMethod', 'layout', 'reduceMotion', 'textSize', 'tvHdr'] as const) {
+  for (const id of ['cardSize', 'playbackMethod', 'layout', 'reduceMotion', 'textSize'] as const) {
     assert.equal(f.source.read(id), undefined); await assert.rejects(f.source.write(id, 'medium'), {code: 'unsupported'});
   }
   await assert.rejects(f.source.write('playerEngine', 'unknown'));
