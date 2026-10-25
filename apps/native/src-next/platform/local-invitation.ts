@@ -1,7 +1,7 @@
 import {ApiError} from '../../../../packages/client-core/src';
 import {PeopleInvitationsClient, type PublicInvitation} from '../../../../packages/client-core/src/direct-account';
 import type {ProfileAPI} from '../../../../packages/client-core/src/profile-management';
-import {parseShortInvitationCode} from '../../../../packages/client-core/src/short-invitation-code';
+import {parseShortInvitationCode, formatShortInvitationCode} from '../../../../packages/client-core/src/short-invitation-code';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {parseJoinLink} from '../../../../packages/client-core/src/join-link';
 import {passwordStrength} from '../../../../packages/client-core/src/password-strength';
@@ -20,6 +20,11 @@ export class NativeLocalInvitation<T> {
     if (!shortCode) return undefined;
     try {return Object.freeze({raw: shortCode, server: routeOrigin(address.trim())});} catch {return undefined;}
   }
+  static parseShortEntry(raw: string, address: string): Readonly<{raw: string; server: string}> | undefined {
+    const code = parseShortInvitationCode(raw); if (!code) return undefined;
+    try {return Object.freeze({raw: code, server: routeOrigin(address.trim())});} catch {return undefined;}
+  }
+  static formatCode(raw: string) {return formatShortInvitationCode(raw) ?? raw;}
   private readonly ports: Ports<T>;
   private readonly abort = new AbortController();
   private readonly client: PeopleInvitationsClient;

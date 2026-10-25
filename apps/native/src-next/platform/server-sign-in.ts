@@ -15,7 +15,7 @@ import {rememberNativeServerDisplay} from './server-display';
 import {nativeAppSessions, subscribeNativeAppSessions} from './app-session-storage';
 import {NativeMemberAccountMove} from './member-account-move';
 import {NativeLocalInvitation} from './local-invitation';
-import {NativePorticoInvitation} from './portico-invitation';
+import {NativePorticoInvitation, NativeInvitationUnavailable, readPorticoInvitationPreview} from './portico-invitation';
 import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
@@ -35,6 +35,9 @@ const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed
  * Every path uses the canonical probe, real verified routes, account/profile API and secure store. */
 export class NativeServerSignIn {
   static parseInvitationEntry = NativeLocalInvitation.parseEntry;
+  static parseShortInvitationEntry = NativeLocalInvitation.parseShortEntry;
+  static formatInvitationCode = NativeLocalInvitation.formatCode;
+  static invitationUnavailable(error: unknown) {return error instanceof NativeInvitationUnavailable;}
   readonly probe = new ServerSignInProbe(nativeNetworkFetch);
   private readonly controller = new AbortController();
   private readonly installation = installationIdentity();
@@ -381,6 +384,24 @@ export class NativeServerSignIn {
     if (result.kind === 'challenge') this.directoryFactor = {api, token: result.token, expiresAt: result.expiresAt, assert: assertHostedCurrent, retire: retireFresh};
     return this.consume(result);
 
+  }
+  previewPorticoInvitation(raw: string) {
+    return this.run(async () => {
+      const server = this.server, origin = this.probe.getSnapshot().origin;
+      if (!server || server.signIn !== 'portico' || server.setupRequired || !origin || this.api || this.expectedTarget) throw mismatch();
+      const input = NativeLocalInvitation.parseEntry(raw, origin);
+      if (!input || input.server !== origin || input.id && input.id !== server.id) throw mismatch();
+      const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
+      if (pin.serverId !== server.id || this.expectedInvitation?.fingerprint && pin.fingerprint !== this.expectedInvitation.fingerprint) throw mismatch();
+      assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
+      const paired = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
+      try {
+        this.assertCurrent();
+        const current = () => {const live = paired.api.getRouteConnection()?.pin; return this.current() && !!live
+          && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;};
+        return await readPorticoInvitationPreview(paired.api, raw, {origin, id: pin.serverId, fingerprint: pin.fingerprint}, this.controller.signal, current);
+      } finally {paired.connection.dispose();}
+    });
   }
   preparePorticoInvitation() {
     return this.run(async () => {
