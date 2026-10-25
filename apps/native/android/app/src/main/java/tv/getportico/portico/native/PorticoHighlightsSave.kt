@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Only a bounded Markdown export; no caller-controlled path or generic writer. */
 class PorticoHighlightsSave(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
-  private class Operation(val id: String, val code: Int, val activity: Activity, val bytes: ByteArray, val promise: Promise) {
+  private class Operation(val id: String, val code: Int, val activity: Activity, val bytes: ByteArray, val promise: Promise, val kind: String = "highlights", val mime: String = "text/markdown") {
     val settled = AtomicBoolean(false)
     // Every custody field below is protected by the process-wide gate.
     var cancelled = false
@@ -25,6 +25,7 @@ class PorticoHighlightsSave(private val context: ReactApplicationContext) : Reac
     // refuses admission until process restart; old activities cannot survive it.
     private var nextCode = 46203
     private var custody: Operation? = null
+    private val diagnosticsIds = HashSet<String>()
   }
   private var closed = false
   private var operation: Operation? = null
@@ -103,14 +104,44 @@ class PorticoHighlightsSave(private val context: ReactApplicationContext) : Reac
       activity.runOnUiThread {
         synchronized(gate) {
           if (!owns(original)) return@runOnUiThread
-          try { activity.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("text/markdown").putExtra(Intent.EXTRA_TITLE, name), original.code) }
+          try { activity.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(original.mime).putExtra(Intent.EXTRA_TITLE, name), original.code) }
           catch (_: Exception) { original.fail(); release(original) }
         }
       }
     }
   }
+  /** Fixed JSON diagnostics only, sharing the existing physical writer custody. */
+  @ReactMethod fun saveDiagnostics(id: String, kind: String, json: String, promise: Promise) {
+    if (!Regex("^[A-Za-z0-9_-]{32}$").matches(id) || kind !in listOf("report", "support") || json.length > 8388608) { promise.reject("invalid_diagnostics", "Invalid diagnostics export"); return }
+    try {
+      val parser = org.json.JSONTokener(json)
+      val document = parser.nextValue() as? org.json.JSONObject ?: throw IllegalArgumentException()
+      if (parser.nextClean() != 0.toChar() || document.opt("id") !is String || (kind == "report" && document.opt("body") !is String) || (kind == "support" && document.opt("manifest") !is org.json.JSONObject)) throw IllegalArgumentException()
+    } catch (_: Exception) { promise.reject("invalid_diagnostics", "Invalid diagnostics export"); return }
+    synchronized(gate) {
+      if (closed || custody != null || nextCode > 65534 || diagnosticsIds.size >= 4096 || diagnosticsIds.contains(id)) { promise.reject("diagnostics_busy", "Save unavailable"); return }
+      val activity = currentActivity
+      if (activity == null) { promise.reject("diagnostics_busy", "Save unavailable"); return }
+      val bytes = json.toByteArray(Charsets.UTF_8)
+      if (bytes.size > 8388608) { bytes.fill(0); promise.reject("invalid_diagnostics", "Invalid diagnostics export"); return }
+      diagnosticsIds.add(id)
+      val original = Operation(id, nextCode++, activity, bytes, promise, "diagnostics", "application/json")
+      operation = original; custody = original
+      activity.runOnUiThread {
+        synchronized(gate) {
+          if (!owns(original)) return@runOnUiThread
+          try { activity.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(original.mime).putExtra(Intent.EXTRA_TITLE, "portico-$kind.json"), original.code) }
+          catch (_: Exception) { original.fail(); release(original) }
+        }
+      }
+    }
+  }
+  @ReactMethod fun cancelDiagnostics(id: String) {
+    val original = synchronized(gate) { operation?.takeIf { it.id == id && it.kind == "diagnostics" } } ?: return
+    cancel(original)
+  }
   @ReactMethod fun cancelHighlights(id: String) {
-    val original = synchronized(gate) { operation?.takeIf { it.id == id } } ?: return
+    val original = synchronized(gate) { operation?.takeIf { it.id == id && it.kind == "highlights" } } ?: return
     cancel(original)
     // The selected provider destination belongs to the user; never delete it.
   }

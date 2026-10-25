@@ -6,6 +6,7 @@
 #if !TARGET_OS_TV
 @interface PorticoHighlightsOperation : NSObject
 @property(nonatomic,copy) NSString *identifier;
+@property(nonatomic,copy) NSString *kind;
 @property(nonatomic,strong) NSURL *directory;
 @property(nonatomic,strong) UIDocumentPickerViewController *picker;
 @property(nonatomic,copy) RCTPromiseResolveBlock resolve;
@@ -60,10 +61,43 @@ RCT_REMAP_METHOD(saveHighlights, saveHighlights:(NSString *)operation name:(NSSt
   [presenter presentViewController:picker animated:YES completion:nil];
   }
 }
+// The diagnostics entry accepts only bounded typed JSON and fixed filenames.
+RCT_REMAP_METHOD(saveDiagnostics, saveDiagnostics:(NSString *)operation kind:(NSString *)kind json:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  @synchronized(self) {
+    if(self.closed||self.operation) { reject(@"diagnostics_unavailable",@"Save unavailable",nil); return; }
+    if(![operation isKindOfClass:NSString.class]||operation.length!=32||[operation rangeOfString:@"^[A-Za-z0-9_-]{32}$" options:NSRegularExpressionSearch].location==NSNotFound||![kind isKindOfClass:NSString.class]||![@[@"report",@"support"] containsObject:kind]||![json isKindOfClass:NSString.class]||json.length>8388608) { reject(@"invalid_diagnostics",@"Invalid diagnostics export",nil); return; }
+    NSData *bytes=[json dataUsingEncoding:NSUTF8StringEncoding];
+    if(!bytes||bytes.length>8388608) { reject(@"invalid_diagnostics",@"Invalid diagnostics export",nil); return; }
+    id document=[NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil];
+    if(![document isKindOfClass:NSDictionary.class]||![document[@"id"] isKindOfClass:NSString.class]||([kind isEqual:@"report"]&&![document[@"body"] isKindOfClass:NSString.class])||([kind isEqual:@"support"]&&![document[@"manifest"] isKindOfClass:NSDictionary.class])) { reject(@"invalid_diagnostics",@"Invalid diagnostics export",nil); return; }
+    UIViewController *presenter=RCTPresentedViewController();
+    if(!presenter) { reject(@"diagnostics_unavailable",@"Save unavailable",nil); return; }
+    static NSMutableSet<NSString *> *issued; static dispatch_once_t once;
+    dispatch_once(&once, ^{issued=[NSMutableSet new];});
+    @synchronized(issued) { if(issued.count>=4096||[issued containsObject:operation]) { reject(@"diagnostics_unavailable",@"Save unavailable",nil); return; } [issued addObject:operation]; }
+    NSURL *directory=[[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:[@"portico-diagnostics-" stringByAppendingString:NSUUID.UUID.UUIDString] isDirectory:YES];
+    NSError *error=nil;
+    if(![[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:NO attributes:@{NSFileProtectionKey:NSFileProtectionComplete} error:&error]) { reject(@"diagnostics_save_failed",@"Could not prepare diagnostics",nil); return; }
+    PorticoHighlightsOperation *original=[PorticoHighlightsOperation new];original.identifier=operation;original.kind=@"diagnostics";original.directory=directory;original.resolve=resolve;original.reject=reject;self.operation=original;
+    [directory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+    NSURL *file=[directory URLByAppendingPathComponent:[NSString stringWithFormat:@"portico-%@.json",kind] isDirectory:NO];
+    if(![bytes writeToURL:file options:NSDataWritingAtomic|NSDataWritingFileProtectionComplete error:&error]) { [self finish:original result:nil error:YES]; return; }
+    UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForExportingURLs:@[file] asCopy:YES];picker.delegate=self;original.picker=picker;
+    if(self.closed||self.operation!=original||original.finished) { [self finish:original result:@"cancelled" error:NO]; return; }
+    [presenter presentViewController:picker animated:YES completion:nil];
+  }
+}
+RCT_REMAP_METHOD(cancelDiagnostics, cancelDiagnostics:(NSString *)identifier) {
+  @synchronized(self) {
+    PorticoHighlightsOperation *original=self.operation;
+    if(!original||![original.kind isEqual:@"diagnostics"]||![identifier isEqual:original.identifier]) return;
+    [original.picker dismissViewControllerAnimated:YES completion:nil];[self finish:original result:@"cancelled" error:NO];
+  }
+}
 RCT_REMAP_METHOD(cancelHighlights, cancelHighlights:(NSString *)identifier) {
   @synchronized(self) {
     PorticoHighlightsOperation *original=self.operation;
-    if(!original||![identifier isEqual:original.identifier]) return;
+    if(!original||original.kind||![identifier isEqual:original.identifier]) return;
     [original.picker dismissViewControllerAnimated:YES completion:nil];
     [self finish:original result:@"cancelled" error:NO];
   }
