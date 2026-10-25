@@ -36,10 +36,19 @@ export function nativeMusicSignal(snapshot: NativePlaybackRuntimeSnapshot, equal
     ...(atmosLost ? {atmosLost: true} : {}),
   }) : undefined;
   const delivery = (info?.delivered.audio as AudioFacts | undefined)?.delivery;
+  // The output route is an engine observation, never a setting: an unreported rate is left out.
+  const observed = snapshot.session?.observedPlayback?.audio;
+  const platform: MusicOutputFacts['platform'] = Platform.OS === 'ios' ? 'apple' : Platform.OS === 'android' ? 'android' : 'other';
+  const sampleRate = observed?.sampleRate && Number.isFinite(observed.sampleRate) ? observed.sampleRate : undefined;
   const output: MusicOutputFacts = Object.freeze({
-    platform: Platform.OS === 'ios' ? 'apple' : Platform.OS === 'android' ? 'android' : 'other',
-    device: Platform.isTV ? 'tv' : 'phone',
-    ...(delivery === 'passthrough' ? {passthrough: true} : {}),
+    platform, device: Platform.isTV ? 'tv' : 'phone',
+    ...(delivery === 'passthrough' || observed?.handling === 'passthrough' ? {passthrough: true} : {}),
+    ...(sampleRate ? {sampleRate} : {}),
+    ...(observed?.bitDepth ? {bitDepth: observed.bitDepth} : {}),
+    ...(observed?.layout ? {decodedLayout: observed.layout} : {}),
+    // Apple never claims bit-perfect; it says the rate is matched, and only when the engine
+    // reported an output rate equal to the file's own.
+    ...(platform === 'apple' && sampleRate && source.sampleRate === sampleRate ? {sampleRateMatched: true} : {}),
   });
   return Object.freeze({
     source, ...(server ? {server} : {}), output,

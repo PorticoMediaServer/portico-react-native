@@ -27,6 +27,7 @@ import {isReadingLibraryKind} from '../screens/read/platform';
 import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
+import {createNativeMusicMixes} from '../screens/destinations/music/mixes';
 
 const t = defaultI18n.t;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -345,6 +346,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       const key = JSON.stringify(destination); tvPageBack.set(key, handler);
       return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
     },
+    mixes: createNativeMusicMixes({request: (path, method, body, signal) => context.api.request(path, method, body, signal),
+      authority: () => context.authority(), playback: () => runtime?.playback, t: runtime?.text.t ?? defaultI18n.t, isCurrent: () => alive && context.current()}),
     onArtworkError: error => reportError(error, 'artwork-error'),
     dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };

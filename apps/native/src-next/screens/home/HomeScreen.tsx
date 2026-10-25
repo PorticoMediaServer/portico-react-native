@@ -24,6 +24,7 @@ import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
 import {nativeType, useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {MusicMixesRow} from '../destinations/music/MusicMixesRow';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
 import {authorizedHome, homeCardText, homePlayTarget, homeRowHasContent, pageAtVisibleEnd, platformRows} from './model';
@@ -296,6 +297,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
               current={current}/>{context.waiting && <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}</View>}/>}
       </View></HomeWindow>;
     })}
+    {!theme.isTV && runtime.mixes ? <HomeRegion><MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')}/></HomeRegion> : null}
     <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={theme.isTV ? {paddingHorizontal: theme.gutter, paddingVertical: 24} : {marginTop: 34, marginHorizontal: 24, alignItems: 'center', gap: 12}}><Button focusId="customize" variant={theme.isTV ? 'text' : 'glass'} size={theme.isTV ? 'compact' : undefined} icon={theme.isTV ? undefined : 'i-sliders'} style={theme.isTV ? undefined : {height: 48, paddingHorizontal: 22}} onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button>
       {!theme.isTV && <Text style={[nativeType({size: 13, weight: 400, tracking: 0, lineHeight: 19.5}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('next.home.customizeDescription')}</Text>}
     </View></HomeRegion>

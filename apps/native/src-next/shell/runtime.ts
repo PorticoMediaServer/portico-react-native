@@ -94,6 +94,9 @@ export interface NativeShellRuntime {
   appearanceCardSizePercent?: 85 | 100 | 125;
   appearanceShowBackdrops?: boolean;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
+  /** music-plus (MC-9): the profile's own Mixes row, read from /v1/music/mixes. Absent
+   * until the shell binds a real API and authority. */
+  mixes?: import('../screens/destinations/music/mixes').NativeMusicMixesPort;
   playback?: NativeShellPlaybackAdapter;
   /** Present in the real bootstrap. Missing measurement withholds expanded
    * bounds; it does not retire the persistent player owner. */
