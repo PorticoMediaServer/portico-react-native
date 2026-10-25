@@ -73,6 +73,10 @@ export class NativePlayOn {
   private fence?: PlaybackFence;
   private local?: DockPlayback;
   private receiverPlaybackId?: string;
+  /** The immutable original send lease: the session, authority and local fence the
+   * handoff was started from. Every handoff IO re-checks it; a replaced playback run
+   * (same authority, new fence) retires the attempt. */
+  private lease?: Readonly<{session: LocalSession; authority: NonNullable<ReturnType<NativePlaybackAdapter['getSnapshot']>['authority']>; fence: PlaybackFence}>;
   private polling = false;
   private disposed = false;
   private state: PlayOnSnapshot = Object.freeze({open: false, receivers: [], directoryPhase: 'idle', phase: 'idle', sending: false, remoteOpen: false});
@@ -83,7 +87,14 @@ export class NativePlayOn {
     // Another surface may end the remote first (Continue here on the bar, Dismiss,
     // or the dock's own expiry); the controller follows the dock, never the reverse.
     this.off = options.playback()?.subscribe(() => {
-      const remote = options.playback()?.getSnapshot().dock.remote;
+      const current = options.playback()?.getSnapshot(), remote = current?.dock.remote;
+      // A new local playback run (same authority, a different fence) while the handoff
+      // is still being asked/prepared retires it: a successor's session is never borrowed.
+      if (this.state.sending && this.lease && current?.fence && !sameFence(current.fence, this.lease.fence)) {
+        this.attempt++; this.controller?.cancel(); this.lease = undefined;
+        if (this.state.remote) this.clearRemote(); else this.publish({sending: false, phase: 'failed', error: 'playOn.cancelled'});
+        return;
+      }
       if (this.state.remote && (!remote || remote.id !== this.state.remote.id)) this.clearRemote();
     });
   }
@@ -145,10 +156,10 @@ export class NativePlayOn {
   /** A request from the attempt that started it: the identity captured at send is checked
    * before and after every call, so a replaced authority/session cannot continue one. */
   private async request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-    const attempt = this.attempt, connection = this.connection, session = this.options.session();
-    const authority = this.options.playback()?.getSnapshot().authority;
-    const same = () => this.bound(attempt, connection) && this.options.session() === session
-      && sameAuthority(this.options.playback()?.getSnapshot().authority, authority);
+    const attempt = this.attempt, connection = this.connection, lease = this.lease;
+    const same = () => this.bound(attempt, connection) && !!lease && this.options.session() === lease.session
+      && sameAuthority(this.options.playback()?.getSnapshot().authority, lease.authority)
+      && !!this.options.playback()?.getSnapshot().fence && sameFence(this.options.playback()!.getSnapshot().fence!, lease.fence);
     if (!same()) throw cancelled();
     const value = await this.options.api.request<T>(path, method, body, signal);
     if (!same()) throw cancelled();
@@ -159,10 +170,11 @@ export class NativePlayOn {
    * captured identity guard, so a pause/seek from an old attempt cannot reach a new one. */
   private async requestRaw(path: string, method: string, options?: Readonly<{headers?: Readonly<Record<string, string>>; body?: unknown; signal?: AbortSignal}>)
     : Promise<{status: number; headers: Record<string, string>; body?: unknown}> {
-    const attempt = this.attempt, connection = this.connection, session = this.options.session();
-    const authority = this.options.playback()?.getSnapshot().authority;
-    const same = () => this.bound(attempt, connection) && this.options.session() === session
-      && sameAuthority(this.options.playback()?.getSnapshot().authority, authority);
+    const attempt = this.attempt, connection = this.connection, lease = this.lease;
+    // The remote control follows a committed handoff, where the local player has already
+    // retired; its fence is not required, but the session and authority never change.
+    const same = () => this.bound(attempt, connection) && !!lease && this.options.session() === lease.session
+      && sameAuthority(this.options.playback()?.getSnapshot().authority, lease.authority);
     if (!same() || !this.options.api.requestRaw) throw cancelled();
     const value = await this.options.api.requestRaw(path, method, options);
     if (!same()) throw cancelled();
@@ -181,6 +193,7 @@ export class NativePlayOn {
     const attempt = ++this.attempt;
     const connection = `playon_${wire(receiver.id)}_${attempt.toString(36)}${Date.now().toString(36)}`;
     this.stopPolling();
+    this.lease = Object.freeze({session, authority: snapshot.authority, fence});
     this.connection = connection; this.fence = fence; this.local = Object.freeze({...local, playing: false, expanded: false});
     this.receiverPlaybackId = undefined;
     this.publish({sending: true, message: undefined, error: undefined, phase: 'asking', target: receiver});
@@ -324,7 +337,7 @@ export class NativePlayOn {
   private clearRemote(): void {
     this.attempt++;
     this.stopPolling();
-    this.connection = undefined; this.receiverPlaybackId = undefined; this.fence = undefined; this.local = undefined;
+    this.connection = undefined; this.receiverPlaybackId = undefined; this.fence = undefined; this.local = undefined; this.lease = undefined;
     if (this.state.remoteOpen) this.publish({remoteOpen: false});
     if (this.state.remote) this.publish({remote: undefined});
   }
