@@ -12,6 +12,7 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.Inflater
 
 /** Private download handles only: no filesystem URL, server URL or guest fetch.
@@ -21,6 +22,8 @@ internal class PorticoPublicationReads {
   private class Ticket(val current: () -> Boolean) {
     val closed = AtomicBoolean(false)
     val busy = AtomicBoolean(false)
+    val operation = AtomicLong(0)
+    val cancelledThrough = AtomicLong(0)
     var channel: FileChannel? = null
     var member: ByteArray? = null
   }
@@ -28,20 +31,25 @@ internal class PorticoPublicationReads {
   private val retired = HashSet<String>()
   private val io = Executors.newSingleThreadExecutor()
   @Volatile private var closed = false
-  private fun requireLive(t: Ticket) {check(!closed && !t.closed.get())}
+  private fun requireLive(t: Ticket) {check(!closed && !t.closed.get() && t.cancelledThrough.get() < t.operation.get())}
   private fun release(t: Ticket) {t.member = null; runCatching {t.channel?.close()}; t.channel = null}
   @Synchronized fun close(handle: String) {if (retired.size >= 4096) closed = true; retired.add(handle); tickets.remove(handle)?.let {t -> t.closed.set(true); io.execute {release(t)}}}
-  fun invalidate() {closed = true; tickets.keys.toList().forEach(::close)}
-  private fun run(handle: String, promise: Promise, work: (Ticket) -> Any?) {
+  fun cancel(handle: String, operation: Double) {
+    if (!operation.isFinite() || operation < 1 || operation > 9007199254740991.0 || operation != operation.toLong().toDouble()) return
+    tickets[handle]?.cancelledThrough?.updateAndGet {maxOf(it, operation.toLong())}
+  }
+  @Synchronized fun invalidate() {closed = true; tickets.keys.toList().forEach(::close)}
+  private fun run(handle: String, operation: Double, promise: Promise, work: (Ticket) -> Any?) {
     val t = tickets[handle]
-    if (t == null || closed || t.closed.get() || !t.busy.compareAndSet(false, true)) {promise.reject("reading_unavailable", "reading_unavailable"); return}
+    if (t == null || closed || t.closed.get() || !operation.isFinite() || operation < 1 || operation > 9007199254740991.0 || operation != operation.toLong().toDouble() || operation < t.operation.get() || operation <= t.cancelledThrough.get() || !t.busy.compareAndSet(false, true)) {promise.reject("reading_unavailable", "reading_unavailable"); return}
+    t.operation.set(operation.toLong())
     PorticoDownloadCenter.post {
       if (!t.current() || t.closed.get()) {t.busy.set(false); promise.reject("reading_unavailable", "reading_unavailable"); return@post}
       io.execute {
         try {
           requireLive(t); val result = work(t); requireLive(t)
-          PorticoDownloadCenter.post {t.busy.set(false); if (tickets[handle] === t && !t.closed.get() && !closed && t.current()) promise.resolve(result) else promise.reject("reading_retired", "reading_retired")}
-        } catch (_: Exception) {t.busy.set(false); close(handle); promise.reject("reading_unavailable", "reading_unavailable")}
+          PorticoDownloadCenter.post {t.busy.set(false); if (tickets[handle] === t && !t.closed.get() && !closed && t.cancelledThrough.get() < operation.toLong() && t.current()) promise.resolve(result) else promise.reject("reading_retired", "reading_retired")}
+        } catch (_: Exception) {t.busy.set(false); if (t.cancelledThrough.get() < operation.toLong()) close(handle); promise.reject("reading_unavailable", "reading_unavailable")}
       }
     }
   }
@@ -49,7 +57,7 @@ internal class PorticoPublicationReads {
     if (closed || retired.contains(handle) || tickets.size >= 2 || !handle.matches(Regex("[A-Za-z0-9_-]{8,128}")) || !digest.matches(Regex("[0-9a-f]{64}"))) {promise.reject("reading_unavailable", "reading_unavailable"); return}
     val t = Ticket(current)
     if (tickets.putIfAbsent(handle, t) != null) {promise.reject("reading_unavailable", "reading_unavailable"); return}
-    run(handle, promise) {
+    run(handle, 1.0, promise) {
       val fd = Os.open(file.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW, 0)
       val stat = Os.fstat(fd)
       if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_size != bytes || bytes < 1 || bytes > 2147483648L) {Os.close(fd); error("reading_unavailable")}
@@ -68,11 +76,11 @@ internal class PorticoPublicationReads {
     while (buffer.hasRemaining()) {requireLive(t); val n = channel.read(buffer, position); check(n > 0); position += n}
     return out
   }
-  fun range(handle: String, offset: Double, length: Double, promise: Promise) = run(handle, promise) {t ->
+  fun range(handle: String, operation: Double, offset: Double, length: Double, promise: Promise) = run(handle, operation, promise) {t ->
     check(offset.isFinite() && offset == offset.toLong().toDouble() && length.isFinite() && length == length.toInt().toDouble() && length >= 0 && length <= 49152)
     Base64.encodeToString(read(t, offset.toLong(), length.toInt()), Base64.NO_WRAP)
   }
-  fun member(handle: String, offset: Double, compressed: Double, size: Double, method: Double, digest: String, promise: Promise) = run(handle, promise) {t ->
+  fun member(handle: String, operation: Double, offset: Double, compressed: Double, size: Double, method: Double, digest: String, promise: Promise) = run(handle, operation, promise) {t ->
     check(offset.isFinite() && offset == offset.toLong().toDouble() && compressed.isFinite() && compressed == compressed.toLong().toDouble() && compressed >= 0 && compressed <= 2147483648.0 && size.isFinite() && size == size.toInt().toDouble() && size >= 0 && size <= 33554432 && (method == 0.0 || method == 8.0) && digest.matches(Regex("[0-9a-f]{64}")))
     t.member = null
     val out = ByteArray(size.toInt()); var written = 0; var consumed = 0L
@@ -91,12 +99,17 @@ internal class PorticoPublicationReads {
           if (inflater.finished()) {check(consumed == compressed.toLong() && inflater.remaining == 0); break}
         }
       }
-      check(written == out.size && (inflater == null || inflater.finished()))
+      if (inflater != null) while (!inflater.finished()) {
+        requireLive(t)
+        if (written == out.size) {val extra = ByteArray(1); check(inflater.inflate(extra) == 0 && inflater.finished()); break}
+        val n = inflater.inflate(out, written, minOf(65536, out.size - written)); check(n > 0 || inflater.finished()); written += n
+      }
+      check(written == out.size && (inflater == null || inflater.finished() && inflater.remaining == 0 && inflater.bytesRead == compressed.toLong()))
       check(MessageDigest.getInstance("SHA-256").digest(out).joinToString("") {"%02x".format(it)} == digest)
       requireLive(t); t.member = out; out.size
     } finally {inflater?.end()}
   }
-  fun memberRange(handle: String, offset: Double, length: Double, promise: Promise) = run(handle, promise) {t ->
+  fun memberRange(handle: String, operation: Double, offset: Double, length: Double, promise: Promise) = run(handle, operation, promise) {t ->
     val data = t.member ?: error("reading_unavailable")
     check(offset.isFinite() && offset == offset.toInt().toDouble() && length.isFinite() && length == length.toInt().toDouble() && offset >= 0 && length >= 0 && length <= 49152 && offset <= data.size - length)
     Base64.encodeToString(data.copyOfRange(offset.toInt(), offset.toInt() + length.toInt()), Base64.NO_WRAP)

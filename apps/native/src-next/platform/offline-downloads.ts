@@ -8,8 +8,9 @@ export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, Offli
 export {offlineDownloads};
 export type {OfflineDownloads};
 
-type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'>;
+type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource'>>;
 export type NativeOfflineDownloadsAdapter = Readonly<{
+  publicationSource?: OfflineDownloads['publicationSource'];
   getSnapshot: DeviceDownloads['getSnapshot'];
   subscribe: DeviceDownloads['subscribe'];
   open: DeviceDownloads['open'];
@@ -43,6 +44,7 @@ export function createNativeOfflineDownloadsAdapter(
     return live;
   };
   return Object.freeze({
+    ...(device.publicationSource ? {publicationSource: (entry: OfflineEntry) => device.publicationSource!(entry)} : {}),
     getSnapshot: device.getSnapshot,
     subscribe: device.subscribe,
     open: () => device.open(),

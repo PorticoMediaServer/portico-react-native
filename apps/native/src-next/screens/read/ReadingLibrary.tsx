@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
@@ -22,6 +22,9 @@ import type {BrowseLabels} from '../../kit/browse';
 import {NativeReadingBooks} from './ReadingBooks';
 import {LibraryCompactHeader, LibraryTabs} from '../library/LibraryScreen';
 import {isReadingLibraryKind} from './platform';
+import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
+import {askNativeDownload} from '../downloads/request';
+import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {NativeReadingDiscovery} from './reading-discovery';
 import {NativeReadingLibrary} from './reading-library';
 
@@ -47,6 +50,19 @@ const authorPart = (item: ReadingItem) => item.author ? [{id: 'author', text: it
  * used. */
 export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProps) {
   const {context, runtime, libraryId, title, labels, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  type DownloadOwner = {live: boolean; current?: () => boolean};
+  type DownloadMenu = Readonly<{owner: DownloadOwner; item: ReadingItem}>;
+  const downloadOwner = useMemo<DownloadOwner>(() => ({live: false}), [context, libraryId]);
+  const ownerRef = useRef(downloadOwner), menuRef = useRef<DownloadMenu | undefined>(undefined);
+  const [downloadMenu, setDownloadMenu] = useState<DownloadMenu>();
+  if (ownerRef.current !== downloadOwner) {ownerRef.current.live = false; ownerRef.current = downloadOwner;}
+  useLayoutEffect(() => {
+    const lifetime = nativeDestinationLifetime(context), route = context.navigation.getSnapshot();
+    downloadOwner.live = true; downloadOwner.current = () => downloadOwner.live && lifetime.current() && context.navigation.getSnapshot().route === route.route && context.navigation.getSnapshot().revision === route.revision;
+    return () => {downloadOwner.live = false; if (menuRef.current?.owner === downloadOwner) menuRef.current = undefined;};
+  }, [context, libraryId, downloadOwner]);
+  const offerDownload = (item: ReadingItem) => {if (!downloadOwner.current?.() || !nativePublicationReadsAvailable()) return; const menu = Object.freeze({owner: downloadOwner, item}); menuRef.current = menu; setDownloadMenu(menu);};
+  const dismissDownload = (menu: DownloadMenu | undefined) => {if (!menu || menuRef.current !== menu) return; menuRef.current = undefined; setDownloadMenu(undefined);};
   const library = context.libraries().find(value => value.id === libraryId);
   const kind = library?.kind === 'comic' ? 'comic' : 'book';
   const name = library?.name ?? title, authoredTabs = useMemo(() => libraryTabs(kind), [kind]);
@@ -115,10 +131,10 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
         onNavigate={() => openDiscover(row.item)}/>)}
     </DiscoveryRow> : null}
     {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
-      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 172 : 116} onOpen={openDiscover}/>)}
+      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 172 : 116} onOpen={openDiscover} onDownload={offerDownload}/>)}
     </DiscoveryRow> : null}
     {tablet && discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')}>
-      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={172} onOpen={openDiscover}
+      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={172} onOpen={openDiscover} onDownload={offerDownload}
         detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
   </ScrollView>;
@@ -129,7 +145,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     {booksState.phase === 'loading' && !booksState.items.length ? loading : null}
     {booksState.phase === 'ready' && !booksState.items.length ? empty : null}
     {booksState.items.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap}}>
-      {booksState.items.map(item => <DiscoveryCoverCard key={item.id} item={item} width={width} onOpen={openBooks}/>)}
+      {booksState.items.map(item => <DiscoveryCoverCard key={item.id} item={item} width={width} onOpen={openBooks} onDownload={offerDownload}/>)}
     </View> : null}
   </ScrollView>;
   const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
@@ -162,6 +178,9 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
         owner={context.session()?.viewer.role === 'owner'}/>
       : tablet && !capability ? <View style={{flex: 1}}>{loading}</View>
       : booksGrid}
+    <Menu open={!!downloadMenu && downloadMenu.owner === downloadOwner && downloadOwner.current?.() === true && menuRef.current === downloadMenu}
+      onOpenChange={open => {if (!open) dismissDownload(downloadMenu);}} title={downloadMenu?.item.title}
+      items={[{id: 'download', label: defaultI18n.t('action.download'), onSelect: () => {const menu = downloadMenu; if (!menu || menuRef.current !== menu || !menu.owner.current?.() || !nativePublicationReadsAvailable()) return; dismissDownload(menu); askNativeDownload({title: menu.item.title, itemId: menu.item.id, reading: true});}}]}/>
     <Menu open={switcherOpen} onOpenChange={setSwitcherOpen} title={defaultI18n.t('next.browse.native.switchLibrary')} items={switcherItems}/>
   </View>;
 }
@@ -184,10 +203,10 @@ function DiscoveryRow({title, first = false, onSeeAll, children}: {title: string
 
 /** One sparse-metadata cover: the drawn 116-wide 3:4 art with the title and
  * author under it, using the catalogue's canonical generated cover. */
-function DiscoveryCoverCard({item, width, detail, onOpen}: {item: ReadingItem; width: number; detail?: string; onOpen: (item: ReadingItem) => void}) {
+function DiscoveryCoverCard({item, width, detail, onOpen, onDownload}: {item: ReadingItem; width: number; detail?: string; onDownload?: (item: ReadingItem) => void; onOpen: (item: ReadingItem) => void}) {
   const theme = useTheme(), height = width * 4 / 3;
   return <Focusable testID={`reading-item-${item.id}`} accessibilityRole="button" accessibilityLabel={detail ? `${item.title}. ${detail}` : item.title} focusKind="row"
-    onPress={() => onOpen(item)} style={{width}}>
+    onPress={() => onOpen(item)} onLongPressAction={onDownload && nativePublicationReadsAvailable() ? () => onDownload(item) : undefined} style={{width}}>
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden'}}>{cover(item, width, height)}</View>
     <Text numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.text, marginTop: 7}]}>{item.title}</Text>
     {item.author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}

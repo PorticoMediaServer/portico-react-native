@@ -136,9 +136,10 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     if (found == null) promise.reject("reading_unavailable", "reading_unavailable")
     else publications.open(handle, found.first, found.first.length(), digest, found.second, promise)
   }
-  @ReactMethod fun publicationRead(handle: String, offset: Double, length: Double, promise: Promise) = publications.range(handle, offset, length, promise)
-  @ReactMethod fun publicationMember(handle: String, offset: Double, compressed: Double, size: Double, method: Double, digest: String, promise: Promise) = publications.member(handle, offset, compressed, size, method, digest, promise)
-  @ReactMethod fun publicationMemberRead(handle: String, offset: Double, length: Double, promise: Promise) = publications.memberRange(handle, offset, length, promise)
+  @ReactMethod fun publicationRead(handle: String, operation: Double, offset: Double, length: Double, promise: Promise) = publications.range(handle, operation, offset, length, promise)
+  @ReactMethod fun publicationMember(handle: String, operation: Double, offset: Double, compressed: Double, size: Double, method: Double, digest: String, promise: Promise) = publications.member(handle, operation, offset, compressed, size, method, digest, promise)
+  @ReactMethod fun publicationMemberRead(handle: String, operation: Double, offset: Double, length: Double, promise: Promise) = publications.memberRange(handle, operation, offset, length, promise)
+  @ReactMethod fun publicationCancel(handle: String, operation: Double) {publications.cancel(handle, operation)}
   @ReactMethod fun publicationClose(handle: String) {publications.close(handle)}
 
 }

@@ -1,11 +1,14 @@
 import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
 import {createReadingHost, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
 import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {nativeRouteCrypto} from '../../platform/server-connections';
+import {createNativeDownloadsDevice} from '../downloads/device';
+import {offlineDownloads} from '../../../platform/offline-downloads';
+import type {ReadingHostSession} from '../../../../../packages/client-core/src/reading-host';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
@@ -17,7 +20,7 @@ import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
 import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 
-type Target = Readonly<{itemId: string; sourceId: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
+type Target = Readonly<{itemId: string; sourceId: string; downloadId?: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
  * the WebView; the single browser controller receives structural byte callbacks. */
 export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings}: {
@@ -54,32 +57,39 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     // Containment: no automatic merge is active before the functional corrections are reviewed.
     if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
     // Only the active reader, or the app returning to it, attempts a merge; nothing runs in the background.
-    if (active) void annotations.flush(livePort.current);
-    const subscription = AppState.addEventListener('change', next => {if (next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);});
+    if (active && !target.downloadId) void annotations.flush(livePort.current);
+    const subscription = AppState.addEventListener('change', next => {if (!target.downloadId && next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);});
     return () => subscription.remove();
-  }, [active, annotations]);
+  }, [active, annotations, target.downloadId]);
   useEffect(() => annotations.subscribe(() => {
     const snapshot = annotations.getSnapshot();
     if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) console.warn('portico_annotation_journal',
       JSON.stringify({phase: snapshot.phase, queued: snapshot.queued, unresolved: snapshot.unresolved, error: String(snapshot.error ?? '')}));
   }), [annotations]);
-  useEffect(() => {
-    const life = new AbortController(), captured = context.session();
+  type Owner = {retired: boolean; active?: {live: boolean; abort: AbortController}};
+  const ownership = useMemo<Owner>(() => ({retired: false}), [context, target, preferences, retry]);
+  const rendered = useRef(ownership);
+  if (rendered.current !== ownership) {rendered.current.retired = true; if (rendered.current.active) {rendered.current.active.live = false; rendered.current.active.abort.abort();} rendered.current = ownership;}
+  useLayoutEffect(() => {
+    const ticket = {live: true, abort: new AbortController()}; ownership.active = ticket;
+    const life = ticket.abort, captured = context.session();
     if (!captured || !context.current()) return;
-    let alive = true, session: ReadingSession | undefined;
-    const apiCurrent = () => !life.signal.aborted && context.current() && context.session()?.sessionFamilyId === captured.sessionFamilyId;
+    let alive = true, session: (ReadingHostSession & Pick<ReadingSession, 'close'>) | undefined;
+    let ownedHost: ReturnType<typeof createReadingHost> | undefined;
+    const downloads = target.downloadId ? createNativeDownloadsDevice(context) : undefined;
+    const apiCurrent = () => ticket.live && !ownership.retired && ownership.active === ticket && rendered.current === ownership && !life.signal.aborted && context.current() && context.session()?.sessionFamilyId === captured.sessionFamilyId;
     const current = () => alive && apiCurrent();
-    const client = context.api.reading({viewer: captured.viewer, isCurrent: apiCurrent, signal: life.signal});
-    const authority = context.subscribeAuthority(() => {if (!context.current()) life.abort();});
+    const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: apiCurrent, signal: life.signal});
+    const authority = context.subscribeAuthority(() => {if (!apiCurrent()) life.abort();});
     const offPreferences = preferences.subscribe(() => {if (current()) host.current?.confirm();});
     let disposal: Promise<void> | undefined;
     const dispose = () => {
       if (disposal) return disposal;
-      alive = false; livePort.current = undefined; journal.unbind(); authority(); offPreferences(); host.current?.dispose(); host.current = undefined;
+      alive = false; if (!target.downloadId) {livePort.current = undefined; journal.unbind();} ticket.live = false; authority(); offPreferences(); ownedHost?.dispose(); if (host.current === ownedHost) host.current = undefined;
       // Explicit close uses the captured current viewer, before local retirement.
       disposal = (async () => {
         const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(), 2000);
-        try {if (context.current()) await session?.close(deadline.signal);} finally {clearTimeout(timer); life.abort(); client.dispose();}
+        try {if (context.current()) await session?.close(deadline.signal);} finally {clearTimeout(timer); life.abort(); client?.dispose(); downloads?.dispose();}
       })();
       return disposal;
     };
@@ -87,17 +97,20 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     observedBridge.current.clear();
     setState({});
     void (async () => {
-      const versions = await client.versions(target.itemId, life.signal);
-      if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
-      session = await client.open(target, life.signal);
-      // Containment (the complete 8ce sites): the false gate must withhold the live port, the
-      // bind and the initial flush at reader open too — not only the passive effects.
-      livePort.current = NATIVE_OFFLINE_ANNOTATION_AUTHORING && session.manifest.canAnnotate === true
-        && typeof session.annotations === 'function' && typeof session.mutateAnnotation === 'function' ? session : undefined;
-      if (NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
-        // A downloaded publication's queued edits live in that exact download's private
-        // lease state; an ordinary session uses the protected record store. Bind before the
-        // bridge can accept an edit, and only for this captured profile.
+      if (target.downloadId) {
+        if (!downloads) throw new Error('reading_unavailable');
+        await downloads.device.open(); if (!current()) throw new Error('reading_retired');
+        const entry = offlineDownloads.getSnapshot().entries.find(value => value.id === target.downloadId && value.itemId === target.itemId);
+        if (!entry || offlineDownloads.publicationSource(entry).sourceId !== target.sourceId) throw new Error('reading_unavailable');
+        session = await offlineDownloads.readingSession(entry, {signal: life.signal, current, paused: () => preferences.getSnapshot().values['privacy.pauseWatchHistory'] === true});
+      } else {
+        if (!client) throw new Error('reading_unavailable');
+        const versions = await client.versions(target.itemId, life.signal);
+        if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
+        session = await client.open(target, life.signal);
+      }
+      if (NATIVE_OFFLINE_ANNOTATION_AUTHORING && !target.downloadId) {
+        livePort.current = session;
         journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
         if (current()) void annotations.flush(livePort.current);
       }
@@ -108,7 +121,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const highlightsSave = {saveHighlights: readingHighlightsSavePort()};
       const issued = session.manifest.format;
       const format: NativeAnnotationFormat | undefined = issued === 'epub' || issued === 'pdf' || issued === 'cbz' ? issued : undefined;
-      const bridge = format ? nativeAnnotationBridge({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
+      const bridge = !target.downloadId && format ? nativeAnnotationBridge({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
         source: {itemId: target.itemId, sourceId: target.sourceId, sourceRevision: session.manifest.revision, format}, fresh: current,
         onQueued: () => {
           // A transport failure kept the original edit; the guest sees the real error. Retry later, never in a loop.
@@ -116,7 +129,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
           quietRetry.current = setTimeout(() => {quietRetry.current = undefined; if (current()) void annotations.flush(livePort.current);}, 15_000);
         }}) : session;
-      host.current = createReadingHost({...highlightsSave, session: bridge, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
+      ownedHost = createReadingHost({...highlightsSave, session: bridge, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
         initialProgress, initialContentsTarget: target.contentsTarget,
@@ -124,11 +137,11 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
       // The guest may handshake before the post-render activity effect runs.
-      host.current.setActive(callbacks.current.active);
+      host.current = ownedHost; ownedHost.setActive(callbacks.current.active);
       setState({url});
     })().catch(() => {if (current()) {setState({failed: true});} void dispose().catch(() => {});});
-    return () => {if (closeRef.current === dispose) closeRef.current = undefined; void dispose().catch(() => {});};
-  }, [annotations, context, journal, preferences, retry, target]);
+    return () => {ticket.live = false; if (ownership.active === ticket) ownership.active = undefined; if (closeRef.current === dispose) closeRef.current = undefined; void dispose().catch(() => {});};
+  }, [annotations, context, journal, target, preferences, retry, ownership]);
   useEffect(() => {host.current?.setActive(active);}, [active, state.url]);
   useEffect(() => {host.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.url]);
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
