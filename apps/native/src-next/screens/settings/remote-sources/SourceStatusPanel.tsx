@@ -28,10 +28,9 @@ export function SourceStatusPanel({controller, source, isCurrent, t}: {
     <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.status')}</Text>
     {status && <>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), {...source, state: status.state, errorCode: status.errorCode})}</Text>
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{status.connectionsInUse
-        ? t('next.remoteSources.connectionsNow', {connections: status.connectionsInUse}) : t('next.remoteSources.nothingReading')}</Text>
-      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{status.lastCheckedAt
-        ? t('next.remoteSources.checkedAt', {when: status.lastCheckedAt}) : t('next.remoteSources.neverChecked')}</Text>
+      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.connectionsNow', {connections: status.connectionsInUse})}</Text>
+      <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.lastChecked')}</Text>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{status.lastCheckedAt || t('next.remoteSources.neverChecked')}</Text>
       <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.usedBy')}</Text>
       {!status.libraries.length && !status.librariesTruncated && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.noLibraryUses')}</Text>}
       {status.libraries.map(library => <View key={library.libraryId} style={{gap: 4}}>
