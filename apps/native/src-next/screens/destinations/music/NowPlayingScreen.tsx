@@ -37,6 +37,7 @@ const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title
 export type NowPlayingScreenProps = Readonly<{
   occupant: DockOccupant;
   queue?: QueuePlaybackView;
+  artwork?: React.ComponentProps<typeof NowPlayingQueue>['artwork'];
   /** The song's own synced lyrics body (the caller owns its reader); drawn as a
    * tab of the side panel, or under Up next on a narrow window. */
   lyrics?: React.ReactNode;
@@ -58,7 +59,7 @@ export type NowPlayingScreenProps = Readonly<{
 const QUEUE_WIDTH = 366;
 const SIDE_BY_SIDE = 700;
 
-export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
+export function NowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
   const focus = useId();
   const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
@@ -136,7 +137,7 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
       <Button testID={`${testID}-close`} variant="glass" size="small" icon="i-down" accessibilityLabel={t('player.minimize')} onPress={onClose}>{t('action.close')}</Button>
     </View>
     {!side && sheet ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
-      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/> : null}
+      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={theme.isTV ? artwork : undefined}/> : null}
     </View> : null}
   </View>;
   return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
@@ -163,7 +164,7 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
               <Text style={[browseType(theme, 20, 800, -0.02), {color: theme.colors.text}]}>{t(lyrics ? 'player.lyrics' : 'player.queue')}</Text>
             </View>}
           </View>
-          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/> : lyrics}
+          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={theme.isTV ? artwork : undefined}/> : lyrics}
         </View>
       </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>

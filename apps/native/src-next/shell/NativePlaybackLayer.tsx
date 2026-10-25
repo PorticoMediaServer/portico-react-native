@@ -203,7 +203,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
           notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'tablet' ? 66 : 62) + 10}/>}
-        {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined}
+        {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined} artwork={runtime.artwork}
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
           signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
