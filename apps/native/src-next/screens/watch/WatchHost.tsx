@@ -29,9 +29,11 @@ export type NativeWatchHostContext = Readonly<{
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
-  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet'>;
+  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet' | 'tabletop'>;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
+  /** foldable5: the episodes that follow, beside the tabletop's controls column. */
+  episodes?: (context: NativeWatchHostContext) => React.ReactNode;
   panel: (context: NativeWatchHostContext) => React.ReactNode;
   /** A title that ended with nothing queued after it: its own end screen. */
   postPlay?: (context: NativeWatchHostContext) => React.ReactNode;
@@ -88,8 +90,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     }).catch(() => {});
     return () => abort.abort();
   }, [noticeKey, expanded, lossNotice?.key]);
-  const input = useMemo<PlayerPresentationInput>(() => ({window: {width: window.width, height: window.height}, posture, docked: !expanded, panelOpen: !isTV && panelOpen}),
-    [window.width, window.height, posture, expanded, panelOpen, isTV]);
+  const input = useMemo<PlayerPresentationInput>(() => ({window: {width: window.width, height: window.height}, posture, docked: !expanded, panelOpen: !isTV && panelOpen,
+    upNext: !isTV && !!fence && fence.kind === 'queue' && source.entry?.kind === 'episode' && !!source.entry.show?.id}),
+    [window.width, window.height, posture, expanded, panelOpen, isTV, fence, source.entry]);
   const television = useMemo(() => isTV ? nativeWatchTVPresentation(input.window, !expanded, panelOpen ? state.panel : undefined) : undefined, [isTV, input.window, expanded, panelOpen, state.panel]);
   const layout = useMemo(() => isTV ? television?.layout : resolvePlayerPresentation(input), [input, isTV, television]);
   const previous = useRef<PlayerPresentationInput | undefined>(undefined), deadline = useRef(0);
@@ -119,9 +122,11 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const content = postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
+    {layout.episodes && <View testID="watch-episodes-pane" style={positioned(layout.episodes)} pointerEvents="box-none">{bindings.episodes?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
       <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice && lossNotice.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
+        tabletop={!isTV && layout.mode === 'tabletop' && !!layout.episodes}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}

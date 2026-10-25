@@ -58,7 +58,10 @@ export type NativeTitleScreenProps = Readonly<{
   selection?: (entry: ContentEntry) => EpisodeTileProps['selection'];
   /** The upright Watch page reuses the retained real title body. Its Play/Pause
    * controls the exact existing session; it never starts another queue. */
-  watch?: Readonly<{source: NativePlaybackRuntimeSnapshot; width: number; playback: Pick<NativePlaybackAdapter, 'getSnapshot' | 'toggle'>}>;
+  watch?: Readonly<{source: NativePlaybackRuntimeSnapshot; width: number; playback: Pick<NativePlaybackAdapter, 'getSnapshot' | 'toggle'>;
+    /** foldable3g: the book posture's left page draws the title block alone and its
+     * right page the tabs and episodes; the ordinary watch page keeps drawing both. */
+    sections?: 'all' | 'title' | 'episodes'}>;
 }>;
 const noMenuSubscribe = () => () => {};
 const noMenuSnapshot = () => undefined;
@@ -79,6 +82,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   // tablet-play3: an upright tablet draws the phone's watch page with larger
   // targets, the title block and its buttons on one row, and 224 pt episode stills.
   const tabletWatch = !!props.watch && props.watch.width >= 600;
+  // foldable3g splits the watch page's own sections across the two book pages.
+  const titleOnly = props.watch?.sections === 'title', episodesOnly = props.watch?.sections === 'episodes';
   const leftWidth = twoPane ? divider - rail : viewport.width, rightWidth = twoPane ? viewport.width - divider : viewport.width;
   const bodyWidth = props.watch?.width ?? (twoPane ? rightWidth : viewport.width);
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), titlePlay = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
@@ -234,7 +239,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
   const castNames = [...new Set(credits.filter(credit => ['acting', 'cast'].includes(credit.department.toLowerCase())).map(credit => credit.name))];
   // The drawn synopsis is 24/1.45 in 800 and ends in 30; the credits line follows it and ends in 30.
-  const copyBlock = props.watch ? null : <>
+  const copyBlock = props.watch && !titleOnly ? null : <>
     {overview ? <Text numberOfLines={2} style={[theme.isTV ? theme.type.synopsis : theme.type.body, {color: theme.colors.textSecondary,
       maxWidth: theme.isTV ? 800 : undefined, marginTop: theme.isTV ? 0 : 18, marginBottom: theme.isTV ? 30 : 0}]}>{overview}</Text> : null}
     {theme.isTV && (directors.length > 0 || castNames.length > 0) ? <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 24, rowGap: 6, marginTop: -10, marginBottom: 30}}>
@@ -387,12 +392,12 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
         }} scrollEventThrottle={32}>{bodyNode}</ScrollView>
       </View>
-    </View> : <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
+    </View> : titleOnly ? <View style={{flex: 1, overflow: 'hidden'}}>{heroNode}</View> : <ScrollView ref={scroll} stickyHeaderIndices={[episodesOnly ? 0 : 1]} onScroll={event => {
       remember(event.nativeEvent.contentOffset.y);
       const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
       if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
     }} scrollEventThrottle={32}>
-      {heroNode}
+      {!episodesOnly && heroNode}
       <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
       {bodyNode}
     </ScrollView>}{header}

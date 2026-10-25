@@ -12,6 +12,8 @@ export type PlayerPresentationInput = Readonly<{
   posture: Readonly<Pick<PlatformPostureSnapshot, 'status' | 'window'> & {folds: readonly PlayerFold[]}>;
   docked: boolean;
   panelOpen: boolean;
+  /** foldable5: this session has episodes that follow it, so the tabletop can draw them. */
+  upNext?: boolean;
 }>;
 export type PlayerPresentation = Readonly<{
   mode: 'docked' | 'full-window' | 'watch' | 'book' | 'tabletop';
@@ -21,6 +23,8 @@ export type PlayerPresentation = Readonly<{
   controls?: PlayerRect;
   content?: PlayerRect;
   details?: PlayerRect;
+  /** foldable5: the following episodes beside the tabletop's controls column. */
+  episodes?: PlayerRect;
   panel?: PlayerRect;
   /** foldable3d/3g: the panel is a physical page, so its edge is the crease. */
   panelPaged?: boolean;
@@ -75,9 +79,16 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
         panel: panelOpen ? rect(b.right, 0, width - b.right, height) : undefined, panelPaged: panelOpen ? true : undefined,
         hingeBand: rect(left, 0, right - left, height)};
     }
-    const top = Math.max(0, b.top - 16), bottom = Math.min(height, b.bottom + 16);
-    const surface = rect(0, 0, width, top), controls = rect(0, bottom, width, height - bottom);
-    return {...common, mode: 'tabletop', surface, picture: letterboxPlayerPicture(surface), controls, content: controls,
+    const top = Math.max(0, b.top - 16), bottom = Math.min(height, b.bottom + 16), lower = Math.max(0, height - bottom);
+    const surface = rect(0, 0, width, top);
+    // foldable5: at the drawn 880 a show's lower half holds the controls on the
+    // left (508 wide, 16 under the crease) and the episodes that follow on the
+    // right, in the frame's 276 × 234 box; a film keeps the one-column controls
+    // the narrower tabletop uses.
+    const split = width >= 880 && lower >= 240 && input.upNext === true;
+    const controls = split ? rect(28, bottom, 508, Math.max(0, lower - 34)) : rect(0, bottom, width, lower);
+    const episodes = split ? rect(576, bottom + 4, Math.max(0, width - 604), Math.min(234, Math.max(0, lower - 4))) : undefined;
+    return {...common, mode: 'tabletop', surface, picture: letterboxPlayerPicture(surface), controls, content: controls, episodes,
       panel: panelOpen ? controls : undefined, hingeBand: rect(0, top, width, bottom - top), controlsAutoHide: false};
   }
   if (width <= height) {

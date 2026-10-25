@@ -314,6 +314,43 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
   const offPlayback = ports.playback.subscribe(update), offAuthority = ports.subscribeCurrent(update), offRoute = ports.navigation.subscribe(update);
   update();
   const setPresentation = (value: typeof context) => {context = value; update();};
+  /** Phone-player4's retained watch body, and foldable3g's two book pages: one
+   * controller, one captured session, one section each side of the crease. */
+  const watchPage = (host: NativeWatchHostContext, sections: 'all' | 'title' | 'episodes') => {
+    const source = host.source, entry = source.entry, pane = sections === 'title' ? host.layout.details : host.layout.content;
+    if (!alive() || ports.isTV || (host.layout.mode !== 'watch' && host.layout.mode !== 'book') || !pane || !entry?.libraryId || source.retired || host.fence.kind !== 'queue'
+      || !sameFence(ports.playback.getSnapshot().fence, host.fence) || entry.id !== host.fence.itemId) return null;
+    const key = `watch:${titleKey(entry)}`;
+    let controller = controllers.get(key);
+    if (!controller) controller = createTitleController(key, entry, true);
+    const owner = controller;
+    return <NativeTitleScreen {...ports.title} key={`${key}:${sections}`} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
+      watch={{source, playback: ports.playback, width: pane.width, sections}} back={() => {ports.navigation.back(ports.authority);}}
+      myList={ports.title.myList?.(entry)} download={ports.title.download} more={(member, anchorRef) => {
+        void menu(member, () => {
+          const state = owner.getSnapshot(), active = ports.playback.getSnapshot();
+          return !state.retired && !active.retired && active.dock.local?.expanded === true && !!active.entry && titleKey(active.entry) === titleKey(entry)
+            && (titleKey(state.entry) === titleKey(member) || state.episodes.some(value => titleKey(value) === titleKey(member))
+            || state.detail?.data?.related?.rows.some(row => row.entries.some(value => titleKey(value) === titleKey(member))) === true);
+        }, anchorRef).catch(ports.title.reportError);
+      }}/>;
+  };
+  const episodeList = (host: NativeWatchHostContext, pane: boolean) => {
+    const source = host.source, entry = source.entry;
+    if (!alive() || source.retired || host.fence.kind !== 'queue' || entry?.kind !== 'episode' || !entry.show?.id || !entry.libraryId) return null;
+    const show: ContentEntry = {id: entry.show.id, libraryId: entry.libraryId, kind: 'show', title: entry.show.name};
+    const key = `watch-episodes:${entry.show.id}`;
+    let controller = controllers.get(key);
+    if (!controller) controller = createTitleController(key, show, true);
+    return <NativeWatchEpisodes controller={controller} currentId={entry.id} playing={source.playback.intent === 'playing'} text={host.runtime.text} pane={pane}
+      artwork={host.runtime.artwork} onClose={host.closePanel}
+      onPlay={next => {
+        if (!next.playback) return;
+        const operation = new AbortController();
+        void ports.playback.start({entry: next, target: next.playback,
+          lifetime: {signal: operation.signal, isCurrent: () => alive() && ports.current() === ports.authority && host.fence.kind === 'queue'}}).catch(ports.title.reportError);
+      }}/>;
+  };
   return Object.freeze({
     title,
     watch: Object.freeze({render: (runtime: NativeShellRuntime) => alive() && ports.player
@@ -323,44 +360,16 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
        * same real show page, episodes and all, on the right page beside the
        * playing picture. Its controller is separate from the underlying route's
        * memory and survives geometry. */
-      body: (host: NativeWatchHostContext) => {
-        const source = host.source, entry = source.entry, pane = host.layout.content;
-        if (!alive() || ports.isTV || (host.layout.mode !== 'watch' && host.layout.mode !== 'book') || !pane || !entry?.libraryId || source.retired || host.fence.kind !== 'queue'
-          || !sameFence(ports.playback.getSnapshot().fence, host.fence) || entry.id !== host.fence.itemId) return null;
-        const key = `watch:${titleKey(entry)}`;
-        let controller = controllers.get(key);
-        if (!controller) controller = createTitleController(key, entry, true);
-        const owner = controller;
-        return <NativeTitleScreen {...ports.title} key={key} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
-          watch={{source, playback: ports.playback, width: pane.width}} back={() => {ports.navigation.back(ports.authority);}}
-          myList={ports.title.myList?.(entry)} download={ports.title.download} more={(member, anchorRef) => {
-            void menu(member, () => {
-              const state = owner.getSnapshot(), active = ports.playback.getSnapshot();
-              return !state.retired && !active.retired && active.dock.local?.expanded === true && !!active.entry && titleKey(active.entry) === titleKey(entry)
-                && (titleKey(state.entry) === titleKey(member) || state.episodes.some(value => titleKey(value) === titleKey(member))
-                || state.detail?.data?.related?.rows.some(row => row.entries.some(value => titleKey(value) === titleKey(member))) === true);
-            }, anchorRef).catch(ports.title.reportError);
-          }}/>;
-      },
+      body: (host: NativeWatchHostContext) => watchPage(host, host.layout.mode === 'book' ? 'episodes' : 'all'),
+      /** foldable3g: the book posture's left page keeps the title block and its
+       * actions; the right page carries the tabs and episodes. */
+      details: (host: NativeWatchHostContext) => watchPage(host, 'title'),
       /** collections 37/38: the season's episodes inside the player, beside the
        * picture. The picture is the persistent surface; choosing an episode starts
        * that episode through the one playback adapter. */
-      episodes: (host: NativeWatchHostContext) => {
-        const source = host.source, entry = source.entry;
-        if (!alive() || source.retired || host.fence.kind !== 'queue' || entry?.kind !== 'episode' || !entry.show?.id || !entry.libraryId) return null;
-        const show: ContentEntry = {id: entry.show.id, libraryId: entry.libraryId, kind: 'show', title: entry.show.name};
-        const key = `watch-episodes:${entry.show.id}`;
-        let controller = controllers.get(key);
-        if (!controller) controller = createTitleController(key, show, true);
-        return <NativeWatchEpisodes controller={controller} currentId={entry.id} playing={source.playback.intent === 'playing'} text={host.runtime.text}
-          artwork={host.runtime.artwork} onClose={host.closePanel}
-          onPlay={next => {
-            if (!next.playback) return;
-            const operation = new AbortController();
-            void ports.playback.start({entry: next, target: next.playback,
-              lifetime: {signal: operation.signal, isCurrent: () => alive() && ports.current() === ports.authority && host.fence.kind === 'queue'}}).catch(ports.title.reportError);
-          }}/>;
-      },
+      episodes: (host: NativeWatchHostContext) => episodeList(host, false),
+      /** foldable4/5: the episodes that follow, beside the tabletop's controls. */
+      upNext: (host: NativeWatchHostContext) => episodeList(host, true),
       /** Assembly calls this before its existing player/destination Back handling. */
       back: () => {const fence = ports.playback.getSnapshot().fence; if (!alive() || !fence) return false; const result = controls.back(fence); return result === 'panel' || result === 'controls';}}),
     controls,

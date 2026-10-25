@@ -58,6 +58,21 @@ test('tabletop4/5 keep picture above the horizontal hinge and all controls below
   }
 });
 
+test('foldable5 splits the wide tabletop into the controls column and the episodes that follow', () => {
+  const fold: PlayerFold = {orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, right: 880, top: 420, bottom: 420}};
+  const wide = resolvePlayerPresentation({...input(880, 840, [fold]), upNext: true})!;
+  assert.equal(wide.mode, 'tabletop');
+  assert.deepEqual(wide.controls, {x: 28, y: 436, width: 508, height: 370});
+  assert.deepEqual(wide.episodes, {x: 576, y: 440, width: 276, height: 234});
+  assert.equal(wide.hingeBand!.height, 32);
+  assert.deepEqual(wide.picture, letterboxPlayerPicture({x: 0, y: 0, width: 880, height: 404}));
+  const film = resolvePlayerPresentation({...input(880, 840, [fold]), upNext: false})!;
+  assert.equal(film.episodes, undefined, 'a film draws no episodes it does not have');
+  assert.deepEqual(film.controls, {x: 0, y: 436, width: 880, height: 404});
+  const narrow = resolvePlayerPresentation({...input(626, 890, [{orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, right: 626, top: 445, bottom: 445}}]), upNext: true})!;
+  assert.equal(narrow.episodes, undefined, 'the narrower tabletop keeps its one column');
+});
+
 test('full-window panels take the exact right page or tablet-play380pt beside the picture', () => {
   const duo = resolvePlayerPresentation({...input(890, 626, [vertical]), panelOpen: true})!;
   assert.deepEqual(duo.panel, {x: 445, y: 0, width: 445, height: 626});
