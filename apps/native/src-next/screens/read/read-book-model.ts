@@ -6,7 +6,7 @@ import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import {askNativeDownload} from '../downloads/request';
-import {nativeReadOrigin, openNativeRead, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
+import {nativeReadOrigin, openNativeRead, openNativeReadPeriodical, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
 
 export type NativeReadVersion = Awaited<ReturnType<ReadingClient['versions']>>['versions'][number];
 export type NativeReadBookState = Readonly<{
@@ -242,7 +242,12 @@ export class NativeReadBook {
     if (!/^[A-Za-z0-9_-]{43}$/.test(series.id)) return false;
     const ticket = {};
     this.command = ticket;
-    try {return await openNativeReadSeries(this.context, {libraryId: this.libraryId, seriesId: series.id}, origin, life.signal);}
+    try {
+      const periodical = this.item.publicationType?.value;
+      if (periodical === 'magazine' || periodical === 'newspaper')
+        return await openNativeReadPeriodical(this.context, {libraryId: this.libraryId, groupId: series.id, publicationType: periodical}, origin, life.signal);
+      return await openNativeReadSeries(this.context, {libraryId: this.libraryId, seriesId: series.id}, origin, life.signal);
+    }
     finally {if (this.command === ticket) this.command = undefined;}
   };
   dispose = (): void => {
