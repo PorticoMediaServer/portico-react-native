@@ -11,6 +11,17 @@ export type NativeSavedSnapshot = Readonly<{
   summary?: SavedLandingSummary;
 }>;
 
+/** Optional sections may be unavailable, but an identity refusal or rejected
+ * document is not a successful empty section. Keep the checked parser's error. */
+function requiredProducerFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const value = error as {status?: unknown; statusCode?: unknown; code?: unknown};
+  return value.status === 401 || value.status === 403 || value.statusCode === 401 || value.statusCode === 403
+    || value.code === 'unauthorized' || value.code === 'forbidden' || value.code === 'not_permitted'
+    || value.code === 'permission_changed' || value.code === 'session_revoked'
+    || value.code === 'invalid_saved' || value.code === 'invalid_pins';
+}
+
 /** The Saved hub reads bounded canonical projections. It never fetches an entire
  * library to count it, invents a count, or treats a server preparation as local bytes. */
 export class NativeSavedDestination {
@@ -59,9 +70,12 @@ export class NativeSavedDestination {
       readPinOrder(this.options.api, this.options.scope.serverId, controller.signal),
     ]).then(results => {
       if (!this.current() || revision !== this.revision || controller.signal.aborted) return;
-      // The drawn My List is the hub; its failure is the page's error. Missing counts or
-      // pins are absent sections, never a fake zero or a Home-shaped error over Saved.
-      const failure = this.myList.getSnapshot().error;
+      // My List failures remain page errors. Optional transport failures omit their
+      // section, while identity refusals and rejected documents remain real errors.
+      const rejected = results.find(result => result.status === 'rejected' && requiredProducerFailure(result.reason));
+      const failure = this.myList.getSnapshot().error
+        ?? (results[0].status === 'rejected' ? results[0].reason : undefined)
+        ?? (rejected?.status === 'rejected' ? rejected.reason : undefined);
       const summary = results[1].status === 'fulfilled' ? results[1].value : undefined;
       const pins = results[2].status === 'fulfilled' ? results[2].value.order : [];
       this.publish({phase: failure ? 'error' : 'ready', summary, pins, error: failure ?? undefined});
