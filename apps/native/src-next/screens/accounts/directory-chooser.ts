@@ -6,19 +6,20 @@ export type DirectorySubtitle = Readonly<{
   key: 'web.chooser.current' | 'web.chooser.lastSeen' | 'web.chooser.neverSeen' | 'web.servers.online';
   values?: Readonly<{date: string}>;
 }>;
-export type DirectoryRow = Readonly<{id: string; name: string; subtitle?: DirectorySubtitle; offline: boolean}>;
+export type DirectoryRow = Readonly<{id: string; name: string; owner?: true; subtitle?: DirectorySubtitle; offline: boolean}>;
 
 /** The phone directory's rows: online first, then last seen, then unknown. Offline rows
  * are dimmed but remain chooseable; a malformed or absent presence renders normally. */
 export function directoryRows(servers: readonly HostedServer[], currentId?: string, nowMs = Date.now()): readonly DirectoryRow[] {
   return sortServersByPresence(servers).map(server => {
-    if (currentId && server.id === currentId) return {id: server.id, name: server.name, subtitle: {key: 'web.chooser.current'}, offline: false};
+    const identity = {id: server.id, name: server.name, ...(server.ownedByMe === true && server.role === 'owner' ? {owner: true as const} : {})};
+    if (currentId && server.id === currentId) return {...identity, subtitle: {key: 'web.chooser.current'}, offline: false};
     const label = presenceLabel(server.presence, nowMs);
-    if (label.kind === 'online') return {id: server.id, name: server.name, subtitle: {key: 'web.servers.online'}, offline: false};
-    if (label.kind === 'lastSeen') return {id: server.id, name: server.name,
+    if (label.kind === 'online') return {...identity, subtitle: {key: 'web.servers.online'}, offline: false};
+    if (label.kind === 'lastSeen') return {...identity,
       subtitle: {key: 'web.chooser.lastSeen', values: {date: defaultI18n.date(label.lastSeenAt, 'dayMonth')}}, offline: true};
-    if (label.kind === 'neverSeen') return {id: server.id, name: server.name, subtitle: {key: 'web.chooser.neverSeen'}, offline: true};
-    return {id: server.id, name: server.name, offline: false};
+    if (label.kind === 'neverSeen') return {...identity, subtitle: {key: 'web.chooser.neverSeen'}, offline: true};
+    return {...identity, offline: false};
   });
 }
 

@@ -594,14 +594,15 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'servers') return layout(t('portico.landing.pickTitle'), servers.length ? t('accounts.session.portico') : t('web.hostedAccount.noServersBody'),
     <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{directoryRows(server && server.signIn === 'portico' ? servers.filter(value => value.id === server.id) : servers).map(row => {
       const value = servers.find(item => item.id === row.id)!;
-      return <Focusable key={row.id} focusTreatment="none" disabled={busy} accessibilityLabel={`${row.name}${row.subtitle ? `, ${t(row.subtitle.key, row.subtitle.values)}` : ''}`}
+      return <Focusable key={row.id} focusTreatment="none" disabled={busy} accessibilityLabel={`${row.name}${row.owner ? `, ${t('accounts.settings.owner')}` : ''}${row.subtitle ? `, ${t(row.subtitle.key, row.subtitle.values)}` : ''}`}
         onPress={() => connectDirectory(value)}
         style={({focused}) => ({flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5,
           borderColor: focused ? theme.colors.accentStrong : theme.colors.line, backgroundColor: focused ? `${theme.colors.text}14` : `${theme.colors.text}0A`,
           opacity: row.offline ? .55 : 1})}>
         <Icon name="i-server" size={22} color={theme.colors.textSecondary}/>
         <View style={{flex: 1, gap: 2}}>
-          <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{row.name}</Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{row.name}</Text>
+            {row.owner && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('accounts.settings.owner')}</Text>}</View>
           {row.subtitle && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(row.subtitle.key, row.subtitle.values)}</Text>}
         </View>
         <Icon name="i-right" size={20} color={theme.colors.textTertiary}/>
