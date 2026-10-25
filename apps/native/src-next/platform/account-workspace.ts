@@ -8,9 +8,10 @@ import {hostedUrl} from './account-authority';
 import {nativeNetworkFetch} from './server-connections';
 import type {NativeAccounts} from './accounts';
 
+type NotificationView = {epoch: number; cursors: (string | undefined)[]; index: number; next?: string};
 export type AccountWorkspacePage = 'menu' | 'security' | 'devices' | 'notifications';
 export type AccountWorkspaceSnapshot = Readonly<{page: AccountWorkspacePage; phase: 'idle' | 'loading' | 'ready' | 'failed' | 'ended';
-  failure?: string; sessionsNext?: boolean; sessionsPrevious?: boolean; security?: SecurityState; sessions?: readonly AccountSessionRow[]; notifications?: readonly AccountNotification[]}>;
+  failure?: string; notificationsNext?: boolean; notificationsPrevious?: boolean; sessionsNext?: boolean; sessionsPrevious?: boolean; security?: SecurityState; sessions?: readonly AccountSessionRow[]; notifications?: readonly AccountNotification[]}>;
 const changed = () => Object.assign(new Error('native_account_changed'), {code: 'account_changed'});
 
 /** Read-only account workspace. No server authority or credentials enter its snapshot. */
@@ -22,6 +23,7 @@ export class NativeAccountWorkspace {
   private readonly controller = new AbortController();
   private readonly listeners = new Set<() => void>();
   private readonly off: () => void;
+  private notificationView?: NotificationView;
   private sessionReview?: {epoch: number; service: AccountSessionReviewService};
   private epoch = 0;
   private state: AccountWorkspaceSnapshot = {page: 'menu', phase: 'idle'};
@@ -38,7 +40,7 @@ export class NativeAccountWorkspace {
   private publish(state: AccountWorkspaceSnapshot) {this.state = Object.freeze(state); this.listeners.forEach(listener => listener());}
   private end() {if (this.controller.signal.aborted) return; ++this.epoch; this.retireReads(); this.controller.abort(); this.publish({page: 'menu', phase: 'ended'});}
   dispose() {this.listeners.clear(); this.end(); this.off();}
-  private retireReads() {this.sessionReview?.service.dispose(); this.sessionReview = undefined; this.requests.forEach(request => request.abort()); this.requests.clear();}
+  private retireReads() {this.notificationView = undefined; this.sessionReview?.service.dispose(); this.sessionReview = undefined; this.requests.forEach(request => request.abort()); this.requests.clear();}
   menu() {this.assert(); ++this.epoch; this.retireReads(); this.publish({page: 'menu', phase: 'idle'});}
   private assertEpoch(epoch: number) {this.assert(); if (epoch !== this.epoch) throw changed();}
   private requestFor = (epoch: number) => async <T,>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => {
@@ -61,7 +63,10 @@ export class NativeAccountWorkspace {
       this.assertEpoch(epoch); const request = this.requestFor(epoch);
       let content: Pick<AccountWorkspaceSnapshot, 'security' | 'sessions' | 'notifications'>;
       if (page === 'security') content = {security: parseSecurityState(await request(routePath('account_security_get')), this.scope)};
-      else if (page === 'notifications') content = {notifications: (await new AccountNotificationsClient(request).page(undefined, this.controller.signal)).items};
+      else if (page === 'notifications') {
+        const view: NotificationView = {epoch, cursors: [undefined], index: 0}; this.notificationView = view;
+        await this.readNotifications(view, 0, undefined); return;
+      }
       else {
         const service = new AccountSessionReviewService({api: {request}, scope: this.scope});
         const review = {epoch, service}; this.sessionReview = review;
@@ -89,6 +94,25 @@ export class NativeAccountWorkspace {
       this.assertEpoch(epoch); if (this.sessionReview !== review) throw changed();
       this.publish(this.sessionState(review.service.getSnapshot()));
     } catch (error) {if (this.current() && epoch === this.epoch) this.publish({page: 'devices', phase: 'failed', failure: presentError(error, 'portico-account').body}); else if (!this.current()) this.end();}
+  }
+
+  private async readNotifications(view: NotificationView, index: number, cursor: string | undefined) {
+    this.assertEpoch(view.epoch); if (this.notificationView !== view) throw changed();
+    const value = await new AccountNotificationsClient(this.requestFor(view.epoch)).page(cursor, this.controller.signal);
+    this.assertEpoch(view.epoch); if (this.notificationView !== view) throw changed();
+    view.index = index; view.cursors = view.cursors.slice(0, index + 1); view.cursors[index] = cursor; view.next = value.nextCursor;
+    this.publish({page: 'notifications', phase: 'ready', notifications: value.items,
+      notificationsPrevious: index > 0, notificationsNext: !!value.nextCursor});
+  }
+  async pageNotifications(direction: 'next' | 'previous') {
+    this.assert(); const view = this.notificationView;
+    if (!view || this.state.page !== 'notifications' || this.state.phase !== 'ready') return;
+    if (direction === 'next' ? !view.next : view.index === 0) return;
+    const epoch = view.epoch, index = view.index + (direction === 'next' ? 1 : -1);
+    const cursor = direction === 'next' ? view.next : view.cursors[index];
+    this.assertEpoch(epoch); this.publish({page: 'notifications', phase: 'loading'});
+    try {this.assertEpoch(epoch); await this.readNotifications(view, index, cursor);}
+    catch (error) {if (this.current() && epoch === this.epoch) this.publish({page: 'notifications', phase: 'failed', failure: presentError(error, 'portico-account').body}); else if (!this.current()) this.end();}
   }
 
 }
