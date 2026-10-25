@@ -48,6 +48,7 @@ export class NativeServerSignIn {
   private publishing = false;
   private disposeRequested = false;
   private readonly issued = new Map<string, LocalSession>();
+  private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
   private hostedLease?: () => boolean;
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
@@ -130,6 +131,11 @@ export class NativeServerSignIn {
         || issued.serverIdentity?.publicKey !== pin.publicKey || issued.serverIdentity.fingerprint !== pin.fingerprint
         || retained.servers.some(value => value.connection.session.sessionFamilyId === issued.sessionFamilyId)
         || this.account?.sessionFamilyId === issued.sessionFamilyId) throw mismatch();
+      const nowStored = await nativeAppSessions.read();
+      if (nowStored.servers.some(value => value.connection.session.sessionFamilyId === issued.sessionFamilyId)) throw mismatch();
+      const routes = api.getRouteConnection();
+      if (!routes || routes.pin.serverId !== pin.serverId || routes.pin.publicKey !== pin.publicKey || routes.pin.fingerprint !== pin.fingerprint) throw mismatch();
+      this.setupIssuers.set(issued.sessionFamilyId, {origin: api.baseUrl, routes, pin: {...pin}});
       this.issued.set(issued.sessionFamilyId, issued);
       try {
         const completed = await store.read();
@@ -494,7 +500,7 @@ export class NativeServerSignIn {
     this.publishing = true;
     try {
     const previous = await this.owner.remember(this.api, session, this.admission, this.hosted, this.current);
-    this.issued.delete(session.sessionFamilyId); this.complete = true;
+    this.issued.delete(session.sessionFamilyId); this.setupIssuers.delete(session.sessionFamilyId); this.complete = true;
     const temporary = this.account; this.account = undefined;
     const cleanup = await Promise.allSettled([this.owner.retireReplacedServerSession(previous), temporary ? this.retire(temporary) : Promise.resolve()]);
     if (cleanup.some(value => value.status === 'rejected')) throw Object.assign(new Error('native_session_revocation_pending'), {code: 'session_revocation_pending'});
@@ -502,6 +508,20 @@ export class NativeServerSignIn {
   }
   private async retire(session: LocalSession) {
     if (!this.issued.delete(session.sessionFamilyId) || !this.api) return;
+    const setup = this.setupIssuers.get(session.sessionFamilyId);
+    this.setupIssuers.delete(session.sessionFamilyId);
+    if (setup) {
+      // Initialization/resume may replay the same grant to another operation.
+      // A failed turn owns no cleanup of a family another turn has retained.
+      const stored = await nativeAppSessions.read();
+      if (stored.servers.some(value => value.connection.session.sessionFamilyId === session.sessionFamilyId)
+        || setup.routes.pin.serverId !== setup.pin.serverId || setup.routes.pin.publicKey !== setup.pin.publicKey
+        || setup.routes.pin.fingerprint !== setup.pin.fingerprint
+        || session.viewer.serverId !== setup.pin.serverId || session.serverIdentity?.publicKey !== setup.pin.publicKey
+        || session.serverIdentity.fingerprint !== setup.pin.fingerprint) return;
+      const cleanup = new HttpLocalApi(setup.origin, session.accessToken, nativeNetworkFetch);
+      cleanup.useRoutes(setup.routes); await cleanup.logout(); return;
+    }
     const retired = new HttpLocalApi(this.api.baseUrl, session.accessToken, nativeNetworkFetch);
     const routes = this.api.getRouteConnection(); if (routes) retired.useRoutes(routes);
     await retired.logout();
