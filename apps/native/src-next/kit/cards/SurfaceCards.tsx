@@ -2,7 +2,7 @@ import React, {type ReactNode} from 'react';
 import {Text, View} from 'react-native';
 import type {ChannelMarkModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import {AmbientArt, Artwork, ChannelMark, CoverFan, CoverMosaic, MediaArt, type AmbientArtSource, type ArtworkPalette, type ArtworkSource, type CoverShape} from '../artwork/index';
+import {AmbientArt, Artwork, ChannelMark, CoverFan, CoverMosaic, GeneratedArt, MediaArt, type AmbientArtSource, type ArtworkPalette, type ArtworkSource, type CoverShape} from '../artwork/index';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
 import {CardOverlays} from './MediaCards';
@@ -111,13 +111,14 @@ export function GenreTile(props: GenreTileProps) {
   </CardFrame>;
 }
 
-export type LibraryCardProps = CardProps & ArtCollection & {shape: CoverShape; height?: number};
+export type LibraryCardProps = CardProps & ArtCollection & {shape: CoverShape; height?: number; /** Deliberate fallback glyph when a personal library has no logo or covers. */ glyph?: string};
 function Library({compact = false, ...props}: LibraryCardProps & {compact?: boolean}) {
   const t = useTheme(), width = props.width ?? (t.isTV ? 560 : 358), height = props.height ?? (compact ? t.isTV ? 120 : 108 : t.isTV ? 180 : 108);
   const fanWidth = t.isTV ? 190 : 112, fanHeight = t.isTV ? 140 : 80;
   return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={height} />}>
     {s => <ArtFrame height={height} radius={16} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected}>
-      <AmbientArt source={props.ambient} palette={props.palette} treatment="library" visible={props.visible} priority={props.priority} />
+      {props.ambient || props.covers.length ? <AmbientArt source={props.ambient} palette={props.palette} treatment="library" visible={props.visible} priority={props.priority} />
+        : <GeneratedArt glyph={props.glyph} palette={props.palette} width={width} height={height}/>}
       <View style={{position: 'absolute', left: 18, right: fanWidth + 36, top: 0, bottom: 0, justifyContent: 'center', gap: 4}}>
         <Text numberOfLines={1} style={[titleStyle(t, t.isTV ? 30 : 21, 800, -0.025), {color: props.selection?.selected ? t.colors.accentStrong : t.colors.text}]}>{props.title}</Text>
         <Parts parts={props.caption} style={{color: t.colors.textSecondary}} />

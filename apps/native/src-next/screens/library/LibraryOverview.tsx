@@ -37,6 +37,7 @@ export function NativeLibraryOverview({directory, runtime, activation, openLibra
         {state.libraries.map(library => <LibraryCard key={library.id} testID={`libraries-open-${encodeURIComponent(library.id)}`} focusId={`library:${library.id}`}
           title={library.name} width={Math.max(0, width - 32)} height={108} shape={library.kind === 'music' || library.kind === 'audiobook' ? 'square' : 'poster'}
           covers={library.summary.coverUrls.map(path => runtime.artwork(path)).filter((source): source is ArtworkSource => !!source)}
+          glyph={[...library.name][0]}
           ambient={library.summary.latestArtwork ? runtime.ambient(library.summary.latestArtwork) : undefined}
           caption={library.summary.counts.filter(part => pivots[part.kind]).map(part => ({id: part.kind, role: 'value' as const,
             text: defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}))}
