@@ -3,10 +3,10 @@ export const nativeTVKeyboardRows: readonly (readonly string[])[] = Object.freez
   'abcdef', 'ghijkl', 'mnopqr', 'stuvwx', 'yz1234', '567890',
 ].map(row => Object.freeze([...row])));
 export type NativeTVKeyboardKey = string | 'space' | 'delete' | 'clear';
-export function applyNativeTVKeyboardKey(value: string, key: NativeTVKeyboardKey): string {
+export function applyNativeTVKeyboardKey(value: string, key: NativeTVKeyboardKey, rows: readonly (readonly string[])[] = nativeTVKeyboardRows): string {
   if (key === 'clear') return '';
   if (key === 'delete') return [...value].slice(0, -1).join('');
   if (key === 'space') return value + ' ';
-  if (!nativeTVKeyboardRows.some(row => row.includes(key))) throw new Error('native_keyboard_key_not_drawn');
+  if (!rows.some(row => row.includes(key))) throw new Error('native_keyboard_key_not_drawn');
   return value + key;
 }
