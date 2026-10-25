@@ -10,6 +10,7 @@ import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
 import {when} from '../../../../../../packages/client-core/src/server-admin/console-words';
 import {Button} from '../../../kit/controls/Button';
+import {HeavyWorkControls} from './HeavyWorkControls';
 import {TextField} from '../../../kit/controls/TextField';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
@@ -76,6 +77,7 @@ export function NativeServerGeneral({ports, runtime}: {ports: NativeSettingsLive
       </View> : null}
       <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="glass" icon="i-refresh" loading={checking} onPress={loadUpdates}>{t('server.updates.check')}</Button></View>
       {maintenanceState.draft ? <>
+        <HeavyWorkControls form={forms.maintenance} state={maintenanceState} t={t}/>
         <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('metadata.settings.backgroundSpeed' as MessageId)}</Text>
         <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('settings.server.backgroundSpeedHelp')}</Text>
         <View style={{flexDirection: 'row', gap: 8, marginTop: 10}}>
