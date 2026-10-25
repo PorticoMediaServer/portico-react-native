@@ -49,6 +49,8 @@ export type NativeWatchMenuEntry = Readonly<{
   play?: () => Promise<void>;
   enqueue?: (placement: 'next' | 'end') => Promise<void>;
   addToPlaylist?: () => void;
+  /** music-plus (MC-9): the server builds a radio queue from this song, album or artist. */
+  startRadio?: () => Promise<void>;
   goToArtist?: () => void;
   mutate: (intent: PersonalIntent) => Promise<void>;
   details?: () => void;
@@ -218,6 +220,10 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       ...(primary ? {play: async () => {
         const operation = new AbortController();
         await ports.playback.start({entry, target: primary, lifetime: {signal: operation.signal, isCurrent: () => current(captured)}});
+      }} : {}),
+      ...(catalogue && ['song', 'album', 'artist'].includes(entry.kind) ? {startRadio: async () => {
+        const operation = new AbortController();
+        await catalogue.playSegments([{source: {container: {kind: 'radio', id: entry.id}}}], {signal: operation.signal, isCurrent: () => current(captured)});
       }} : {}),
       ...(catalogue && queued && !groupSession ? {enqueue: async (placement: 'next' | 'end') => {
         const operation = new AbortController();
