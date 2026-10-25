@@ -34,6 +34,8 @@ import type {ResetFileLocation} from '../../../../../packages/client-core/src/ac
 import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneNoServers} from './PhoneNoServers';
+import {PhoneAccountWorkspace} from './PhoneAccountWorkspace';
+import {NativeAccountWorkspace} from '../../platform/account-workspace';
 import {TVNoServers} from './TVNoServers';
 import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
 import {PhoneMovePassword} from './PhoneMovePassword';
@@ -44,7 +46,7 @@ import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
-export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move' | 'invitation-code' | 'invitation-local' | 'invitation-portico' | 'invitation-sign-out' | 'invitation-entry' | 'invitation-account';
+export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move' | 'invitation-code' | 'invitation-local' | 'invitation-portico' | 'invitation-sign-out' | 'invitation-entry' | 'invitation-account' | 'account-workspace';
 type MemberMove = Awaited<ReturnType<NativeServerSignIn['createMemberMove']>>;
 type MemberMoveSnapshot = ReturnType<MemberMove['getSnapshot']>;
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
@@ -115,12 +117,15 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
+  type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace};
+  const accountWorkspace = useRef<WorkspaceOpening | undefined>(undefined);
+  const retireAccountWorkspace = () => {const ticket = accountWorkspace.current; accountWorkspace.current = undefined; if (ticket) {ticket.active = false; ticket.source?.dispose();}};
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
   const acting = useRef(false), adoptingTV = useRef(false);
   useLayoutEffect(() => {
     lifetime.current = true;
     return () => {
-      lifetime.current = false; retireInvitationEntry(); if (invitationIntent.current) operation.current?.dispose(); const switching = invitationSwitch.current; retireInvitationSwitch();
+      lifetime.current = false; retireAccountWorkspace(); retireInvitationEntry(); if (invitationIntent.current) operation.current?.dispose(); const switching = invitationSwitch.current; retireInvitationSwitch();
       if (switching) account.current?.dispose();
       const ticket = invitationOpening.current;
       if (ticket) {
@@ -180,7 +185,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
@@ -198,6 +203,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       if (origin) {stageRef.current = 'address'; setStage('address'); void run(async () => {await inspect(origin);});} else reset(); return;
     }
     if (stage === 'invitation-account') {retireInvitationSwitch(); reset(); return;}
+    if (stage === 'account-workspace') {retireAccountWorkspace(); stageRef.current = 'servers'; setStage('servers'); void run(directory); return;}
     if (stage === 'invitation-sign-out') {
       const ticket = invitationSwitch.current; if (!ticket?.active) return;
       retireInvitationSwitch(); stageRef.current = 'address'; setStage('address');
@@ -546,6 +552,22 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     }}>{t('auth.forgotPassword')}</Button>}
       <Button variant="text" disabled={busy} onPress={() => {if (lifetime.current && stageRef.current === 'ended-sign-in') {setUsername(''); setPassword(''); reset(); onBack?.();}}}>{t('auth.useDifferentAccount')}</Button>
     </View>);
+  if (stage === 'account-workspace' && accountWorkspace.current?.source) {
+    const ticket = accountWorkspace.current;
+    const current = () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace';
+    const leave = (destination: 'servers' | 'address' | 'account-sign-out' | 'invitation-entry') => {
+      if (!current()) return; const live = nativeAccounts.accountCredentials().getSnapshot().session;
+      const valid = live?.account.id === ticket.scope.accountId && live.familyId === ticket.scope.familyId; retireAccountWorkspace();
+      if (!valid) {reset(); return;}
+      if (destination === 'invitation-entry') {openInvitationEntry(); return;}
+      setPassword(''); setCode(''); setError(undefined);
+      stageRef.current = destination; setStage(destination);
+      if (destination === 'servers') void run(directory);
+      if (destination === 'address') setAddress('');
+    };
+    return <PhoneAccountWorkspace source={ticket.source!} username={ticket.username}
+      onDone={() => leave('servers')} onJoin={() => leave('invitation-entry')} onFind={() => leave('address')} onSignOut={() => leave('account-sign-out')}/>;
+  }
   if (stage === 'welcome' && theme.isTV) return <TVFrontDoor busy={busy} error={status}
     onPortico={() => {void run(portico);}} onLocal={() => {if (!busy) setStage('address');}}/>;
   if (stage === 'welcome' && theme.platform === 'phone') return <PhoneFrontDoor busy={busy} error={status}
@@ -971,7 +993,18 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     const notice = singleTVFailure && capturedTarget
       ? {title: t('web.chooser.refusedTitle', {server: capturedTarget.name}), body: t('web.chooser.refusedBody')} : undefined;
     const EmptyDirectory = Platform.isTV ? TVNoServers : PhoneNoServers;
-    return <EmptyDirectory isCurrent={current} notice={notice} busy={busy} error={notice ? undefined : status} onBack={() => {if (current()) back();}}
+    return <EmptyDirectory {...(!Platform.isTV ? {username: nativeAccounts.accountCredentials().getSnapshot().session?.account.username,
+      onSettings: () => {
+        if (!current() || busyRef.current || !scope) return;
+        const session = nativeAccounts.accountCredentials().getSnapshot().session; if (!session) return;
+        cancelDirectory(); retireAccountWorkspace();
+        const ticket: WorkspaceOpening = {active: true, username: session.account.username, scope: {...scope}}; accountWorkspace.current = ticket;
+        stageRef.current = 'account-workspace';
+        try {ticket.source = new NativeAccountWorkspace(nativeAccounts, ticket.scope,
+          () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace');
+          setStage('account-workspace');
+        } catch (failure) {retireAccountWorkspace(); stageRef.current = 'servers'; setStage('servers'); setError(failure);}
+      }} : {})} isCurrent={current} notice={notice} busy={busy} error={notice ? undefined : status} onBack={() => {if (current()) back();}}
       onJoin={(raw, origin) => {
         if (!current() || busyRef.current || acting.current) return;
         const link = NativeServerSignIn.parseInvitationEntry(raw, origin);
