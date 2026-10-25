@@ -14,6 +14,7 @@ import {alpha, shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../../ports';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
+import {NativeBackupSchedule} from './BackupSchedule';
 import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './forms';
 
 type Translate = typeof defaultI18n.t;
@@ -45,6 +46,7 @@ function Limits({runtime, t, group}: {runtime: NativeShellRuntime; t: Translate;
   if (runtimeState.loadError !== undefined && !runtimeDraft) return <StateView {...runtime.error(runtimeState.loadError, () => {void forms.runtime.load();})}/>;
   return <View style={{marginTop: 14}} testID="server-storage-limits">
     <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('server.limitsAndRetention')}</Text>
+    {maintenanceDraft && <NativeBackupSchedule group={group} draft={maintenanceDraft} saving={state.saving} t={t}/>}
     {runtimeDraft ? <View style={{marginTop: 10}}>
       <Section title={t('server.limitsAndRetention')}/>
       <Group>
