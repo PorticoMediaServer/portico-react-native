@@ -45,7 +45,7 @@ export type RemoteFolderPage=Readonly<{sourceId:string;generation:string;path:st
 export type SourceLibraryUse=Readonly<{libraryId:string;name:string;kind:string;folders:number}>;
 /** A source's present state: the reads it holds now, when it was last checked,
  * and the libraries its folders went into. Nothing here is estimated. */
-export type RemoteSourceStatus=Readonly<{sourceId:string;generation:string;state:string;errorCode?:string;rangeSupport:string;lastCheckedAt:string;connectionsInUse:number;playbackReads:number;analysisReads:number;scanIntervalSeconds:number;libraries:readonly SourceLibraryUse[];librariesTruncated:boolean;program?:string;programVersion?:string;programRevision?:number;programIncluded?:boolean;remote?:string;backgroundSpeed?:string}>;
+export type RemoteSourceStatus=Readonly<{assignmentFenceSupported?:boolean;sourceId:string;generation:string;state:string;errorCode?:string;rangeSupport:string;lastCheckedAt:string;connectionsInUse:number;playbackReads:number;analysisReads:number;scanIntervalSeconds:number;libraries:readonly SourceLibraryUse[];librariesTruncated:boolean;program?:string;programVersion?:string;programRevision?:number;programIncluded?:boolean;remote?:string;backgroundSpeed?:string}>;
 /** The drawn Advanced page: how a source's folders are checked, the disk its
  * read cache may use, and which analysis stages run for files found through it. */
 export type SourceAdvanced=Readonly<{scanIntervalSeconds:number;watchForChanges:boolean;scanOnStart:boolean;fullRecheckDays:number;cacheBytes:number;cacheFloorBytes:number;seekPreviews:boolean;chapterImages:boolean;waveforms:boolean;loudness:boolean;checksums:boolean;introsMode:'off'|'inherit'|'sound'|'picture';doubleCheckFolders:boolean;dirCacheSeconds:number;readBufferBytes:number;connectTimeoutSeconds:number;idleTimeoutSeconds:number;retries:number;lowLevelRetries:number}>;
@@ -147,6 +147,27 @@ export function cloudTokenDraft(fields:CloudTokenFields):CloudTokenResult{
  const kind=fields.provider==='dropbox'?'dropbox':'onedrive';
  const config=['[portico]',`type = ${kind}`,`token = ${compact}`].join('\n')+'\n';
  return Object.freeze({ok:true,draft:Object.freeze({remote:`portico:${folder}`,config})});
+}
+
+/** The drawn OAuth-client Drive form: the owner's own client and the token the
+ * server-run sign-in answered. */
+export type DriveOAuthFields=Readonly<{clientId:string;clientSecret:string;token:string;location:'folder'|'drive';locationId:string}>;
+export type DriveOAuthDraft=Readonly<{remote:string;config:string}>;
+export type DriveOAuthDraftResult=Readonly<{ok:true;draft:DriveOAuthDraft}|{ok:false;reason:'client'|'token'|'location'}>;
+export function driveOAuthDraft(fields:DriveOAuthFields):DriveOAuthDraftResult{
+ const clientId=fields.clientId.trim();
+ if(!text(clientId,512)||clientId.length<8)return Object.freeze({ok:false,reason:'client'});
+ if(!text(fields.clientSecret,2048)||fields.clientSecret.length<8)return Object.freeze({ok:false,reason:'client'});
+ let parsed:unknown;
+ try{parsed=JSON.parse(fields.token);}catch{return Object.freeze({ok:false,reason:'token'});}
+ if(!record(parsed)||!text(parsed.access_token,8192)||!parsed.access_token||!text(parsed.refresh_token,8192)||!parsed.refresh_token)return Object.freeze({ok:false,reason:'token'});
+ const compact=JSON.stringify(parsed);
+ if(compact.length>16_384||/[\r\n]/.test(compact))return Object.freeze({ok:false,reason:'token'});
+ const locationId=fields.locationId.trim();
+ if(!driveLocationId.test(locationId))return Object.freeze({ok:false,reason:'location'});
+ const target=fields.location==='drive'?`team_drive = ${locationId}`:`root_folder_id = ${locationId}`;
+ const config=['[portico]','type = drive','scope = drive.readonly',`client_id = ${clientId}`,`client_secret = ${fields.clientSecret}`,`token = ${compact}`,target].join('\n')+'\n';
+ return Object.freeze({ok:true,draft:Object.freeze({remote:'portico:',config})});
 }
 
 /** The four drawn choices, exactly the server's own SourceReadPreset values. */
@@ -388,8 +409,13 @@ export class RemoteSourceService{
  }
  async driveOAuthPaste(state:string,redirectUrl:string,guard?:()=>boolean):Promise<DriveOAuthStatus>{
   if(!this.live()||(guard&&!guard())||!text(state,128)||!state||!text(redirectUrl,8192)||!redirectUrl.trim())throw new Error('Invalid sign-in address.');
-  await this.request('/v1/storage/sources/rclone/drive/oauth/paste','POST',{state,redirectUrl:redirectUrl.trim()},guard);
-  return await this.driveOAuthStatus(state,guard);
+  // This only records the address's code; the single status owner exchanges it.
+  const epoch=this.epoch;
+  const raw=await this.request('/v1/storage/sources/rclone/drive/oauth/paste','POST',{state,redirectUrl:redirectUrl.trim()},guard);
+  if(!this.live()||(guard&&!guard())||epoch!==this.epoch)throw new Error('Scope changed.');
+  this.fence(raw);
+  if(!record(raw)||typeof raw.phase!=='string'||!['pending','ready','expired','denied'].includes(raw.phase))invalid();
+  return Object.freeze({phase:raw.phase as DriveOAuthPhase,token:''});
  }
  async driveOAuthCancel(state:string):Promise<void>{
   if(!this.live()||!text(state,128)||!state)return;
@@ -706,7 +732,7 @@ async networkPolicy(libraryId:string):Promise<NetworkPolicy>{const epoch=this.ep
   if(!this.live()||(guard&&!guard())||epoch!==this.epoch)throw new Error('Scope changed.');
   this.fence(raw);
   if(!record(raw)||!record(raw.status))invalid();
-  return remoteSourceStatus(raw.status,id);
+  return Object.freeze({...remoteSourceStatus(raw.status,id),assignmentFenceSupported:raw.assignmentFenceSupported===true});
  }
 }
 export type SourceAvailability='ready'|'unavailable'|'changed'|'unsupported'|'resolve_on_play';
