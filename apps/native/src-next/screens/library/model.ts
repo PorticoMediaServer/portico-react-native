@@ -1,6 +1,6 @@
 import type {Library} from '../../../../../packages/client-core/src';
 import type {SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
-import {BrowseQueryBuilder, BrowseTotalsMemory, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
+import {BrowseQueryBuilder, BrowseTotalsMemory, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection, type BrowseWholeSelection} from '../../../../../packages/client-core/src/browse';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
@@ -24,6 +24,8 @@ export type NativeLibrarySnapshot = Readonly<{
   queryRevision: number;
   /** The actual opaque Browse page token, absent until the current query arrives. */
   revision?: string;
+  /** The server's exact whole-view aggregate, present only on a replayable view's first page. */
+  wholeSelection?: BrowseWholeSelection;
   unfilteredTotal?: BrowseRememberedTotal;
   sort?: BrowseSortSelection;
   defaultSort?: BrowseSortSelection;
@@ -115,7 +117,7 @@ export class NativeLibraryDestination {
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     this.entries = new WeakSet();
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
-    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, unfilteredTotal: undefined, error: undefined,
+    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
       if (tab.shows === 'rows') {
@@ -166,6 +168,11 @@ export class NativeLibraryDestination {
         throw error;
       }
       revision ??= result.pageInfo.revision;
+      // Only the first page of a replayable view carries the aggregate; later pages
+      // never clear or restate it, and another query's descriptor is not adopted here.
+      if (start === 0 && result.wholeSelection?.libraryId === this.options.library.id && this.state.tab === tab
+        && this.state.predicates === predicates && this.state.sort === sort && this.state.wholeSelection !== result.wholeSelection)
+        this.publish({wholeSelection: result.wholeSelection});
       result.entries.forEach(entry => this.entries.add(entry));
       if (this.state.tab === tab && this.state.predicates === predicates && this.state.revision !== revision) this.publish({revision});
       const base = tab.fixedFilter ?? [];
@@ -182,7 +189,7 @@ export class NativeLibraryDestination {
     this.retireFilters(keep);
     const next = Object.freeze([...predicates]);
     this.entries = new WeakSet();
-    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
+    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, wholeSelection: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
     collection.invalidate(this.pages(capabilities, tab, next, sort));
   };
   setQuick = (id: string, enabled: boolean): void => {
@@ -232,7 +239,7 @@ export class NativeLibraryDestination {
     this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose(); this.totals.clear();
     this.entries = new WeakSet();
     this.memory = {firstVisibleIndex: 0, offset: 0};
-    this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, revision: undefined,
+    this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, revision: undefined, wholeSelection: undefined,
       discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, unfilteredTotal: undefined, error: undefined});
     this.listeners.clear();
   };

@@ -1,4 +1,6 @@
 import {BrowseSelectionModel, browseSelectionKey, playCatalogueSelection, readCatalogueSelectionItem, type BrowseSelectionContext, type SelectionItem, type SelectionOperation} from '../../../../../packages/client-core/src/selection-model';
+import {playCatalogueQuerySelection} from '../../../../../packages/client-core/src/catalogue-query-selection';
+import {browseWholeSelectionQuery} from '../../../../../packages/client-core/src/browse-whole-selection';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeDestinationActivation} from '../../shell/routes';
@@ -10,8 +12,9 @@ const cancelled = () => Object.assign(new Error('native_library_selection_retire
 const unavailable = () => Object.assign(new Error('native_library_selection_unavailable'), {code: 'unavailable'});
 
 /** One captured applied Browse query, not a Home context. Recreate after a
- * query/token change. Only leaf Play is installed: other grants/executors and
- * whole-query expansion are deliberately absent from this binding. */
+ * query/token change. Leaves carry the grants the library really executes, and a
+ * whole-view selection is bound to the server's own aggregate on this same
+ * captured ticket; only Play and Queue have query executors. */
 export function createNativeLibraryPlaySelection(context: NativeShellBootstrapContext, source: NativeLibraryDestination) {
   const lifetime = nativeDestinationLifetime(context), opening = source.getSnapshot(), viewer = context.session()!.viewer;
   if (opening.phase !== 'ready' || !opening.revision || !opening.collection || !opening.sort) throw unavailable();
@@ -26,6 +29,9 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
   const model = new BrowseSelectionModel(captured), player = context.playback.runtime.cataloguePlayback();
   const common = nativeScreenServices(context), activation = nativeDestinationActivation(context.navigation, {kind: 'library', libraryId: opening.library.id});
   const collection = opening.collection, cleanups: (() => void)[] = [];
+  // One registered whole-view descriptor per producer and captured ticket; it is
+  // released with this producer and never carried to another view.
+  let whole: Readonly<{id: string; total: number}> | undefined, releaseWhole: (() => void) | undefined;
   const windows = new Map<string, () => void>();
   const operations = new Map<AbortController, SelectionOperation<BrowseSelectionContext>>();
   let disposed = false, reading: AbortController | undefined;
@@ -37,7 +43,7 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
   const abortPending = () => {reading?.abort(); reading = undefined; for (const controller of operations.keys()) controller.abort();};
   const dispose = () => {
     if (disposed) return;
-    disposed = true; abortPending(); cleanups.splice(0).forEach(stop => stop());
+    disposed = true; abortPending(); releaseWhole?.(); releaseWhole = undefined; whole = undefined; cleanups.splice(0).forEach(stop => stop());
     for (const stop of [...windows.values()]) stop();
     windows.clear(); model.dispose();
   };
@@ -82,7 +88,17 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
           }
         }));
         if (!live()) throw cancelled();
-        const result = model.registerWindow(ticket, {id, sectionId: 'library-browse', sectionOrder: 0, start, items});
+        // Only the server's exact aggregate can describe the whole view; it is
+        // registered on this same ticket so the windows below bind to real membership.
+        const snapshot = source.getSnapshot(), descriptor = snapshot.wholeSelection;
+        if (!whole && descriptor && descriptor.libraryId === snapshot.library.id) {
+          const query = browseWholeSelectionQuery(descriptor);
+          if (query) {
+            const registration = model.registerQuery(ticket, query);
+            if (registration.ok) {releaseWhole = registration.unregister; whole = Object.freeze({id: query.id, total: query.total});}
+          }
+        }
+        const result = model.registerWindow(ticket, {id, sectionId: 'library-browse', sectionOrder: 0, start, items, ...(whole ? {queryId: whole.id} : {})});
         if (!result.ok) throw cancelled();
         unregister = result.unregister; registered = true;
         // Once registered, native page eviction unregisters its window while
@@ -107,15 +123,22 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
       } catch (error) {cleanup(); throw error;}
       finally {if (reading === controller) reading = undefined; if (!registered) cleanup();}
     },
+    /** Select all N only from the validated aggregate, never from a loaded window. */
+    selectWhole: (id: string): boolean => current() && whole?.id === id ? model.selectWholeQuery(id).ok : false,
+    whole: () => whole,
     play: async () => {
       if (!current() || !activation.getSnapshot().visible) throw cancelled();
       const operation = model.captureOperation();
-      if (!operation || operation.target.mode !== 'explicit') throw unavailable();
+      // Both targets are lawful here: the explicit path plays its own leaves and the
+      // query path validates its descriptor through the canonical executor.
+      if (!operation) throw unavailable();
       const controller = new AbortController(), revision = context.navigation.getSnapshot().revision;
       const isCurrent = () => !controller.signal.aborted && current() && activation.getSnapshot().visible
         && context.navigation.getSnapshot().revision === revision && model.isOperationCurrent(operation);
       operations.set(controller, operation);
-      try {return await playCatalogueSelection(player, operation.target.displayItems.map(value => value.item), {signal: controller.signal, isCurrent});}
+      try {return operation.target.mode === 'query'
+        ? await playCatalogueQuerySelection(player, operation.target, {signal: controller.signal, isCurrent})
+        : await playCatalogueSelection(player, operation.target.displayItems.map(value => value.item), {signal: controller.signal, isCurrent});}
       finally {operations.delete(controller);}
     },
     dispose,

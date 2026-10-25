@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import {enqueueCatalogueQuerySelection} from '../../../../../packages/client-core/src/catalogue-query-selection';
 import {createCataloguePersonalSelection, enqueueCatalogueSelection, selectionFourthAction,
   type BrowseSelectionContext, type SelectionSnapshot} from '../../../../../packages/client-core/src/selection-model';
 import {mediaSelectionKey} from '../../../../../packages/client-core/src/media-selection';
@@ -166,7 +167,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     // A retained menu acts on the selection it was drawn for, never on a successor.
     if (view !== snapshot()) return;
     const current = producer, op = current?.model.captureOperation();
-    if (!current || !op || op.target.mode !== 'explicit' || !visible() || pending || destinations || personal?.service.getSnapshot().busy) return;
+    if (!current || !op || !visible() || pending || destinations || personal?.service.getSnapshot().busy) return;
     const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current && current.model.isOperationCurrent(op);
     pending = controller; emit();
     try {
@@ -174,7 +175,9 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
       else {
         const port = context.playback.cataloguePlayback?.();
         if (!port || !queueControl()) throw Object.assign(new Error('native_library_queue_unavailable'), {code: 'unavailable'});
-        await enqueueCatalogueSelection(port, op.target.items.map(value => value.item), action === 'playNext' ? 'next' : 'end', {signal: controller.signal, isCurrent: live});
+        await (op.target.mode === 'query'
+          ? enqueueCatalogueQuerySelection(port, op.target, action === 'playNext' ? 'next' : 'end', {signal: controller.signal, isCurrent: live})
+          : enqueueCatalogueSelection(port, op.target.items.map(value => value.item), action === 'playNext' ? 'next' : 'end', {signal: controller.signal, isCurrent: live}));
       }
       if (live()) clear();
     } catch (error) {if (visible()) services.reportError(error, 'library');}
@@ -256,6 +259,15 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     // An open bulk dialog owns the current operation: the bar must not offer another.
     busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy || !!bulk, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal,
     destination: () => destinations, destinationKind: () => destinationKind, openDestination, closeDestinations,
+    // Only an active captured view with a validated descriptor can offer Select all.
+    whole: () => snapshot()?.active && visible() ? producer?.whole() : undefined,
+    /** The bar's own view and descriptor id: a retained menu never selects a successor. */
+    selectWhole: (view: SelectionSnapshot<BrowseSelectionContext>, id: string) => {
+      if (!producer || view !== snapshot() || producer.whole()?.id !== id || !visible() || pending || destinations
+        || personalController || !!personal?.service.getSnapshot().results.length || personal?.service.getSnapshot().busy
+        || !!bulk) return;
+      if (producer.selectWhole(id)) emit();
+    },
     bulk: () => bulk, openAdmin, closeBulk, entries: () => entriesFor(selectedKeys()).filter(leaf)};
   // useSyncExternalStore compares snapshots by identity: one layout object per
   // revision, never a fresh object on every read.
@@ -309,6 +321,8 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; active(): boolean; queueControl(): boolean; clear(): void;
   execute(action: 'play' | 'playNext' | 'playLater', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>;
+  whole(): Readonly<{id: string; total: number}> | undefined;
+  selectWhole(view: SelectionSnapshot<BrowseSelectionContext>, id: string): void;
   destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
   openDestination(kind: 'playlist' | 'collection', view: SelectionSnapshot<BrowseSelectionContext>): void; closeDestinations(expected?: NativeLoadedDestinations): void;
   bulk(): NativeBulkMedia | undefined; openAdmin(kind: 'edit' | 'delete', view: SelectionSnapshot<BrowseSelectionContext>): void; closeBulk(expected?: NativeBulkMedia): void;
@@ -323,17 +337,20 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (!store.active()) return null;
   const summary = state?.summary;
   const actions: SelectionActionOffer[] = [];
+  // A whole view has query executors for Play and Queue only; every other control
+  // would be a stub, so it is not drawn at all.
+  const explicit = state?.target?.mode !== 'query';
   if (summary?.every.play) actions.push({id: 'play', disabled: store.busy()});
   if (summary?.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
-  if (summary?.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
-  if (summary?.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
-  if (summary?.every.playlist) actions.push({id: 'playlist', disabled: store.busy()});
-  if (summary?.every.collection) actions.push({id: 'collection', disabled: store.busy()});
-  if (summary?.every.edit) actions.push({id: 'edit', disabled: store.busy()});
-  if (summary?.every.delete) actions.push({id: 'delete', disabled: store.busy()});
-  if (summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
-  if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
-  const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind();
+  if (explicit && summary?.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
+  if (explicit && summary?.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
+  if (explicit && summary?.every.playlist) actions.push({id: 'playlist', disabled: store.busy()});
+  if (explicit && summary?.every.collection) actions.push({id: 'collection', disabled: store.busy()});
+  if (explicit && summary?.every.edit) actions.push({id: 'edit', disabled: store.busy()});
+  if (explicit && summary?.every.delete) actions.push({id: 'delete', disabled: store.busy()});
+  if (explicit && summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
+  if (explicit && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole();
   const bulk = store.bulk(), bulkState = bulk?.getSnapshot();
   const bulkSummary: readonly {id: string; text: string}[] = bulkState ? Object.entries(bulkState.changes).flatMap(([field, change]) => {
     const spec = bulkState.preview?.schema.find(candidate => candidate.field === field);
@@ -346,6 +363,7 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   }) : [];
   const props: SelectionBarProps = {count: summary?.count ?? 0, selectionLabel: summary ? selectedItemsLabel(summary) : undefined,
     onCancel: () => {setMenu(null); store.clear();}, actions, menu, onMenuChange: setMenu,
+    ...(whole ? {selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: whole.total}), onSelectAll: () => store.selectWhole(state!, whole.id)} : {}),
     fourthSlot: summary && selectionFourthAction(summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {
       if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action, state!);}
