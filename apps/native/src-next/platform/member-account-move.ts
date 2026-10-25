@@ -23,8 +23,9 @@ export type NativeMemberMovePorts<Result> = Readonly<{
   /** Closed over the original issuing API/pin. Never a selected/default API. */
   retireLateGrant: (fresh: LocalSession) => Promise<void>;
   /** The SAME operation's normal DirectSignIn/challenge/profile handling. */
-  adopt: (result: DirectSignIn) => Promise<Result>;
+  adopt: (result: DirectSignIn) => Promise<Readonly<{result: Result; isCurrent: () => boolean}>>;
   captureHosted: () => Promise<NativeMoveHostedCapture>;
+  release: () => void;
 }>;
 
 export type NativeMemberMoveSnapshot<Result> = Readonly<{
@@ -143,7 +144,8 @@ export class NativeMemberAccountMove<Result> {
       const adopted = await this.ports.adopt(result);
       // Once handed off, only that normal operation owns grant cleanup. Do
       // not revoke an adopted profile/account family if the page retires.
-      if (this.current(epoch, hosted)) this.publish({phase: 'adopted', result: adopted});
+      if (!this.disposed && epoch === this.epoch && !this.ports.signal.aborted
+        && (!hosted || hosted.isCurrent()) && adopted.isCurrent()) this.publish({phase: 'adopted', result: adopted.result});
     } catch (error) {
       if (!handedOff && result.kind === 'signed-in') await this.retireFresh(result.session);
       throw error;
@@ -187,6 +189,6 @@ export class NativeMemberAccountMove<Result> {
   };
   dispose = () => {
     if (this.disposed) return;
-    this.cancel(); this.disposed = true; this.ports.signal.removeEventListener('abort', this.dispose); this.listeners.clear();
+    this.cancel(); this.disposed = true; this.ports.signal.removeEventListener('abort', this.dispose); this.ports.release(); this.listeners.clear();
   };
 }

@@ -1,7 +1,7 @@
 import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
-import {ServerSignInProbe, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
+import {ServerSignInProbe, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
-import {connectHostedServer, connectPairedServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
+import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
 import {porticoSignIn} from '../../../../packages/client-core/src/portico-servers';
 import {routePath} from '../../../../packages/contracts/src/routes';
@@ -12,7 +12,8 @@ import {nativeAccounts, type NativeAccounts} from './accounts';
 import {hostedUrl} from './account-authority';
 import {nativeNetworkFetch, nativeServerEnvironment, nativeHostedSource, nativeRouteCrypto} from './server-connections';
 import {rememberNativeServerDisplay} from './server-display';
-import {nativeAppSessions} from './app-session-storage';
+import {nativeAppSessions, subscribeNativeAppSessions} from './app-session-storage';
+import {NativeMemberAccountMove} from './member-account-move';
 import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
@@ -44,6 +45,7 @@ export class NativeServerSignIn {
   private disposeRequested = false;
   private readonly issued = new Map<string, LocalSession>();
   private readonly requiredSetupHandoff: boolean;
+  private memberMove?: {dispose: () => void};
   constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean} = {}) {
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
@@ -188,6 +190,125 @@ export class NativeServerSignIn {
         profileId, {pin, installationId: this.installation?.installationId}, this.controller.signal);
       this.issued.set(result.session.sessionFamilyId, result.session);
       try {await this.persist(result.session);} catch (error) {await this.retire(result.session); throw error;}
+    });
+  }
+  /** Explicit Waiting-member entry. The chosen server is proven before any
+   * password/code is sent. Ordinary Local/Portico sign-in remains unchanged. */
+  createMemberMove(initial: 'password' | 'code') {
+    return this.run(async () => {
+      this.memberMove?.dispose(); this.memberMove = undefined;
+      const descriptor = this.server, origin = this.probe.getSnapshot().origin;
+      if (!descriptor || !origin || descriptor.move === null || this.account || this.challenge
+        || initial === 'password' && descriptor.move !== 'to_portico') throw mismatch();
+      const before = await nativeAppSessions.read(); this.assertCurrent();
+      if (!this.api) {
+        const pin = await inspectDirectServer(origin, nativeServerEnvironment(descriptor.id), this.controller.signal); this.assertCurrent();
+        if (pin.serverId !== descriptor.id) throw mismatch();
+        assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(before)});
+        const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(descriptor.id), this.controller.signal);
+        if (!this.current()) {connected.connection.dispose(); throw cancelled();}
+        this.api = connected.api;
+      }
+      const api = this.api, route = api.getRouteConnection(), pin = route?.pin;
+      if (!route || !pin || pin.serverId !== descriptor.id) throw mismatch();
+      const server = parseServerSignIn(await api.request(routePath('get_system'), 'GET', undefined, this.controller.signal)); this.assertCurrent();
+      if (server.id !== descriptor.id || server.signIn !== descriptor.signIn || server.move !== descriptor.move) throw mismatch();
+      this.server = server;
+      const now = await nativeAppSessions.read(); this.assertCurrent();
+      if (now.revision !== before.revision) throw cancelled();
+      const retained = before.servers.find(value => value.connection.pin.serverId === before.selectedServerId);
+      const originalAccount = this.account;
+      let preCurrent = true;
+      const off = subscribeNativeAppSessions(() => {preCurrent = false;});
+      this.controller.signal.addEventListener('abort', off, {once: true});
+      const samePin = () => {
+        const live = api.getRouteConnection()?.pin;
+        return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;
+      };
+      const isCurrent = () => preCurrent && this.current() && this.api === api && this.server === server && this.account === originalAccount && samePin();
+      const assertCurrent = async () => {
+        if (!isCurrent()) throw cancelled();
+        const state = await nativeAppSessions.read();
+        if (!isCurrent() || state.revision !== before.revision) throw cancelled();
+      };
+      if (server.signIn === 'local') {
+        this.admission = await this.owner.admission('local'); await assertCurrent();
+      }
+      const retireCaptured = async (fresh: LocalSession) => {
+        if (fresh.viewer.serverId !== pin.serverId || fresh.installationId !== this.installation!.installationId
+          || fresh.sessionFamilyId === retained?.connection.session.sessionFamilyId || fresh.sessionFamilyId === this.account?.sessionFamilyId) return;
+        // Cancellation may already have disposed the operation route. Re-prove
+        // only the ORIGINAL issuing origin/pin, never a selected/default route.
+        const cleanup = new AbortController(), timeout = setTimeout(() => cleanup.abort(), 15000);
+        let connection: Awaited<ReturnType<typeof connectPairedServer>> | undefined;
+        try {
+          connection = await connectPairedServer(origin, pin, nativeServerEnvironment(pin.serverId), cleanup.signal);
+          connection.api.setAccessToken(fresh.accessToken); await connection.api.logout();
+        } finally {clearTimeout(timeout); connection?.connection.dispose();}
+      };
+      const move = new NativeMemberAccountMove({api, server, pin, crypto: nativeRouteCrypto,
+        installationId: this.installation!.installationId, signal: this.controller.signal, isCurrent, assertCurrent,
+        retainedAppFamilyId: retained?.connection.session.sessionFamilyId, operationAccountFamilyId: () => this.account?.sessionFamilyId,
+        retireLateGrant: retireCaptured,
+        release: () => {off(); this.controller.signal.removeEventListener('abort', off);},
+        captureHosted: async () => {
+          await assertCurrent();
+          const credentials = this.owner.accountCredentials();
+          await credentials.synchronize(); await assertCurrent();
+          const captured = credentials.getSnapshot().session;
+          if (!captured) throw cancelled();
+          const accountId = captured.account.id, familyId = captured.familyId;
+          const hostedCurrent = () => {
+            const live = credentials.getSnapshot().session;
+            return !!live && live.account.id === accountId && live.familyId === familyId;
+          };
+          const account = await credentials.accessSession(); await assertCurrent();
+          if (!hostedCurrent() || account.account.id !== accountId || account.familyId !== familyId) throw cancelled();
+          this.admission = await this.owner.admission('portico', {origin: hostedUrl, accountId}); await assertCurrent();
+          if (!hostedCurrent()) throw cancelled();
+          const paired = await connectPairedPorticoServer(origin, pin, nativeHostedSource(hostedUrl, credentials, accountId), nativeServerEnvironment(server.id), this.controller.signal);
+          try {await assertCurrent(); if (!hostedCurrent()) throw cancelled(); this.hosted = paired.hosted;}
+          finally {paired.connection.dispose();}
+          return {api: new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch), origin: hostedUrl, accountId, familyId,
+            isCurrent: hostedCurrent, assertCurrent: async () => {if (!hostedCurrent()) throw cancelled(); await assertCurrent(); if (!hostedCurrent()) throw cancelled();}};
+        },
+        adopt: async result => {
+          let handedToConsume = false;
+          let accepted: Awaited<ReturnType<NativeServerSignIn['consume']>>;
+          try {
+            await assertCurrent();
+            accepted = await this.run(() => {handedToConsume = true; return this.consume(result);});
+          } catch (error) {
+            if (!handedToConsume && result.kind === 'signed-in') await retireCaptured(result.session);
+            throw error;
+          }
+          // Normal consume owns cleanup from here, including profile/challenge
+          // continuations. Its successful writes intentionally retire preCurrent.
+          off(); this.controller.signal.removeEventListener('abort', off);
+          const acceptedAccount = this.account, acceptedSnapshot = this.snapshot, acceptedChallenge = this.challenge;
+          let lease = this.current() && this.api === api && this.server === server && samePin();
+          const release = subscribeNativeAppSessions(() => {lease = false;});
+          this.controller.signal.addEventListener('abort', release, {once: true});
+          const state = await nativeAppSessions.read();
+          if (accepted.kind === 'complete' && result.kind === 'signed-in') {
+            const selected = state.servers.find(value => value.connection.pin.serverId === state.selectedServerId);
+            const actual = selected?.connection;
+            lease = lease && !!actual && actual.session.sessionFamilyId === result.session.sessionFamilyId
+              && actual.pin.serverId === pin.serverId && actual.pin.publicKey === pin.publicKey && actual.pin.fingerprint === pin.fingerprint
+              && (['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).every(key => actual.session.viewer[key] === result.session.viewer[key]);
+          } else {
+            lease = lease && state.revision === before.revision;
+            if (accepted.kind === 'profiles' && result.kind === 'signed-in')
+              lease = lease && acceptedAccount === result.session && acceptedSnapshot === result.snapshot;
+          }
+          // Store notifications invalidate this exact revision's lease; no
+          // selected/default getter may broaden it after normal adoption.
+          return {result: accepted, isCurrent: () => lease && this.current() && this.api === api
+            && this.server === server && this.account === acceptedAccount && this.snapshot === acceptedSnapshot && this.challenge === acceptedChallenge && samePin()};
+        },
+      }, initial);
+      this.memberMove = move;
+      return move;
     });
   }
   /** Auth18 on the sign-in picker. The same account-scoped sign-in that opened the
