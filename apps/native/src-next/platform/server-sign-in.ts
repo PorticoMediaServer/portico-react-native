@@ -19,6 +19,8 @@ import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type P
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
+import {startAppSetup, initializeServer, completeServerSetupDraft} from '../../../../packages/client-core/src/setup-onboarding';
+import {nativeSetupDraft} from './setup-draft';
 import type {HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
@@ -88,8 +90,58 @@ export class NativeServerSignIn {
         this.pendingIdentity = captured; return undefined;
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
-      if (!server || server.setupRequired) throw mismatch();
       this.server = server; return server;
+    });
+  }
+  /** Setup is admitted only after the same explicit first-contact proof as sign-in. */
+  prepareSetup() {
+    return this.run(async () => {
+      const server = this.server, origin = this.probe.getSnapshot().origin;
+      if (!server?.setupRequired || !origin || this.api) throw mismatch();
+      const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
+      if (pin.serverId !== server.id) throw mismatch();
+      assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
+      this.admission = await this.owner.admission('local'); this.assertCurrent();
+      const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
+      this.api = connected.api; this.assertCurrent();
+      const checked = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: server.signIn,
+        signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
+      if (!checked.setupRequired) throw mismatch();
+      this.server = checked; return checked;
+    });
+  }
+  setupLocal(name: string, username: string, password: string) {
+    return this.run(async () => {
+      const api = this.api, server = this.server;
+      if (!api || !server?.setupRequired || !this.admission) throw mismatch();
+      const store = nativeSetupDraft(server.id);
+      const saved = await store.read(); this.assertCurrent();
+      if (saved && saved.authMode !== 'local') throw mismatch();
+      const token = saved?.setupToken ?? (await startAppSetup(api, this.controller.signal)).setupToken; this.assertCurrent();
+      const retained = await nativeAppSessions.read(); this.assertCurrent();
+      const issued = await initializeServer(api, store, {setupToken: token, name: name.trim(), username: username.trim(), password,
+        authMode: 'local', interactive: true}, this.controller.signal);
+      // Pending Hosted claims are never sessions. Retain a fresh local grant for
+      // cancellation cleanup before any asynchronous snapshot or publication.
+      if ('claimRequired' in issued) throw mismatch();
+      const pin = api.getRouteConnection()?.pin;
+      if (!pin || issued.viewer.authority !== 'local' || issued.viewer.serverId !== server.id
+        || issued.installationId !== this.installation?.installationId
+        || issued.serverIdentity?.publicKey !== pin.publicKey || issued.serverIdentity.fingerprint !== pin.fingerprint
+        || retained.servers.some(value => value.connection.session.sessionFamilyId === issued.sessionFamilyId)
+        || this.account?.sessionFamilyId === issued.sessionFamilyId) throw mismatch();
+      this.issued.set(issued.sessionFamilyId, issued);
+      try {
+        this.assertCurrent(); api.setAccessToken(issued.accessToken);
+        const snapshot = parseDirectSnapshot(await api.request(routePath('get_direct_account'), 'GET', undefined, this.controller.signal), server.id);
+        this.assertCurrent();
+        if (snapshot.account.role !== 'owner') throw mismatch();
+        this.server = {...server, name: name.trim(), signIn: 'local', setupRequired: false};
+        const result = await this.consume({kind: 'signed-in', session: issued, snapshot,
+          accountScoped: issued.viewer.role === 'account', passwordChangeRequired: false});
+        await completeServerSetupDraft(api, store);
+        return result;
+      } catch (error) {await this.retire(issued); throw error;}
     });
   }
   inspectLocalIdentity(): Promise<ServerPin> {
