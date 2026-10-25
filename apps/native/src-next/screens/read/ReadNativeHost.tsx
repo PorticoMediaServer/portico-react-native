@@ -107,12 +107,13 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         if (!client) throw new Error('reading_unavailable');
         const versions = await client.versions(target.itemId, life.signal);
         if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
-        session = await client.open(target, life.signal);
-      }
-      if (NATIVE_OFFLINE_ANNOTATION_AUTHORING && !target.downloadId) {
-        livePort.current = session;
-        journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
-        if (current()) void annotations.flush(livePort.current);
+        const onlineSession = await client.open(target, life.signal);
+        session = onlineSession;
+        if (NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
+          livePort.current = onlineSession;
+          journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(onlineSession));
+          if (current()) void annotations.flush(livePort.current);
+        }
       }
       const initialProgress = await session.progress(life.signal);
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
