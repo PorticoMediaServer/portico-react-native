@@ -36,6 +36,9 @@ async function surfaceFixture(os = 'android') {
     setSurfaceTag: (owner: object, tag: number | null) => {tags.push({owner, tag});},
     setSubtitleDisplay: (visible: boolean) => {subtitles.push(visible);},
     installSnapshotCapture() {},
+    // The adapter binds this eagerly; this fixture never plays a queue entry, so calling it is a
+    // fixture misuse rather than a silently missing member.
+    queue: {playEntry: () => {throw new Error('queue.playEntry is not configured in this surface fixture');}},
   };
   const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.tsx', import.meta.url), {
     react: {...React, default: React},
