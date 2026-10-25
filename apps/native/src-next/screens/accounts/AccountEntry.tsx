@@ -28,12 +28,15 @@ import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHa
 import {TVIdentityCodeForm} from '../../tv/auth/TVIdentityCodeForm';
 import type {NativeProfileRecovery} from '../../platform/profile-recovery';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
+import {parseJoinLink} from '../../../../../packages/client-core/src/join-link';
+import {formatShortInvitationCode, parseShortInvitationCode} from '../../../../../packages/client-core/src/short-invitation-code';
 import type {NativeSignInHint} from '../../platform/sign-in-ended';
 import {PhoneOwnerReset} from './PhoneOwnerReset';
 import type {ResetFileLocation} from '../../../../../packages/client-core/src/account-reset';
 import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneNoServers} from './PhoneNoServers';
+import {qrScannerAvailable, scanQRCode} from '../../platform/qr-scanner';
 import type {AccountDownloadsEntry} from './downloads-entry-model';
 import type {NativeInvitationLink} from '../../platform/invitation-links';
 import {PhoneAccountWorkspace} from './PhoneAccountWorkspace';
@@ -117,7 +120,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const invitationOpening = useRef<InvitationOpening | undefined>(undefined);
   type InvitationSwitch = {entry: NativeInvitationEntry; active: boolean; scope?: Readonly<{accountId: string; familyId: string}>; username?: string};
   const invitationEntryOpening = useRef<{active: boolean; returnAddress?: string; external?: NativeInvitationLink} | undefined>(undefined);
-  const retireInvitationEntry = () => {if (invitationEntryOpening.current) invitationEntryOpening.current.active = false; invitationEntryOpening.current = undefined;};
+  const invitationScan = useRef<AbortController | undefined>(undefined);
+  const [invitationScanning, setInvitationScanning] = useState(false), [scannedInvitationLink, setScannedInvitationLink] = useState<string>();
+  const retireInvitationEntry = () => {invitationScan.current?.abort(); invitationScan.current = undefined; setInvitationScanning(false); if (invitationEntryOpening.current) invitationEntryOpening.current.active = false; invitationEntryOpening.current = undefined;};
   const invitationSwitch = useRef<InvitationSwitch | undefined>(undefined);
   const retireInvitationSwitch = () => {if (invitationSwitch.current) invitationSwitch.current.active = false; invitationSwitch.current = undefined;};
   const retireInvitation = () => {const ticket = invitationOpening.current; if (ticket) {ticket.active = false; ticket.controller.dispose(); invitationOpening.current = undefined;} setInvitationPreview(undefined);};
@@ -303,7 +308,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     retireInvitationEntry(); retireInvitationSwitch(); retireInvitation(); stopMemberMove(); cancelDirectory(); operation.current = undefined;
     account.current?.dispose(); account.current = undefined;
     invitationIntent.current = undefined; invitationEntryOpening.current = {active: true, returnAddress, external};
-    setAddress(externalTarget?.server ?? returnAddress ?? ''); setUsername(''); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setError(undefined);
+    setAddress(externalTarget?.server ?? returnAddress ?? ''); setUsername(''); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setError(undefined); setScannedInvitationLink(undefined); setInvitationScanning(false);
     stageRef.current = 'invitation-entry'; setStage('invitation-entry');
   };
   useLayoutEffect(() => {
@@ -944,12 +949,33 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
   if (stage === 'invitation-entry') {
     const ticket = invitationEntryOpening.current, external = ticket?.external;
-    const parsed = external ? external.current() ? NativeServerSignIn.parseInvitationEntry(external.raw, address) : undefined : NativeServerSignIn.parseShortInvitationEntry(code, address);
+    const parsed = external ? external.current() ? NativeServerSignIn.parseInvitationEntry(external.raw, address) : undefined
+      : scannedInvitationLink ? NativeServerSignIn.parseInvitationEntry(scannedInvitationLink, address)
+        : NativeServerSignIn.parseShortInvitationEntry(code, address);
     const current = () => !!ticket?.active && invitationEntryOpening.current === ticket && lifetime.current && stageRef.current === 'invitation-entry' && (!external || external.current());
     const change = (set: (value: string) => void, format = false) => (value: string) => {
       if (!current() || busyRef.current || external) return;
       ticket!.active = false; invitationEntryOpening.current = {active: true, returnAddress: ticket!.returnAddress};
+      setScannedInvitationLink(undefined);
       set(format ? NativeServerSignIn.formatInvitationCode(value) : value); setError(undefined);
+    };
+    const scan = async () => {
+      if (!current() || busyRef.current || external || invitationScan.current || !qrScannerAvailable()) return;
+      const controller = new AbortController();
+      invitationScan.current = controller; setInvitationScanning(true); setError(undefined);
+      const guard = () => current() && invitationScan.current === controller && !controller.signal.aborted;
+      try {
+        const raw = await scanQRCode({signal: controller.signal, isCurrent: guard, title: t('accounts.move.scanQR'), cancelLabel: t('action.cancel')});
+        if (!guard() || raw === undefined) return;
+        const link = parseJoinLink(raw), short = link ? undefined : parseShortInvitationCode(raw);
+        if (!link && !short) {setError(Object.assign(new Error('invitation_qr_invalid'), {code: 'invitation_qr_invalid'})); return;}
+        // A scan only edits this form; Continue still runs the canonical preview.
+        ticket!.active = false; invitationEntryOpening.current = {active: true, returnAddress: ticket!.returnAddress};
+        if (link) {setAddress(link.server); setScannedInvitationLink(raw); setCode('');}
+        else {setCode(formatShortInvitationCode(short)!); setScannedInvitationLink(undefined);}
+        setError(undefined);
+      } catch (failure) {if (guard()) setError(failure);}
+      finally {if (invitationScan.current === controller) {invitationScan.current = undefined; if (lifetime.current) setInvitationScanning(false);}}
     };
     const submit = () => {if (!current() || busyRef.current || !parsed) return;
       ticket!.active = false; const intent = Object.freeze({...parsed, publicPreview: true}); invitationIntent.current = intent;
@@ -963,9 +989,13 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     return <StateLayout testID="accounts-invitation-entry" title={t('web.directJoin.title')} body={external ? undefined : t('web.directJoin.entryBody')}
       kicker={<Image source={require('../../../assets/wordmark.png')} accessibilityLabel={t('accounts.brand')} resizeMode="contain" style={{width: 74, height: 17}}/>}
       beforeActions={<View style={{alignSelf: 'stretch', gap: 14, marginBottom: 18}}>{rootStatus}
-        <TextField label={t('accounts.signIn.address')} value={address} onChangeText={change(setAddress)} autoCapitalize="none" autoCorrect={false} editable={!busy && !external}/>
-        {!external && <TextField label={t('web.directJoin.code')} placeholder={t('web.directJoin.codePlaceholder')} value={code} onChangeText={change(setCode, true)}
+        <TextField label={t('accounts.signIn.address')} value={address} onChangeText={change(setAddress)} autoCapitalize="none" autoCorrect={false} editable={!busy && !external && !scannedInvitationLink}/>
+        {!external && !scannedInvitationLink && <TextField label={t('web.directJoin.code')} placeholder={t('web.directJoin.codePlaceholder')} value={code} onChangeText={change(setCode, true)}
           autoCapitalize="characters" autoCorrect={false} autoComplete="off" editable={!busy} onSubmitEditing={submit}/>}
+        {!external && qrScannerAvailable() ? <View style={{gap: 6}}>
+          <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('services.start.qrPhone')}</Text>
+          <Button variant="text" disabled={busy || invitationScanning} loading={invitationScanning || undefined} onPress={() => {void scan();}}>{t('accounts.move.scanQR')}</Button>
+        </View> : null}
       </View>} primaryAction={{id: 'preview-invitation-entry', label: t('action.continue'), disabled: busy || !parsed, loading: busy, onPress: submit}}
       secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: () => {if (current()) back();}}}/>;
   }
