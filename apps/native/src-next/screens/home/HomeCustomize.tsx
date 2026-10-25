@@ -28,7 +28,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   const theme = useTheme(), registry = useFocusRegistry();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const first = useRef<View>(null), reload = useRef<View>(null), cancelReset = useRef<View>(null);
-  const picked = useRef<View>(null), scroller = useRef<ScrollView>(null);
+  const picked = useRef<View>(null), scroller = useRef<ScrollView>(null), returning = useRef(false);
   const [reset, setReset] = useState(false), [choosing, setChoosing] = useState(false);
   const firstView = useRef<View>(null), viewEntryFocused = useRef(false);
   const [positions, setPositions] = useState<ReadonlyMap<string, number>>(new Map());
@@ -45,6 +45,16 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     const frame = requestAnimationFrame(() => focusTarget(state.showConflict ? reload.current : first.current));
     return () => cancelAnimationFrame(frame);
   }, [state.phase, state.showConflict, theme.isTV]);
+  /** collections.html 29: the list comes back with the new row held, focused and in view, so Up
+   * and Down move it at once. The pick-up listener only moves a row that holds focus, so a held
+   * row no one can reach would be a dead end. */
+  useEffect(() => {
+    if (!returning.current || choosing || !theme.isTV) return;
+    returning.current = false;
+    if (!state.pickedId) return;
+    const frame = requestAnimationFrame(() => {focusTarget(picked.current); scroller.current?.scrollToEnd({animated: true});});
+    return () => cancelAnimationFrame(frame);
+  }, [choosing, state.pickedId, theme.isTV]);
   useEffect(() => {
     if (!theme.isTV || !state.pickedId || state.pending) return;
     const listener = TVEventHandler.addListener(event => {
@@ -98,7 +108,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     <Button focusId="save" disabled={state.pending || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
   const body = choosing && views ? views.loading ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} i18n={i18n} firstRef={firstView}
-    onChoose={view => {if (controller.addSavedView(view, theme.isTV)) setChoosing(false);}}/> : <>{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
+    onChoose={view => {if (!controller.addSavedView(view, theme.isTV)) return; if (theme.isTV) returning.current = true; setChoosing(false);}}/> : <>{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
     <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
   </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {void controller.save();})}{rows}</>;
   return <>
