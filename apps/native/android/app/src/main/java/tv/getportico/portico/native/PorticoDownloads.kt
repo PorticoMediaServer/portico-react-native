@@ -14,6 +14,7 @@ import java.io.File
  * no such module, and the app hides downloads there.
  */
 class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(context) {
+  private val publications = PorticoPublicationReads()
   @Volatile private var invalidated = false
   private val changed: (Map<String, Any?>) -> Unit = { entry ->
     if (!invalidated) emit("PorticoDownloadChanged", Arguments.makeNativeMap(entry))
@@ -36,6 +37,7 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
 
   override fun invalidate() {
     invalidated = true
+    publications.invalidate()
     // Transfers belong to the process and go on; only the listener goes.
     PorticoDownloadCenter.post {
       if (PorticoDownloadCenter.onChanged === changed) PorticoDownloadCenter.onChanged = null
@@ -129,5 +131,15 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     result.putDouble("durationSeconds", PorticoDownloadCenter.durationSeconds(file))
     promise.resolve(result)
   }
+  @ReactMethod fun publicationOpen(handle: String, identifier: String, owner: String, digest: String, promise: Promise) = PorticoDownloadCenter.post {
+    val found = if (!invalidated) PorticoDownloadCenter.publication(identifier, owner, digest) else null
+    if (found == null) promise.reject("reading_unavailable", "reading_unavailable")
+    else publications.open(handle, found.first, found.first.length(), digest, found.second, promise)
+  }
+  @ReactMethod fun publicationRead(handle: String, offset: Double, length: Double, promise: Promise) = publications.range(handle, offset, length, promise)
+  @ReactMethod fun publicationMember(handle: String, offset: Double, compressed: Double, size: Double, method: Double, digest: String, promise: Promise) = publications.member(handle, offset, compressed, size, method, digest, promise)
+  @ReactMethod fun publicationMemberRead(handle: String, offset: Double, length: Double, promise: Promise) = publications.memberRange(handle, offset, length, promise)
+  @ReactMethod fun publicationClose(handle: String) {publications.close(handle)}
+
 }
 
