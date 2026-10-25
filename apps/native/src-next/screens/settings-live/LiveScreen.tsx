@@ -52,6 +52,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const [series, setSeries] = useState<Readonly<{draft: RecordingDraft; defaults?: SeriesForm}>>(), [toast, setToast] = useState<ToastMessage | null>(null);
   const [reminders, setReminders] = useState<ReadonlyMap<string, GuideReminder>>(new Map()), [later, setLater] = useState<readonly GuideAiring[]>([]);
   const [recordingsOpen, setRecordingsOpen] = useState(false), [recordingsReturn, setRecordingsReturn] = useState(0), [ownerOpen, setOwnerOpen] = useState(false);
+  const [initialOwnerAction, setInitialOwnerAction] = useState<'add' | 'discover'>();
   const opener = useRef<View | null>(null), selectedOpener = useRef<View | null>(null);
   const list = useRef<VirtualizedList<number>>(null), visible = useRef({first: 0, last: 12});
   const guideOffset = useRef(0);
@@ -167,7 +168,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   useDestinationEntryFocus({visible: theme.isTV && !recordingsOpen && recordingsReturn > 0, intent: 'restore', revision: recordingsReturn}, {regionId: controls, childId: 'live-recordings'});
   const empty = !state.loading && state.sources.length === 0;
   const managesServer = ports.context.account.account.role === 'owner';
-  if (ownerOpen) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} onClose={() => {setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
+  if (ownerOpen) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} initialAction={initialOwnerAction} onClose={() => {setInitialOwnerAction(undefined); setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
   if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} owner={owner} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
   return <Screen title={!theme.isTV && !phone ? t('search.chip.liveTV') : undefined} style={theme.isTV ? {paddingTop: 56, paddingRight: 8} : phone ? {paddingTop: insets.top + (landscape ? 0 : 14)} : undefined}>
     <View onLayout={event => setWidth(event.nativeEvent.layout.width - insetLeft - insetRight)} style={{flex: 1, paddingLeft: insetLeft, paddingRight: insetRight}}>
@@ -192,7 +193,11 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {filterChips}
       </FocusRegion>}
       {compact && <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: 20}}>{view === 'guide' ? dayPicker : <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><Text style={[shellType(13, 700), {color: theme.colors.text}]}>{t('guide.onNow')}</Text><Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{clock(now)}</Text></View>}{sortPicker}</View>}
-      {state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.loadSources();})}/> : empty ? <StateView title={t('web.live.empty.noSourcesTitle')} body={t(ports.context.account.account.role === 'owner' ? 'web.live.empty.noSourcesOwner' : 'web.live.empty.noSourcesMember')} primaryAction={{id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}/> : <>
+      {state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.loadSources();})}/> : empty ? <StateView testID="live-no-sources" title={t(managesServer ? 'web.live.empty.noSourcesOwnerTitle' : 'web.live.empty.noSourcesTitle')}
+        body={t(managesServer ? 'next.states.setupLiveBody' : 'web.live.empty.noSourcesMember')}
+        primaryAction={managesServer ? {id: 'add-source', label: t('next.states.addTVSource'), icon: 'i-plus', onPress: () => {setInitialOwnerAction('add'); setOwnerOpen(true);}}
+          : {id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}
+        secondaryAction={managesServer ? {id: 'discover-tuners', label: t('next.states.findTuners'), icon: 'i-search', onPress: () => {setInitialOwnerAction('discover'); setOwnerOpen(true);}} : undefined}/> : <>
         <GestureDetector gesture={pan.gesture}><View style={{flex: 1}} accessibilityActions={panActive ? [{name: 'decrement', label: t('guide.earlier')}, {name: 'increment', label: t('guide.later')}] : undefined} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'decrement') pan.adjust(-4 * SLOT_MS); else if (event.nativeEvent.actionName === 'increment') pan.adjust(4 * SLOT_MS);}}>
         {view === 'guide' && <View style={{height: theme.isTV ? 50 : 30, flexDirection: 'row', marginLeft: landscape ? 0 : channelWidth}}>{landscape && <View style={{width: channelWidth, paddingLeft: 4}}>{dayPicker}</View>}<View style={{flex: 1, overflow: 'hidden'}}><Animated.View style={[{flex: 1}, rulerShift]}>{rulerTicks(start - overscan, end + overscan, px, state.options.timezone).map(tick => <View key={tick.atMs} style={{position: 'absolute', left: tick.x - overscan * px, height: theme.isTV ? 28 : 22, borderLeftWidth: 1, borderLeftColor: theme.colors.line}}><Text style={[shellType(theme.isTV ? 20 : 11), {marginLeft: 10, color: theme.colors.textSecondary}]}>{clock(tick.atMs)}</Text></View>)}</Animated.View></View></View>}
         <VirtualizedList ref={list} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
