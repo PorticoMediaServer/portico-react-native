@@ -27,6 +27,7 @@ const shared = (back: ReturnType<typeof backOwner>) => ({
   './sign-out-downloads': {removeCapturedDownloads: async () => 0},
   '../../tv/auth': {TVProfilePINForm: 'PIN', TVForgotPINHandoff: 'Forgot', TVFrontDoor: 'Front', TVCodePresenter: 'Code',
     TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required'},
+    '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'},
 });
 
 test('TV entry Forgot PIN keeps the same account operation and returns to the same pad with empty boxes', async () => {
