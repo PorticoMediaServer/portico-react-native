@@ -37,24 +37,32 @@ export function ServerIdentityFailure({failure, onRetry, onChoose, onForget, onE
     </View> : <Image accessible accessibilityLabel={t('next.platform.appName')} source={require('../../../assets/wordmark.png')} resizeMode="contain" style={{position: 'absolute', left: 24, top: 64, width: 74, height: 17}}/>}
     <View style={{position: 'absolute', inset: 0, justifyContent: 'center', paddingHorizontal: tv ? 200 : 30}}>
       <View style={{width: tv ? 1340 : undefined, alignItems: tv ? 'flex-start' : 'center'}}>
-        <View style={{width: tv ? 88 : 76, height: tv ? 88 : 76, borderRadius: tv ? 22 : 38, alignItems: 'center', justifyContent: 'center',
-          backgroundColor: `${color}1F`, marginBottom: tv ? 34 : 22}}>{failure.changed ? <Icon name="i-shieldx" size={tv ? 40 : 34} color={color}/> :
+        <View style={{width: tv ? 88 : 76, height: tv ? 88 : 76, borderRadius: tv ? 44 : 38, alignItems: 'center', justifyContent: 'center',
+          marginBottom: tv ? 34 : 22, backgroundColor: tv ? `${theme.colors.text}1A` : `${color}1F`,
+          ...(tv ? {borderWidth: 1, borderColor: `${theme.colors.text}1F`} : undefined)}}>{failure.changed ? <Icon name="i-shieldx" size={tv ? 40 : 34} color={color}/> :
             <Svg width={tv ? 40 : 34} height={tv ? 40 : 34} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><Circle cx={12} cy={12} r={9}/><Path d="M9.6 9.4a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.2.9-1.2 1.8M12 16.8v.1"/></Svg>}</View>
         <Text accessibilityRole="header" style={[nativeType({size: tv ? 80 : 25, lineHeight: tv ? 80 : 28, weight: 800, tracking: tv ? -.045 : -.03}, theme.textScale),
-          {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginBottom: tv ? 24 : 10}]}>{t('portico.failure.identity.title', {server: name})}</Text>
+          {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginBottom: tv ? 24 : 10,
+            ...(tv ? {textShadowColor: 'rgba(7, 16, 24, 0.5)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 30} : undefined)}]}>{t('portico.failure.identity.title', {server: name})}</Text>
         <Text style={[nativeType({size: tv ? 28 : 15, lineHeight: tv ? 40.6 : 22.5, weight: 400, tracking: 0}, theme.textScale),
           {color: theme.colors.textSecondary, maxWidth: tv ? 900 : undefined, textAlign: tv ? 'left' : 'center', marginBottom: tv ? 40 : 24}]}>{t(failure.changed ? 'connection.identity.changedBody' : 'portico.failure.identity.body')}</Text>
         <View style={{alignSelf: 'stretch', flexDirection: tv ? 'row' : 'column', gap: tv ? 28 : 10}}>
-          <Button disabled={busy} icon="i-retry" hasTVPreferredFocus onPress={onRetry} style={tv ? undefined : {height: 48, borderRadius: 11}}>{t('action.tryAgain')}</Button>
-          <Button disabled={busy} variant="glass" onPress={onChoose} style={tv ? undefined : {height: 48, borderRadius: 11}}>{t('portico.landing.chooseAnother')}</Button>
+          <Button disabled={busy} icon="i-retry" iconSize={tv ? 28 : undefined} hasTVPreferredFocus onPress={onRetry} style={tv ? undefined : {height: 48, borderRadius: 11}}>{t('action.tryAgain')}</Button>
+          <Button disabled={busy} variant="glass" icon={tv ? 'i-server' : undefined} iconSize={tv ? 28 : undefined} onPress={onChoose} style={tv ? undefined : {height: 48, borderRadius: 11}}>{t('portico.landing.chooseAnother')}</Button>
           {failure.changed && <Button ref={opener} disabled={busy} variant={tv ? 'glass' : 'text'} onPress={() => setConfirm(true)} style={tv ? undefined : {height: 36, marginTop: 4}}>{t('connection.identity.forget', {server: name})}</Button>}
         </View>
       </View>
     </View>
     <Dialog open={confirm} onOpenChange={open => {if (!busy) setConfirm(open);}} showClose={false} title={t('connection.identity.forgetTitle', {server: name})}
       description={t('connection.identity.forgetBody')} initialFocusRef={cancel} returnFocusRef={opener} testID="identity-forget"
+      width={tv ? 1000 : undefined}
+      style={tv ? {borderRadius: 30, paddingTop: 56, paddingHorizontal: 60, paddingBottom: 52, borderWidth: 1.5, borderColor: `${theme.colors.text}1F`} : undefined}
+      titleType={tv ? {size: 48, weight: 800, tracking: -.035, lineHeight: 'normal'} : undefined}
+      descriptionTextStyle={tv ? {fontSize: 28 * theme.textScale, lineHeight: 40.6 * theme.textScale, marginTop: 16} : undefined}
       footer={<View style={{flexDirection: tv ? 'row' : 'column', gap: tv ? 18 : 10}}>
-        <Button variant="text" loading={busy} disabled={busy} style={{backgroundColor: theme.colors.record}} textStyle={{color: '#2a0808'}} onPress={() => {void forget();}}>{t('connection.identity.forgetAction')}</Button>
+        <Button variant="text" loading={busy} disabled={busy}
+          style={tv ? {backgroundColor: `${theme.colors.danger}29`} : {backgroundColor: theme.colors.record}}
+          textStyle={tv ? {color: theme.colors.danger} : {color: '#2a0808'}} onPress={() => {void forget();}}>{t('connection.identity.forgetAction')}</Button>
         {/* Frame 4 draws Forget first and Cancel as the starting focus. The red verb
             leads the footer, so the confirmation's safe focus is declared here too,
             not only by the delayed native request. */}
