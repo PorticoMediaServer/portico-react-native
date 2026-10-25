@@ -59,8 +59,11 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
       }
       controller.closeMenu();
     }};
-    if (theme.isTV) items.push({id: 'selection-separator', separator: true}, select);
-    else {
+    if (theme.isTV) {
+      const boundary = items.findIndex(item => ['separator:open', 'details', 'separator:manage', 'group:manage'].includes(item.id));
+      const at = boundary < 0 ? items.length : boundary;
+      items.splice(at, 0, ...(at > 0 ? [{id: 'selection-separator', separator: true as const}] : []), select);
+    } else {
       const rows = items.filter((item): item is Exclude<MenuEntry, {separator: true} | {section: true}> => !('separator' in item) && !('section' in item));
       const order = ['play', 'resume', 'watchlist', 'watched', 'favorite', 'rate', 'addToPlaylist', 'addToCollection', 'download', 'playVersion', 'removeFromContinueWatching', 'notInterested'];
       const regular = order.flatMap(id => rows.filter(item => item.id === id));
