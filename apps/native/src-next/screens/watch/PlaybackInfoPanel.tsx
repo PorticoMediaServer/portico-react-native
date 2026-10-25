@@ -22,7 +22,8 @@ const fields: Record<PlaybackInfoField, MessageId> = {
 const range = (value: string | undefined) => value === 'sdr' ? t('next.watch.info.sdr') : value === 'hdr10' ? t('next.kit.hdr.hdr10')
   : value === 'hdr10plus' ? t('next.kit.hdr.hdr10Plus') : value === 'hlg' ? t('next.kit.hdr.hlg')
     : value === 'dolby_vision' ? t('next.kit.hdr.dolbyVision') : '';
-function words(): PlaybackInfoWords {
+/** The one word port for the panel and the loss notice; no policy in it. */
+export function playbackInfoWords(): PlaybackInfoWords {
   return {tracks: videoTrackWords(t), standardRange: t('next.watch.info.sdr'),
     hls: container => t('next.watch.info.hls', {container}), bitDepth: bits => t('next.kit.bitDepth', {bits}),
     frameRate: rate => t('next.kit.fps', {rate}), sampleRate: rate => t('next.watch.info.khz', {rate}),
@@ -31,7 +32,7 @@ function words(): PlaybackInfoWords {
     reason: reason => reason.kind === 'compatible' ? undefined : reason.kind === 'container' ? t('next.kit.reason.container')
       : reason.kind === 'subtitles' ? t('next.kit.reason.subtitles') : t('player.info.reason.unknown'),
     loss: loss => t('next.watch.info.lost', {feature: t(loss.feature === 'dolbyVision' ? 'next.kit.hdr.dolbyVision'
-      : loss.feature === 'hdr' ? 'next.kit.hdr' : loss.feature === 'atmos' ? 'next.kit.object.atmos' : 'next.kit.object.dtsx')}),
+      : loss.feature === 'hdr10plus' ? 'next.kit.hdr.hdr10Plus' : loss.feature === 'hdr' ? 'next.kit.hdr' : loss.feature === 'atmos' ? 'next.kit.object.atmos' : 'next.kit.object.dtsx')}),
     network: (network, measured) => [network === 'home' ? t('next.kit.session.local') : network === 'away' ? t('next.kit.session.remote') : undefined,
       measured ? t('next.kit.kbps', {rate: measured}) : undefined].filter(Boolean).join(' ') || undefined,
     screen: value => [range(value.dynamicRange), value.refreshRateHz ? t('next.watch.info.hz', {rate: value.refreshRateHz}) : undefined].filter(Boolean).join(' ') || undefined,
@@ -64,7 +65,7 @@ export function NativePlaybackInfoPanel({context, read, renderError}: {
       if (current()) setResult({identity, runtime});
       abort.abort();
     }, 15000);
-    if (current()) void read(captured.fence, words(), {signal: abort.signal, isCurrent: current})
+    if (current()) void read(captured.fence, playbackInfoWords(), {signal: abort.signal, isCurrent: current})
       .then(value => {if (current()) setResult({identity, runtime, value});})
       .catch(error => {if (current()) setResult({identity, runtime, error});})
       .finally(() => clearTimeout(deadline));
