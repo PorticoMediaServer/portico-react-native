@@ -21,11 +21,11 @@ import {NativeLibraryChannelsPanel} from './server/LibraryChannelsPanel';
 
 /** Settings › Server › Live TV & Channels: the owner's real sources and recordings.
  * Every read and write is the server's; a row never shows a change it did not accept. */
-export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, onClose}: {controller: NativeLiveOwnerController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'requestId'>; runtime: NativeShellRuntime; onClose: () => void}) {
+export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, onClose, initialAction}: {initialAction?: 'add' | 'discover'; controller: NativeLiveOwnerController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'requestId'>; runtime: NativeShellRuntime; onClose: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [tab, setTab] = useState('sources');
-  const [addMenu, setAddMenu] = useState(false), [adding, setAdding] = useState(false), [discovering, setDiscovering] = useState(false), [tuner, setTuner] = useState<string>();
+  const [addMenu, setAddMenu] = useState(false), [adding, setAdding] = useState(initialAction === 'add'), [discovering, setDiscovering] = useState(initialAction === 'discover'), [tuner, setTuner] = useState<string>();
   const addButton = useRef<View | null>(null);
   const [menu, setMenu] = useState<LiveSource>(), [configure, setConfigure] = useState<LiveSource>(), [mapping, setMapping] = useState<LiveSource>(), [remove, setRemove] = useState<LiveSource>();
   const [removing, setRemoving] = useState(false);
