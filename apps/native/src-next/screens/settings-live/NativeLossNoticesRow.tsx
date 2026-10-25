@@ -13,17 +13,17 @@ export const nativeLossNoticesFocusId = 'settings-device-loss-notices';
 export function NativeLossNoticesRow({context, runtime}: {context: NativeShellBootstrapContext; runtime: NativeShellRuntime}) {
   const source = useMemo(() => bindNativeDevicePreferences(context), [context]);
   const value = useSyncExternalStore(source.subscribe, () => source.read('device.lossNotices')?.current);
-  const live = useMemo(() => ({current: false}), [context]);
+  const live = useMemo(() => ({owner: context, current: false}), [context]);
   const pending = useRef(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   useLayoutEffect(() => {live.current = true; return () => {live.current = false;};}, [live]);
   const t = runtime.text.t;
   if (typeof value !== 'boolean') return null;
   const apply = async (next: boolean) => {
-    if (!live.current || !context.current() || pending.current) return;
+    if (!live.current || !live.owner.current() || pending.current) return;
     pending.current = true; setBusy(true); setError(undefined);
     try {await source.write('device.lossNotices', next);}
-    catch (failure) {if (live.current && context.current()) setError(failure);}
-    finally {pending.current = false; if (live.current && context.current()) setBusy(false);}
+    catch (failure) {if (live.current && live.owner.current()) setError(failure);}
+    finally {pending.current = false; if (live.current && live.owner.current()) setBusy(false);}
   };
   return <View>
     <SettingsRow testID={nativeLossNoticesFocusId} label={t('next.settingsSpec.account.device.groups.1.rows.8.label')}

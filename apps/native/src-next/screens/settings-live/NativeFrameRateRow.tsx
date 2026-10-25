@@ -12,18 +12,18 @@ export const nativeFrameRateFocusId = 'settings-device-match-frame-rate';
 export function NativeFrameRateRow({context, runtime}: {context: NativeShellBootstrapContext; runtime: NativeShellRuntime}) {
   const source = useMemo(() => nativeDeviceSettings(context), [context]);
   const value = useSyncExternalStore(source.subscribe, () => source.read('matchFrameRate'));
-  const live = useMemo(() => ({current: false}), [context]);
+  const live = useMemo(() => ({owner: context, current: false}), [context]);
   const pending = useRef(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   useLayoutEffect(() => {live.current = true; return () => {live.current = false;};}, [live]);
   const t = runtime.text.t;
   if (value !== 'auto' && value !== 'off') return null;
   const apply = async (next: string) => {
-    if (!live.current || !context.current() || pending.current || (next !== 'auto' && next !== 'off')) return;
+    if (!live.current || !live.owner.current() || pending.current || (next !== 'auto' && next !== 'off')) return;
     pending.current = true; setBusy(true); setError(undefined);
     try {await source.write('matchFrameRate', next);
-      if (live.current && context.current() && source.read('matchFrameRate') !== (next)) throw new Error('native_device_preference_unreadable');}
-    catch (failure) {if (live.current && context.current()) setError(failure);}
-    finally {pending.current = false; if (live.current && context.current()) setBusy(false);}
+      if (live.current && live.owner.current() && source.read('matchFrameRate') !== (next)) throw new Error('native_device_preference_unreadable');}
+    catch (failure) {if (live.current && live.owner.current()) setError(failure);}
+    finally {pending.current = false; if (live.current && live.owner.current()) setBusy(false);}
   };
   return <View>
     <Select testID={nativeFrameRateFocusId} focusId={nativeFrameRateFocusId} rowLabel={t('next.settingsSpec.account.device.groups.1.rows.0.label')}
