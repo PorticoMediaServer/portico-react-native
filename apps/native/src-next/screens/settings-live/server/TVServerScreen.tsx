@@ -12,6 +12,7 @@ import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {tvFocusIds} from '../../../shell/tv-focus';
 import {publicTVHandoffAddress} from '../../../tv/auth/TVHandoff';
+import {createTVServerReader} from './tv-server-reader';
 import {NativeScreenLifetime} from '../lifetime';
 import {ownerLibraryCounts, ownerLibraryKind, ownerLibraryState} from '../owner-libraries/presentation';
 import type {NativeSettingsLivePorts} from '../ports';
@@ -23,14 +24,19 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
   const theme = useTheme(), t = runtime.text.t;
   const lifetime = useMemo(() => new NativeScreenLifetime(ports.context), [ports]);
   const service = useMemo(() => new LibraryManagementService({
-    api: {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => ports.context.api.request<T>(path, method, body, next), signal)},
+    api: createTVServerReader(ports.context, lifetime),
     scope: {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])},
   }), [ports, lifetime]);
   const state = useSyncExternalStore(service.subscribe, service.getSnapshot).directory;
   const ids = useMemo(() => tvFocusIds(lifetime.authority), [lifetime]);
   const column = ids.surface('server.settings.pages'), rows = ids.surface('server.settings.libraries');
   const enter = useScreenEntry({regionId: column, childId: 'libraries'}, lifetime.current);
-  useEffect(() => {void service.loadLibraries(); return () => {service.dispose(); lifetime.dispose();};}, [service, lifetime]);
+  useEffect(() => {
+    const retire = () => service.cancel();
+    lifetime.signal.addEventListener('abort', retire, {once: true});
+    void service.loadLibraries();
+    return () => {lifetime.signal.removeEventListener('abort', retire); service.dispose(); lifetime.dispose();};
+  }, [service, lifetime]);
   const address = useMemo(() => {
     try {return publicTVHandoffAddress(new URL('/settings/server-libraries', ports.context.api.baseUrl).href);} catch {return undefined;}
   }, [ports]);

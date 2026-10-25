@@ -9,6 +9,7 @@ import {NativeScreenLifetime} from './lifetime';
 import {createBoundNativeSettingsController} from './settings-controller';
 import {nativeDevicePreferences} from './device-preference-consumer';
 import {NativeDashboardController, type NativeDashboardAdmission} from './dashboard-controller';
+import {nativeServerAdmission} from './server/tv-server-reader';
 import {NativeTVServerScreen} from './server/TVServerScreen';
 import {NativeSettingsScreen} from './SettingsScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
@@ -28,12 +29,7 @@ function createComposition(context: NativeShellBootstrapContext) {
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => context.api.request<T>(path, method, body, next), signal)};
   const raw = localV1Http(context.api);
   const sessions = new AdminSessionsClient({send: request => lifetime.request(signal => raw.send({...request, signal}), request.signal)}, nativeSettingsRequestId);
-  const admission = (): NativeDashboardAdmission => {
-    if (!lifetime.current()) return 'denied';
-    const account = context.account;
-    if (!account.canManage || account.account.primaryProfileId !== lifetime.authority.profileId || account.account.disabled) return 'denied';
-    return account.account.role === 'owner' ? 'owner' : account.account.role === 'admin' ? 'administrator' : 'denied';
-  };
+  const admission = (): NativeDashboardAdmission => nativeServerAdmission(context.account, lifetime);
   const dashboard = new NativeDashboardController(lifetime, admission, {sessions, console: new ConsoleClient(api, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId})});
   let disposed = false;
   const dispose = () => {if (disposed) return; disposed = true; unsubscribe(); dashboard.dispose(); lifetime.dispose();};
