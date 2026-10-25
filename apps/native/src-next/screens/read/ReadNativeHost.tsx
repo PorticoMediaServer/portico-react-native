@@ -1,6 +1,6 @@
 import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
-import React, {useEffect, useRef, useState} from 'react';
-import {NativeModules, View, useWindowDimensions} from 'react-native';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
 import {createReadingHost, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
 import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
@@ -12,6 +12,9 @@ import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
 import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
+import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
+import {nativeAnnotationSession} from './annotation-session';
+import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
 
 type Target = Readonly<{itemId: string; sourceId: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
@@ -40,6 +43,23 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const creaseRef = useRef(crease); creaseRef.current = crease;
   const callbacks = useRef({onBack, onOpenSettings, active}); callbacks.current = {onBack, onOpenSettings, active};
   const [state, setState] = useState<Readonly<{url?: string; failed?: boolean}>>({}), [retry, setRetry] = useState(0);
+  // Private offline annotation journal and its guarded reconnect merge (offline-annotation-sync).
+  const journal = useMemo(() => new NativeAnnotationJournal(), [context]);
+  const annotations = useMemo(() => new NativeAnnotationSync(context, journal), [context, journal]);
+  const quietRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const livePort = useRef<NativeAnnotationLivePort | undefined>(undefined);
+  useEffect(() => () => {clearTimeout(quietRetry.current); annotations.dispose();}, [annotations]);
+  useEffect(() => {
+    // Only the active reader, or the app returning to it, attempts a merge; nothing runs in the background.
+    if (active) void annotations.flush(livePort.current);
+    const subscription = AppState.addEventListener('change', next => {if (next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);});
+    return () => subscription.remove();
+  }, [active, annotations]);
+  useEffect(() => annotations.subscribe(() => {
+    const snapshot = annotations.getSnapshot();
+    if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) console.warn('portico_annotation_journal',
+      JSON.stringify({phase: snapshot.phase, queued: snapshot.queued, unresolved: snapshot.unresolved, error: String(snapshot.error ?? '')}));
+  }), [annotations]);
   useEffect(() => {
     const life = new AbortController(), captured = context.session();
     if (!captured || !context.current()) return;
@@ -52,7 +72,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     let disposal: Promise<void> | undefined;
     const dispose = () => {
       if (disposal) return disposal;
-      alive = false; authority(); offPreferences(); host.current?.dispose(); host.current = undefined;
+      alive = false; livePort.current = undefined; journal.unbind(); authority(); offPreferences(); host.current?.dispose(); host.current = undefined;
       // Explicit close uses the captured current viewer, before local retirement.
       disposal = (async () => {
         const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(), 2000);
@@ -67,12 +87,27 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const versions = await client.versions(target.itemId, life.signal);
       if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
       session = await client.open(target, life.signal);
+      livePort.current = session;
+      // A downloaded publication's queued edits live in that exact download's private
+      // lease state; an ordinary session uses the protected record store. Bind before the
+      // bridge can accept an edit, and only for this captured profile.
+      journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
+      if (current()) void annotations.flush(livePort.current);
       const initialProgress = await session.progress(life.signal);
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
       if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
       const highlightsSave = {saveHighlights: readingHighlightsSavePort()};
-      host.current = createReadingHost({...highlightsSave, session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
+      const issued = session.manifest.format;
+      const format: NativeAnnotationFormat | undefined = issued === 'epub' || issued === 'pdf' || issued === 'cbz' ? issued : undefined;
+      const bridge = format ? nativeAnnotationSession({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
+        source: {itemId: target.itemId, sourceId: target.sourceId, sourceRevision: session.manifest.revision, format}, fresh: current,
+        onQueued: () => {
+          // A transport failure kept the original edit; the guest sees the real error. Retry later, never in a loop.
+          if (quietRetry.current) return;
+          quietRetry.current = setTimeout(() => {quietRetry.current = undefined; if (current()) void annotations.flush(livePort.current);}, 15_000);
+        }}) : session;
+      host.current = createReadingHost({...highlightsSave, session: bridge, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
         initialProgress, initialContentsTarget: target.contentsTarget,
@@ -84,7 +119,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       setState({url});
     })().catch(() => {if (current()) {setState({failed: true});} void dispose().catch(() => {});});
     return () => {if (closeRef.current === dispose) closeRef.current = undefined; void dispose().catch(() => {});};
-  }, [context, target, preferences, retry]);
+  }, [annotations, context, journal, preferences, retry, target]);
   useEffect(() => {host.current?.setActive(active);}, [active, state.url]);
   useEffect(() => {host.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.url]);
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
