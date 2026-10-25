@@ -24,16 +24,17 @@ export function remoteSourceError(t: Translate, error: unknown): string {
 export function receiptCheckRequired(state: RemoteState): boolean {
   // A confirmed command's follow-up list read can fail after the service cleared its receipt.
   // Check the original operation; never turn that refresh failure into a new mutation.
-  return state.ambiguous || !!state.operationId && !state.receipt && !!state.error && !state.errorCode;
+  return state.ambiguous || !!state.operationId && !state.receipt && !state.rclone
+    && (!state.errorCode || state.errorCode === 'remote_source_not_listed');
 }
 
-function useAttempt(parentCurrent: () => boolean) {
+export function useAttempt(parentCurrent: () => boolean) {
   const live = useRef(true);
   useEffect(() => {live.current = true; return () => {live.current = false;};}, []);
   return useCallback(() => live.current && parentCurrent(), [parentCurrent]);
 }
 
-function Page({title, t, busy, onCancel, children, footer}: {title: string; t: Translate; busy: boolean; onCancel: () => void; children: React.ReactNode; footer: React.ReactNode}) {
+export function Page({title, t, busy, onCancel, children, footer}: {title: string; t: Translate; busy: boolean; onCancel: () => void; children: React.ReactNode; footer: React.ReactNode}) {
   const theme = useTheme();
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16}}>
@@ -45,7 +46,7 @@ function Page({title, t, busy, onCancel, children, footer}: {title: string; t: T
   </View>;
 }
 
-function Problem({message}: {message?: string}) {
+export function Problem({message}: {message?: string}) {
   const theme = useTheme();
   return message ? <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.danger}]}>{message}</Text> : null;
 }
@@ -187,7 +188,7 @@ export function DisconnectEditor({controller, t, source, onCancel, onSaved, isCu
     try {
       await controller.remove(source, current);
       const state = controller.getSnapshot().sources;
-      if (current() && (state.alreadyDone || state.receipt?.removed)) onSaved();
+      if (current() && (state.alreadyDone || state.receipt?.removed || state.rclone?.sourceId === source.id && state.rclone.removed)) onSaved();
       else if (current()) setError(remoteSourceError(t, {code: state.errorCode}));
     } catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
@@ -199,7 +200,7 @@ export function DisconnectEditor({controller, t, source, onCancel, onSaved, isCu
     try {
       await controller.recover();
       const state = controller.getSnapshot().sources;
-      if (!state.ambiguous && state.receipt?.removed && current()) onSaved();
+      if (!state.ambiguous && (state.receipt?.removed || state.rclone?.sourceId === source.id && state.rclone.removed) && current()) onSaved();
       else if (current()) setError(remoteSourceError(t, {code: state.errorCode}));
     } catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}

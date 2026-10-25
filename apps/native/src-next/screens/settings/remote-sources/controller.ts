@@ -1,4 +1,4 @@
-import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues, type RcloneSourceDraft, type RcloneTestInput, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -101,9 +101,68 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     finally {if (!this.allowed()) this.dispose();}
   }
 
+  async sourceFolders(source: RemoteSource, options: Readonly<{path?: string; cursor?: string; showHidden?: boolean}>, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.listFolders(source.id, {...options, limit: 100}, guard);
+    this.assertAllowed();
+    if (!guard() || result.generation !== String(source.generation)) throw screenScopeEnded();
+    return result;
+  }
+
+  async sourceStatus(source: RemoteSource, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.readStatus(source.id, guard);
+    this.assertAllowed();
+    if (!guard() || result.generation !== String(source.generation)) throw screenScopeEnded();
+    return result;
+  }
+
+  async importedFacts(guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const [program, providers] = await Promise.all([this.service.rcloneProgram(), this.service.rcloneProviders()]);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return {program, providers};
+  }
+
+  async accountConfig(guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.rcloneConfig();
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
+  }
+
+  async configureFromAccount(input: Readonly<{name: string; remote: string}>, guard: () => boolean): Promise<void> {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    await this.service.configureRcloneFromConfig(input, guard);
+    this.assertAllowed();
+  }
+
+  async testImported(input: RcloneTestInput, guard: () => boolean): Promise<RcloneTestResult> {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.testRclone(input, guard);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
+  }
+
+  async configureImported(source: RemoteSource | undefined, input: RcloneSourceDraft, guard: () => boolean): Promise<void> {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    await this.service.configureRclone(source?.id ?? null, input, source, guard);
+    this.assertAllowed();
+  }
+
   async remove(source: RemoteSource, guard: () => boolean = () => true): Promise<void> {
     this.assertAllowed();
-    try {if (!guard()) throw screenScopeEnded(); await this.service.remove(source, guard);}
+    try {if (!guard()) throw screenScopeEnded(); if (source.kind === 'rclone') await this.service.removeRclone(source, guard); else await this.service.remove(source, guard);}
     finally {if (!this.allowed()) this.dispose();}
   }
 

@@ -12,12 +12,17 @@ import {StateView} from '../../../kit/states';
 import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
-import {ConnectionEditor, DisconnectEditor, ReadingEditor, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
+import {ConnectionEditor, DisconnectEditor, ReadingEditor, Page, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
+
+import {SourceFolderBrowser} from './SourceFolderBrowser';
+import {SourceStatusPanel} from './SourceStatusPanel';
+import {AccountConfigEditor} from './AccountConfigEditor';
+import {ImportedSourceEditor} from './ImportedSourceEditor';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
-type Mode = {kind: 'connection'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect'; source: RemoteSource};
+type Mode = {kind: 'choose' | 'accountConfig'} | {kind: 'connection' | 'imported'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect' | 'folders'; source: RemoteSource};
 
-/** Canonical source reading settings plus WebDAV connection management. Settings owns the entry. */
+/** Canonical WebDAV and imported source management. Settings owns the entry. */
 export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
   const next = useRef(0), currentPorts = useRef(ports);
   currentPorts.current = ports;
@@ -50,8 +55,17 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     const problem = presentError({code: 'forbidden'}, 'server-console');
     return <StateView title={problem.title} body={problem.body} tone="error"/>;
   }
+  if (mode?.kind === 'choose') return <Page title={t('next.remoteSources.whatToConnect')} t={t} busy={false} onCancel={close} footer={null}>
+    <Button variant="glass" onPress={() => open({kind: 'connection'})}>{t('next.remoteSources.connectWebdav')}</Button>
+    <Button variant="glass" onPress={() => open({kind: 'imported'})}>{t('next.remoteSources.connectRclone')}</Button>
+    <Button variant="glass" onPress={() => open({kind: 'accountConfig'})}>{t('next.remoteSources.connectFromConfig')}</Button>
+  </Page>;
+  if (mode?.kind === 'accountConfig') return <AccountConfigEditor controller={controller} t={t} isCurrent={isCurrent} onCancel={close} onSaved={source => open({kind: 'reading', source})}/>;
+  if (mode?.kind === 'imported') return <ImportedSourceEditor key={mode.source?.id ?? 'new-imported'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
+    onCancel={close} onSaved={source => open({kind: 'reading', source})}/>;
   if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close}
     onSaved={source => open({kind: 'reading', source})}/>;
+  if (mode?.kind === 'folders') return <SourceFolderBrowser key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close}/>;
   if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
   if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
   const state = snapshot.sources, needsReceipt = receiptCheckRequired(state), blocked = state.busy || needsReceipt;
@@ -68,16 +82,18 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     {needsReceipt && <Button disabled={state.busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>}
     {(state.error || error) && <StateView title={error ?? remoteSourceError(t, {code: state.errorCode})} tone="error"/>}
     {selected ? <>
+      <SourceStatusPanel key={`${selected.id}:${selected.generation}`} controller={controller} source={selected} isCurrent={isCurrent} t={t}/>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), selected)}</Text>
       {!!selected.origin && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{selected.origin}</Text>}
       <Button variant="text" onPress={close}>{t('next.remoteSources.back')}</Button>
+      <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'folders', source: selected})}>{t('next.remoteSources.foldersSection')}</Button>
       <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
-      {selected.kind === 'webdav' && <>
-        <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>
+      {(selected.kind === 'webdav' || selected.kind === 'rclone') && <>
+        <Button variant="glass" disabled={blocked} onPress={() => open({kind: selected.kind === 'rclone' ? 'imported' : 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>
         <Button variant="text" disabled={blocked} onPress={() => open({kind: 'disconnect', source: selected})}>{t('next.remoteSources.disconnect')}</Button>
       </>}
     </> : <>
-      <Button disabled={blocked} onPress={() => open({kind: 'connection'})}>{t('next.remoteSources.add')}</Button>
+      <Button disabled={blocked} onPress={() => open({kind: 'choose'})}>{t('next.remoteSources.add')}</Button>
       <Button variant="text" disabled={blocked || state.loading} onPress={() => {void controller.load();}}>{t('next.remoteSources.refresh')}</Button>
       {state.loading && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.loading')}</Text>}
       {!state.loading && !state.error && !state.sources.length && <StateView title={t('next.remoteSources.empty')} body={t('next.remoteSources.emptyHelp')}/>}
