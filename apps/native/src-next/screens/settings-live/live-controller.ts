@@ -108,6 +108,7 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     const key = JSON.stringify([raw.provenance, raw.sourceId, raw.id, raw.generation, raw.preferenceRevision, capturedValues]);
     this.publish({...this.getSnapshot(), mutating: true, mutationError: undefined});
     try {
+      requireCommand();
       let operation = this.operationKeys.get(key);
       if (!operation) {
         // Only unresolved intents occupy slots; a failed generator never occupies one.
