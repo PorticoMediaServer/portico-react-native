@@ -27,7 +27,7 @@ export function ownerLibrarySquare(kind: string): boolean {
   return kind === 'music' || kind === 'audiobook' || kind === 'book' || kind === 'comic';
 }
 
-const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', collection: 'collections'};
+const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', collection: 'collections', ebook: 'books', comic: 'titles'};
 
 /** The server's own counts for this library, said with the catalogue's counted nouns. */
 export function ownerLibraryCounts(library: Pick<ManagedLibrary, 'summary'>, t: Translate = defaultI18n.t): readonly string[] {
