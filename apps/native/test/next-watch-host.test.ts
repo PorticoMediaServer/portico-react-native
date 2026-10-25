@@ -16,16 +16,27 @@ let posture: any = {status: 'unavailable', window: null, folds: []};
 const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => window, Dimensions: {get: () => window}},
   '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
-  '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline},
+  '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
   '../../platform/platformPosture': {usePlatformPosture: () => posture},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
   './tv-presentation': {nativeWatchTVPresentation},
+  'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
+    withTiming: (value: any) => value, cancelAnimation: () => {}},
+  '../../kit/useMotion': {useMotion: () => ({reduce: false, timing: () => ({duration: 0})})},
 });
 const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => window},
   '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
 });
-const child = (tree: any, id: string) => React.Children.toArray(tree?.props.children).find((value: any) => value?.props?.testID === id) as any;
+const child = (tree: any, id: string): any => {
+  for (const node of React.Children.toArray(tree?.props?.children) as any[]) {
+    if (!React.isValidElement<any>(node)) continue;
+    if (node.props.testID === id) return node;
+    const found = child(node, id);
+    if (found) return found;
+  }
+  return undefined;
+};
 function fixture(isTV = false) {
   window = {width: 890, height: 626}; posture = {status: 'unavailable', window: null, folds: []};
   let source: any = {authority, fence, retired: false, dock: {local: {fence, expanded: true, kind: 'video'}}, playback: {intent: 'playing'}};
