@@ -32,7 +32,10 @@ export type NowPlayingQueueProps = Readonly<{
   regionId?: string;
   edges?: FocusEdges;
   /** The guarded queue edit, only for loaded noncurrent available rows; absent means no actions. */
-  queueEdit?: Readonly<{enabled: boolean; lease?: object; fenceKey: string; apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
+  /** Requires the canonical loaded-entry facts; without them no row advertises an edit. */
+  queueEdit?: Readonly<{enabled: boolean; lease?: object; fenceKey: string;
+    entry?: (entryId: string) => Readonly<{position: number; available: boolean}> | undefined;
+    apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
   testID?: string;
 }>;
 
@@ -70,7 +73,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
   const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
-  const canPlay = typeof onPlay === 'function', editable = !!queueEdit?.enabled;
+  const canPlay = typeof onPlay === 'function', editable = !!queueEdit?.enabled && !!queueEdit.entry;
   // The live ref is the opening's authority: a retained callback may only act while it is still
   // that exact opening, so Cancel or a successor on the same view/fence/lease cannot be used.
   const retire = useCallback((opening: RowOpening) => {
@@ -86,15 +89,17 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
   }, [queueEdit?.enabled, queueEdit?.fenceKey, queueEdit?.lease, view.queue.id, view.queue.revision, retire]);
   useLayoutEffect(() => () => {rowMenuRef.current = undefined;}, []);
   const openMenu = (value: Row) => {
-    if (!editable || !queueEdit || value.current || !upcoming.some(entry => entry.entryId === value.entryId)) return;
-    // The loaded entry list is the drawn window: a neighbour is only the immediately adjacent
-    // entry there, so a hidden/removed hole can never be treated as a contiguous move.
-    const raw = view.queue.entries, at = raw.findIndex(entry => entry.id === value.entryId);
-    const adjacent = (offset: -1 | 1) => {
-      const entry = at >= 0 ? raw[at + offset] : undefined;
-      return entry && !entry.hidden && !entry.removed ? upcoming.find(row => row.entryId === entry.id) : undefined;
+    if (!editable || !queueEdit?.entry || value.current || !upcoming.some(entry => entry.entryId === value.entryId)) return;
+    // Only the canonical loaded-entry facts admit a row and prove its neighbour: a visible slot
+    // or adjacent array index is not positive admission and can cross a hidden/removed gap.
+    const facts = queueEdit.entry(value.entryId);
+    if (!facts?.available) return;
+    const at = upcoming.findIndex(entry => entry.entryId === value.entryId);
+    const neighbour = (offset: -1 | 1) => {
+      const row = at >= 0 ? upcoming[at + offset] : undefined, other = row && queueEdit.entry?.(row.entryId);
+      return row && other?.available && Math.abs(other.position - facts.position) === 1 ? row : undefined;
     };
-    const previous = adjacent(-1), next = adjacent(1);
+    const previous = neighbour(-1), next = neighbour(1);
     const opening: RowOpening = {row: value, ...(previous ? {previous} : {}), ...(next ? {next} : {}), queueId: view.queue.id, revision: view.queue.revision,
       fenceKey: queueEdit.fenceKey, ...(queueEdit.lease ? {lease: queueEdit.lease} : {}), apply: queueEdit.apply};
     rowMenuRef.current = opening;
@@ -143,7 +148,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
         onPress={() => onPlay!(view.queue.id, value.entryId, view.queue.revision)}
         style={({focused}) => ({flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 10,
           backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>{body}</Focusable>;
-    if (!editable || value.current) return main;
+    if (!editable || value.current || !queueEdit?.entry?.(value.entryId)?.available) return main;
     return <View key={value.entryId} style={{flexDirection: 'row', alignItems: 'center'}}>{main}
       <Focusable testID={`${testID}-row-menu-${value.entryId}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t('server.row.actions', {name: value.title})}
         onPress={() => openMenu(value)} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
