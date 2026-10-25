@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {PlaybackDock, playbackFence, sameFence} from '../../../packages/player-core/src';
+import * as dockModel from '../src-next/kit/dock/model.ts';
+import {nativeEqualizer} from '../src-next/platform/playback/equalizer.ts';
+import * as audioEffects from '../../../packages/client-core/src/audio-effects';
+import * as i18n from '../../../packages/i18n/src';
+import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
 import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
@@ -42,6 +47,15 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
   const callbacks: ((x: number, y: number) => void)[] = [];
   let node: any = {measureInWindow: (callback: any) => {callbacks.push(callback);}};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
+  const signalFacts = await screenModule(new URL('../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {
+    'react-native': {Platform: {OS: options.os ?? 'android'}},
+  });
+  const musicSignal = await screenModule(new URL('../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    '../../../../../../packages/i18n/src': i18n, './signal-path-model': signalPath,
+    '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'},
+    '../../../kit/theme': {useTheme: () => {throw Error('unexpected_music_signal_render');}, nativeType: () => {throw Error('unexpected_music_signal_render');}},
+  });
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: options.os ?? 'android'}, View: 'View', useWindowDimensions: () => dimensions},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
@@ -49,6 +63,14 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds}, '../kit/theme': {useTheme: () => ({isTV: options.tv === true, layers: {player: 30}})},
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
+    '../kit/dock/model': dockModel,
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen'},
+    '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
+    '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'NativeListeningNotice'},
+    '../screens/destinations/music/MusicSignal': musicSignal,
+    '../screens/destinations/music/signal-facts': signalFacts,
+    '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': audioEffects,
     './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout,
   });
   let runtime: any = {text: {}, reportError: (error: unknown) => {throw error;}, artwork: () => undefined, ambient: () => undefined, watch: withWatch ? canonical ?? outlet.source : undefined};
