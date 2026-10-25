@@ -10,7 +10,7 @@ import {useTheme} from '../../../kit/theme';
 import type {NativeRemoteSourcesController} from './controller';
 
 type Translate = typeof defaultI18n.t;
-type Common = {controller: NativeRemoteSourcesController; t: Translate; onCancel: () => void};
+type Common = {controller: NativeRemoteSourcesController; t: Translate; onCancel: () => void; isCurrent: () => boolean};
 
 export function remoteSourceError(t: Translate, error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
@@ -21,10 +21,10 @@ export function remoteSourceError(t: Translate, error: unknown): string {
   return t(keys[code as keyof typeof keys] ?? 'next.remoteSources.error.generic');
 }
 
-function useAttempt() {
+function useAttempt(parentCurrent: () => boolean) {
   const live = useRef(true);
   useEffect(() => {live.current = true; return () => {live.current = false;};}, []);
-  return useCallback(() => live.current, []);
+  return useCallback(() => live.current && parentCurrent(), [parentCurrent]);
 }
 
 function Page({title, t, busy, onCancel, children, footer}: {title: string; t: Translate; busy: boolean; onCancel: () => void; children: React.ReactNode; footer: React.ReactNode}) {
@@ -45,8 +45,8 @@ function Problem({message}: {message?: string}) {
 }
 
 /** The connection is a local draft. It is never copied into a store, receipt or persisted setting. */
-export function ConnectionEditor({controller, t, source, onCancel, onSaved}: Common & {source?: RemoteSource; onSaved: (source: RemoteSource) => void}) {
-  const theme = useTheme(), current = useAttempt(), inFlight = useRef(false), revision = useRef(0), testedRevision = useRef(-1);
+export function ConnectionEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source?: RemoteSource; onSaved: (source: RemoteSource) => void}) {
+  const theme = useTheme(), current = useAttempt(isCurrent), inFlight = useRef(false), revision = useRef(0), testedRevision = useRef(-1);
   const [name, setName] = useState(source?.name ?? ''), [root, setRoot] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState('');
   const [insecureLocal, setInsecureLocal] = useState(source?.insecureLocal ?? false), [busy, setBusy] = useState(false);
   const [tested, setTested] = useState<DAVConnectionResult>(), [error, setError] = useState<string>();
@@ -108,8 +108,8 @@ const presetLabels = [
   'next.settingsSpec.server.remote-sources.panels.source.tabs.1.groups.0.rows.0.control.options.3.label',
 ] as const;
 
-export function ReadingEditor({controller, t, source, onCancel, onSaved}: Common & {source: RemoteSource; onSaved: () => void}) {
-  const current = useAttempt(), inFlight = useRef(false);
+export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source: RemoteSource; onSaved: () => void}) {
+  const current = useAttempt(isCurrent), inFlight = useRef(false);
   const [profile, setProfile] = useState<SourceReadSettings>(), [values, setValues] = useState<SourceReadValues>();
   const [connections, setConnections] = useState(''), [requests, setRequests] = useState(''), [speed, setSpeed] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>();
@@ -171,8 +171,8 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved}: Common
   </Page>;
 }
 
-export function DisconnectEditor({controller, t, source, onCancel, onSaved}: Common & {source: RemoteSource; onSaved: () => void}) {
-  const theme = useTheme(), current = useAttempt(), inFlight = useRef(false);
+export function DisconnectEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source: RemoteSource; onSaved: () => void}) {
+  const theme = useTheme(), current = useAttempt(isCurrent), inFlight = useRef(false);
   const [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<string>();
   const remove = async () => {
     if (inFlight.current || name !== source.name || !current()) return;
