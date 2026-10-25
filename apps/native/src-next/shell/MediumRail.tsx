@@ -8,7 +8,7 @@ import type {Library} from '../../../../packages/client-core/src';
 import {Focusable} from '../kit/controls';
 import {Icon, type IconName} from '../kit/Icon';
 import {ProfileFace, type ProfileOption} from '../kit/artwork';
-import {useTheme} from '../kit/theme';
+import {nativeType, useTheme} from '../kit/theme';
 import {BlurView} from '../platform/native-blur';
 import {mediumLibraryIcon, mediumRailMetrics, mediumRailPadding, visibleLibraries, type ShellDestination} from './model';
 import {sameDestination} from './tv-focus';
@@ -17,11 +17,13 @@ type RailEntry = Readonly<{key: string; label: string; icon: IconName; destinati
 
 /** foldable1/tablet: the 84 pt medium rail replaces the phone tab bar. Search,
  * Home, Live TV, Saved, Settings and Profile stay put; only the libraries scroll. */
-export function MediumRail({libraries, hasLiveTV, destination, profile, unread, serverAction, onNavigate, onProfile, profileRef, short, expanded = false, onToggle, serverName}: {
+export function MediumRail({libraries, hasLiveTV, destination, profile, unread, serverAction, onNavigate, onProfile, profileRef, short, expanded = false, onToggle, serverName, notificationAction}: {
   expanded?: boolean; onToggle?: () => void; serverName?: string;
   libraries: readonly Library[]; hasLiveTV: boolean; destination: ShellDestination; profile: ProfileOption; unread: boolean;
   /** Owner/administrator-only Server activity, icon-only as tablet 2/3 draw it. */
   serverAction?: Readonly<{id: string; label: string; onPress: () => void}>;
+  /** The real account Notifications action, with the unread badge on the bell. */
+  notificationAction?: Readonly<{label: string; onPress: () => void}>;
   onNavigate: (destination: ShellDestination) => void; onProfile: () => void; profileRef: React.RefObject<View | null>; short: boolean;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), padding = mediumRailPadding(insets.top, insets.bottom);
@@ -76,6 +78,15 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
       </View>
       {hairline}
       {below.map(item)}
+      {notificationAction && <Focusable testID="medium-rail-notifications" accessibilityRole="button" accessibilityLabel={notificationAction.label} onPress={notificationAction.onPress} focusRadius={mediumRailMetrics.itemRadius}
+        style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 44 : 48, paddingTop: expanded ? 0 : 8, paddingBottom: expanded ? 0 : 6,
+          borderRadius: mediumRailMetrics.itemRadius, flexDirection: expanded ? 'row' : 'column', gap: expanded ? 12 : 0, paddingHorizontal: expanded ? 12 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center'}}>
+        <View style={{width: expanded ? 20 : mediumRailMetrics.iconSize, height: expanded ? 20 : mediumRailMetrics.iconSize, alignItems: 'center', justifyContent: 'center'}}>
+          <Icon name="i-bell" size={expanded ? 20 : mediumRailMetrics.iconSize} color={theme.colors.textTertiary}/>
+          {unread && <View accessible={false} style={{position: 'absolute', top: -1, right: -2, width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.accentStrong, borderWidth: 2, borderColor: theme.colors.ink}}/>}
+        </View>
+        {expanded && <Text numberOfLines={1} style={[nativeType({size: 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{notificationAction.label}</Text>}
+      </Focusable>}
       {hairline}
       {serverAction && <Focusable testID="medium-rail-server" accessibilityRole="button" accessibilityLabel={serverAction.label} onPress={serverAction.onPress} focusRadius={mediumRailMetrics.itemRadius}
         style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 44 : 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius, flexDirection: expanded ? 'row' : 'column', gap: expanded ? 12 : 0, paddingHorizontal: expanded ? 12 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center'}}>
@@ -85,8 +96,7 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
         {item({key: 'settings', icon: 'i-settings', label: defaultI18n.t('settings.title'), destination: {kind: 'settings'}})}
         <Focusable testID="medium-rail-profile" accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={mediumRailMetrics.itemRadius}
           style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 60 : 48, marginTop: expanded ? 6 : 0, backgroundColor: expanded ? `${theme.colors.text}0F` : undefined, paddingTop: expanded ? 0 : 8, paddingBottom: expanded ? 0 : 6, borderRadius: 14, flexDirection: expanded ? 'row' : 'column', paddingHorizontal: expanded ? 10 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center', gap: expanded ? 12 : 4}}>
-          <View ref={profileRef} collapsable={false} style={{width: expanded ? 38 : 30, height: expanded ? 38 : 30}}><ProfileFace {...profile} size={expanded ? 38 : 30} locked={profile.pinRequired} scaleOnFocus={false}/>
-            {unread && <View pointerEvents="none" style={{position: 'absolute', top: 0, right: 0, width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.accentStrong, borderWidth: 2, borderColor: theme.colors.ink}}/>}</View>
+          <View ref={profileRef} collapsable={false} style={{width: expanded ? 38 : 30, height: expanded ? 38 : 30}}><ProfileFace {...profile} size={expanded ? 38 : 30} locked={profile.pinRequired} scaleOnFocus={false}/></View>
           {expanded ? <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={{fontSize: 14, fontWeight: '700', color: theme.colors.text}}>{profile.name}</Text>{serverName && <Text numberOfLines={1} style={{fontSize: 12, marginTop: 1, color: theme.colors.textTertiary}}>{serverName}</Text>}</View> : <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: 10.5, lineHeight: 13.5, color: theme.colors.textTertiary}]}>{defaultI18n.t('web.shell.profile')}</Text>}
           {expanded && <Icon name="i-updown" size={18} color={theme.colors.textTertiary}/>}
         </Focusable>
