@@ -1,4 +1,6 @@
 import type {Library} from '../../../../packages/client-core/src/index';
+import type {SavedDefinition} from '../../../../packages/client-core/src/personal-saved';
+import type {LibraryTabId} from '../../../../packages/client-core/src/presentation/library-tabs';
 import type {IconName} from '../kit/Icon';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../screens/read/platform';
 
@@ -8,7 +10,7 @@ export type ShellDestination = Readonly<
   | {kind: 'home' | 'libraries' | 'live' | 'saved' | 'settings'}
   /** An optional initial query seeds one ordinary Search route; the screen owns later edits. */
   | {kind: 'search'; query?: string}
-  | {kind: 'library'; libraryId: string; /** Open the authored Discover pivot; Home Mixes More uses it. */ tab?: 'discover'; /** Scroll to the profile Mixes row once its data mounts. */ anchor?: 'mixes'}
+  | {kind: 'library'; libraryId: string; /** An explicit authored opening pivot. */ tab?: LibraryTabId; /** A server-authored query, validated against this library's current capabilities. */ definition?: SavedDefinition; /** Scroll to the profile Mixes row once its data mounts. */ anchor?: 'mixes'}
 >;
 export type ShellTab = Readonly<{id: 'home' | 'search' | 'libraries' | 'live' | 'saved'; icon: IconName; message: 'web.shell.home' | 'web.shell.search' | 'pins.libraries' | 'search.chip.liveTV' | 'saved.title'}>;
 

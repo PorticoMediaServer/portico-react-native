@@ -55,10 +55,17 @@ const continueOffer = (entry: ContentEntry): NativeContinueWatchingOffer | undef
 };
 /** Albums and artists open on their own drawn page on every platform; every other
  * entry keeps the existing title route exactly. */
-export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute =>
-  entry.kind === 'album' || entry.kind === 'artist' ? Object.freeze({kind: 'music', entry})
+export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute => {
+  if (entry.kind === 'playlist') return Object.freeze({kind: 'saved-destination', destination: {kind: 'playlist', id: entry.id}} as const);
+  const browse = entry.navigation?.browse;
+  if (entry.kind === 'category' && entry.libraryId && entry.navigation?.view === 'releases' && browse?.pivot === 'albums') {
+    return Object.freeze({kind: 'shell', destination: {kind: 'library', libraryId: entry.libraryId, tab: 'releases',
+      definition: Object.freeze({libraryId: entry.libraryId, pivot: browse.pivot, query: browse.query ?? null, sort: browse.sort, presentation: 'grid'})}} as const);
+  }
+  return entry.kind === 'album' || entry.kind === 'artist' ? Object.freeze({kind: 'music', entry})
     : entry.kind === 'book' ? Object.freeze({kind: 'book', entry})
       : entry.kind === 'author' || entry.kind === 'book_series' ? Object.freeze({kind: 'audiobook', entry}) : titleRoute(entry, continueOffer(entry));
+};
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;

@@ -2,6 +2,7 @@ import React from 'react';
 import {Platform} from 'react-native';
 import type {BrowseLabels} from '../../kit/browse';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import {sameAuthority} from '../../shell/model';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
@@ -14,6 +15,7 @@ import {NativeReadingLibraryScreen} from '../read/ReadingLibrary';
 import {createNativeLibraryPlaySelection} from './play-selection';
 import {createNativeTVLibraryNamingStore, nativeTVLibraryActions, nativeTVNamingPanelId, NativeTVLibrarySurface} from './tv-library';
 import type {NativeTVLibraryNamingStore} from './tv-library';
+import {nativeLibraryOpening, nativeLibraryOpeningRoute} from './opening';
 import {takeLibrarySavedView} from './saved-view-intent';
 
 export type NativeLibraryRendererPorts = Readonly<{
@@ -48,15 +50,19 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
         return <NativeReadingLibraryScreen key={id} context={context} runtime={runtime} libraryId={id} title={library.name} labels={ports.labels}
           onBack={() => runtime.onDestination({kind: 'libraries'})}/>;
       }
-      const savedIntent = takeLibrarySavedView(route, id, context.authority(), context.session()?.sessionFamilyId);
+      const savedIntent = takeLibrarySavedView(nativeLibraryOpeningRoute(context, route) ?? route, id, context.authority(), context.session()?.sessionFamilyId);
       if (savedIntent) retireSelected();
-      const openingTab = route.destination.tab === 'discover' ? libraryTab(library.kind, 'discover') : undefined;
+      const openingTab = route.destination.tab ? libraryTab(library.kind, route.destination.tab) : undefined;
       if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name || selected.tab !== openingTab?.id
         || openingTab && selected.opening !== route.destination) {
         retireSelected();
+        const initial = savedIntent ?? (route.destination.definition ? nativeLibraryOpening(context, route, route.destination.definition) : undefined);
+        if (route.destination.definition && !initial) return null;
         const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, ...(openingTab ? {tab: openingTab} : {}),
-          ...(savedIntent ? {initial: savedIntent} : {}),
-          current: () => current() && context.libraries().some(value => value.id === id && value.kind === library.kind)});
+          ...(initial ? {initial} : {}),
+          current: () => current() && context.libraries().some(value => value.id === id && value.kind === library.kind)
+            && (!initial || sameAuthority(initial.authority, context.authority()) && context.session()?.sessionFamilyId === initial.sessionFamilyId
+              && (context.navigation.getSnapshot().route === initial.route || context.navigation.retainedRoutes().includes(initial.route)))});
         const actions = typeof ports.actions === 'function' ? ports.actions(destination) : ports.actions;
         selected = {id, kind: library.kind, name: library.name, opening: route.destination, ...(openingTab ? {tab: openingTab.id} : {}), destination,
           actions: Platform.isTV ? nativeTVLibraryActions(actions, tvNamingStore(), destination) : actions,

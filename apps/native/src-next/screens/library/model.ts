@@ -5,7 +5,7 @@ import {createWindowedCollection, type FetchPage, type WindowedCollection} from 
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {NativeLibraryFilterDraft} from './filters';
-import type {LibrarySavedViewIntent} from './saved-view-intent';
+import type {NativeLibraryOpening} from './opening';
 
 export const nativeLibraryEntryKey = (entry: ContentEntry): string => JSON.stringify([entry.kind, entry.libraryId, entry.id]);
 const cancelled = () => Object.assign(new Error('native_library_retired'), {name: 'AbortError'});
@@ -46,7 +46,7 @@ export function nativeLibraryCanSave(source: NativeLibrarySnapshot, draft: Nativ
 /** One authorized library in one actual session. This holds sparse native pages,
  * never an array sized by the library's count or a client-filtered catalogue. */
 export class NativeLibraryDestination {
-  private readonly options: Readonly<{api: LibraryContentApi; scope: ContentScope; library: Library; current: () => boolean; /** An explicit opening tab, for a surface whose pivot came from the server's own reading pivots. */ tab?: LibraryTab; /** One exact saved definition offered by the Saved page, applied once. */ initial?: LibrarySavedViewIntent}>;
+  private readonly options: Readonly<{api: LibraryContentApi; scope: ContentScope; library: Library; current: () => boolean; /** An explicit opening tab, for a surface whose pivot came from the server's own reading pivots. */ tab?: LibraryTab; /** One exact saved definition offered by the Saved page, applied once. */ initial?: NativeLibraryOpening}>;
   private readonly discover: LibraryContentService;
   private readonly unsubscribe: () => void;
   private state: NativeLibrarySnapshot;
@@ -120,12 +120,15 @@ export class NativeLibraryDestination {
     const tab = this.options.tab && this.options.tab.id === tabId ? this.options.tab : libraryTabs(this.options.library.kind).find(value => value.id === tabId);
     if (!tab) throw new Error('native_library_tab_not_offered');
     if (tab.id === this.state.tab.id && this.state.phase === 'ready') return;
+    const retryQuery = tab.id === this.state.tab.id && this.state.phase === 'error' && this.state.collection && this.state.sort
+      ? {predicates: this.state.predicates, sort: this.state.sort} : undefined;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     this.entries = new WeakSet();
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
     this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
+      if (!this.initialApplied && this.options.initial && this.options.initial.definition.pivot !== tab.pivot) throw new Error('native_library_view_pivot_unavailable');
       if (tab.shows === 'rows') {
         await this.discover.select({libraryId: this.options.library.id, view: 'discover'});
         if (!this.current() || revision !== this.operation || controller.signal.aborted) return;
@@ -144,7 +147,7 @@ export class NativeLibraryDestination {
       if (!sort) throw new Error('native_library_sort_required');
       if (this.options.initial && !this.initialOffered && !this.initialApplied) throw new Error('native_library_view_pivot_unavailable');
       const fixed = (tab.fixedFilter ?? []).map(value => ({...value})) as readonly BrowseNode[];
-      let predicates = fixed, chosenSort = sort;
+      let predicates = retryQuery?.predicates ?? fixed, chosenSort = retryQuery?.sort ?? sort;
       if (this.options.initial && this.initialOffered && !this.initialApplied) {
         const definition = this.options.initial.definition;
         if (definition.libraryId !== this.options.library.id || definition.pivot !== tab.pivot) throw new Error('native_library_view_pivot_unavailable');

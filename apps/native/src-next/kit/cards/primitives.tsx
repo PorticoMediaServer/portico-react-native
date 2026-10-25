@@ -19,6 +19,8 @@ export const alpha = (color: string, opacity: number) => `${color}${Math.round(o
 export type CardNativeProps = Omit<PressableProps, 'children' | 'style' | 'onPress' | 'onLongPress' | 'onFocus' | 'onBlur' | 'onPressIn' | 'onPressOut' | 'onHoverIn' | 'onHoverOut'> & {
   focusId?: string;
   title: string;
+  /** The caller's authored title allowance, shared by square, circle and mosaic cards. */
+  titleLines?: 1 | 2;
   caption?: readonly FactPart[];
   detail?: readonly FactPart[];
   width?: number;
@@ -141,7 +143,7 @@ export function Parts({parts = [], style, gap = 8, strong = false}: {parts?: rea
   ]}>{part.text}</Text>)}</View>;
 }
 
-export function Caption({title, caption, detail, density, titleTextStyle, captionTextStyle, selected, centered, lines = 1}: Pick<CardProps, 'title' | 'caption' | 'detail' | 'density' | 'titleTextStyle' | 'captionTextStyle'> & {selected?: boolean; centered?: boolean; lines?: number}) {
+export function Caption({title, titleLines, caption, detail, density, titleTextStyle, captionTextStyle, selected, centered, lines = titleLines ?? 1}: Pick<CardProps, 'title' | 'titleLines' | 'caption' | 'detail' | 'density' | 'titleTextStyle' | 'captionTextStyle'> & {selected?: boolean; centered?: boolean; lines?: number}) {
   const t = useTheme(), waiting = useFocusWaiting();
   const compact = density === 'grid' && !t.isTV;
   return <View accessibilityElementsHidden={waiting} importantForAccessibility={waiting ? 'no-hide-descendants' : 'auto'} style={{opacity: waiting ? 0 : 1, marginTop: compact ? 7 : t.spec.card.titleMargin[t.platform], gap: t.spec.card.subtitleMargin[t.platform], alignItems: centered ? 'center' : undefined}}>
