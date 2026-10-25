@@ -71,7 +71,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const playback = context.playback.selectionPlayback(isCurrent);
   const controller = new HomeSelectionController({api: context.api, events: context.events, home: context.home, context: homeSelectionContext(scope, initial), environment: environment(), isCurrent,
     requestId: feedback.requestId, playback, reportError,
-    routes: {openEntry: entry => open(nativeEntryRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
+    routes: {openEntry: entry => open(nativeEntryRoute(entry)), openCollection: collection => open({kind: 'collection', libraryId: collection.collection.libraryId, collectionId: collection.collection.id, title: collection.collection.name}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
   let capturedMenu: {menu: NonNullable<ReturnType<HomeSelectionController['getSnapshot']>['menu']>; anchorRef?: RefObject<View | null>; owner: object} | undefined;
   const windowId = (rowId: string) => `home-row:${rowId}`;
@@ -309,6 +309,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       },
       collectionMore: (collection, rowId, anchorRef) => {const window = windows.get(rowId), key = window?.keys.get(collection.collection.id); if (window && key && currentHome()) openMenu(window.memberWindows.get(collection.collection.id)!, key, anchorRef);},
       seeAll: destination => open({kind: 'home-see-all', destination}), customize: () => open({kind: 'home-customize'}),
+      openCollection: collection => open({kind: 'collection', libraryId: collection.collection.libraryId, collectionId: collection.collection.id, title: collection.collection.name}),
     },
     selection: rowId => ({active: controller.getSnapshot().selection.active,
       isMenuOpen: id => {const capture = currentMenuCapture(), window = windows.get(rowId);

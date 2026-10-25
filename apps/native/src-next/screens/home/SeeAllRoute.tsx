@@ -29,7 +29,10 @@ export function createNativeHomeSeeAllRenderer(context: NativeShellBootstrapCont
   rows.reconcile();
   return {
     render: (route, actual) => {
-      if (route.kind !== 'home-see-all' || route.destination.type !== 'row') throw new Error('native_home_row_route_mismatch');
+      // Only real row destinations are this renderer's page. A collection banner
+      // opens the registered collection page itself; anything else here is not a
+      // row and simply keeps no retained page.
+      if (route.kind !== 'home-see-all' || route.destination.type !== 'row') return null;
       runtime = actual; rows.reconcile(); return null;
     },
     renderRetained: actual => {runtime = actual; return <HomeRowsCanvas>{rows.render(actual)}</HomeRowsCanvas>;},

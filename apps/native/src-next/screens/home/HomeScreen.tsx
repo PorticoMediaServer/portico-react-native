@@ -395,7 +395,7 @@ function HomeCollectionCard({row, runtime, width, visible, current, onFocus}: {r
     body={homeCollectionCaption(collection, runtime.text)[0]?.text} width={width} backdrop={runtime.artwork(collection.backdropUrl)} ambient={runtime.ambient(collection.backdropUrl)} visible={visible}
     menuAnchorRef={anchor} moreExpanded={runtime.selection(row.id).isMenuOpen?.(collection.collection.id)} accessibilityState={{expanded: !!runtime.selection(row.id).isMenuOpen?.(collection.collection.id)}}
     selection={itemSelection(runtime.selection(row.id), collection.collection.id)} onMore={() => {if (current()) runtime.actions.collectionMore(collection, row.id, anchor);}}
-    primaryAction="navigate" onNavigate={() => {if (current()) runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId});}}/>;
+    primaryAction="navigate" onNavigate={() => {if (current()) runtime.actions.openCollection(collection);}}/>;
 }
 
 function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, onItemFocus, current, focus, viewportWidth, tabletMedium}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; onVisibleKeys: (keys: readonly string[]) => void; onItemFocus: (item: HomeChannel) => void; current: () => boolean; focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>; viewportWidth: number; tabletMedium: boolean}) {
