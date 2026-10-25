@@ -204,6 +204,36 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     {skip(true)}
     {queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next)}
   </View>;
+  // tv-player 3 / phone-player 2: the same prompt, notice and offer on a phone,
+  // where the controls may be down and the note's line rides its bottom edge.
+  const phone = !theme.isTV;
+  const skipOfferNode = !phone && visibleOffer && nextItem ? <NativeUpNextCard item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
+    countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter} onPlayNow={() => act(playback.next)}
+    onWatchCredits={() => {dismissedOffer.current = visibleOffer.id;}} onSkipCredits={() => {if (credits) skipSegment(credits);}}/> : undefined;
+  const skipNoticeNode = notice ? <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 28, paddingLeft: phone ? 16 : 30, paddingRight: 6, paddingVertical: phone ? 6 : 16,
+    borderRadius: phone ? 12 : 22, overflow: 'hidden', backgroundColor: phone ? 'rgba(7,16,24,.76)' : 'rgba(9,19,27,.8)',
+    boxShadow: `inset 0 0 0 1px rgba(237,245,250,.1), 0 14px 30px -12px rgba(0,0,0,.8)`}}>
+    <View style={{gap: 8}}>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 8 : 12}}>
+        {!phone && <Icon name="i-check" size={26} color={theme.colors.accentStrong}/>}
+        <Text style={{fontFamily: 'Manrope-Bold', fontSize: phone ? 14.5 : 24, fontWeight: phone ? '600' : '700', color: phone ? theme.colors.textSecondary : theme.colors.text}}>{t('player.skipped', {kind: notice.kind})}</Text>
+      </View>
+      {!phone && <View style={{height: 3, width: 240, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
+        <Animated.View style={[{height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
+      </View>}
+    </View>
+    <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant={phone ? 'glass' : 'glass'} size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={!phone} icon="i-back" iconSize={phone ? 18 : undefined}
+      style={phone ? {height: 36, paddingHorizontal: 14, borderRadius: 8} : undefined} textStyle={phone ? {fontSize: 14.5, fontWeight: '700'} : undefined}
+      onPress={() => {const from = notice.fromSeconds; setNotice(undefined); if (current()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
+    {phone && <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, height: 2, backgroundColor: 'rgba(237,245,250,.45)'}, undoLineStyle]}/>}
+  </View> : undefined;
+  const skipPromptNode = prompt ? <>{prompt.kind === 'credits' && sceneAfter && !phone && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>
+      <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.post.sceneAfter')}</Text>
+    </View>}
+    <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={!phone} icon="i-next" iconSize={phone ? 18 : undefined}
+      style={phone ? {height: 44, paddingHorizontal: 16, borderRadius: 10} : undefined} textStyle={phone ? {fontSize: 15, fontWeight: '700'} : undefined}
+      onPress={() => skipSegment(prompt)}>{t('player.skip', {kind: prompt.kind})}</Button></> : undefined;
+  const skipNodes = skipOfferNode ?? skipNoticeNode ?? skipPromptNode;
   return <View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
       hasTVPreferredFocus={theme.isTV && !visible} focusable={theme.isTV && !visible && !state.panel} onPress={() => {if (theme.isTV) controls.key(fence); else controls.toggleVisibility(fence);}} style={{position: 'absolute', inset: 0}}/>
@@ -305,36 +335,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
       </FocusRegion>
     </Animated.View>
-    {theme.isTV && (visibleOffer || prompt || notice) && <View pointerEvents="box-none" style={{position: 'absolute', right: 96, bottom: 284}}>
-      <FocusRegion id="watch-skip" orientation="horizontal" entry={visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : 'watch-skip-action'}>
-        <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>
-        {visibleOffer && nextItem
-          ? <NativeUpNextCard item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer} countdown={countdown}
-            countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter}
-            onPlayNow={() => act(playback.next)}
-            onWatchCredits={() => {dismissedOffer.current = visibleOffer.id;}}
-            onSkipCredits={() => {if (credits) skipSegment(credits);}}/>
-          : notice
-          ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 28, paddingLeft: 30, paddingRight: 16, paddingVertical: 16, borderRadius: 22, backgroundColor: 'rgba(9,19,27,.8)',
-            boxShadow: '0 24px 60px -18px rgba(0,0,0,.85), inset 0 0 0 1px rgba(237,245,250,.1)'}}>
-            <View style={{gap: 8}}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-                <Icon name="i-check" size={26} color={theme.colors.accentStrong}/>
-                <Text style={{fontFamily: 'Manrope-Bold', fontSize: 24, fontWeight: '700', color: theme.colors.text}}>{t('player.skipped', {kind: notice.kind})}</Text>
-              </View>
-              <View style={{height: 3, width: 240, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
-                <Animated.View style={[{height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
-              </View>
-            </View>
-            <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant="glass" size="hero" hasTVPreferredFocus icon="i-back" onPress={() => {const from = notice.fromSeconds; setNotice(undefined);
-              if (current()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
-          </View>
-          : <>{prompt!.kind === 'credits' && sceneAfter && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>
-              <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.post.sceneAfter')}</Text>
-            </View>}
-            <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size="hero" hasTVPreferredFocus icon="i-next" onPress={() => skipSegment(prompt!)}>{t('player.skip', {kind: prompt!.kind})}</Button></>}
-        </View>
-      </FocusRegion>
+    {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: theme.isTV ? 96 : 60,
+      bottom: theme.isTV ? 284 : visible ? 110 : 20}}>
+      {theme.isTV
+        ? <FocusRegion id="watch-skip" orientation="horizontal" entry={visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : 'watch-skip-action'}>
+            <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
+          </FocusRegion>
+        : <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>}
     </View>}
   </View>;
 }
