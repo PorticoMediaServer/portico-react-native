@@ -181,7 +181,7 @@ function operation(raw: unknown): NativeAnnotationOperation {
   const baseContent = raw.baseContent === undefined ? undefined : annotationContent(raw.baseContent);
   if (baseContent && baseContent.id !== raw.id) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({id: raw.id, delete: raw.delete, observedAt: raw.observedAt, baseRevision: raw.baseRevision, baseUpdatedAt: raw.baseUpdatedAt,
-    ...(raw.attempted === true ? {attempted: true} : {}), ...(baseContent ? {baseContent} : {}),
+    ...(raw.attempted === true ? {attempted: true} : raw.attempted === false ? {attempted: false} : {}), ...(baseContent ? {baseContent} : {}),
     ...(raw.baseFingerprint === undefined ? {} : {baseFingerprint: raw.baseFingerprint}),
     ...(raw.baseComplete === undefined ? {} : {baseComplete: raw.baseComplete}),
     ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}), ...(content ? {content} : {})});
@@ -393,7 +393,7 @@ export class NativeAnnotationJournal {
     nativeAnnotationView(await this.snapshot(identity, undefined, signal), source);
 
   enqueue = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>, assert?: () => void, signal?: AbortSignal): Promise<void> => {
-    await this.add(identity, source, next, assert, signal, false);
+    await this.add(identity, source, next, assert, signal, true); // Replacing an overlay advances the view token.
   };
   localMutate = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource,
     next: Omit<NativeAnnotationOperation, 'unresolved'>, expectedLocalRevision: number, assert?: () => void, signal?: AbortSignal): Promise<number> =>
@@ -481,7 +481,7 @@ export class NativeAnnotationJournal {
       || next.attempted !== undefined && typeof next.attempted !== 'boolean') throw new Error('native_annotation_journal_invalid');
     if (!next.delete && annotationContent(next.content).id !== next.id) throw new Error('native_annotation_journal_invalid');
     const witness = {
-      ...(next.attempted === true ? {attempted: true} : {}),
+      ...(next.attempted === true ? {attempted: true} : next.attempted === false ? {attempted: false} : {}),
       ...(next.baseContent === undefined ? {} : {baseContent: annotationContent(next.baseContent)}),
       ...(next.baseFingerprint === undefined ? {} : {baseFingerprint: next.baseFingerprint}),
       ...(next.baseComplete === undefined ? {} : {baseComplete: next.baseComplete}),
@@ -499,9 +499,14 @@ export class NativeAnnotationJournal {
       const existing = at < 0 ? undefined : groups[at];
       if (expectLocal !== undefined && (existing?.localRevision ?? 0) !== expectLocal) throw new Error('native_annotation_local_conflict');
       const previous = existing?.operations.find(value => value.id === operation.id);
+      // The first queued intent owns the server base, including an UNKNOWN (absent) witness.
+      // Later cache evidence must never be grafted onto that older intent.
+      const attempted = previous?.attempted === true || operation.attempted === true ? true
+        : previous?.attempted === false || operation.attempted === false ? false : undefined;
       const merged: NativeAnnotationOperation = previous
-        ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt,
-            ...(previous.attempted === true ? {attempted: true} : {}),
+        ? Object.freeze({id: operation.id, delete: operation.delete, ...(operation.content ? {content: operation.content} : {}),
+            observedAt: operation.observedAt, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt,
+            ...(attempted === undefined ? {} : {attempted}),
             ...(previous.baseContent !== undefined ? {baseContent: previous.baseContent} : {}),
             ...(previous.baseFingerprint !== undefined ? {baseFingerprint: previous.baseFingerprint} : {}),
             ...(previous.baseComplete !== undefined ? {baseComplete: previous.baseComplete} : {})})
@@ -537,7 +542,7 @@ export class NativeAnnotationJournal {
 export function nativeAnnotationOperationSnapshot(operation: NativeAnnotationOperation): string {
   const content = operation.content;
   return JSON.stringify([operation.id, operation.delete, operation.observedAt, operation.baseRevision, operation.baseUpdatedAt,
-    operation.attempted === true, operation.baseComplete === true,
+    operation.attempted === true ? 1 : operation.attempted === false ? 0 : -1, operation.baseComplete === true, operation.baseFingerprint ?? '',
     content ? [content.kind, content.location.format, content.location.format === 'epub' ? content.location.cfi : content.location.pageIndex,
       content.location.format === 'epub' ? content.location.section ?? '' : '', content.location.progression, content.text, content.note, content.colour,
       (content.rects ?? []).map(rect => [rect.x, rect.y, rect.width, rect.height])] : null,
