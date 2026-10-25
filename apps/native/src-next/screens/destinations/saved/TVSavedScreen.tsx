@@ -3,6 +3,7 @@ import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
+import {titleBucketValue} from '../../../../../../packages/client-core/src/browse-buckets';
 import {savedListFilters, type HistoryPeriod, type SavedListFilter, type SavedListSort, type SavedRoute} from '../../../../../../packages/client-core/src/saved';
 import {Artwork} from '../../../kit/artwork';
 import {Button, Chip, Focusable} from '../../../kit/controls';
@@ -18,6 +19,7 @@ import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
+import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
 import {useDestinationEntryFocus} from '../useEntryFocus';
 import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
@@ -118,6 +120,10 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const [filter, setFilter] = useState<SavedListFilter>('all'), [period, setPeriod] = useState<HistoryPeriod>('7d');
   const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false);
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
+  // tv-more1: Jump to is drawn only under a title sort, over the titles this page has actually
+  // loaded; nothing claims an index for a page it has not read.
+  const page = useRef<ScrollView>(null), [jumpOpen, setJumpOpen] = useState(false), [scrollY, setScrollY] = useState(0);
+  const offsets = useRef({region: 0, body: 0, grids: new Map<'posters' | 'squares', number>(), cards: new Map<string, Readonly<{section: 'posters' | 'squares'; y: number}>>()});
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const run = useCallback((work: Promise<unknown>) => {void work.catch(runtime.reportError);}, [runtime]);
@@ -138,10 +144,37 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const squares = (tab === 'watchlist' || tab === 'favorites' ? snapshot.squares?.sections.flatMap(section => section.entries) ?? [] : [])
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
-  const card = (entry: ContentEntry) => <PosterCard key={entry.id} testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
-    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>;
-  const square = (entry: ContentEntry) => <SquareCard key={entry.id} testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
-    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>;
+  const list = useMemo(() => [...posters.map(entry => ({entry, section: 'posters' as const})), ...squares.map(entry => ({entry, section: 'squares' as const}))], [posters, squares]);
+  const letterOf = (entry: ContentEntry): string | undefined => {
+    const value = titleBucketValue(entry); const letter = typeof value === 'string' ? [...value.trim()][0]?.toUpperCase() : undefined;
+    return letter && /^[A-Z]$/.test(letter) ? letter : undefined;
+  };
+  const jumpLetters = useMemo(() => {
+    const seen = new Map<string, Readonly<{key: string; index: number; id: string}>>();
+    list.forEach(({entry}, index) => {const key = letterOf(entry); if (key && !seen.has(key)) seen.set(key, {key, index, id: entry.id});});
+    return [...seen.values()].sort((left, right) => left.index - right.index);
+  }, [list]);
+  const listKey = list.map(item => item.entry.id).join('|');
+  const showJump = (tab === 'watchlist' || tab === 'favorites') && sort === 'title' && jumpLetters.length > 1;
+  const cardTop = (id: string): number | undefined => {
+    const at = offsets.current.cards.get(id); if (!at) return undefined;
+    const grid = offsets.current.grids.get(at.section); return grid === undefined ? undefined : grid + at.y;
+  };
+  // A new list draws new cards, so measurements from the old one are dropped instead of reused;
+  // the effect follows the drawn titles, not a new array each render.
+  useEffect(() => {offsets.current.cards.clear(); offsets.current.grids.clear();}, [listKey]);
+  const selectedLetter = (() => {
+    if (!jumpLetters.length) return undefined;
+    const edge = scrollY + 140; let found: string | undefined;
+    for (const letter of jumpLetters) {const top = cardTop(letter.id); if (top !== undefined && top <= edge) found = letter.key;}
+    return found ?? jumpLetters[0]!.key;
+  })();
+  const measured = (section: 'posters' | 'squares', entry: ContentEntry, child: React.ReactNode) => <View key={entry.id} style={{width: 200}}
+    onLayout={event => {offsets.current.cards.set(entry.id, {section, y: event.nativeEvent.layout.y});}}>{child}</View>;
+  const card = (entry: ContentEntry) => measured('posters', entry, <PosterCard testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
+    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
+  const square = (entry: ContentEntry) => measured('squares', entry, <SquareCard testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
+    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
   const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry).onEnter();} : undefined;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
@@ -157,8 +190,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       </View> : <Empty tab="history" browseHome={browseHome}/>)
         : tab === 'watchlist' || tab === 'favorites' ? ((posters.length || squares.length)
           ? <View>
-            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{posters.map(card)}</View></> : null}
-            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
+            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<View onLayout={event => {offsets.current.grids.set('posters', offsets.current.body + event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{posters.map(card)}</View></> : null}
+            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View onLayout={event => {offsets.current.grids.set('squares', offsets.current.body + event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
           </View> : <Empty tab={tab} browseHome={browseHome}/>)
         : null;
   // tv-more1/3 draw the server's own quick filters, with counts in the Filters menu; a server
@@ -178,7 +211,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={page} onScroll={event => setScrollY(event.nativeEvent.contentOffset.y)} scrollEventThrottle={16} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
       {/* LibraryHeader already carries the page's 200 inset; collections.html 15-17 draw the
           tabs row from there, with the six tab labels 34 apart. */}
       <SavedTVTabs destination={tabsDestination} reportError={runtime.reportError} authority={authority} activation={activation} contentRegionId={ids.savedGrid}/>
@@ -186,11 +219,13 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
           enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
-      </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}>
+      </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}
+        onLayout={event => {offsets.current.region = event.nativeEvent.layout.y;}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 24}}>
         {tab !== 'history' ? <>
           <Button focusId="saved-sort" ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
           <Button focusId="saved-filter" ref={filterAnchor} variant="glass" icon="i-filter" size="compact" onPress={() => setFilterOpen(true)} accessibilityLabel={t('filter.title')}>{t('filter.title')}</Button>
+          {showJump && <Chip focusId="saved-jump" disabled={!active.visible} onPress={() => setJumpOpen(true)}>{t('next.browse.native.jumpTo')}</Chip>}
           <View style={{width: 1.5, height: 40, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
           {quickFilters.length
             ? quickFilters.map(option => <Chip focusId={`saved-filter-${option.id}`} key={option.id} selected={filter === option.id}
@@ -206,7 +241,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
-      <View style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
+      <View onLayout={event => {offsets.current.body = offsets.current.region + event.nativeEvent.layout.y;}}
+        style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
       </FocusRegion>}
     </ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
@@ -218,6 +254,12 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
     <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
       footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
+    <LibraryJumpSheet open={jumpOpen} panelId={`${ids.savedGrid}.jump`} letters={jumpLetters.map(letter => ({key: letter.key, index: letter.index}))} selected={selectedLetter}
+      onSelect={key => {
+        const target = jumpLetters.find(letter => letter.key === key), top = target ? cardTop(target.id) : undefined;
+        if (top !== undefined) page.current?.scrollTo({y: Math.max(0, top - 24), animated: true});
+        setJumpOpen(false);
+      }} onClose={() => setJumpOpen(false)}/>
     {selection?.render()}
   </View>;
 }
