@@ -23,7 +23,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
   return Object.freeze({
     requestId: common.requestId,
     title: {
-      aboutLabel: defaultI18n.t('next.browse.native.aboutTitle'), navigate: common.navigate, owner: context.session()?.viewer.role === 'owner',
+      aboutLabel: defaultI18n.t('next.browse.native.aboutTitle'), navigate: common.navigate, owner: context.session()?.viewer.role === 'owner', serverName: context.serverName,
       person: personId => {const authority = context.authority(); if (context.current()) context.navigation.open({kind: 'person', personId}, authority);},
       download: entry => {const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);},
       openCollection: collection => {const authority = context.authority();

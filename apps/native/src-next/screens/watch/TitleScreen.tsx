@@ -8,7 +8,8 @@ import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} fr
 import {Button, Chip, Focusable, ResumeButton, Tabs} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {HeroMetadata} from '../../kit/layout/Hero';
-import {TitleSkeleton} from '../../kit/states';
+import {StateLayout, TitleSkeleton} from '../../kit/states';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeTitleController} from './title-controller';
 import type {NativeTitleTab} from './title-memory';
@@ -35,6 +36,8 @@ export type NativeTitleScreenProps = Readonly<{
   renderError: (error: unknown, retry: () => void) => ReactNode;
   /** Exact approved About label from the canonical catalogue owner. */
   aboutLabel: string;
+  /** The saved server display for a named gone-title state; never a synthesized name. */
+  serverName?: string;
   /** A real native download action, absent on a server/device where it is not offered. */
   download?: (entry: ContentEntry) => void;
   /** A registered person route, where the shell has one. */
@@ -122,15 +125,39 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const toggle = () => {const watch = props.watch, fence = watch?.source.fence;
     if (watch && fence && !watch.source.retired && sameFence(watch.playback.getSnapshot().fence, fence)) void watch.playback.toggle(fence).catch(props.reportError);
   };
-  const header = !theme.isTV && !props.watch && <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: 50, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, zIndex: 10, backgroundColor: collapsed ? theme.colors.ink : 'transparent'}}>
+  const headerFor = (showTitle: boolean) => !theme.isTV && !props.watch && <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: 50, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, zIndex: 10, backgroundColor: collapsed ? theme.colors.ink : 'transparent'}}>
     <Button testID="watch-title-back" variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={props.back}/>
-    {collapsed && <Text numberOfLines={1} style={[theme.type.bodyStrong, {flex: 1, textAlign: 'center', color: theme.colors.text}]}>{title}</Text>}
+    {collapsed && showTitle && <Text numberOfLines={1} style={[theme.type.bodyStrong, {flex: 1, textAlign: 'center', color: theme.colors.text}]}>{title}</Text>}
   </View>;
+  const header = headerFor(true);
   if (loading && !detail && !workspace) return <TitleSkeleton elapsedMs={elapsed} pressed={{title, ...(source ? {art: {source, foreground}} : {})}}
     shell={header} tabs={tabs} playAction={props.watch ? {id: 'toggle', label: t(props.watch.source.playback.intent === 'playing' ? 'action.pause' : 'action.play'), onPress: toggle}
       : snapshot.entry.playback ? {id: 'play', label: t('action.play'), onPress: play} : undefined}/>;
   const error = show ? snapshot.workspace?.error : snapshot.detail?.error;
-  if (error && !detail && !workspace) return <View style={{flex: 1}}>{props.renderError(error, () => {void (show ? controller.workspace.retry() : controller.detail.refresh()).catch(props.reportError);})}{header}</View>;
+  if (error && !detail && !workspace) {
+    const presented = presentError(error, 'detail');
+    // states13: a gone title is named from the captured route entry and the saved server display,
+    // never from a fresh read; a permission refusal reveals neither that name nor its art. Search
+    // for title and Remove Continue are not drawn: the shell has no search-query route and the
+    // title route carries no such offered command.
+    const captured = (snapshot.entry.displayTitle || snapshot.entry.title).trim();
+    if (!theme.isTV && presented.category === 'permission') {
+      return <View style={{flex: 1}}>
+        <StateLayout testID="watch-title-restricted" icon="i-lock" contentTop={250} backdropHeight={420}
+          title={presented.title} body={presented.body}/>
+        {headerFor(false)}
+      </View>;
+    }
+    if (!theme.isTV && presented.category === 'not-found' && captured && props.serverName) {
+      return <View style={{flex: 1}}>
+        <StateLayout testID="watch-title-removed" icon="i-not" contentTop={250} backdropHeight={420}
+          title={t('next.states.removed', {title: captured, server: props.serverName})}
+          body={t('next.states.removedBody')}/>
+        {header}
+      </View>;
+    }
+    return <View style={{flex: 1}}>{props.renderError(error, () => {void (show ? controller.workspace.retry() : controller.detail.refresh()).catch(props.reportError);})}{header}</View>;
+  }
   const primary = detail?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over');
   const playback = primary?.playback ?? workspace?.nextUp?.playback ?? snapshot.entry.playback;
   const progress = detail?.personal.progressSeconds ?? snapshot.entry.progressSeconds;
