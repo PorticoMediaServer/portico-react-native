@@ -215,6 +215,29 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     this.assertAllowed();
   }
 
+  async startDriveOAuth(clientId: string, clientSecret: string, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.startDriveOAuth(clientId, clientSecret, guard);
+    this.assertAllowed();
+    if (!guard()) {void this.service.driveOAuthCancel(result.state); throw screenScopeEnded();}
+    return result;
+  }
+
+  async driveOAuthStatus(state: string, redirect: string | undefined, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = redirect === undefined ? await this.service.driveOAuthStatus(state, guard) : await this.service.driveOAuthPaste(state, redirect, guard);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
+  }
+
+  async cancelDriveOAuth(state: string) {
+    if (!this.allowed()) return;
+    await this.service.driveOAuthCancel(state);
+  }
+
   async testImported(input: RcloneTestInput, guard: () => boolean): Promise<RcloneTestResult> {
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
