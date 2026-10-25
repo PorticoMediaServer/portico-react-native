@@ -39,7 +39,7 @@ function createComposition(context: NativeShellBootstrapContext) {
       render: (route, runtime) => {
         lifetime.assert();
         if (route.kind !== 'shell' || route.destination.kind !== 'settings') throw new Error('native_settings_route_mismatch');
-        return <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;
+        return <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard}/>;
       },
       dispose,
     } satisfies NativeRouteRenderer,
@@ -52,7 +52,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         // with the Dashboard surface for Dashboard itself. Members and secondary
         // profiles fall back to their permitted Settings page.
         const allowed = admission();
-        const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;
+        const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard}/>;
         if (allowed === 'denied') return fallback;
         if (!Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
         if (allowed === 'administrator' && !route.page) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
@@ -67,7 +67,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         lifetime.assert();
         if (route.kind !== 'server-dashboard') throw new Error('native_server_dashboard_route_mismatch');
         return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime}
-          deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>}/>;
+          deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard}/>}/>;
       },
       dispose,
     } satisfies NativeRouteRenderer,

@@ -53,7 +53,7 @@ function useOwnerStatistics(reader: NativeOwnerDashboardReader, period: OwnerVie
 const transportIcon: Record<TransportCommand, 'i-pause' | 'i-play' | 'i-rew' | 'i-ffw' | 'i-restart'> = {pause: 'i-pause', resume: 'i-play', back: 'i-rew', forward: 'i-ffw', startOver: 'i-restart'};
 
 /** Binds the one authorized dashboard snapshot to the drawn phone page; it never chooses a role. */
-export function NativeOwnerDashboardPhone({controller, ports, runtime}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeOwnerDashboardPhone({controller, ports, runtime, inline = false}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; inline?: boolean}) {
   const state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), t = runtime.text.t;
   const reader = useMemo(() => createNativeOwnerDashboardReader(controller.lifetime, ports), [controller, ports]);
@@ -120,7 +120,7 @@ export function NativeOwnerDashboardPhone({controller, ports, runtime}: {control
   const stopSession = stopView ? raw(stopView.id) : undefined;
   const moveSession = moveView ? raw(moveView.id) : undefined;
   return <>
-    <OwnerDashboardPage t={t} role={owner ? 'owner' : 'administrator'} serverName={ports.serverName()} topInset={insets.top}
+    <OwnerDashboardPage t={t} role={owner ? 'owner' : 'administrator'} serverName={ports.serverName()} topInset={inline ? 0 : insets.top} inline={inline}
       health={{degraded: health.facts.degraded, status: health.status, line: health.line, ...(health.uptimeSeconds === undefined ? {} : {uptimeSeconds: health.uptimeSeconds})}}
       updated={ownerUpdatedLabel(telemetry.reading?.observedAt ?? state.health?.observedAt, now, t)} loading={state.loading || busy} error={actionError ?? state.error}
       streams={entries} streamTotals={totals} expanded={expanded && compact} allStreams={allEntries} allError={all.error}
