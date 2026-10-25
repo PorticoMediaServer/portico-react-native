@@ -21,6 +21,7 @@ import type {NativePlaybackFailure} from './PlaybackFailed';
 import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
+import {NativeTVLiveGuide} from './live-guide';
 import {NativePlaybackFailed} from './PlaybackFailed';
 import {NativeWatchPostPlay} from './PostPlayScreen';
 import {isTablet} from '../../../src/bridge/device-platform';
@@ -73,6 +74,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   const copy = bindings.copy ?? {sessionLead: defaultI18n.t('player.opt.temporaryChanges'), sessionDefaults: defaultI18n.t('player.opt.defaultsUnchanged'), audioContinues: defaultI18n.t('player.opt.hearingContinues')};
   let disposed = false;
   const current = () => !disposed && context.current();
+  const liveGuide = Platform.isTV ? new NativeTVLiveGuide(context) : undefined;
   // Media's retry changes the failed phase and source itself, so these controllers
   // belong to the module and its route, never to the error surface. They abort on a
   // route/authority replacement, a collapsed watch or disposal — not on phase,
@@ -184,7 +186,8 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       ...(context.playback.goLive ? {goLive: fence => {if (current()) void context.playback.goLive!(fence).catch(runtime.reportError);}} : {}),
       // tablet-play8 / tv-player: the guide opens from the live player on a television
       // and on a tablet, where the mini guide docks beside the picture; a phone has none.
-      ...(Platform.isTV || isTablet ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
+      ...(liveGuide ? {liveGuide} : {}),
+      ...(liveGuide ? {onGuide: liveGuide.guideAction()} : isTablet ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),
       ...(bindings.onFullWindow ? {onFullWindow: bindings.onFullWindow} : {}),
     }),
@@ -230,11 +233,12 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     renderOverlays: (runtime: NativeShellRuntime) => current() ? bindings.renderOverlays?.(runtime) : null,
     back: () => {
       if (!current()) return false;
+      if (liveGuide?.close()) return true;
       const group = Platform.isTV ? groupPort() : undefined;
       if (group?.playerVisible?.() === false) return context.navigation.back(context.authority());
       return screens.watch.back() || group?.closePlayer?.() === true;
     },
     screens,
-    dispose: () => {if (disposed) return; disposed = true; abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
+    dispose: () => {if (disposed) return; disposed = true; liveGuide?.dispose(); abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });
 }
