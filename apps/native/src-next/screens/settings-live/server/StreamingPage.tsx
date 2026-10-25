@@ -83,7 +83,7 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
         {!!capacity.hdrToneMapping.detail && <SettingsRow label={t('next.settingsSpec.server.streaming.groups.3.rows.4.label')} value={capacity.hdrToneMapping.detail}/>}
       </View></View>
     </>}
-  </ScrollView><View style={{flexDirection: 'row', justifyContent: 'flex-end', padding: 16, gap: 12}}><Button variant="glass" disabled={!state.dirty || state.saving} onPress={() => {owned.set.discard(); setInvalid(new Set()); setDiscardRevision(value => value + 1);}}>{t('action.discard')}</Button><Button disabled={!state.dirty || state.saving || invalid.size > 0 || !!state.problem} loading={state.saving} onPress={() => {void owned.set.save();}}>{t('action.save')}</Button></View></View>;
+  </ScrollView><View style={{flexDirection: 'row', justifyContent: 'flex-end', padding: 16, gap: 12}}><Button variant="glass" disabled={(!state.dirty && invalid.size === 0) || state.saving} onPress={() => {owned.set.discard(); setInvalid(new Set()); setDiscardRevision(value => value + 1);}}>{t('action.discard')}</Button><Button disabled={!state.dirty || state.saving || invalid.size > 0 || !!state.problem} loading={state.saving} onPress={() => {void owned.set.save();}}>{t('action.save')}</Button></View></View>;
 }
 
 function StreamingNumber({row, value, disabled, runtime, onChange, onValidity}: {row: SpecRow; value: unknown; disabled: boolean; runtime: NativeShellRuntime; onChange: (value: number | null) => void; onValidity: (valid: boolean) => void}) {
