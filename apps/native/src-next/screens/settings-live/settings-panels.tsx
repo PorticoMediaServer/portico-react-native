@@ -50,6 +50,11 @@ function PorticoAccountPanel({context, t}: NativeSettingsPanelDeps) {
     description={t(hosted ? 'accounts.settings.porticoPrivacy' : 'accounts.settings.localPrivacy')}/>;
 }
 
+function ServersPanel({context, t, openRoute}: NativeSettingsPanelDeps) {
+  const theme = useTheme();
+  return <SettingsRow first testID="settings-panel-servers" label={t(theme.isTV ? 'settings.switchServer' : 'settings.section.servers')} value={context.serverName} onPress={() => openRoute({kind: 'servers'})}/>;
+}
+
 function PrivacyNotePanel({t}: NativeSettingsPanelDeps) {
   const theme = useTheme();
   return <View style={theme.isTV ? {paddingLeft: 24, marginBottom: 26} : {paddingHorizontal: 14, paddingVertical: 12}}>
@@ -135,7 +140,7 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
     case 'server.segments': return <IntroCreditsReview {...deps} runtime={_runtime}/>;
     case 'identity': return <IdentityPanel {...deps}/>;
     case 'profiles': return <SettingsRow first testID="settings-panel-profiles" label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
-    case 'servers': return <SettingsRow first testID="settings-panel-servers" label={deps.t('settings.section.servers')} value={deps.context.serverName} onPress={() => deps.openRoute({kind: 'servers'})}/>;
+    case 'servers': return <ServersPanel {...deps}/>;
     case 'porticoAccount': return <PorticoAccountPanel {...deps}/>;
     case 'about': return <DeviceAboutPanel {...deps} runtime={_runtime}/>;
     case 'privacyNote': return <PrivacyNotePanel {...deps}/>;

@@ -17,7 +17,7 @@ const {renderNativeSettingsPanel} = await screenModule(new URL('../src-next/scre
   '../../../../../packages/client-core/src/playback-controls': {},
   '../../../../../packages/client-core/src/server-admin/now-playing': {},
   '../../kit/overlays': {}, '../../kit/shell': {SettingsRow: 'SettingsRow'},
-  '../../kit/shell/visual': {}, '../../kit/theme': {},
+  '../../kit/shell/visual': {}, '../../kit/theme': {useTheme: () => ({isTV: true})},
 });
 
 test('custom Settings navigation rows provide stable distinct focus identities before TV activation', () => {
@@ -25,7 +25,8 @@ test('custom Settings navigation rows provide stable distinct focus identities b
   const deps = {context: {serverName: 'Actual server'}, t: (id: string) => id, openRoute: (route: unknown) => opened.push(route)};
   const ids = new Set<string>();
   for (const id of ['profiles', 'servers']) {
-    const row = renderNativeSettingsPanel(id, deps, {});
+    const element = renderNativeSettingsPanel(id, deps, {});
+    const row = typeof element.type === 'function' ? element.type(element.props) : element;
     assert.equal(row.type, 'SettingsRow');
     assert.equal(row.props.testID, `settings-panel-${id}`);
     assert.equal(ids.has(row.props.testID), false);
