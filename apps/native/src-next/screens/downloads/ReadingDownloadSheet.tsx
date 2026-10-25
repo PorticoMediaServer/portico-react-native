@@ -7,7 +7,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import {Focusable} from '../../kit/controls';
-import {BottomSheet, Popover} from '../../kit/overlays';
+import {BottomSheet, Popover, SidePanel} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
@@ -147,7 +147,11 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   // tablet-read12b: on the expanded width the same real choice opens under the
   // book's own Download button. The original page lifetime is already linked, and a
   // replaced route or viewer cannot take the popover over.
+  // An upright tablet uses the platform's side panel (frame 12b), the expanded width keeps
+  // the popover under the book's own button, and the phone keeps its sheet.
   return request.anchorRef && theme.width >= 1024
     ? <Popover {...surface} anchorRef={request.anchorRef} placement="bottom-end" offset={8} width={360} showTitle>{body}</Popover>
-    : <BottomSheet {...surface} fitContent width={theme.platform === 'phone' ? undefined : 360}>{body}</BottomSheet>;
+    : theme.platform === 'phone'
+      ? <BottomSheet {...surface} fitContent>{body}</BottomSheet>
+      : <SidePanel {...surface} width={360}>{body}</SidePanel>;
 }
