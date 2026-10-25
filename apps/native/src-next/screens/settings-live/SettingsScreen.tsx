@@ -2,6 +2,7 @@ import {useTVVoiceSearch} from './use-tv-voice-search';
 import {passthroughFormats} from '../../platform/playback/passthrough-formats';
 import {NativeDynamicRangeRow, nativeDynamicRangeFocusId} from './NativeDynamicRangeRow';
 import {nativeDynamicRangeMatchingAvailable} from '../../platform/playback/dynamic-range-matching';
+import {NativeApplePassthroughRow} from './NativeApplePassthroughRow';
 import {NativeCapabilityRows} from './NativeCapabilityRows';
 import {NativeFrameRateRow, nativeFrameRateFocusId} from './NativeFrameRateRow';
 import {NativePassthroughRow, nativePassthroughFocusId} from './NativePassthroughRow';
@@ -384,6 +385,14 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       {section.description && <Text style={[shellType(theme.isTV ? 22 : 14), {color: theme.colors.textSecondary, marginBottom: 14}]}>{t(section.description)}</Text>}
       <View style={{backgroundColor: theme.colors.raised, borderRadius: theme.isTV ? 18 : 14}}>{section.rows.filter(visible).map((row, index) => {
         const id = settingsRowId(row);
+        // Frame 12's Apple passthrough is the rows.7 capability line, not the rows.6
+        // receiver choice (same visible label, distinct key). The Apple engines have no
+        // stored passthrough control, so the choice is suppressed and only the rows.7 row
+        // is replaced by the read-only eligibility line.
+        if (theme.isTV && Platform.OS === 'ios' && page.id === 'device') {
+          if (row.label === 'next.settingsSpec.account.device.groups.1.rows.6.label') return null;
+          if (row.label === 'next.settingsSpec.account.device.groups.1.rows.7.label') return <NativeApplePassthroughRow key={id} testID={id}/>;
+        }
         if (row.kind === 'custom') return <React.Fragment key={id}>{ports.renderSettingsPanel(row.id, runtime)}</React.Fragment>;
         if (row.kind === 'server-setting') throw new Error('native_account_page_server_row');
         if (row.kind === 'action') {
