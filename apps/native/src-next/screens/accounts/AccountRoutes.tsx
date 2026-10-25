@@ -112,7 +112,7 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
 }
 
 /** Also usable when no selected server can restore: retained servers remain reachable. */
-export function ServersRoute({context, onBack, onComplete}: {context?: NativeShellBootstrapContext; onBack?: () => void; onComplete?: () => void}) {
+export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {context?: NativeShellBootstrapContext; onBack?: () => void; onComplete?: () => void; onSetupComplete?: (serverId: string) => void}) {
   const theme = useTheme(), [panel, setPanel] = useState<Panel>('servers'), [servers, setServers] = useState<Awaited<ReturnType<typeof nativeAccounts.snapshot>>>(), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [captured, setCaptured] = useState<{session: AppServerSession; name: string}>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
   const [preview, setPreview] = useState<Readonly<SetupPreview>>(), [consentKind, setConsentKind] = useState<'local' | 'portico'>(), [done, setDone] = useState('');
@@ -137,7 +137,7 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   const errorView = error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 12}]}>{presentError(error, 'account').body}</Text> : null;
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-servers" title={title} body={body}
     beforeActions={<>{before}{errorView}</>} primaryAction={primary} secondaryAction={panel !== 'servers' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: cancel} : undefined}>{more}</StateLayout>;
-  if (panel === 'add') return <AccountEntry initialStage="address" onBack={close} onComplete={() => {close(); onComplete?.();}}/>;
+  if (panel === 'add') return <AccountEntry onSetupComplete={onSetupComplete} initialStage="address" onBack={close} onComplete={() => {close(); onComplete?.();}}/>;
   if (panel === 'sign-out-account') return layout(t('accounts.signOut.portico'), undefined, undefined,
     action('sign-out-account', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope!); close(); onComplete?.();}));
   if (panel === 'consent-kind') return layout(t('settings.linkTV'), t('linkTV.enterCode'), <View style={{gap: 12, alignSelf: 'stretch', marginBottom: 20}}>

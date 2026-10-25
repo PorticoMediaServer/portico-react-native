@@ -49,7 +49,7 @@ const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
-export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {onBack?: () => void; onComplete: () => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
+export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   type SetupReview = Awaited<ReturnType<NativeServerSignIn['reviewHostedSetup']>>;
@@ -175,8 +175,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     }
     else if (result.kind === 'profiles') {setServer(operation.current!.serverDescriptor()); setProfiles(result.profiles); setStage('profiles');}
     else if (result.kind === 'challenge') {factorKind.current = 'local'; setCode(''); setRecovery(false); setStage('factor');}
-    else onComplete();
-  }, [onComplete]);
+    else {if (stageRef.current === 'setup-local' || stageRef.current === 'setup-hosted') onSetupComplete?.(operation.current!.serverDescriptor().id); onComplete();}
+  }, [onComplete, onSetupComplete]);
   useEffect(() => {
     if (stage !== 'member-move' || !memberMove || moveSnapshot?.phase !== 'adopted'
       || moveSnapshot.result?.kind !== 'challenge' || memberOperation.current !== operation.current) return;

@@ -11,6 +11,7 @@ import {ServersRoute} from '../screens/accounts/AccountRoutes';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {NativeSignInEnded} from '../platform/sign-in-ended';
 import {NativeIdentityFailure} from '../platform/identity-failure';
+import {PhoneFirstLibrary} from '../screens/accounts/PhoneFirstLibrary';
 import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
 import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
 
@@ -19,6 +20,7 @@ type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: Re
 /** Restore only the captured canonical server selection; current account entry owns sign-in. */
 export function RestoredShell() {
   const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'}), [elapsed, setElapsed] = useState(0);
+  const [firstLibrary, setFirstLibrary] = useState<string>();
   const [showAccounts, setShowAccounts] = useState(false), [retained, setRetained] = useState(false);
   useEffect(() => {
     const abort = new AbortController(); let owned: RestoredNativeShellRuntime | undefined;
@@ -63,20 +65,20 @@ export function RestoredShell() {
     return () => {alive = false; abort.abort(); unsubscribe(); unfence(); unsettled(); clearInterval(clock); owned?.dispose();};
   }, [attempt]);
   const complete = () => setAttempt(value => value + 1);
-  if (state.runtime && state.phase === 'ready') return <NativeSettingsAppearance source={state.runtime}><NativeShell runtime={state.runtime}/></NativeSettingsAppearance>;
+  if (state.runtime && state.phase === 'ready') return <NativeSettingsAppearance source={state.runtime}><>{firstLibrary && state.runtime.firstLibraryContext?.current() && state.runtime.firstLibraryContext.authority().serverId === firstLibrary && state.runtime.firstLibraryContext.account.account.role === 'owner' && state.runtime.firstLibraryContext.account.account.primaryProfileId === state.runtime.firstLibraryContext.authority().profileId ? <PhoneFirstLibrary context={state.runtime.firstLibraryContext} onDone={() => {const runtime = state.runtime; setFirstLibrary(undefined); void runtime?.refresh();}}/> : <NativeShell runtime={state.runtime}/>}</></NativeSettingsAppearance>;
   if (state.phase === 'loading') return <HomeSkeleton elapsedMs={elapsed} visible/>;
-  if (showAccounts || !state.error && retained) return <ServersRoute onComplete={complete} onBack={state.error ? () => setShowAccounts(false) : undefined}/>;
+  if (showAccounts || !state.error && retained) return <ServersRoute onSetupComplete={setFirstLibrary} onComplete={complete} onBack={state.error ? () => setShowAccounts(false) : undefined}/>;
   if (state.error instanceof NativeIdentityFailure) {
     const failure = state.error;
     return <ServerIdentityFailure failure={failure} onRetry={complete} onChoose={() => setShowAccounts(true)}
       onForget={() => nativeAccounts.forgetServer(failure.server)} onError={error => setState({phase: 'ended', error})}/>;
   }
-  if (state.error instanceof NativeSignInEnded) return <AccountEntry key={state.error.hint.serverId + ':' + state.error.hint.familyId} endedSignIn={state.error.hint} onComplete={complete} onBack={() => setShowAccounts(true)}/>;
+  if (state.error instanceof NativeSignInEnded) return <AccountEntry key={state.error.hint.serverId + ':' + state.error.hint.familyId} endedSignIn={state.error.hint} onSetupComplete={setFirstLibrary} onComplete={complete} onBack={() => setShowAccounts(true)}/>;
   if (state.error) {
     const error = presentError(state.error, 'home');
     return <StateView variant="centered" title={error.title} body={error.body} tone="error"
       primaryAction={error.action === 'try-again' || error.action === 'refresh' ? {id: 'restore', label: error.actionLabel, onPress: complete} : undefined}
       secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: () => setShowAccounts(true)}}/>;
   }
-  return <AccountEntry onComplete={complete}/>;
+  return <AccountEntry onSetupComplete={setFirstLibrary} onComplete={complete}/>;
 }
