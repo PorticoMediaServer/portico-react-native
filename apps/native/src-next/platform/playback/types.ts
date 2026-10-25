@@ -7,6 +7,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {EventsClient} from '../../../../../packages/client-core/src/playback-v1/events';
 import type {PlaybackOptions, Session} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {QueuePlayerState} from '../../../../../packages/client-core/src/queue-controller';
+import type {QueueIntent, QueueState} from '../../../../../packages/client-core/src/queues';
 import type {PlaybackSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {SubtitleSnapshot} from '../../../../../packages/client-core/src/subtitles';
 import type {CapabilityOverrides} from '../../../../../packages/client-core/src/client-profile';
@@ -154,6 +155,8 @@ export interface NativePlaybackAdapter {
   /** Retry the exact failed VOD output at its saved target, preserving choices and intent. */
   retry?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<void>;
   setQueuePolicy?: (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueuePolicyIntent}>, lifetime: NativePlaybackReadLifetime) => Promise<void>;
+  /** The loaded queue's own workspace: explicit row edits only, never a bulk or optimistic one. */
+  queueWorkspace?: Readonly<{getSnapshot: () => QueueState; subscribe: (listener: () => void) => () => void; mutate: (intent: QueueIntent) => Promise<void>}>;
   seek: (fence: PlaybackFence, seconds: number) => Promise<void>;
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;
