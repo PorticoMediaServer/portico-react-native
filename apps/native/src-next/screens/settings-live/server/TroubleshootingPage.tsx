@@ -1,9 +1,9 @@
+import {NativeFeedback,useNativeFeedback} from './troubleshooting/Feedback';
 import {NativeMessages} from './troubleshooting/Messages';
 import {useSettingsRequestScope} from '../use-settings-request-scope';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
-import {ConsoleClient, type FeedbackReport, type FeedbackStatus} from '../../../../../../packages/client-core/src/console';
-import {feedbackCategoryName, feedbackStatusName} from '../../../../../../packages/client-core/src/server-admin/console-catalogue';
+import {ConsoleClient} from '../../../../../../packages/client-core/src/console';
 import {sentence, when} from '../../../../../../packages/client-core/src/server-admin/console-words';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
 import {deleteClientReport, listClientReports, readClientReport, type ClientReport} from '../../../../../../packages/client-core/src/client-reports';
@@ -18,7 +18,6 @@ import {Button} from '../../../kit/controls/Button';
 import {TextField} from '../../../kit/controls/TextField';
 import {Tabs} from '../../../kit/controls/Tabs';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
-import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {StateView} from '../../../kit/states';
 import {shellType} from '../../../kit/shell/visual';
@@ -28,7 +27,6 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 
 type ViewerRole = 'owner' | 'administrator' | 'member';
 type Translate = typeof defaultI18n.t;
-const STATUSES: readonly FeedbackStatus[] = ['open', 'in-progress', 'resolved', 'closed'];
 
 
 function useRead<T>(read: () => Promise<T>, deps: readonly unknown[]) {
@@ -52,8 +50,8 @@ export function NativeServerTroubleshooting({ports, runtime, compactHeader = fal
   useEffect(() => () => consoleClient.dispose(), [consoleClient]);
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
   const [tab, setTab] = useState('messages');
-  const reports = useRead(() => consoleClient.reports(true), [consoleClient]);
-  const openReports = reports.data?.items.filter(report => report.status === 'open' || report.status === 'in-progress').length ?? 0;
+  const feedback=useNativeFeedback(ports,runtime);
+  const openReports=feedback.state.reports.filter(report=>report.status==='open'||report.status==='in-progress').length;
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40}}>
       <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom: 12}}/>
@@ -61,61 +59,13 @@ export function NativeServerTroubleshooting({ports, runtime, compactHeader = fal
       <Tabs testID="server-troubleshooting-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.troubleshooting')}
         items={[{value: 'messages', label: t('web.logs.messages')}, {value: 'feedback', label: openReports ? `${t('server.feedbackTab')} ${openReports}` : t('server.feedbackTab')}, {value: 'reports', label: t('server.reportsTab')}, {value: 'support', label: t('server.support')}]}/>
       {tab === 'messages' && <NativeMessages ports={ports} runtime={runtime}/>}
-      {tab === 'feedback' && <FeedbackTab consoleClient={consoleClient} reports={reports.data?.items ?? []} loading={reports.loading} error={reports.error} runtime={runtime} t={t} reload={reports.reload}/>}
+      {tab === 'feedback' && feedback.group && <NativeFeedback group={feedback.group}/>}
       {tab === 'reports' && <ReportsTab api={api} authority={authority} runtime={runtime} t={t}/>}
       {tab === 'support' && <SupportTab api={api} consoleClient={consoleClient} t={t}/>}
     </ScrollView>
   </View>;
 }
 
-
-function FeedbackTab({consoleClient, reports, loading, error, runtime, t, reload}: {consoleClient: ConsoleClient; reports: readonly FeedbackReport[]; loading: boolean; error?: unknown; runtime: NativeShellRuntime; t: Translate; reload: () => void}) {
-  const theme = useTheme();
-  const [selected, setSelected] = useState<FeedbackReport>();
-  if (error !== undefined && !reports.length) return <StateView {...runtime.error(error, reload)}/>;
-  return <View style={{marginTop: 14}} testID="server-troubleshooting-feedback">
-    {!loading && !reports.length ? <View style={{paddingVertical: 20}}><Text style={[shellType(15, 700), {color: theme.colors.text}]}>{t('web.feedback.inboxEmpty')}</Text>
-      <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.feedback.inboxEmptyBody')}</Text></View> : null}
-    <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-      {reports.map((report, index) => <Button key={report.id} variant="text" size="compact" onPress={() => setSelected(report)}
-        style={{alignItems: 'flex-start', paddingHorizontal: 14, paddingVertical: 10, minHeight: 0, borderTopWidth: index ? 1 : 0, borderTopColor: theme.colors.lineSoft}}>
-        <View style={{flex: 1, minWidth: 0}}>
-          <Text numberOfLines={1} style={[shellType(15, 700), {color: theme.colors.text}]}>{report.message.split('\n')[0]}</Text>
-          <Text numberOfLines={2} style={[shellType(12.5, 500, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>
-            {t('web.feedback.rowSubtitle', {category: feedbackCategoryName(t, defaultI18n.has, report.category), when: when(report.createdAt), about: report.itemId ? 'yes' : 'no'})}
-          </Text>
-        </View>
-        <Text style={[shellType(12, 700), {color: theme.colors.accentStrong}]}>{feedbackStatusName(t, defaultI18n.has, report.status)}</Text>
-      </Button>)}
-    </View>
-    <TriageSheet report={selected} consoleClient={consoleClient} t={t} onClose={() => setSelected(undefined)} onChanged={() => {setSelected(undefined); reload();}}/>
-  </View>;
-}
-
-function TriageSheet({report, consoleClient, t, onClose, onChanged}: {report?: FeedbackReport; consoleClient: ConsoleClient; t: Translate; onClose: () => void; onChanged: () => void}) {
-  const theme = useTheme();
-  const [status, setStatus] = useState<FeedbackStatus>('in-progress'), [reply, setReply] = useState(''), [picking, setPicking] = useState(false), [busy, setBusy] = useState(false), [failure, setFailure] = useState<unknown>();
-  useEffect(() => {if (report) {setStatus(report.status === 'open' ? 'in-progress' : report.status); setReply(''); setFailure(undefined);}}, [report]);
-  const update = () => {
-    if (!report) return;
-    setBusy(true); setFailure(undefined);
-    void consoleClient.triage(report.id, report.revision, status, reply).then(() => onChanged(), error => setFailure(error)).finally(() => setBusy(false));
-  };
-  const problem = failure === undefined ? undefined : presentError(failure, 'feedback').body;
-  return <BottomSheet open={Boolean(report)} onOpenChange={open => {if (!open && !busy) onClose();}} testID="server-feedback-report" keyboardAvoiding
-    title={report ? feedbackCategoryName(t, defaultI18n.has, report.category) : undefined}
-    description={report ? t('web.feedback.reportedMeta', {when: when(report.createdAt), status: feedbackStatusName(t, defaultI18n.has, report.status)}) : undefined}
-    footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={onClose}>{t('action.cancel')}</Button><Button loading={busy} disabled={!report} onPress={update}>{t('web.feedback.updateReport')}</Button></View>}>
-    <View style={{gap: 12}}>
-      <Text style={[shellType(14, 400, 20), {color: theme.colors.text}]}>{report?.message}</Text>
-      {report?.diagnostic ? <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary}]}>{t('server.feedback.sentFrom', {platform: sentence(report.diagnostic.platform), state: report.diagnostic.state, online: report.diagnostic.online ? 'yes' : 'no'})}</Text> : null}
-      <Button variant="glass" size="compact" onPress={() => setPicking(true)}>{feedbackStatusName(t, defaultI18n.has, status)}</Button>
-      <TextField label={t('web.feedback.replyLabel')} description={t('web.feedback.replyHelp')} value={reply} onChangeText={setReply} maxLength={2000} multiline/>
-      {problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record}]}>{problem}</Text> : null}
-      <Menu open={picking} onOpenChange={setPicking} presentation="sheet" title={t('web.feedback.status')} items={STATUSES.map((value): MenuEntry => ({id: value, label: feedbackStatusName(t, defaultI18n.has, value), selected: value === status, onSelect: () => {setStatus(value); setPicking(false);}}))}/>
-    </View>
-  </BottomSheet>;
-}
 
 function ReportsTab({api, authority, runtime, t}: {api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}; authority: ShellAuthority; runtime: NativeShellRuntime; t: Translate}) {
   const theme = useTheme();
