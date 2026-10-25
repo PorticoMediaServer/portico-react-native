@@ -2,7 +2,7 @@ import React from 'react';
 import {StyleSheet, Text, View, type TextStyle} from 'react-native';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 import {nativeType, useTheme, type Theme} from '../theme';
-import {mediumDockMetrics} from './model';
+import {expandedDockMetrics, mediumDockMetrics} from './model';
 
 export const alpha = (color: string, opacity: number) => `${color.slice(0, 7)}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
 export const dockType = (theme: Theme, size: number, weight: 400 | 500 | 600 | 700 | 800, tracking = 0, lineHeight: number | 'normal' = 'normal'): TextStyle => nativeType({size, weight, tracking, lineHeight}, theme.textScale);
@@ -39,6 +39,15 @@ export const dockStyles = StyleSheet.create({
   phoneButton: {width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20},
   close: {width: 34},
   line: {position: 'absolute', left: 12, right: 12, bottom: 0, height: 2},
+  /** tablet-play 4a/13: the expanded dock at the content's foot. */
+  expanded: {height: expandedDockMetrics.height, flexDirection: 'row', alignItems: 'center', paddingLeft: expandedDockMetrics.sideLeft,
+    paddingRight: expandedDockMetrics.sideRight, overflow: 'hidden'},
+  expandedBody: {width: 232, flexDirection: 'row', alignItems: 'center', gap: 12},
+  expandedCard: {width: expandedDockMetrics.cardWidth, height: expandedDockMetrics.cardHeight, borderRadius: 8, overflow: 'hidden'},
+  expandedMid: {position: 'absolute', left: 0, right: 0, top: 10, alignItems: 'center'},
+  expandedButton: {width: expandedDockMetrics.button, height: expandedDockMetrics.button, alignItems: 'center', justifyContent: 'center', borderRadius: expandedDockMetrics.button / 2},
+  expandedPrimary: {width: expandedDockMetrics.primary, height: expandedDockMetrics.primary, alignItems: 'center', justifyContent: 'center', borderRadius: expandedDockMetrics.primary / 2},
+  expandedScrub: {width: expandedDockMetrics.scrubWidth, marginTop: 4, height: 17, flexDirection: 'row', alignItems: 'center', gap: 8},
   tvQuiet: {width: 440, height: 84, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 18, paddingLeft: 10, paddingRight: 24, overflow: 'hidden'},
   tvFlyout: {width: 700, padding: 30, borderRadius: 24, overflow: 'hidden'},
   tvButton: {width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center'},

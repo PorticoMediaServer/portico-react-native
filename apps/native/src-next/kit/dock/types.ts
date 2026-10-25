@@ -73,6 +73,8 @@ export type DockHostProps = {
   presentation: Readonly<{local?: DockPresentation; remote?: DockPresentation}>;
   onAction: (command: DockCommand) => void;
   bottomInset?: number;
+  /** The shell's navigation width: the dock sits at the foot of the content beside it. */
+  contentInset?: number;
   visible?: boolean;
   tvExpanded?: boolean;
   onTVExpandedChange?: (expanded: boolean) => void;

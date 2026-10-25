@@ -184,7 +184,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   </>;
   return <View testID="native-shell" style={{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}}>
     {theme.isTV ? <View style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height, transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{content}</View> : content}
-    {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority}/>}
+    {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority} contentInset={sideWidth}/>}
     {runtime.renderWatch && <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>{runtime.renderWatch()}</View>}
     {runtime.renderRoutes()}
     {runtime.renderSelection()}
