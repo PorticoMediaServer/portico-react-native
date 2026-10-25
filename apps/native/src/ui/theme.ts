@@ -2,7 +2,7 @@ import React, {createContext, useContext, useMemo} from 'react';
 import {AccessibilityInfo, Platform, useWindowDimensions, type TextStyle} from 'react-native';
 import {cardScaleFor} from './card-scale';
 export {cardScaleFor};
-import {colors as designColors, radii as designRadii, motion as designMotion, layers as designLayers, typeScale, platformRadii, targets, componentSpec} from '../../../../packages/design/src/index';
+import {colors as designColors, radii as designRadii, motion as designMotion, layers as designLayers, typeScale, platformRadii, targets, componentSpec, type TypeRole} from '../../../../packages/design/src/index';
 
 /**
  * The single source of visual truth for the app. Every component in `ui/`
@@ -74,7 +74,7 @@ export const palette = {
 export type Palette = typeof palette;
 
 /** Type roles. Numbers are point sizes; television is designed at 1920×1080. */
-type Role = 'display' | 'title' | 'heading' | 'subheading' | 'body' | 'bodyStrong' | 'caption' | 'captionStrong' | 'micro' | 'label';
+type Role = TypeRole;
 const family: Record<number, string> = {400: 'Manrope-Regular', 500: 'Manrope-Medium', 600: 'Manrope-SemiBold', 700: 'Manrope-Bold'};
 /** Type roles from the shared scale (X-10): tracking is em, so letterSpacing = tracking × size. */
 function typeRoles(scale: (typeof typeScale)['handheld']): Record<Role, TextStyle> {
