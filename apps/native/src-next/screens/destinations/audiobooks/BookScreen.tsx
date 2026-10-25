@@ -124,14 +124,14 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
                 {({focused}) => <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong, textDecorationLine: focused ? 'underline' : 'none'}]}>{entity.series?.[0]?.name ?? seriesEntry.title}</Text>}
               </Focusable>
               : <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong}]}>{entity.series?.[0]?.name}</Text>}
-            {entity.series?.[0]?.position ? <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.accentStrong}]}>{t('title.bookInSeries', {number: entity.series[0].position})}</Text> : null}
+            {entity.series?.[0]?.position ? <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.textSecondary}]}>{t('title.bookInSeries', {number: entity.series[0].position})}</Text> : null}
           </View> : null}
           <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? 88 : 30, 800, -.04), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: tv ? 10 : 6}]}>{entity.displayTitle ?? entity.title}</Text>
           {entity.author || authorEntry ? (authorEntry && openEntry
             ? <Focusable focusId="book-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{marginTop: 8, paddingVertical: 2}}>
-              {({focused}) => <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{entity.author ?? authorEntry.title}</Text>}
+              {({focused}) => <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{entity.author ?? authorEntry.title}</Text>}
             </Focusable>
-            : <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{entity.author}</Text>) : null}
+            : <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{entity.author}</Text>) : null}
           <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: tv ? 'flex-start' : 'center', columnGap: 18, rowGap: 6, marginTop: 10}}>
             {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, tv ? 22 : 13, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
           </View>

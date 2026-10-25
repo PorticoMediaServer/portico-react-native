@@ -100,9 +100,9 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
           <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? (series ? 88 : 120) : 30, 800, -.04), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{title}</Text>
           {author || authorEntry ? (authorEntry && openEntry
             ? <Focusable focusId="series-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{marginTop: 6, paddingVertical: 2}}>
-              {({focused}) => <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{author ?? authorEntry.title}</Text>}
+              {({focused}) => <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{author ?? authorEntry.title}</Text>}
             </Focusable>
-            : <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, marginTop: 6}]}>{author}</Text>) : null}
+            : <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.text, marginTop: 6}]}>{author}</Text>) : null}
           <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: tv ? 'flex-start' : 'center', columnGap: 18, rowGap: 6, marginTop: 10}}>
             {facts.map((fact, index) => <Text key={fact} style={[browseType(theme, tv ? 22 : 13, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
           </View>
