@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as structure from '../../../packages/client-core/src/presentation/settings-structure';
 import * as languages from '../../../packages/client-core/src/presentation/language-list';
+import * as regionChoices from '../../../packages/client-core/src/presentation/region-choices';
+import * as sentenceParts from '../src-next/kit/states/sentence-parts';
+import * as settingsActions from '../src-next/screens/settings-live/settings-actions';
 import * as i18n from '../../../packages/i18n/src';
 import {parsePreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {nextIcons} from '../../../packages/design/src/next-icons';
@@ -22,6 +25,8 @@ async function fixture() {
     'react-native': {Dimensions: {get: () => ({width: 800, height: 1024})}, Platform: {OS: 'ios', isTV: false, isPad: true}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     '../../../../../packages/client-core/src/presentation/settings-structure': structure,
     '../../../../../packages/client-core/src/presentation/language-list': languages,
+    '../../../../../packages/client-core/src/presentation/region-choices': regionChoices,
+    '../../kit/states/sentence-parts': sentenceParts,
     '../../../../../packages/i18n/src': i18n,
     '../../../../../packages/client-core/src/recommendation-feedback': {resetRecommendations: () => {throw Error('unexpected_mutation');}},
     '../../../../../packages/design/src/next-icons': {nextIcons},
@@ -32,17 +37,30 @@ async function fixture() {
     '../../kit/shell/visual': {shellType: () => ({})},
     '../../kit/theme': {useTheme: () => theme},
     '../../kit/states': {StateView: 'StateView'},
-    '../../kit/overlays': {Dialog: 'Dialog'},
+    '../../kit/overlays': {Dialog: 'Dialog', Menu: 'Menu'},
     '../../shell/tv-focus': {tvFocusIds: () => ({surface: (id: string) => id, rail: 'rail'})},
     '../destinations': {NativeTVKeyboard: 'NativeTVKeyboard'},
     '../destinations/useEntryFocus': {useDestinationEntryFocus: () => {}},
+    './settings-actions': settingsActions,
     './Screen': {Screen: 'Screen', useScreenEntry: () => undefined, useScreenBack: () => {}},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})},
+    'react-native-qrcode-svg': {default: 'QRCode'},
+    '../../shell/chrome': {setNativeScreenChromeHidden: () => {}},
+    '../../kit/shell/ServerIdentity': {ServerHeader: 'ServerHeader'},
+    './owner-libraries/OwnerLibrariesPanel': {NativeOwnerLibrariesPanel: 'NativeOwnerLibrariesPanel'},
+    './LiveOwnerScreen': {NativeLiveOwnerScreen: 'NativeLiveOwnerScreen'},
+    './live-owner-controller': {NativeLiveOwnerController: function NativeLiveOwnerController() {}},
+    './recordings-controller': {createNativeRecordingsController: () => ({dispose: () => {}})},
+    '../../platform/server-connections': {nativeRouteCrypto: {random: (size: number) => new Uint8Array(size)}},
+    './server/TroubleshootingPage': {NativeServerTroubleshooting: 'NativeServerTroubleshooting'},
+    './server/StoragePage': {NativeServerStorage: 'NativeServerStorage'},
+    './server/IntegrationsPage': {NativeServerIntegrations: 'NativeServerIntegrations'},
     '../../tv/auth/TVHandoff': {publicTVHandoffAddress: (value: string) => ({url: value, display: value, pathname: '/settings/profile', search: ''})},
   });
   const preferences = parsePreferenceSnapshot({deviceClass: 'mobile', registryRevision: 'regional-screen', registry: {revision: 'regional-screen', fields: [{key: 'region.locale', type: 'locale', default: 'en-US', group: 'region', labelKey: 'preferences.region.locale', scopes: ['profile-server']}]} ,
     documents: ['profile-server', 'profile-device-class'].map(scope => ({scope, revision: 1, activeRevision: 1, digest: 'd'.repeat(64), values: {}})), effective: {'region.locale': 'en-US'}, effectiveSource: {'region.locale': 'default'}, clampedFields: []});
   const runtime = {text: {get t() {const prefix = language; return (key: string) => `${prefix}/${key}`;}}, reportError: (error: unknown) => {throw error;}};
-  const props = {runtime, ports: {settingsContext: () => ({owner: false, platform: 'phone', capabilities: {localAccount: true}}), serverName: () => 'Example', renderSettingsPanel: () => null},
+  const props = {runtime, ports: {context: {account: {account: {role: 'member'}, canManage: false}, serverName: 'Example', authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'})}, settingsContext: () => ({owner: false, platform: 'phone', capabilities: {localAccount: true}}), serverName: () => 'Example', renderSettingsPanel: () => null},
     controller: {subscribe: () => () => {}, getSnapshot: () => ({preferences, busy: false, saved: 0}), lifetime: {authority: {}, current: () => true}},
     devicePreferences: {subscribe: () => () => {}, read: () => undefined}};
   return {setLanguage: (next: string) => {language = next;},
