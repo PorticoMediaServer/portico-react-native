@@ -168,6 +168,38 @@ const operationId = () => 'op_' + random();
 export const offlineOwnerKey = (viewer: Viewer) =>
   JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId, viewer.serverId]);
 
+const safeInteger = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
+function signedPublication(receipt: DownloadReceipt): PublicationBinding {
+  const signed = decodeDownloadReceipt(receipt).signedBytes;
+  if (signed.length > 32768) throw new Error('reading_unavailable');
+  const raw: unknown = JSON.parse(decodeURIComponent(Array.from(signed, byte => '%' + byte.toString(16).padStart(2, '0')).join('')));
+  if (!object(raw)) throw new Error('reading_unavailable'); return publicationBinding(raw.publication);
+}
+function storedReading(raw: unknown): Owned<ReadingRecord> {
+  const out: Owned<ReadingRecord> = {}; if (!object(raw)) return out;
+  for (const [owner, values] of Object.entries(raw)) {
+    if (!object(values)) continue;
+    for (const [id, value] of Object.entries(values).slice(0, 2048)) try {
+      if (!object(value) || typeof value.itemId !== 'string' || typeof value.sourceId !== 'string' || typeof value.revision !== 'string' || typeof value.documentSha256 !== 'string' || typeof value.artifactSha256 !== 'string' || !safeInteger(value.artifactBytes, 1) || value.artifactBytes > 2 ** 31 || !safeInteger(value.serverRevision)) continue;
+      const receipt = decodeDownloadReceipt(value.receipt).receipt, binding = signedPublication(receipt);
+      if (offlineOwnerKey(receipt.claims.viewer) !== owner || receipt.claims.itemId !== value.itemId || receipt.claims.artifact.sha256 !== value.artifactSha256 || receipt.claims.artifact.bytes !== value.artifactBytes || binding.sourceId !== value.sourceId || binding.revision !== value.revision || binding.documentSha256 !== value.documentSha256) continue;
+      const progress = decodeGetReadingSessionsSessionIdProgressResponse(value.progress), p = progress.progress;
+      if (p && (p.sourceId !== value.sourceId || !safeInteger(p.revision, 1) || !safeInteger(p.observedAt, 1))) continue;
+      let pending: ReadingPending | undefined;
+      if (value.pending !== undefined) {
+        const offered = value.pending;
+        if (!object(offered) || typeof offered.id !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(offered.id) || !safeInteger(offered.observedAt, 1) || !safeInteger(offered.startedAt, 1) || offered.startedAt > offered.observedAt || !p || !object(offered.location)) continue;
+        const location = offered.location, actual = p.location;
+        if (location.format !== actual.format || location.cfi !== actual.cfi || location.section !== actual.section || location.pageIndex !== actual.pageIndex || location.progression !== actual.progression) continue;
+        pending = Object.freeze({id: offered.id, observedAt: offered.observedAt, startedAt: offered.startedAt, location: actual});
+      }
+      if (value.blockedStartedAt !== undefined && !safeInteger(value.blockedStartedAt, 1)) continue;
+      bucket(out, owner)[id] = Object.freeze({itemId: value.itemId, sourceId: value.sourceId, revision: value.revision, documentSha256: value.documentSha256, artifactSha256: value.artifactSha256, artifactBytes: value.artifactBytes,
+        receipt, serverRevision: value.serverRevision, progress, ...(pending ? {pending} : {}), ...(typeof value.blockedStartedAt === 'number' ? {blockedStartedAt: value.blockedStartedAt} : {})});
+    } catch { /* A corrupt record is not a location or a queued observation. */ }
+  }
+  return out;
+}
 const emptyStored = (): Stored => ({version: 3, reading: {}, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, wantedPublications: {}, nextAfter: {}, renewed: {}, clockFloor: 0});
 
 /** Reads the bookkeeping document. One written by an earlier layout keeps its settings and the
@@ -179,7 +211,7 @@ function readStored(parsed: any): Stored {
   out.keys = parsed.keys ?? {};
   if (parsed.version !== 3) return out;
   out.plays = parsed.plays ?? {};
-  out.reading = parsed.reading && typeof parsed.reading === 'object' && !Array.isArray(parsed.reading) ? parsed.reading : {};
+  out.reading = storedReading(parsed.reading);
   out.resume = parsed.resume ?? {};
   out.wanted = parsed.wanted ?? {};
   out.wantedPublications = {};
@@ -709,7 +741,7 @@ export class OfflineDownloads {
           if (artifact && (artifact.sha256 !== grant.artifact.sha256 || artifact.bytes !== grant.artifact.bytes)) return;
           await this.startTransfer(current, {...latest, token: grant.token}, grant, api);
         }).catch(() => {});
-      } else if (entry.state === 'ready' && (meta.bundle ?? 0) < BUNDLE_COMPLETE && entry.onServer) {
+      } else if (entry.state === 'ready' && ((meta.bundle ?? 0) < BUNDLE_COMPLETE || (entry.kind === 'ebook' || entry.kind === 'comic') && meta.publication !== true) && entry.onServer) {
         if (now - (this.retried.get('bundle:' + entry.id) ?? 0) < 10 * 60 * 1000) continue;
         this.retried.set('bundle:' + entry.id, now);
         await this.bundle(entry.id, api, service, generation);
@@ -857,7 +889,8 @@ export class OfflineDownloads {
       let claim = meta.claim ?? entry.id;
       let receipt = await this.issueReceipt(api, claim);
       if (!receipt) {
-        const batch = await service.request({mediaId: entry.itemId}, entry.quality);
+        const publication = entry.kind === 'ebook' || entry.kind === 'comic' ? this.publicationBinding(entry.receipt) : undefined;
+        const batch = await service.request({mediaId: entry.itemId, ...(publication ? {versionId: publication.sourceId} : {})}, entry.quality);
         const fresh = batch.items.find(p => p.itemId === entry.itemId);
         if (!fresh || this.generation !== generation) return;
         if (fresh.state !== 'ready') return; // looked at again at the next renewal
@@ -867,7 +900,9 @@ export class OfflineDownloads {
       }
       if (!receipt || this.generation !== generation) return;
       if (mine && (receipt.claims.artifact.sha256 !== mine.sha256 || receipt.claims.artifact.bytes !== mine.bytes)) { await this.patch(entry.id, {changed: true}); return; }
-      await this.patch(entry.id, {receipt, owner: offlineOwnerKey(receipt.claims.viewer), claim: claim === entry.id ? undefined : claim, changed: false});
+      const publication = entry.kind === 'ebook' || entry.kind === 'comic';
+      await this.patch(entry.id, {receipt, owner: offlineOwnerKey(receipt.claims.viewer), claim: claim === entry.id ? undefined : claim, changed: false, ...(publication ? {publication: false} : {})});
+      if (publication && generation === this.generation) await this.bundle(entry.id, api, service, generation);
       await this.verifyAll();
     } catch { /* tried again at the next renewal */ } finally { this.receiving.delete(entry.id); }
   }
@@ -962,11 +997,7 @@ export class OfflineDownloads {
   /** The downloaded file, this viewer's resume point and everything that came with the download,
    * for Portico's own player (the only offline player). No connection needed. */
   private publicationBinding(receipt: DownloadReceipt | undefined): PublicationBinding {
-    if (!receipt) throw new Error('reading_unavailable');
-    const signed = decodeDownloadReceipt(receipt).signedBytes;
-    if (signed.length > 32768) throw new Error('reading_unavailable');
-    const raw: unknown = JSON.parse(decodeURIComponent(Array.from(signed, byte => '%' + byte.toString(16).padStart(2, '0')).join('')));
-    if (!object(raw)) throw new Error('reading_unavailable'); return publicationBinding(raw.publication);
+    if (!receipt) throw new Error('reading_unavailable'); return signedPublication(receipt);
   }
   publicationSource(entry: OfflineEntry): Readonly<{sourceId: string; revision: string}> {
     const current = this.localRead(entry), live = current();
@@ -1004,8 +1035,8 @@ export class OfflineDownloads {
     const matches = (record: ReadingRecord | undefined): record is ReadingRecord => !!record && record.itemId === entry.itemId && record.sourceId === binding.sourceId && record.revision === binding.revision && record.documentSha256 === binding.documentSha256 && record.artifactSha256 === receipt.claims.artifact.sha256 && record.artifactBytes === receipt.claims.artifact.bytes;
     try {return await openOfflineReadingSession({id: entry.id, owner, itemId: entry.itemId, raw, binding, artifact: receipt.claims.artifact, authority, current, signal: authority.signal, onClose: authority.dispose, now: () => this.receiptNow(),
       progress: initial => {const record = records[entry.id]; return matches(record) ? decodeGetReadingSessionsSessionIdProgressResponse(record.progress) : initial;},
-      save: async (request, initialProgress, startedAt): Promise<ReadingSavedProgress> => {
-        if (!current()) throw new Error('reading_retired');
+      save: async (request, initialProgress, startedAt, callerCurrent): Promise<ReadingSavedProgress> => {
+        if (!current() || !callerCurrent()) throw new Error('reading_retired');
         const previous = records[entry.id], existing = matches(previous) ? previous : undefined;
         if (scope.paused() || existing?.blockedStartedAt === startedAt) return {progress: existing?.progress.progress ?? initialProgress.progress, saved: false};
         const observedAt = Math.max(startedAt, this.receiptNow(), (existing?.pending?.observedAt ?? 0) + 1);
@@ -1016,7 +1047,7 @@ export class OfflineDownloads {
           pending: Object.freeze({id: operationId(), observedAt, startedAt, location: request.location})});
         records[entry.id] = record;
         if (!await this.persist()) {if (records[entry.id] === record) {if (previous) records[entry.id] = previous; else delete records[entry.id];} throw new Error('reading_progress_not_saved');}
-        if (!current()) throw new Error('reading_retired');
+        if (!current() || !callerCurrent()) throw new Error('reading_retired');
         void this.syncReadingProgress(); return {progress: progress.progress, saved: true};
       },
     });} catch (error) {authority.dispose(); throw error;}
@@ -1042,13 +1073,20 @@ export class OfflineDownloads {
         const key = this.stored.keys[decoded.receipt.keyId]; if (!key || !await nativeRouteCrypto.verify(base64url(key), decoded.signatureBytes, decoded.signedBytes) || !current()) continue;
         const raw = await api.request<unknown>('/v1/reading/offline/progress', 'POST', {receipt: decoded.receipt, expectedRevision: sent.serverRevision, observedAt: sent.pending.observedAt, startedAt: sent.pending.startedAt, location: sent.pending.location});
         if (!current() || !object(raw) || (raw.outcome !== 'applied' && raw.outcome !== 'history_paused' && raw.outcome !== 'stale_observation' && raw.outcome !== 'superseded_online')) return;
-        const result = decodePutReadingSessionsSessionIdProgressResponse(raw);
+        if (Object.keys(raw).some(key => key !== 'progress' && key !== 'saved' && key !== 'outcome') || !Object.prototype.hasOwnProperty.call(raw, 'progress') || typeof raw.saved !== 'boolean') return;
+        const result = decodePutReadingSessionsSessionIdProgressResponse({progress: raw.progress, saved: raw.saved});
+        if (result.saved !== (raw.outcome === 'applied') || result.progress && (result.progress.sourceId !== sent.sourceId || !/^[0-9a-f]{64}$/.test(result.progress.sourceRevision) || !safeInteger(result.progress.revision, 1) || !safeInteger(result.progress.observedAt, 1))) return;
         const latest = records[id]; if (!latest || latest.sourceId !== sent.sourceId || latest.documentSha256 !== sent.documentSha256 || latest.artifactSha256 !== sent.artifactSha256) continue;
         const duplicate = raw.outcome === 'stale_observation' && result.progress?.observedAt === sent.pending.observedAt && JSON.stringify(result.progress.location) === JSON.stringify(sent.pending.location);
         const applied = raw.outcome === 'applied' || duplicate;
-        const pending = latest.pending?.id === sent.pending.id ? undefined : latest.pending;
-        records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision,
-          ...(applied ? {pending} : {pending: undefined, progress: {progress: result.progress}, blockedStartedAt: sent.pending.startedAt})});
+        const ownPending = latest.pending?.id === sent.pending.id;
+        if (applied) records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: ownPending ? undefined : latest.pending});
+        else if (ownPending) records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: undefined, progress: {progress: result.progress}, blockedStartedAt: sent.pending.startedAt});
+        else {
+          // A's refusal never acknowledges B, overwrites B's visible location,
+          // or silently rebases B into a new intent. Keep B's original base.
+          records[id] = Object.freeze({...latest, blockedStartedAt: sent.pending.startedAt});
+        }
         await this.persist(); if (!current()) return;
       } catch {return;} // Network/authority failures never move another viewer's queue.
     }
