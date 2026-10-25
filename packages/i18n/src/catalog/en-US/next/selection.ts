@@ -1,4 +1,5 @@
 export const selectionMessages = {
+  'next.selection.editorUncertain': 'The change is unconfirmed. Save again to check the same request, or close and reload the saved values.',
   'next.selection.jobProgress': '{done, number} of {total, number} processed',
   'next.selection.jobPreparing': 'Preparing selection…',
   'next.selection.keepHolding': 'Keep holding to select',
@@ -16,6 +17,7 @@ export const selectionMessages = {
   'next.selection.selectAll': 'Select all {count, number}',
   'next.selection.selectRow': 'Select row',
   'next.selection.allInView': 'all in this view',
+  'next.selection.allSelectedViewNote': 'All {items} in this view are selected,',
   'next.selection.allSelectedNote': 'All {items} in this library are selected,',
   'next.selection.allSelectedRemainder': 'not only the {visible, number} you can see.',
   'next.selection.allNote': 'All {items} in this library are selected, not only the {visible, number} you can see.',

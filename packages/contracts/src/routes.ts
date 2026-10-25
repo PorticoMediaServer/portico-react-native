@@ -554,6 +554,32 @@ export const routes = [
     "admission": "admin-long"
   },
   {
+    "id": "create_storage_source_rclone_config",
+    "method": "POST",
+    "path": "/v1/storage/sources/rclone/config",
+    "summary": "Save an imported source from the server account's own rclone configuration",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "invalid_request",
+      "not_found",
+      "source_credentials_required",
+      "administration_unavailable",
+      "storage_command_conflict",
+      "storage_operation_expired",
+      "storage_command_capacity",
+      "storage_allocation_recovery_required",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin-long"
+  },
+  {
     "id": "create_webhook",
     "method": "POST",
     "path": "/v1/admin/webhooks",
@@ -4832,6 +4858,23 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "get_hardware_facts",
+    "method": "GET",
+    "path": "/v1/admin/playback/hardware",
+    "summary": "Read this server's hardware platform, its one remedy when no GPU is usable, and the V1 hardware target matrix",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted"
+    ],
+    "status": 200,
+    "admission": "admin"
+  },
+  {
     "id": "get_health_live",
     "method": "GET",
     "path": "/health/live",
@@ -6599,7 +6642,7 @@ export const routes = [
     "access": "owner",
     "requires": "admin",
     "lane": "default",
-    "cost": "constant",
+    "cost": "page_sized",
     "bodyLimit": 0,
     "errors": [
       "unauthorized",
@@ -8104,6 +8147,60 @@ export const routes = [
     "admission": "default"
   },
   {
+    "id": "get_storage_source_advanced",
+    "method": "GET",
+    "path": "/v1/storage/sources/{id}/settings/advanced",
+    "summary": "Read one remote source's scan, cache and analysis settings",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_mismatch",
+      "request_in_progress",
+      "administration_unavailable",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin"
+  },
+  {
+    "id": "get_storage_source_folders",
+    "method": "GET",
+    "path": "/v1/storage/sources/{id}/folders",
+    "summary": "List one folder inside a saved remote source, folders only",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "path",
+      "cursor",
+      "limit",
+      "showHidden"
+    ],
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_mismatch",
+      "request_in_progress",
+      "source_credentials_required",
+      "source_unavailable",
+      "administration_unavailable",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin"
+  },
+  {
     "id": "get_storage_source_operations_id",
     "method": "GET",
     "path": "/v1/storage/source-operations/{id}",
@@ -8123,6 +8220,26 @@ export const routes = [
     "status": 200,
     "http": true,
     "admission": "default"
+  },
+  {
+    "id": "get_storage_source_rclone_config",
+    "method": "GET",
+    "path": "/v1/storage/sources/rclone/config",
+    "summary": "Read the server account's own rclone remotes by name and type",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "invalid_request",
+      "administration_unavailable",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "browsing"
   },
   {
     "id": "get_storage_source_rclone_operation",
@@ -8185,6 +8302,27 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "request_in_progress",
+      "administration_unavailable",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin"
+  },
+  {
+    "id": "get_storage_source_status",
+    "method": "GET",
+    "path": "/v1/storage/sources/{id}/status",
+    "summary": "Read one remote source's present state and the libraries that use it",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
       "administration_unavailable",
       "internal"
     ],
@@ -15075,8 +15213,8 @@ export const routes = [
     "access": "owner",
     "requires": "admin",
     "lane": "default",
-    "cost": "constant",
-    "bodyLimit": 32768,
+    "cost": "page_sized",
+    "bodyLimit": 262144,
     "errors": [
       "unauthorized",
       "not_permitted",
@@ -15289,6 +15427,30 @@ export const routes = [
     "status": 200,
     "http": true,
     "admission": "browsing"
+  },
+  {
+    "id": "put_storage_source_advanced",
+    "method": "PUT",
+    "path": "/v1/storage/sources/{id}/settings/advanced",
+    "summary": "Save one remote source's scan, cache and analysis settings",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 8192,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_mismatch",
+      "request_in_progress",
+      "administration_unavailable",
+      "internal",
+      "revision_required"
+    ],
+    "status": 200,
+    "admission": "admin"
   },
   {
     "id": "put_storage_source_read_profile",
@@ -18347,6 +18509,27 @@ export const routes = [
     "admission": "admin"
   },
   {
+    "id": "test_admin_transcode_hardware",
+    "method": "POST",
+    "path": "/v1/admin/transcode/capacity/test",
+    "summary": "Probe every graphics adapter and backend again now",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "admin-heavy"
+  },
+  {
     "id": "test_storage_source_rclone",
     "method": "POST",
     "path": "/v1/storage/sources/rclone/test",
@@ -18531,6 +18714,7 @@ export const routePaths = {
   "create_job": "/v1/jobs",
   "create_queue": "/v1/queues",
   "create_storage_source_rclone": "/v1/storage/sources/rclone",
+  "create_storage_source_rclone_config": "/v1/storage/sources/rclone/config",
   "create_webhook": "/v1/admin/webhooks",
   "delete_admin_backup": "/v1/admin/backups/{id}",
   "delete_admin_dvr_recording_groups_id": "/v1/admin/dvr/recording-groups/{id}",
@@ -18721,6 +18905,7 @@ export const routePaths = {
   "get_guide_programme_image": "/v1/guide/programme-images/{generation}/{programme}",
   "get_guide_reminders": "/v1/guide/reminders",
   "get_guide_sources": "/v1/guide/sources",
+  "get_hardware_facts": "/v1/admin/playback/hardware",
   "get_health_live": "/health/live",
   "get_health_ready": "/health/ready",
   "get_home": "/v1/home",
@@ -18856,10 +19041,14 @@ export const routePaths = {
   "get_storage_mounts": "/v1/storage/mounts",
   "get_storage_operations_id": "/v1/storage/operations/{id}",
   "get_storage_rclone_bundled": "/v1/storage/rclone/bundled",
+  "get_storage_source_advanced": "/v1/storage/sources/{id}/settings/advanced",
+  "get_storage_source_folders": "/v1/storage/sources/{id}/folders",
   "get_storage_source_operations_id": "/v1/storage/source-operations/{id}",
+  "get_storage_source_rclone_config": "/v1/storage/sources/rclone/config",
   "get_storage_source_rclone_operation": "/v1/storage/sources/rclone/operations/{id}",
   "get_storage_source_rclone_providers": "/v1/storage/sources/rclone/providers",
   "get_storage_source_read_profile": "/v1/storage/sources/{id}/settings/read-profile",
+  "get_storage_source_status": "/v1/storage/sources/{id}/status",
   "get_storage_sources": "/v1/storage/sources",
   "get_storage_status": "/v1/admin/storage/status",
   "get_subtitle_fonts_cjk": "/v1/subtitle-fonts/cjk",
@@ -19161,6 +19350,7 @@ export const routePaths = {
   "put_shows_id_metadata_screen": "/v1/shows/{id}/metadata/screen",
   "put_shows_id_metadata_screen_season": "/v1/shows/{id}/metadata/screen/season",
   "put_shows_id_metadata_tvdb": "/v1/shows/{id}/metadata/tvdb",
+  "put_storage_source_advanced": "/v1/storage/sources/{id}/settings/advanced",
   "put_storage_source_read_profile": "/v1/storage/sources/{id}/settings/read-profile",
   "put_storage_sources_webdav_id": "/v1/storage/sources/webdav/{id}",
   "put_v1_items_itemId_subtitles_resource": "/v1/items/{itemId}/subtitles/{resource}",
@@ -19232,6 +19422,7 @@ export const routePaths = {
   "stop_playback_session": "/v1/playback/sessions/{id}",
   "sync_download_progress": "/v1/downloads/progress",
   "terminate_admin_session": "/v1/admin/sessions/{id}:terminate",
+  "test_admin_transcode_hardware": "/v1/admin/transcode/capacity/test",
   "test_storage_source_rclone": "/v1/storage/sources/rclone/test",
   "test_storage_source_webdav": "/v1/storage/sources/webdav/test",
   "test_webhook": "/v1/admin/webhooks/{id}/test",
