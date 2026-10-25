@@ -236,6 +236,37 @@ export function parseLogPage(raw:unknown):AdministrationPage<LogRecord>&{level:L
  return Object.freeze({...page(raw,parseLogRecord,row=>row.sequence),level:oneOfOr('server-administration','log-page.level',raw.level,logLevels,'info'),effectiveLevel:oneOfOr('server-administration','log-page.effectiveLevel',raw.effectiveLevel,logLevels,'info')});
 }
 
+/**
+ * The administrator TV Troubleshooting list's closed vocabulary. Each code is one
+ * exact maintenance action the server records in its own audit trail; the server
+ * omits any action outside this list, and this parser skips an unknown code rather
+ * than rendering a sentence that would misstate what happened.
+ */
+export const adminServerEventCodes=['alert.acknowledge',
+ 'downloads.cancel','downloads.pause','downloads.prepare','downloads.profile.cache_release',
+ 'downloads.profile.revoke','downloads.remove','downloads.resume','downloads.retry',
+ 'downloads.revoke','downloads.settings',
+ 'job.admit','job.cancel','job.pause','job.resume','job.retry',
+ 'optimization.cancel','optimization.delete','optimization.request','optimization.retry',
+ 'schedule.apply','settings.apply'] as const;
+export type AdminServerEventCode=typeof adminServerEventCodes[number];
+export type AdminServerEvent=Readonly<{at:string;code:AdminServerEventCode}>;
+
+/** The bounded list is latest eligible events, not the latest log lines. A document
+ * that claims more than the eight-record bound is refused, and an unknown code is
+ * dropped instead of being shown under a nearest-match sentence. */
+export function parseAdminServerEvents(raw:unknown):readonly AdminServerEvent[]{
+ if(!obj(raw)||!Array.isArray(raw.items))return invalid();
+ if(raw.limit!==8||raw.items.length>8)return invalid();
+ const out:AdminServerEvent[]=[];
+ for(const entry of raw.items){
+  if(!obj(entry))return invalid();
+  if(typeof entry.code!=='string'||!(adminServerEventCodes as readonly string[]).includes(entry.code))continue;
+  out.push(Object.freeze({at:when(entry.at),code:entry.code as AdminServerEventCode}));
+ }
+ return Object.freeze(out);
+}
+
 export function parseLogSettings(raw:unknown):LogSettings{
  if(!obj(raw))return invalid();
  if(raw.logDetailMinutes!==undefined&&(typeof raw.logDetailMinutes!=='number'||!(LOG_DETAIL_MINUTES as readonly number[]).includes(raw.logDetailMinutes)))return invalid();
