@@ -18,6 +18,8 @@ import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
+import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
+import type {HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -123,8 +125,19 @@ export class NativeServerSignIn {
       const system = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'portico',
         signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
       this.server = system;
-      return this.consume(await porticoSignIn(new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch), hostedUrl,
-        connected.api, server.id, {signal: this.controller.signal, crypto: nativeRouteCrypto}));
+      const signal = this.controller.signal, hosted = new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch);
+      const assertHostedCurrent = () => {
+        this.assertCurrent();
+        const live = credentials.getSnapshot().session;
+        if (this.api !== connected.api || live?.account.id !== account.account.id || live.familyId !== account.familyId) throw mismatch();
+      };
+      const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown) => {
+        assertHostedCurrent();
+        try {const result = await hosted.request<T>(path, method, body, signal); assertHostedCurrent(); return result;}
+        catch (error) {assertHostedCurrent(); throw hostedSignInUnavailable(error) ?? error;}
+      }};
+      return this.consume(await porticoSignIn(officialHosted, hostedUrl,
+        connected.api, server.id, {signal, crypto: nativeRouteCrypto}));
     });
   }
   localTVSignIn() {
