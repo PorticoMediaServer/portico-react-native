@@ -1,3 +1,4 @@
+import {limitPassthroughFormats, type PassthroughFormats} from './passthrough-formats';
 import {androidProfile, appleProfile, capabilityDocumentProblem, withViewerSettings, type AndroidNativeFacts, type AppleNativeFacts, type CapabilityDocument, type CapabilityOverrides, type EngineCapabilities as DocumentEngine, type EngineSetting} from '../../../../../packages/client-core/src/client-profile';
 import {androidAudioDecodeFor, appleAudioDecode} from './audio-decode';
 import type {NativeFacts} from './device-profile';
@@ -68,7 +69,12 @@ export type CapabilityDocumentInput = Readonly<{
   device: Readonly<{television: boolean; pad: boolean; family?: 'android' | 'androidtv' | 'firetv'; osVersion?: string}>;
 }>;
 
-export function deviceCapabilityDocument(input: CapabilityDocumentInput): CapabilityDocument {
+export function deviceCapabilityDocument(input: CapabilityDocumentInput & {passthroughFormats?: PassthroughFormats}): CapabilityDocument {
+  const document = baseDeviceCapabilityDocument(input);
+  return input.passthroughFormats ? limitPassthroughFormats(document, input.passthroughFormats) : document;
+}
+
+function baseDeviceCapabilityDocument(input: CapabilityDocumentInput): CapabilityDocument {
   const device = input.device;
   const osVersion = input.native?.osVersion ?? device.osVersion;
   const apple = !device.family;

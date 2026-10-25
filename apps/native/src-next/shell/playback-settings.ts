@@ -1,3 +1,4 @@
+import {readPassthroughFormats} from '../platform/playback/passthrough-formats';
 import {parseEngineSetting} from '../platform/playback/engine-choice';
 import {nativeCaptionPreferences} from '../platform/playback/caption-style';
 import type {NativePlaybackSettings} from '../platform/playback/types';
@@ -9,7 +10,7 @@ export function nativePlaybackSettings(values: PreferenceValues, installation: u
   const skip = (key: string) => {const value = values[key]; if (value !== 'ask' && value !== 'auto' && value !== 'off') throw new Error('invalid_playback_preference'); return value;};
   const subtitles = nativeCaptionPreferences(values);
   const overrides = Object.fromEntries((['forceStereo', 'disablePassthrough', 'disableHdr'] as const).flatMap(key => typeof stored[key] === 'boolean' ? [[key, stored[key]]] : []));
-  return {matchFrameRate: stored.matchFrameRate === 'off' ? 'off' : 'auto', engine: parseEngineSetting(stored.playerEngine), ...(Object.keys(overrides).length ? {overrides} : {}),
+  return {passthroughFormats: readPassthroughFormats(stored.passthroughFormats), matchFrameRate: stored.matchFrameRate === 'off' ? 'off' : 'auto', engine: parseEngineSetting(stored.playerEngine), ...(Object.keys(overrides).length ? {overrides} : {}),
     videoRate: rate('playback.defaultSpeed'), audiobookRate: rate('audiobooks.defaultSpeed'),
     skips: {intro: skip('playback.introSkip'), recap: skip('playback.recapSkip'), credits: skip('playback.creditsSkip')}, subtitles};
 }
