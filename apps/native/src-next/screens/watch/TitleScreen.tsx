@@ -269,11 +269,11 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
                 onNavigate={() => theme.isTV ? props.navigate(entry) : controller.episode.open(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
           })}
         </>)}
-        {selectedTab === 'related' && detail?.related?.rows.map((row, rowIndex) => cell(row.id, <View><Text style={[theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
+        {selectedTab === 'related' && detail?.related?.rows.map((row, rowIndex) => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map((entry, entryIndex) => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (bodyWidth - 60) / 3}
             onLayout={rowIndex === 0 && entryIndex === 0 ? captureTag('related') : undefined} nextFocusUp={rowIndex === 0 && entryIndex === 0 && theme.isTV ? tvFocus.play : undefined} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
         {selectedTab === 'details' && cell('details', <View style={{gap: 16}}>
-          <Text style={[theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
+          <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
           {theme.isTV && detail?.facts?.tagline ? <Text style={[theme.type.body, {color: theme.colors.textTertiary, fontStyle: 'italic'}]}>{detail.facts.tagline}</Text> : null}
           {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
           <View style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 14, paddingHorizontal: 14}}>{detailRows.map(row => <View key={row.label} style={{flexDirection: 'row', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.line}}><Text style={[theme.type.caption, {width: 90, color: theme.colors.textTertiary}]}>{row.label}</Text><Text style={[theme.type.body, {flex: 1, color: theme.colors.text}]}>{row.value}</Text></View>)}</View>
@@ -292,7 +292,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
           </Focusable> : null}
           {credits.length ? <View style={{gap: 10}}>
-            <Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
+            <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
             <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/>
             {(directors.length > 0 || writers.length > 0) && <View style={{gap: 2}}>
               {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text> : null}
@@ -307,7 +307,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <ScrollView style={{width: leftWidth, alignSelf: 'stretch'}} scrollEventThrottle={32} showsVerticalScrollIndicator={false}>
         {heroNode}
         <View style={{paddingHorizontal: 20, paddingTop: 18, paddingBottom: 48, gap: 10}}>
-          {credits.length ? <><Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
+          {credits.length ? <><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
             <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/></> : null}
           {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text> : null}
           {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: defaultI18n.list(writers)})}</Text> : null}

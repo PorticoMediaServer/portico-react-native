@@ -83,7 +83,7 @@ export function SquareCard(props: SquareCardProps) {
         <View accessible={false} importantForAccessibility="no-hide-descendants" style={{flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 16}}>
           {[.55, 1, .38].map((factor, index) => <View key={index} style={{width: 4, height: 16 * factor, borderRadius: 1.5, backgroundColor: t.colors.accentStrong}}/>)}
         </View>
-        <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18, fontWeight: '800', color: t.colors.text}}>{defaultI18n.t('player.miniPlaying')}</Text>
+        <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18 * t.textScale, lineHeight: 22 * t.textScale, fontWeight: '800', color: t.colors.text}}>{defaultI18n.t('player.miniPlaying')}</Text>
       </View>}
     </ArtFrame><Caption {...props} selected={props.selection?.selected} titleTextStyle={props.playing ? {color: t.colors.accentStrong} : props.titleTextStyle} /></>}
   </CardFrame>;
