@@ -401,8 +401,8 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;
-  if (stage === 'setup-choice') return layout(t('web.setup.welcome'), t('web.setup.howSignIn'),
-    fields(field(t('web.general.serverName'), name, setName)),
+  if (stage === 'setup-choice') return layout(t('accounts.setup.title'), t('accounts.setup.at', {address: new URL(operation.current!.serverOrigin()).host}),
+    fields(field(t('web.general.serverName'), name, setName), <Text key="sign-in-choice" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.howSignIn')}</Text>),
     server?.hostedConfigured ? action('setup-portico', t('accounts.signIn.continuePortico'), async () => {
       const url = await operation.current!.prepareHostedSetup(name);
       if (!lifetime.current) return;
@@ -413,7 +413,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
         <Button variant="glass" disabled={busy || !name.trim()} onPress={() => setStage('setup-local')}>{t('web.setup.localSignIn')}</Button></>}
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.localSignInBody')}</Text>
     </View>);
-  if (stage === 'setup-hosted') return layout(t('web.claim.title', {server: server!.name}), t('web.setup.stepAccountBody'), undefined,
+  if (stage === 'setup-hosted') return layout(t('web.claim.title', {server: server!.name}), t('accounts.setup.waiting'), undefined,
     action('setup-resume', t('action.continue'), async () => {
       const result = await operation.current!.finishHostedSetup();
       if (result) consume(result);
