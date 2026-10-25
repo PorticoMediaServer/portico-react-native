@@ -1,5 +1,6 @@
 import {playbackControlsService} from '../../../../../packages/client-core/src/playback-controls';
-import {HandoffController, type HandoffPhase, type HandoffSnapshot, type Receiver} from '../../../../../packages/client-core/src/remote-playback';
+import {HandoffController, type HandoffPhase, type HandoffSnapshot} from '../../../../../packages/client-core/src/remote-playback';
+import type {Receiver} from '../../../../../packages/client-core/src/social-playback';
 import type {LocalSession} from '../../../../../packages/client-core/src/index';
 import {sameFence, type DockPlayback, type PlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
 import {routePath} from '../../../../../packages/contracts/src/routes';
@@ -257,9 +258,9 @@ export class NativePlayOn {
 
   /** The playing device's own account of itself. One poll at a time, fenced by the
    * attempt and the receiver playback id it started with. */
-  private async poll(attempt: number, connection: string): Promise<void> {
+  private async poll(attempt: number, connection: string | undefined): Promise<void> {
     const controller = this.controller, sessionId = this.receiverPlaybackId;
-    if (this.polling || !controller || !sessionId || !this.bound(attempt, connection, sessionId)) return;
+    if (!connection || this.polling || !controller || !sessionId || !this.bound(attempt, connection, sessionId)) return;
     this.polling = true;
     try {
       await controller.refreshRemote();

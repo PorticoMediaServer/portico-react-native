@@ -295,6 +295,15 @@ function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: s
       else if (action === 'edit' || action === 'delete') {setMenu(null); store.openAdmin(action);}}};
   const destination = store.destination(), destinationKind = store.destinationKind();
   const bulk = store.bulk(), bulkState = bulk?.getSnapshot();
+  const bulkSummary: readonly {id: string; text: string}[] = bulkState ? Object.entries(bulkState.changes).flatMap(([field, change]) => {
+    const spec = bulkState.preview?.schema.find(candidate => candidate.field === field);
+    if (!spec) return [];
+    if ('value' in change) return [{id: field, text: `${spec.label}: ${change.value || defaultI18n.t('next.selection.native.notSet')}`}];
+    const parts: string[] = [];
+    if (change.add.length) parts.push(`+${defaultI18n.list(change.add)}`);
+    if (change.remove.length) parts.push(`−${defaultI18n.list(change.remove)}`);
+    return parts.length ? [{id: field, text: `${spec.label}: ${parts.join(' · ')}`}] : [];
+  }) : [];
   return <><View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
     <View style={theme.isTV ? {position: 'absolute', left: 200, right: 96, top: 58} : undefined}><SelectionBar {...props}/></View>
     {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}
@@ -326,6 +335,7 @@ function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: s
           pending={bulkState.phase === 'saving'} error={bulkState.error} result={bulkState.result}
           resultEntries={store.entries().map(entry => ({id: entry.id, title: entry.displayTitle ?? entry.title, artwork: artwork(entry.posterUrl)}))}
           onRetry={ids => {void bulk.retry(ids);}} singleItemFields={bulkState.singleItemFields}
+          fieldLabel={field => field.label} summary={bulkSummary}
           ownerHeader={<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{selectedItemsLabel(state.summary)}</Text>}
           onOpenChange={open => {if (!open) store.closeBulk();}} testID="search-bulk-editor"/>)}
   </>;
