@@ -13,6 +13,7 @@ import type {LayoutSelection} from '../kit/layout/types';
 import type {StateViewProps} from '../kit/states';
 import type {ErrorContext} from '../../../../packages/client-core/src/presentation/errors';
 import type {ShellAuthority, ShellDestination} from './model';
+import type {NativeShellRoute} from './routes';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
 import type {LyricsService, LyricsTarget} from '../../../../packages/client-core/src/lyrics';
@@ -114,6 +115,10 @@ export interface NativeShellRuntime {
   /** The real playlist picker for the current listening song and its playback fence. */
   listeningPlaylist?: NativeListeningPlaylist;
   listeningQueuePolicy?: NativeListeningQueuePolicy;
+  /** The real pushed route and its revision, bound to the same navigation the routes use.
+   * A guarded control captures this when its surface opens and retires when the page leaves. */
+  navigation?: Readonly<{subscribe: (listener: () => void) => () => void;
+    getSnapshot: () => Readonly<{route: NativeShellRoute; revision: number; authority: ShellAuthority}>}>;
   /** Present in the real bootstrap. Missing measurement withholds expanded
    * bounds; it does not retire the persistent player owner. */
   watch?: NativeWatchOutletPort;

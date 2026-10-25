@@ -35,7 +35,7 @@ export type NativeShellPlaybackSnapshot = Readonly<{
    * here only to draw them. Absent for a local file or while no queue is ready. */
   queue?: QueuePlayerState;
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
-  capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
+  capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
 }>;
 
 /** TV video has no collapsed state. Audio folds away; phones retain their video dock. */
@@ -77,6 +77,8 @@ export interface NativeShellPlaybackAdapter {
   captureVideoSnapshot: (fence: PlaybackFence, options?: {signal?: AbortSignal}) => Promise<NativeShellVideoSnapshot>;
   toggle: (fence: PlaybackFence) => Promise<void>;
   replay: (fence: PlaybackFence) => Promise<void>;
+  /** Retry the exact failed queue output at its saved target; the core fences the output it replaced. */
+  retry?: (fence: PlaybackFence, lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => Promise<void>;
   seek: (fence: PlaybackFence, seconds: number) => Promise<void>;
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;

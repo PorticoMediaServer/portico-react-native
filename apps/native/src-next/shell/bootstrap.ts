@@ -373,6 +373,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
+      // The real pushed route and revision, for a guarded control that must retire when the page
+      // it opened on is left. The navigation snapshot is stable between publishes.
+      navigation: Object.freeze({subscribe: context.navigation.subscribe, getSnapshot: context.navigation.getSnapshot}),
       lyrics: target => {
         // A reader exists only for the current local authority; callers ask inside that scope.
         assertCurrent();

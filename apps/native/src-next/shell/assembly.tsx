@@ -272,7 +272,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     revision: () => context.navigation.getSnapshot().revision, playback: () => runtime?.playback, t: defaultI18n.t});
   const musicNavigation = createNativeMusicDiscoverNavigation(context, () => runtime);
   const listeningPlaylist = Platform.isTV ? createNativeListeningPlaylist(context) : undefined;
-  const listeningQueuePolicy = Platform.isTV ? createNativeListeningQueuePolicy(context) : undefined;
+  const listeningQueuePolicy = createNativeListeningQueuePolicy(context);
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
       railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
