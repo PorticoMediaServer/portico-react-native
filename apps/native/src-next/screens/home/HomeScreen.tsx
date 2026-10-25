@@ -280,8 +280,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
       const ranked = presentation.cards.some(card => card.rank !== undefined);
       const drawnWidth = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
-        : wide ? medium ? mediumCardWidth(true, tabletMedium) : desktop || theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
-        : square ? theme.spec.card.width.square[theme.platform] : medium ? mediumCardWidth(false, tabletMedium) : theme.spec.card.width.poster[theme.platform];
+        : wide ? medium ? mediumCardWidth(true, tabletMedium) : desktop ? 262 : theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
+        : square ? desktop ? 150 : theme.spec.card.width.square[theme.platform] : medium ? mediumCardWidth(false, tabletMedium) : desktop ? 150 : theme.spec.card.width.poster[theme.platform];
       const width = cardScale === 1 ? drawnWidth : Math.round(drawnWidth * cardScale);
       const posterWidth = ranked ? Math.round((theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116) * cardScale) : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
