@@ -19,7 +19,10 @@ const stale = () => Object.assign(new Error('native_home_row_changed'), {code: '
  * membership, order, filters, display targets and counts; memory stays sparse. */
 export class NativeHomeRowController {
   readonly collection: WindowedCollection<NativeHomeRowItem>;
-  readonly kinds: readonly NativeHomeRowKind[];
+  /** The chips this result may lawfully offer. A row the server bounded to one
+   * library narrows to that library once the row is read. */
+  kinds: readonly NativeHomeRowKind[];
+  private readonly allKinds: readonly NativeHomeRowKind[];
   private readonly api: HomeApi;
   readonly rowId: string;
   private readonly current: () => boolean;
@@ -31,7 +34,8 @@ export class NativeHomeRowController {
   private alive = true;
   constructor(options: {api: HomeApi; rowId: string; viewerFence: string; current: () => boolean; kinds: readonly NativeHomeRowKind[]}) {
     this.api = options.api; this.rowId = options.rowId; this.viewerFence = options.viewerFence; this.current = options.current;
-    this.kinds = Object.freeze(options.kinds.filter(kind => kind.libraryIds.length).map(kind => Object.freeze({id: kind.id, libraryIds: Object.freeze([...kind.libraryIds])})));
+    this.allKinds = Object.freeze(options.kinds.filter(kind => kind.libraryIds.length).map(kind => Object.freeze({id: kind.id, libraryIds: Object.freeze([...kind.libraryIds])})));
+    this.kinds = this.allKinds;
     this.collection = createWindowedCollection({pageSize: 60, maxResidentPages: 6, maxConcurrent: 1,
       keyOf: item => item.membershipId, fetchPage: async () => {throw cancelled();}});
   }
@@ -61,7 +65,12 @@ export class NativeHomeRowController {
       const capabilities = parseBrowseCapabilities(raw), pivot = capabilities.pivots.find(value => value.id === acrossPivot('homeRow'));
       if (!pivot?.defaultSort[0]) throw stale();
       const sort = groupSort(this.state.sort, true, capabilities.sorts, pivot.defaultSort[0]);
-      this.publish({phase: 'ready', row, capabilities, sort});
+      // A library-scoped row belongs to that one library: offering every other
+      // library's chip would promise counts and pages the row cannot contain.
+      const scoped = row.libraryId ? this.allKinds.filter(kind => kind.id === row.libraryId) : this.allKinds;
+      this.kinds = scoped.length ? scoped : this.allKinds;
+      const selectedKind = this.kinds.some(kind => kind.id === this.state.selectedKind) ? this.state.selectedKind : undefined;
+      this.publish({phase: 'ready', row, capabilities, sort, ...(selectedKind === this.state.selectedKind ? {} : {selectedKind})});
       this.requery();
     } catch (error) {if (this.valid(generation)) this.publish({phase: 'error', error});}
   };
