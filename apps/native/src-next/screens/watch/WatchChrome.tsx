@@ -306,6 +306,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#03080c" stopOpacity={.82}/><Stop offset=".36" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
         <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#03080c" stopOpacity={.92}/><Stop offset=".5" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>
+      {theme.isTV && !compact && <View pointerEvents="box-none" style={{position: 'absolute', top: 80, left: 96, right: 96, alignItems: 'flex-end'}}>
+        <FocusRegion id="watch-group" entry="player-group-pill" orientation="horizontal" edges={{down: 'watch-controls'}}>
+          <NativeTVGroupPill/>
+        </FocusRegion>
+      </View>}
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.left ?? 0), right: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
@@ -323,9 +328,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
               {linear.next && <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.textTertiary, flexShrink: 1}]}>{t('player.live.next', {title: linear.next.title})}</Text>}
             </View>
           </View></>}
-          {theme.isTV && !compact && <FocusRegion id="watch-group" entry="player-group-pill" orientation="horizontal" edges={{down: 'watch-controls'}}>
-            <NativeTVGroupPill/>
-          </FocusRegion>}
+
           {!linear && !compact && theme.isTV && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}><Text numberOfLines={1} style={[nativeType({size: 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
             {theme.isTV ? <View style={{flexDirection: 'row', alignItems: 'baseline', minWidth: 0}}>{identity!.subtitle.map((part, index) =>
               <Text key={`${part.role}:${index}`} numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.textSecondary},
