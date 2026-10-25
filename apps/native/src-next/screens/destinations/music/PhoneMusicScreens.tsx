@@ -151,10 +151,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
           <View style={{flex: 1, minWidth: 0}}>
             <Text style={[browseType(theme, 15, 600), {color: theme.colors.textSecondary, marginBottom: 10}]}>{t('next.browse.native.album')}</Text>
             <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 58, 800, -.04, 61), {color: theme.colors.text}]}>{title}</Text>
-            {entry.artist?.name ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4}}>
-              <ArtistCircle covers={art ? [art] : []} rings={[2]} initials={[...entry.artist.name.trim()][0] ?? ''} alt={entry.artist.name} size={28} visible/>
-              <Text numberOfLines={1} style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong}]}>{entry.artist.name}</Text>
-            </View> : null}
+            {entry.artist?.name ? <Text numberOfLines={1} style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong, marginTop: 4}]}>{entry.artist.name}</Text> : null}
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
               {facts.length ? <Facts facts={facts}/> : null}
               <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="tablet"/>
