@@ -31,7 +31,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
   const addButton = useRef<View | null>(null);
   const [menu, setMenu] = useState<LiveSource>(), [configure, setConfigure] = useState<LiveSource>(), [mapping, setMapping] = useState<LiveSource>(), [remove, setRemove] = useState<LiveSource>();
   const [removing, setRemoving] = useState(false);
-  const menuOpener = useRef<View | null>(null), rowOpeners = useRef(new Map<string, View>());
+  const menuOpener = useRef<View | null>(null), rowOpeners = useRef(new Map<string, View>()), confirmCancel = useRef<View>(null);
   const role = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.account.role === 'admin' ? 'administrator' as const : 'member' as const;
   useEffect(() => {void controller.ensure();}, [controller]);
   const sources = state.list?.sources ?? [];
@@ -114,8 +114,8 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
     <DiscoverSheet controller={controller} runtime={runtime} open={discovering} onOpenChange={setDiscovering} onUse={address => {setTuner(address); setAdding(true);}}/>
     <SourceSettingsSheet controller={controller} runtime={runtime} source={configure} sources={sources} open={configure !== undefined} onOpenChange={value => {if (!value) setConfigure(undefined);}} onSaved={() => void controller.load(true)}/>
     <ChannelMapSheet controller={controller} runtime={runtime} source={mapping} open={mapping !== undefined} onOpenChange={value => {if (!value) setMapping(undefined);}}/>
-    <Dialog open={remove !== undefined} onOpenChange={value => {if (!value && !removing) setRemove(undefined);}} title={t('web.liveTv.removeTitle', {name: remove?.name ?? ''})} description={t('web.liveTv.removeBody')} testID="live-owner-remove"
-      footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} loading={removing} onPress={() => void removeSource()}>{t('web.liveTv.removeSource')}</Button><Button variant="glass" disabled={removing} onPress={() => setRemove(undefined)}>{t('action.cancel')}</Button></View>}>
+    <Dialog open={remove !== undefined} onOpenChange={value => {if (!value && !removing) setRemove(undefined);}} title={t('web.liveTv.removeTitle', {name: remove?.name ?? ''})} description={t('web.liveTv.removeBody')} testID="live-owner-remove" initialFocusRef={confirmCancel}
+      footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={removing} onPress={() => setRemove(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={removing} loading={removing} onPress={() => void removeSource()}>{t('web.liveTv.removeSource')}</Button></View>}>
       <View/>
     </Dialog>
   </View>;

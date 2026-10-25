@@ -27,7 +27,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [ruleRemove, setRuleRemove] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
   const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>>({});
   const [defaultsDraft, setDefaultsDraft] = useState<DVRDefaults>(), [storageDraft, setStorageDraft] = useState<StoragePolicy>();
-  const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null);
+  const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null), confirmCancel = useRef<View>(null);
   const reload = async () => {
     setError(undefined);
     try {
@@ -92,8 +92,8 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     ] : []}/>
     {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} open={newRule} onOpenChange={setNewRule}
       onSaved={() => {setNewRule(false); void reload();}}/>}
-    <Dialog open={ruleRemove !== undefined} onOpenChange={value => {if (!value && !busy) setRuleRemove(undefined);}} title={t('web.recordingRules.removeTitle', {name: ruleRemove?.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove"
-      footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} loading={busy.startsWith('rule')} onPress={() => {const rule = ruleRemove; if (!rule) return; void write(`rule:${rule.id}`, () => controller.deleteRule(rule)).then(() => {if (controller.lifetime.current()) setRuleRemove(undefined);});}}>{t('web.recordingRules.remove')}</Button><Button variant="glass" disabled={!!busy} onPress={() => setRuleRemove(undefined)}>{t('action.cancel')}</Button></View>}>
+    <Dialog open={ruleRemove !== undefined} onOpenChange={value => {if (!value && !busy) setRuleRemove(undefined);}} title={t('web.recordingRules.removeTitle', {name: ruleRemove?.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove" initialFocusRef={confirmCancel}
+      footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={!!busy} onPress={() => setRuleRemove(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={!!busy} loading={busy.startsWith('rule')} onPress={() => {const rule = ruleRemove; if (!rule) return; void write(`rule:${rule.id}`, () => controller.deleteRule(rule)).then(() => {if (controller.lifetime.current()) setRuleRemove(current => current === rule ? undefined : current);});}}>{t('web.recordingRules.remove')}</Button></View>}>
       <View/>
     </Dialog>
   </View>;
