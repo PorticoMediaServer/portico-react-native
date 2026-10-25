@@ -57,7 +57,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         if (!Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
         if (allowed === 'administrator' && !route.page) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
         const requested = route.page === 'libraries' || route.page === 'remote' || route.page === 'people' || route.page === 'troubleshooting' ? route.page : undefined;
-        const page = allowed === 'owner' ? requested ?? 'libraries' : requested === 'people' || requested === 'troubleshooting' ? requested : 'people';
+        const page = allowed === 'owner' ? requested ?? 'libraries' : 'people';
         return <NativeTVServerScreen key={page} ports={ports} runtime={runtime} initialPage={page}/>;
       },
       dispose,

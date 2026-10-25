@@ -31,9 +31,10 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
   const admission = nativeServerAdmission(ports.context.account, lifetime);
   const role: 'owner' | 'administrator' = admission === 'owner' ? 'owner' : 'administrator';
   const owner = admission === 'owner';
-  // The drawn page pill says who shares each page: Libraries and Remote access are
-  // the owner's alone; People and Troubleshooting are shared with administrators.
-  const audience = owner && (page === 'libraries' || page === 'remote') ? 'owner' : 'administrators';
+  // The drawn page pill says who shares each page: People is shared with
+  // administrators; Libraries, Remote access and the owner-only message log are
+  // the owner's alone.
+  const audience = owner && page !== 'people' ? 'owner' : 'administrators';
   const service = useMemo(() => new LibraryManagementService({
     api: createTVServerReader(ports.context, lifetime),
     scope: {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])},
