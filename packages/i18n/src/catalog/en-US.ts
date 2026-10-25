@@ -1976,6 +1976,15 @@ export const enUS = {
   'player.chapter.numbered': 'Chapter {number}',
   'player.skip': '{kind, select, intro {Skip intro} recap {Skip recap} credits {Skip credits} commercial {Skip ad} outro {Skip outro} other {Skip}}',
   'player.skipped': '{kind, select, intro {Skipped intro} recap {Skipped recap} credits {Skipped credits} commercial {Skipped ad} outro {Skipped outro} other {Skipped}}',
+  // The names under the seek bar's recap, intro and credit bands (tv-player 2).
+  'player.marker.intro': 'Intro',
+  'player.marker.recap': 'Recap',
+  'player.marker.credits': 'Credits',
+  // The remote's keys in place of the button row while the seek bar has focus.
+  'player.hint.move': 'Move',
+  'player.hint.faster': 'Faster',
+  'player.hint.playFrom': 'Play from {time}',
+  'player.hint.returnTo': 'Return to {time}',
   'player.post.stillWatching': 'Still watching?',
   'player.post.upNext': 'Up next',
   'player.post.pausedAfterEpisodes': 'Playback paused after several episodes. Confirm to keep going.',
