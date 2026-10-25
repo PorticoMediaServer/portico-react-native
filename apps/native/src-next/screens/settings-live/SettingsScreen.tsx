@@ -72,6 +72,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
   const managesServer = ports.context.account.account.role === 'owner';
+  const compact = !theme.isTV && theme.width < 600;
   // quality.awayLimit is the owner's own server limit, read from the same
   // settings-configuration document the Streaming page reads. The route decides
   // who may see it; a refusal or an unreadable answer leaves the rows out.
@@ -123,19 +124,39 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     const choice = control && (control.type === 'select' || control.type === 'segmented') ? control.options?.find(value => String(value.value) === code) : undefined;
     return choice ? t(choice.label) : undefined;
   }, [awayLimit, t]);
-  // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
+  // settings.html wins over the structure's group order. Only pages whose real native
+  // renderer is mounted here are listed; the rest land with their owners.
+  const serverPageOrder = ['general', 'dashboard', 'history', 'libraries', 'remote-sources', 'metadata', 'segments', 'live', 'people', 'signin', 'remote', 'integrations', 'streaming', 'storage', 'troubleshooting'];
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
     const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
-    // settings.html wins over the group's old order: General comes first.
-    const general = pages.find(value => value.id === 'general');
-    return general ? [general, ...pages.filter(value => value.id !== 'general')] : pages;
+    return [...pages].sort((a, b) => {
+      const left = serverPageOrder.indexOf(a.id), right = serverPageOrder.indexOf(b.id);
+      return (left < 0 ? serverPageOrder.length : left) - (right < 0 ? serverPageOrder.length : right);
+    });
   }, [structure, theme.isTV, managesServer]);
-  const [selected, setSelected] = useState(accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
+  // phone-app 8 omits the profile row because the drawn profile card replaces it.
+  const phoneAccountOrder = ['playback', 'languages', 'quality', 'music', 'appearance', 'region', 'privacy', 'device'];
+  const tabletAccountOrder = ['profile', 'privacy', 'playback', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
+  const tabletAccountClusters: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
+  const tabletServerClusters: readonly (readonly string[])[] = [['general', 'dashboard'], ['libraries', 'remote-sources', 'segments'], ['live', 'integrations'], ['streaming', 'storage', 'troubleshooting']];
+  const tabletDefaultPage = accountPages.some(value => value.id === 'playback') ? 'playback' : accountPages[0]?.id;
+  const [selected, setSelected] = useState(() => !theme.isTV && !compact ? tabletDefaultPage : accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
   // tv-more frame 22: the list keeps the spec's three groups, in the drawn order; Reading is not on TV.
   const tvPageOrder = ['profile', 'privacy', 'playback', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
   const tvPageGroups: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
-  const orderedPages = theme.isTV ? [...tvPageOrder.flatMap(id => accountPages.filter(value => value.id === id)), ...accountPages.filter(value => !tvPageOrder.includes(value.id))] : accountPages;
+  const accountOrder = theme.isTV ? tvPageOrder : compact ? phoneAccountOrder : tabletAccountOrder;
+  const orderedPages = [
+    ...accountOrder.flatMap(id => accountPages.filter(value => value.id === id)),
+    ...accountPages.filter(value => !accountOrder.includes(value.id) && !(compact && value.id === 'profile')),
+  ];
+  const grouped = (pages: readonly SettingsPage[], clusters: readonly (readonly string[])[]) => {
+    const seen = new Set(clusters.flat());
+    const groups = clusters.map(ids => ids.flatMap(id => pages.filter(value => value.id === id))).filter(group => group.length);
+    const rest = pages.filter(value => !seen.has(value.id));
+    if (rest.length) groups.push(rest);
+    return groups;
+  };
   const pageRow = (value: SettingsPage) => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onFocus={theme.isTV ? () => setSelected(value.id) : undefined} onPress={() => choose(value.id)} focusKind="row" focusRadius={14} style={{minHeight: theme.isTV ? 56 : 48, paddingHorizontal: 20, gap: 18, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? `${theme.colors.accent}29` : 'transparent'}}>
     <Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18}/><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text}]}>{t(value.title)}</Text>
   </Focusable>;
@@ -176,7 +197,6 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     if (page && page.id !== accountPages[0]?.id) {setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
     return false;
   }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage, theme.width]);
-  const compact = !theme.isTV && theme.width < 600;
   const account = ports.context.account.account;
   const signedIn = account.hostedAccountId
     ? t('settings.signedInWithAccount', {server: ports.serverName()})
@@ -241,7 +261,11 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
                       {index > 0 && <View style={{height: 26}}/>}
                       {group.flatMap(id => orderedPages.filter(value => value.id === id)).map(pageRow)}
                     </React.Fragment>)
-                  : orderedPages.map(pageRow)}
+                  : compact ? orderedPages.map(pageRow)
+                    : grouped(orderedPages, tabletAccountClusters).map((group, index) => <React.Fragment key={group[0]?.id ?? index}>
+                        {index > 0 && <View style={{height: 12}}/>}
+                        {group.map(pageRow)}
+                      </React.Fragment>)}
               </FocusRegion>
             </>}
             {theme.isTV && !searching && <View testID="settings-key-hints" style={{gap: 8, marginTop: 34, marginLeft: 20}}>
@@ -250,17 +274,19 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
             </View>}
           {!theme.isTV && serverPages.length > 0 && <View style={{marginHorizontal: 16, marginTop: 20, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.accentStrong, .28)}}>
             <ServerHeader serverName={ports.serverName()} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone"/>
-            {serverPages.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => value.id === 'dashboard' ? ports.context.navigation.open({kind: 'server-dashboard'}, ports.context.authority()) : choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
-              <View style={{width: 30, height: 30, borderRadius: 8, backgroundColor: alpha(theme.colors.accent, .16), alignItems: 'center', justifyContent: 'center'}}><Icon name={nativeSettingsIcon(value.icon)} size={18} color={theme.colors.accentStrong}/></View>
-              <Text numberOfLines={1} style={[shellType(15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text><Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
-            </Focusable>)}
+            {grouped(serverPages, compact ? [] : tabletServerClusters).map((group, index) => <React.Fragment key={group[0]?.id ?? index}>
+              {index > 0 && <View style={{height: 10}}/>}
+              {group.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => value.id === 'dashboard' ? ports.context.navigation.open({kind: 'server-dashboard'}, ports.context.authority()) : choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
+                <View style={{width: 30, height: 30, borderRadius: 8, backgroundColor: alpha(theme.colors.accent, .16), alignItems: 'center', justifyContent: 'center'}}><Icon name={nativeSettingsIcon(value.icon)} size={18} color={theme.colors.accentStrong}/></View>
+                <Text numberOfLines={1} style={[shellType(15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text><Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
+              </Focusable>)}
+            </React.Fragment>)}
           </View>}
         </ScrollView>}
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
-        {compact && (serverPage ? <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>
-          : <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t('action.back')}</Button>)}
-        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>}
+        {!compact && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
         {segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
