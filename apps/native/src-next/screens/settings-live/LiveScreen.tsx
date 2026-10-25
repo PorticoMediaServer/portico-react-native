@@ -6,7 +6,7 @@ import Animated, {useAnimatedStyle, type SharedValue} from 'react-native-reanima
 import Svg, {Defs, LinearGradient, Pattern, Rect, Stop} from 'react-native-svg';
 import {defaultRecordingOptions} from '../../../../../packages/client-core/src/dvr';
 import {dayPrimeTime, stripDays} from '../../../../../packages/client-core/src/channel-guide';
-import {programmeFactParts} from '../../../../../packages/client-core/src/presentation/kit-model';
+import {episodeLabel, programmeFactParts, programmeTimeRange} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {legacyChannel, legacyProgramme, legacyProgram, layoutRow, nowNext, pxPerMsFor, rulerTicks, floorTo, localDayStart, SLOT_MS, type GuideChannelRow, type GuideProgram, type GuideCell} from '../../../../../packages/client-core/src/guide';
 import {GuideFeatureClient, type GuideAiring, type GuideReminder} from '../../../../../packages/client-core/src/guide/directory';
 import type {RecordingDraft} from '../../../../../packages/client-core/src/dvr';
@@ -208,9 +208,12 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const managesServer = ports.context.account.account.role === 'owner';
   if (ownerOpen) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} initialAction={initialOwnerAction} onClose={() => {setInitialOwnerAction(undefined); setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
   if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} owner={owner} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
+  // A later programme leads with Record and offers Remind me; Watch live appears once it is on.
+  const onNowProgramme = selected?.program !== undefined && selected.program.start <= now && selected.program.end > now;
+  const watchProgramme = selected?.channel.tuneAvailable ? <Button ref={opener} testID="live-watch" icon="i-play" onPress={() => watch(selected.channel)}>{t(onNowProgramme ? 'guide.watchLive' : 'guide.watchChannel')}</Button> : null;
   const programmeBody = selected ? <View style={{gap: 20}}>
         {selected.program && <ProgrammeDetails programme={selected.program} now={now} runtime={runtime}/>}
-        {selected.channel.tuneAvailable && <Button ref={opener} testID="live-watch" icon="i-play" onPress={() => watch(selected.channel)}>{t(selected.program && selected.program.start <= now && selected.program.end > now ? 'guide.watchLive' : 'guide.watchChannel')}</Button>}
+        {(onNowProgramme || theme.isTV) && watchProgramme}
         {selected.channel.kind === 'live' && selected.channel.recordAvailable && selected.program && selected.program.end > now && <View style={{flexDirection: 'row', gap: 10}}>
           <Button style={{flex: 1}} ref={!selected.channel.tuneAvailable ? opener : undefined} variant="glass" testID="live-record" icon="i-rec" loading={recording} disabled={recording || !!selected.program.recording} onPress={() => {
             const channel = legacyChannel(selected.channel), programme = selected.program && legacyProgramme(selected.program);
@@ -222,7 +225,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
               setSelected(current => current?.channel.id === selected.channel.id && current.program?.id === selected.program?.id ? {...current, program: {...current.program!, recording: {id: receipt.id, state: receipt.state}}} : current);
               guide.invalidate();
             }, error => {if (controller.lifetime.current()) setRecordError(error);}).finally(() => {if (controller.lifetime.current()) setRecording(false);});
-          }}>{t(selected.program.recording ? 'guide.recordingScheduled' : 'guide.record')}</Button>
+          }}>{t(selected.program.recording?.state === 'recording' ? 'web.dvr.state.recording' : selected.program.recording?.state === 'conflicted' ? 'web.dvr.state.conflicted' : selected.program.recording ? 'guide.recordingScheduled' : 'guide.record')}</Button>
           <Button style={{flex: 1}} variant="glass" testID="live-record-series" onPress={() => {if (selected.program) void askSeries(selected.channel, selected.program);}}>{t('guide.recordSeries')}</Button>
         </View>}
         {selected.channel.kind === 'live' && selected.program && selected.program.start > now && (() => {
@@ -232,14 +235,22 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
           const existing = reminders.get(selected.program!.id);
           return <Button variant="glass" testID="live-remind" icon={existing ? 'i-bell-f' : 'i-bell'} disabled={!airing} onPress={() => {if (airing) remind(airing, existing);}}>{t(existing ? 'guide.stopRemind' : 'guide.remind')}</Button>;
         })()}
+        {!onNowProgramme && !theme.isTV && watchProgramme}
         {later.length > 0 && <View style={{gap: 10}} testID="live-later">
           <Text style={[shellType(theme.isTV ? 22 : 13, 700), {color: theme.colors.text}]}>{t('guide.laterOn', {channel: selected.channel.name})}</Text>
-          {later.map(airing => <View key={airing.programme.id} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: theme.isTV ? 48 : 36}}>
-            <Text style={[shellType(theme.isTV ? 20 : 12.5), {color: theme.colors.textSecondary, width: theme.isTV ? 90 : 62}]}>{clock(Date.parse(airing.programme.start))}</Text>
-            <Text numberOfLines={1} style={[shellType(theme.isTV ? 22 : 14, 600), {color: theme.colors.text, flex: 1}]}>{airing.programme.title}</Text>
-            <Focusable testID={`live-later-remind-${airing.programme.id}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t(reminders.has(airing.programme.id) ? 'guide.stopRemind' : 'guide.remind')} onPress={() => remind(airing, reminders.get(airing.programme.id))} style={{width: 36, height: 36, alignItems: 'center', justifyContent: 'center'}}><Icon name={reminders.has(airing.programme.id) ? 'i-bell-f' : 'i-bell'} size={theme.isTV ? 24 : 18} color={reminders.has(airing.programme.id) ? theme.colors.accentStrong : theme.colors.textTertiary}/></Focusable>
-            <Focusable testID={`live-later-open-${airing.programme.id}`} focusKind="button" accessibilityRole="button" accessibilityLabel={airing.programme.title} onPress={() => setSelected({channel: selected.channel, program: legacyProgram(airing.programme)})} style={{width: 36, height: 36, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-info" size={theme.isTV ? 24 : 18} color={theme.colors.textTertiary}/></Focusable>
-          </View>)}
+          {later.map(airing => {
+            const code = episodeLabel(airing.programme.episode?.number !== undefined ? {mode: 'seasonal' as const, season: airing.programme.episode.season, episode: airing.programme.episode.number} : undefined, 'player', runtime.text)?.text;
+            const range = programmeTimeRange(Date.parse(airing.programme.start), Date.parse(airing.programme.end), {...runtime.text, timeZone: state.options.timezone})?.text;
+            return <View key={airing.programme.id} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48}}>
+              <Text style={[shellType(theme.isTV ? 20 : 12.5), {color: theme.colors.textSecondary, width: theme.isTV ? 90 : 70}]}>{clock(Date.parse(airing.programme.start))}</Text>
+              <View style={{flex: 1, minWidth: 0}}>
+                <Text numberOfLines={1} style={[shellType(theme.isTV ? 22 : 14, 600), {color: theme.colors.text}]}>{code ? `${code} · ${airing.programme.title}` : airing.programme.title}</Text>
+                {range && <Text numberOfLines={1} style={[shellType(theme.isTV ? 18 : 12), {color: theme.colors.textTertiary, marginTop: 2}]}>{range}</Text>}
+              </View>
+              <Focusable testID={`live-later-remind-${airing.programme.id}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t(reminders.has(airing.programme.id) ? 'guide.stopRemind' : 'guide.remind')} onPress={() => remind(airing, reminders.get(airing.programme.id))} style={{width: theme.isTV ? 48 : 44, height: theme.isTV ? 48 : 44, alignItems: 'center', justifyContent: 'center'}}><Icon name={reminders.has(airing.programme.id) ? 'i-bell-f' : 'i-bell'} size={theme.isTV ? 24 : 20} color={reminders.has(airing.programme.id) ? theme.colors.accentStrong : theme.colors.textTertiary}/></Focusable>
+              <Focusable testID={`live-later-open-${airing.programme.id}`} focusKind="button" accessibilityRole="button" accessibilityLabel={airing.programme.title} onPress={() => setSelected({channel: selected.channel, program: legacyProgram(airing.programme)})} style={{width: theme.isTV ? 48 : 44, height: theme.isTV ? 48 : 44, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-info" size={theme.isTV ? 24 : 20} color={theme.colors.textTertiary}/></Focusable>
+            </View>;
+          })}
           <Text style={[shellType(theme.isTV ? 18 : 12), {color: theme.colors.textTertiary}]}>{t('guide.reminderSet')}</Text>
         </View>}
         {recordError !== undefined && <StateView testID="live-record-error" {...runtime.error(recordError, () => setRecordError(undefined))}/>}
@@ -289,9 +300,10 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     </View>
     {twoPane && <View testID="live-programme-pane" style={{position: 'absolute', left: paneLeft, right: 0, top: 0, bottom: 0, backgroundColor: theme.colors.ink,
       borderLeftWidth: 1, borderLeftColor: theme.colors.line}}>
+      <Focusable testID="live-programme-close" focusKind="button" accessibilityRole="button" accessibilityLabel={t('action.close')} onPress={() => setSelected(undefined)} style={{position: 'absolute', top: 8, right: 8, width: 44, height: 44, alignItems: 'center', justifyContent: 'center', zIndex: 1}}><Icon name="i-close" size={20} color={theme.colors.textTertiary}/></Focusable>
       <ScrollView contentContainerStyle={{padding: 20, gap: 18, paddingBottom: 48}}>
+        <View style={{paddingRight: 40}}>{selected && <ProgrammeHeader channel={selected.channel} programme={selected.program} now={now} runtime={runtime} busy={state.mutating} onFavorite={favorite} showGroup/>}</View>
         <Text style={[shellType(24, 800, 'normal', -.03), {color: theme.colors.text}]}>{selected?.program?.title ?? selected?.channel.name ?? ''}</Text>
-        {selected && <ProgrammeHeader channel={selected.channel} programme={selected.program} now={now} runtime={runtime} busy={state.mutating} onFavorite={favorite}/>}
         {programmeBody}
       </ScrollView>
     </View>}
@@ -332,7 +344,7 @@ function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index,
     </FocusRegion>
     <FocusRegion id={cellsRegion} entry={first?.id} orientation="horizontal" edges={{left: column}} style={{flex: 1, overflow: 'hidden'}} onLayout={entry}>
       {list ? <Focusable ref={node => {if (node) programRefs.current.set('now', node);}} focusId={first?.id ?? 'now'} testID={`live-now-${channel.id}`} onPress={() => onOpen(channel, current.now, programRefs.current.get('now'))} style={{height: rowHeight, padding: 14, backgroundColor: theme.colors.raised, borderRadius: 12, gap: 8}}><ScreenText>{current.now?.title ?? t('guide.noInformation')}</ScreenText>{nextText && <Text style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textSecondary}]}>{nextText}</Text>}</Focusable>
-        : <Animated.View style={[{flex: 1}, shift]}>{cells.map(cell => <NativeLiveGuideCell key={cell.program?.id ?? `gap:${cell.start}`} cell={cell} gapLabel={runtime.text.t(channel.guide === 'none' ? 'guide.noGuide' : 'guide.noInformation')} loading={cell.kind === 'gap' && !programs.complete && !programs.failed} failed={cell.kind === 'gap' && programs.failed} retry={() => guide.invalidate()} left={cell.x - overscan * px + (phoneGrid ? 2 : 0)} laneWidth={laneWidth} panPosition={panPosition} panActive={panActive} start={start} now={now} px={px} rowHeight={rowHeight} compact={phoneGrid} clock={clock} runtime={runtime} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} refNode={node => {const id = cell.program?.id ?? `gap:${cell.start}`; if (node) programRefs.current.set(id, node); else programRefs.current.delete(id);}} onPress={() => onOpen(channel, cell.program, programRefs.current.get(cell.program?.id ?? `gap:${cell.start}`))}/>)}</Animated.View>}
+        : <Animated.View style={[{flex: 1}, shift]}>{cells.map(cell => <NativeLiveGuideCell key={cell.program?.id ?? `gap:${cell.start}`} cell={cell} gapLabel={runtime.text.t(channel.guide === 'none' ? 'guide.noGuide' : 'guide.noInformation')} gapBody={channel.guide === 'none' ? runtime.text.t('guide.noGuideBody') : undefined} loading={cell.kind === 'gap' && !programs.complete && !programs.failed} failed={cell.kind === 'gap' && programs.failed} retry={() => guide.invalidate()} left={cell.x - overscan * px + (phoneGrid ? 2 : 0)} laneWidth={laneWidth} panPosition={panPosition} panActive={panActive} start={start} now={now} px={px} rowHeight={rowHeight} compact={phoneGrid} clock={clock} runtime={runtime} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} refNode={node => {const id = cell.program?.id ?? `gap:${cell.start}`; if (node) programRefs.current.set(id, node); else programRefs.current.delete(id);}} onPress={() => onOpen(channel, cell.program, programRefs.current.get(cell.program?.id ?? `gap:${cell.start}`))}/>)}</Animated.View>}
     </FocusRegion>
   </View>;
 }
@@ -352,7 +364,7 @@ function NativeLiveListRow({channel, programme, next, now, runtime, clock, heigh
   </Focusable>;
 }
 
-function NativeLiveGuideCell({cell, gapLabel, loading, failed, retry, left, laneWidth, panPosition, panActive, start, now, px, rowHeight, compact, clock, runtime, testID, refNode, onPress}: {cell: GuideCell; gapLabel: string; loading: boolean; failed: boolean; retry: () => void; left: number; laneWidth: number; panPosition: SharedValue<number>; panActive: boolean; start: number; now: number; px: number; rowHeight: number; compact: boolean; clock: (at: number) => string | undefined; runtime: NativeShellRuntime; testID: string; refNode: (node: View | null) => void; onPress: () => void}) {
+function NativeLiveGuideCell({cell, gapLabel, gapBody, loading, failed, retry, left, laneWidth, panPosition, panActive, start, now, px, rowHeight, compact, clock, runtime, testID, refNode, onPress}: {cell: GuideCell; gapLabel: string; gapBody?: string; loading: boolean; failed: boolean; retry: () => void; left: number; laneWidth: number; panPosition: SharedValue<number>; panActive: boolean; start: number; now: number; px: number; rowHeight: number; compact: boolean; clock: (at: number) => string | undefined; runtime: NativeShellRuntime; testID: string; refNode: (node: View | null) => void; onPress: () => void}) {
   const theme = useTheme(), fadeId = useId().replace(/:/g, ''), padding = theme.isTV ? 16 : compact ? 7 : 8;
   const gap = cell.kind === 'gap', narrow = compact && (cell.tier === 'title' || cell.tier === 'sliver');
   const background = !theme.isTV && gap ? 'transparent' : cell.state === 'now' ? theme.colors.raisedHigh : !theme.isTV && cell.state === 'past' ? alpha(theme.colors.raised, .5) : theme.colors.raised;
@@ -371,6 +383,7 @@ function NativeLiveGuideCell({cell, gapLabel, loading, failed, retry, left, lane
     {!theme.isTV && gap && <View pointerEvents="none" style={{position: 'absolute', inset: 0}}><Svg width="100%" height="100%" accessible={false}><Defs><Pattern id={`${fadeId}-gap`} patternUnits="userSpaceOnUse" width={14} height={14} patternTransform="rotate(45)"><Rect width={7} height={14} fill={theme.colors.text} fillOpacity={.035}/></Pattern></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId}-gap)`}/></Svg></View>}
     <Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}>
       <View style={{flexDirection: 'row', alignItems: 'flex-start'}}>{!theme.isTV && cell.program?.recording && <View style={{width: 7, height: 7, borderRadius: 4, marginTop: 4.5, marginRight: 5, backgroundColor: theme.colors.record}}/>}<Animated.View style={[{overflow: 'hidden'}, clip]}><Icon name="i-left" size={theme.isTV ? 16 : 10} color={theme.colors.textTertiary}/></Animated.View><Text numberOfLines={narrow ? 1 : 2} ellipsizeMode={narrow ? "tail" : "clip"} style={[shellType(theme.isTV ? 22 : gap ? 12.5 : narrow ? 12 : 13, gap && !theme.isTV ? 600 : 700), {color: !theme.isTV && (gap || cell.state === 'past') ? theme.colors.textTertiary : theme.colors.text, lineHeight: theme.isTV ? undefined : narrow ? 15 : 16, flexShrink: 1}]}>{cell.program?.title ?? gapLabel}</Text>{!theme.isTV && <View pointerEvents="none" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 8}}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={fadeId} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={background} stopOpacity="0"/><Stop offset="1" stopColor={background}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId})`}/></Svg></View>}</View>
+      {!theme.isTV && gap && gapBody && (cell.tier === 'full' || cell.tier === 'title2') && <Text numberOfLines={1} style={[shellType(11.5), {color: theme.colors.textTertiary, marginTop: 3, lineHeight: 14}]}>{gapBody}</Text>}
       {(cell.tier === 'full' || cell.tier === 'title2') && <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 5, marginTop: theme.isTV ? 8 : 3}}>
         <ProgrammeFlags programme={cell.program} grid text={runtime.text}/>
         {theme.isTV && cell.program?.recording && <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.record}}/>}
@@ -381,24 +394,24 @@ function NativeLiveGuideCell({cell, gapLabel, loading, failed, retry, left, lane
   </Focusable>;
 }
 
-function ProgrammeFlags({programme, grid = false, text}: {programme?: GuideProgram; grid?: boolean; text: NativeShellRuntime['text']}) {
+function ProgrammeFlags({programme, flags = programme?.flags, grid = false, text}: {programme?: GuideProgram; flags?: GuideProgram['flags']; grid?: boolean; text: NativeShellRuntime['text']}) {
   const theme = useTheme(), t = text.t;
   const gridFlag = grid && !theme.isTV;
   return <>
-    {programme?.flags?.live && <View style={{flexDirection: 'row', gap: 6, alignItems: 'center', ...(gridFlag ? {backgroundColor: alpha(theme.colors.record, .18), borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1} : {})}}>
+    {flags?.live && <View style={{flexDirection: 'row', gap: 6, alignItems: 'center', ...(gridFlag ? {backgroundColor: alpha(theme.colors.record, .18), borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1} : {})}}>
       {!gridFlag && <View style={{width: theme.isTV ? 8 : 7, height: theme.isTV ? 8 : 7, borderRadius: 4, backgroundColor: theme.colors.record}}/>}
       <Text style={[shellType(theme.isTV ? 18 : gridFlag ? 10.5 : 12, gridFlag ? 800 : 700), {color: gridFlag ? '#f9b1b1' : theme.colors.record, lineHeight: gridFlag ? 13 : undefined}]}>{t('guide.live')}</Text>
     </View>}
-    {programme?.flags?.new && <Text style={[shellType(theme.isTV ? 18 : 10.5, theme.isTV ? 700 : 800), {paddingHorizontal: 5, paddingVertical: theme.isTV ? 0 : 1, borderRadius: 4, backgroundColor: theme.isTV ? theme.colors.accentStrong : theme.colors.accent, color: theme.colors.ink, lineHeight: theme.isTV ? undefined : 13}]}>{t('guide.new')}</Text>}
-    {programme?.flags?.premiere && <Text style={[shellType(theme.isTV ? 18 : 10.5, theme.isTV ? 700 : 800), {color: theme.isTV ? theme.colors.textSecondary : theme.colors.accentStrong, ...(!theme.isTV ? {borderWidth: 1.5, borderColor: theme.colors.accentStrong, borderRadius: 4, paddingHorizontal: 5, lineHeight: 13} : {})}]}>{t('guide.premiere')}</Text>}
+    {flags?.new && <Text style={[shellType(theme.isTV ? 18 : 10.5, theme.isTV ? 700 : 800), {paddingHorizontal: 5, paddingVertical: theme.isTV ? 0 : 1, borderRadius: 4, backgroundColor: theme.isTV ? theme.colors.accentStrong : theme.colors.accent, color: theme.colors.ink, lineHeight: theme.isTV ? undefined : 13}]}>{t('guide.new')}</Text>}
+    {flags?.premiere && <Text style={[shellType(theme.isTV ? 18 : 10.5, theme.isTV ? 700 : 800), {color: theme.isTV ? theme.colors.textSecondary : theme.colors.accentStrong, ...(!theme.isTV ? {borderWidth: 1.5, borderColor: theme.colors.accentStrong, borderRadius: 4, paddingHorizontal: 5, lineHeight: 13} : {})}]}>{t('guide.premiere')}</Text>}
   </>;
 }
 
-function ProgrammeHeader({channel, programme, now, runtime, busy, onFavorite}: {channel: GuideChannelRow; programme?: GuideProgram; now: number; runtime: NativeShellRuntime; busy: boolean; onFavorite: () => void}) {
+function ProgrammeHeader({channel, programme, now, runtime, busy, onFavorite, showGroup = false}: {channel: GuideChannelRow; programme?: GuideProgram; now: number; runtime: NativeShellRuntime; busy: boolean; onFavorite: () => void; showGroup?: boolean}) {
   const theme = useTheme(), t = runtime.text.t, logo = runtime.artwork(channel.logoUrl), onNow = programme && programme.start <= now && programme.end > now;
   return <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 16 : 10, marginBottom: theme.isTV ? 32 : 16}}>
     {(logo || channel.mark && channel.sourceId) && <View style={{width: theme.isTV ? 56 : 34, height: theme.isTV ? 56 : 34, borderRadius: theme.isTV ? 10 : 7, overflow: 'hidden'}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : 34}/></View>}
-    <View style={{flex: 1, flexDirection: 'row', gap: 16, alignItems: 'center'}}><Text style={[shellType(theme.isTV ? 24 : 13, 700), {color: theme.colors.text}]}>{channel.name}</Text><Text style={[shellType(theme.isTV ? 22 : 13, 700), {color: theme.colors.textSecondary}]}>{channel.number}</Text></View>
+    <View style={{flex: 1, flexDirection: 'row', gap: 16, alignItems: 'center'}}><Text style={[shellType(theme.isTV ? 24 : 13, 700), {color: theme.colors.text}]}>{channel.name}</Text><Text style={[shellType(theme.isTV ? 22 : 13, 700), {color: theme.colors.textSecondary}]}>{channel.number}</Text>{showGroup && !!channel.group && <Text numberOfLines={1} style={[shellType(theme.isTV ? 22 : 13), {color: theme.colors.textTertiary, flexShrink: 1}]}>{channel.group}</Text>}</View>
     {(theme.isTV ? programme?.flags?.live : onNow) && <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><View style={{width: theme.isTV ? 8 : 7, height: theme.isTV ? 8 : 7, borderRadius: 4, backgroundColor: theme.colors.record}}/><Text style={[shellType(theme.isTV ? 22 : 12, 700), {color: theme.colors.record}]}>{t(theme.isTV ? 'guide.live' : 'guide.onNow')}</Text></View>}
     {!theme.isTV && <Focusable testID="live-channel-favorite" focusKind="button" accessibilityRole="button" accessibilityLabel={t(channel.favorite ? 'channels.removeFavorite' : 'channels.addFavorite')} accessibilityState={{selected: channel.favorite}} disabled={busy} onPress={onFavorite} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}><Icon name={channel.favorite ? 'i-star-f' : 'i-star'} size={20} color={channel.favorite ? theme.colors.accentStrong : theme.colors.textSecondary}/></Focusable>}
   </View>;
@@ -410,14 +423,42 @@ function GuideChannelArt({channel, source, size}: {channel: GuideChannelRow; sou
 }
 
 function ProgrammeDetails({programme, now, runtime}: {programme: GuideProgram; now: number; runtime: NativeShellRuntime}) {
-  const theme = useTheme();
-  const facts = programmeFactParts({startMs: programme.start, endMs: programme.end, subtitle: programme.subtitle, episode: programme.episode?.number ? {mode: 'seasonal', season: programme.episode.season, episode: programme.episode.number} : undefined, year: programme.year, categories: programme.categories?.filter(value => value.toLowerCase() !== 'live'), rating: programme.rating}, runtime.text, now);
-  const tags = facts.filter(fact => fact.id === 'content-rating' || fact.id.startsWith('category-')), row = facts.filter(fact => !tags.includes(fact) && fact.id !== 'started');
+  const theme = useTheme(), t = runtime.text.t;
+  const episode = programme.episode?.number !== undefined ? {mode: 'seasonal' as const, season: programme.episode.season, episode: programme.episode.number} : undefined;
+  const categories = programme.categories?.filter(value => value.toLowerCase() !== 'live');
   const onNow = programme.start <= now && programme.end > now, fraction = Math.max(0, Math.min(1, (now - programme.start) / (programme.end - programme.start)));
-  return <View style={{gap: theme.isTV ? 22 : 16}}>
-    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 20 : 12}}>{[...row, ...(theme.isTV ? tags : [])].map(fact => <Text key={fact.id} style={[shellType(theme.isTV ? 22 : 13, fact.id === 'remaining' ? 700 : 400), {color: theme.colors.textSecondary}]}>{fact.text}</Text>)}</View>
-    {onNow && <View style={{height: theme.isTV ? 5 : 4, borderRadius: 3, backgroundColor: theme.colors.line, overflow: 'hidden'}}><View style={{height: '100%', width: `${fraction * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>}
-    {!theme.isTV && tags.length > 0 && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>{tags.map(fact => <Text key={fact.id} style={[shellType(12), {color: theme.colors.textSecondary, borderRadius: 5, borderWidth: 1, borderColor: theme.colors.lineStrong, paddingVertical: 4, paddingHorizontal: 8}]}>{fact.text}</Text>)}</View>}
-    {programme.description && <Text numberOfLines={theme.isTV ? undefined : theme.width < 700 ? 3 : undefined} style={[shellType(theme.isTV ? 22 : 13), {color: theme.colors.textSecondary, lineHeight: theme.isTV ? 33 : 20}]}>{programme.description}</Text>}
+  // TV keeps its single wrapped fact line; the touch panel follows tablet-play6 and the
+  // phone sheet: one identity line, the frame's meta row, then the bar with what is left.
+  if (theme.isTV) {
+    const facts = programmeFactParts({startMs: programme.start, endMs: programme.end, subtitle: programme.subtitle, episode, year: programme.year, categories, rating: programme.rating}, runtime.text, now);
+    const tags = facts.filter(fact => fact.id === 'content-rating' || fact.id.startsWith('category-')), row = facts.filter(fact => !tags.includes(fact) && fact.id !== 'started');
+    return <View style={{gap: 22}}>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 20}}>{[...row, ...tags].map(fact => <Text key={fact.id} style={[shellType(22, fact.id === 'remaining' ? 700 : 400), {color: theme.colors.textSecondary}]}>{fact.text}</Text>)}</View>
+      {onNow && <View style={{height: 5, borderRadius: 3, backgroundColor: theme.colors.line, overflow: 'hidden'}}><View style={{height: '100%', width: `${fraction * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>}
+      {programme.description && <Text style={[shellType(22), {color: theme.colors.textSecondary, lineHeight: 33}]}>{programme.description}</Text>}
+    </View>;
+  }
+  const identity = programmeFactParts({episode, subtitle: programme.subtitle}, runtime.text).map(fact => fact.text).join(' · ');
+  const facts = programmeFactParts({startMs: programme.start, endMs: programme.end, year: programme.year, categories, rating: programme.rating,
+    flags: {new: programme.flags?.new === true, premiere: programme.flags?.premiere === true}}, runtime.text, now);
+  const when = facts.find(fact => fact.id === 'time-range'), year = facts.find(fact => fact.id === 'year'), rating = facts.find(fact => fact.id === 'content-rating');
+  const categoryFacts = facts.filter(fact => fact.id.startsWith('category-'));
+  const genres = categoryFacts.length ? categoryFacts.slice(1).reduce((list, fact) => t('next.kit.genres.append', {list, genre: fact.text}), categoryFacts[0]!.text) : '';
+  const started = facts.find(fact => fact.id === 'started'), remaining = facts.find(fact => fact.id === 'remaining');
+  return <View style={{gap: 16}}>
+    {identity !== '' && <Text style={[shellType(13.5, 700), {color: theme.colors.text}]}>{identity}</Text>}
+    <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12}}>
+      {when && <Text style={[shellType(13, 700), {color: theme.colors.text}]}>{when.text}</Text>}
+      {genres !== '' && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{genres}</Text>}
+      {year && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{year.text}</Text>}
+      {rating && <Text style={[shellType(12), {color: theme.colors.textSecondary, borderRadius: 5, borderWidth: 1, borderColor: theme.colors.lineStrong, paddingVertical: 4, paddingHorizontal: 8}]}>{rating.text}</Text>}
+      <ProgrammeFlags programme={programme} flags={{new: programme.flags?.new, premiere: programme.flags?.premiere}} text={runtime.text}/>
+    </View>
+    {(started || remaining) && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+      <View style={{flex: 1, height: 4, borderRadius: 3, backgroundColor: theme.colors.line, overflow: 'hidden'}}><View style={{height: '100%', width: `${fraction * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>
+      {started && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{started.text}</Text>}
+      {remaining && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{remaining.text}</Text>}
+    </View>}
+    {programme.description && <Text numberOfLines={theme.width < 700 ? 3 : undefined} style={[shellType(13), {color: theme.colors.textSecondary, lineHeight: 20}]}>{programme.description}</Text>}
   </View>;
 }
