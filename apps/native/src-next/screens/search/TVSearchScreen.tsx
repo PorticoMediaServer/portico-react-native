@@ -25,6 +25,10 @@ import {nativeSearchGenreTiles} from './genre-tiles';
 
 const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
+/** tv.html#f5 draws the top title twice: once as Top result and once in its own
+ * section. Both are the product, so the top card needs its own focus identity;
+ * sharing the section card's is a duplicate live child in one region. */
+const tvTopResultFocusId = (group: SearchGroup, entry: SearchEntry): string => `top:${nativeSearchEntryKey(group, entry)}`;
 /** Drawn measurements from tv.html#f5 (.sres left/right/.top-r/.meta/.trk) and states.html#f18 (.genres right inset). */
 const resultsLeft = 780;
 const tvSearchR46 = {
@@ -67,14 +71,20 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   const empty = typed && state.search.phase === 'ready' && groups.every(group => group.status === 'success' && group.totalCount === 0);
   const top = state.group === 'all' ? topSearchResult(state.text, groups) : undefined;
   const shown = groups.filter(group => (state.group === 'all' || state.group === group.id) && (group.items.length > 0 || group.status === 'error'));
-  const firstEntry = shown.flatMap(group => group.items.map(entry => ({entry, group: group.id})))[0];
-  const firstResult = top ? nativeSearchEntryKey(top.group, top.entry) : firstEntry ? nativeSearchEntryKey(firstEntry.group, firstEntry.entry)
-    : genreTiles[0] ? `genre:${genreTiles[0].id}` : state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
-  const chips = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available)
-    && groups.some(group => group.id === chip.id && (group.status !== 'success' || group.totalCount > 0)));
+  const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
+  // The drawn row keeps every available type while one is selected; in All it
+  // drops the types this answer proved empty (tv.html#f5 counts the rest).
+  const chips = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available))
+    .filter(chip => chip.id === 'all' || state.group !== 'all' || !groups.some(group => group.id === chip.id && group.status === 'success' && group.totalCount === 0));
+  const chipsDrawn = typed && !empty && !problem && !!state.search.data;
+  const firstEntry = typed && !empty && !problem ? shown.flatMap(group => group.items.map(entry => ({entry, group: group.id})))[0] : undefined;
+  // The entry is only ever a focusable this render draws: results land in their
+  // own time, and a Right press aimed at an unmounted child is a dead press.
+  const firstResult = typed && !empty && !problem && top ? tvTopResultFocusId(top.group, top.entry) : firstEntry ? nativeSearchEntryKey(firstEntry.group, firstEntry.entry)
+    : (!typed || empty) && genreTiles[0] ? `genre:${genreTiles[0].id}` : chipsDrawn && chips[0] ? `chip:${chips[0].id}`
+    : !typed && state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
   useEffect(() => runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
   const run = (work: Promise<void>) => {void work.catch(runtime.reportError);};
-  const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
   const resultsWidth = Math.max(0, dimensions.width - resultsLeft - theme.layout.gutter.tvRight);
   return <View testID="native-tv-search-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -98,7 +108,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
         const group = groups.find(value => value.id === state.group);
         if (group?.nextCursor && contentOffset.y + layoutMeasurement.height >= contentSize.height - 600) run(destination.next(group.id));
       }}>
-        {typed && !empty && !problem && !!state.search.data && <View style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
+        {chipsDrawn && <View style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
           const group = groups.find(value => value.id === chip.id);
           const count = chip.id === 'all' ? groups.every(value => value.totalCountExact) ? groups.reduce((sum, value) => sum + value.totalCount, 0) : undefined : group?.totalCountExact ? group.totalCount : undefined;
           return <Chip key={chip.id} focusId={`chip:${chip.id}`} testID={`tv-search-chip-${chip.id}`} selected={state.group === chip.id} count={count} retry={group?.status === 'error'}
@@ -117,7 +127,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
             {state.recent.map(recent => <Focusable key={recent.q} focusId={`recent:${recent.q}`} disabled={!active.visible} onPress={() => destination.useRecent(recent.q)}
               style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</View>}
         </>}
-        {top && <TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/>}
+        {typed && !empty && !problem && top && <TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/>}
         {typed && !empty && !problem && shown.map(group => <View key={group.id} style={tvSearchR46.section}>
           <View style={tvSearchR46.heading}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
             {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>
@@ -158,7 +168,7 @@ export function TVSearchTopResult({entry, group, runtime, actions, selection, di
   const theme = useTheme(), anchor = useRef<View>(null), content = media(entry) ? entry : undefined, kind = topResultKindLabel(group);
   const text = content && cardText(homeSubject(content), 'search', runtime.text), title = content?.displayTitle || entry.title;
   const progress = text?.progress, caption = text?.caption.filter(part => part.id !== 'year') ?? [];
-  return <CardFrame focusId={nativeSearchEntryKey(group, entry)} testID="tv-search-top-result" title={title} disabled={disabled} selection={selection}
+  return <CardFrame focusId={tvTopResultFocusId(group, entry)} testID="tv-search-top-result" title={title} disabled={disabled} selection={selection}
     menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen?.(entry, group)} onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, anchor)}
     style={tvSearchR46.topResult} pressableStyle={tvSearchR46.topRow}>
     {state => <><ArtFrame width={480} height={270} radius={14} focused={state.focused} hovered={state.hovered} holding={state.holding} selected={selection?.selected}>
