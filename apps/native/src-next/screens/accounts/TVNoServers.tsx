@@ -9,7 +9,7 @@ import {Button, TextField} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
 
 type Props = {busy: boolean; error?: React.ReactNode; isCurrent: () => boolean; onBack: () => void;
-  onJoin: (invitation: string, address: string) => void; onFind: () => void; onRefresh: () => void; onSignOut: () => void};
+  onJoin: (invitation: string, address: string) => void; onFind: () => void; onRefresh: () => void; onSignOut: () => void; notice?: {title: string; body: string; onRetry?: () => void}};
 const addressKeys = ['abcdef', 'ghijkl', 'mnopqr', 'stuvwx', 'yz1234', '567890', '.:/-_@'].map(row => [...row]);
 const invitationKeys = ['ABCDEF', 'GHIJKL', 'MNOPQR', 'STUVWX', 'YZ1234', '567890', '-_'].map(row => [...row]);
 type Ticket = {live: boolean; scope: object};
@@ -40,6 +40,11 @@ export function TVNoServers(props: Props) {
         <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('services.start.ready')}</Text>
         <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t(joining ? 'services.start.join' : 'services.start.welcome')}</Text>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(joining ? 'web.directJoin.entryBody' : 'services.start.body')}</Text>
+        {props.notice && <View accessibilityRole="alert" style={{gap: 12, padding: 20, borderRadius: 16, backgroundColor: theme.colors.raised}}>
+          <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{props.notice.title}</Text>
+          <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{props.notice.body}</Text>
+          {props.notice.onRetry && <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.notice?.onRetry?.();}}>{t('web.chooser.tryAgain')}</Button>}
+        </View>}
         {props.error}
       </View>
       {joining ? <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join']} style={{maxWidth: 1100, gap: 20}}>
