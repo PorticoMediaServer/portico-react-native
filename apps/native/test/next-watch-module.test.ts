@@ -1,3 +1,4 @@
+import {nativeDeviceSettings} from '../src-next/platform/device-settings';
 import test from 'node:test';
 import {audiobookPreferences} from '../../../packages/client-core/src/audiobook-preferences';
 import assert from 'node:assert/strict';
@@ -12,6 +13,7 @@ const {react} = hooks();
 const menuCalls: any[][] = [];
 let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
+  '../../platform/device-settings': {nativeDeviceSettings},
   '../../../../../packages/client-core/src/audiobook-preferences': {audiobookPreferences}, react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
   '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
   '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},

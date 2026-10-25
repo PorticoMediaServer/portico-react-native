@@ -1,3 +1,4 @@
+import {nativeDeviceSettings} from '../../platform/device-settings';
 import React from 'react';
 import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import {Platform, type View} from 'react-native';
@@ -109,7 +110,18 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     return {minutes: at === null ? null : Math.max(0, Math.round((at - Date.now()) / 60_000)),
       set: async (fence, minutes) => {await context.playback.setSleepTimer?.(fence, minutes);}};
   };
+  const noticePreferences = {
+    subscribe: context.subscribePreferences,
+    getSnapshot: () => {
+      if (!current()) return false;
+      try {return nativeDeviceSettings(context).read('lossNotices') === true;} catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'unsupported') return true;
+        throw error;
+      }
+    },
+  };
   const player: NativeWatchHostBindings = {
+    noticePreferences,
     chrome: (source, runtime) => ({...nativeWatchChromeFacts(source, bindings.names ?? createNativeWatchPanelNames(runtime.text)), skipBackSeconds: skipSeconds(source, 'playback.skipBackMs'),
       skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError, skipModes: skipModes(), artwork: runtime.artwork,
       onMinimize: fence => {if (current()) {const transition = context.playback.dock.collapse(fence); if (transition) void context.playback.onTransition(transition).catch(runtime.reportError);}},
