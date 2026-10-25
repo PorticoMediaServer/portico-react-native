@@ -208,7 +208,11 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {playbackInfo && option('playback-info', 'i-pulse')}
   </View>;
   const upright = !theme.isTV && context.layout.mode === 'watch';
-  return <View testID="watch-panels" style={{flex: 1, backgroundColor: theme.colors.raised, borderRadius: theme.isTV ? 0 : 20, overflow: 'hidden', paddingTop: theme.isTV ? 60 : 8, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0, paddingBottom: theme.isTV ? 56 : 20}}>
+  // foldable3d: a panel on a physical page is square to the crease and uses the
+  // frame's own fill; the sheet and the floating phone panel keep the raised card.
+  const paged = context.layout.panelPaged === true;
+  return <View testID="watch-panels" style={{flex: 1, backgroundColor: paged ? 'rgba(22,44,58,.98)' : theme.colors.raised, borderRadius: theme.isTV || paged ? 0 : 20, overflow: 'hidden',
+    paddingTop: theme.isTV ? 60 : paged ? 14 : 8, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0, paddingBottom: theme.isTV ? 56 : 20}}>
     {theme.isTV && <PanelBackground/>}
     {upright && <View pointerEvents="none" style={{height: 5, width: 36, borderRadius: 3, backgroundColor: '#9bbdce66', alignSelf: 'center', marginBottom: 10}}/>}
     <FocusRegion id="watch-panel" hold orientation="vertical" style={{flex: 1}}>

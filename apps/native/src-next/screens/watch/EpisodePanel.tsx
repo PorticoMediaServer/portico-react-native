@@ -80,7 +80,12 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
     </View>
     {count !== undefined && <Text style={{paddingHorizontal: 16, paddingBottom: 6, fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>
       {defaultI18n.number(count, {useGrouping: false})} · {t('title.episodes')}</Text>}
-    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingHorizontal: 8, paddingBottom: 16}}>
+    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingHorizontal: 8, paddingBottom: 16}} scrollEventThrottle={32}
+      onScroll={event => {
+        // foldable3g/5: the season keeps going as the list reaches its end.
+        const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+        if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(() => {});
+      }}>
       {loading && !episodes.length && <Text style={{padding: 16, color: theme.colors.textTertiary}}>{t('next.states.loading')}</Text>}
       {episodes.map(row)}
     </ScrollView>
