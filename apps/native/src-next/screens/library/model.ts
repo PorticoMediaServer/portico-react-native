@@ -175,11 +175,11 @@ export class NativeLibraryDestination {
         positionIndex: Object.fromEntries(result.positionIndex.map(value => [value.key, value.index]))};
     };
   }
-  setQuery = (predicates: readonly BrowseNode[], sort = this.state.sort): void => {
+  setQuery = (predicates: readonly BrowseNode[], sort = this.state.sort, keep?: NativeLibraryFilterDraft): void => {
     if (!this.current() || !this.state.capabilities || !this.state.collection || !sort) return;
     const {capabilities, tab, collection} = this.state;
     this.build(capabilities, tab, predicates, sort, 0, 1);
-    this.retireFilters();
+    this.retireFilters(keep);
     const next = Object.freeze([...predicates]);
     this.entries = new WeakSet();
     this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
@@ -196,16 +196,20 @@ export class NativeLibraryDestination {
     if (!this.current() || this.state.tab.shows !== 'rows') return Promise.resolve();
     return this.discover.next(sectionId);
   };
-  createFilters = (): NativeLibraryFilterDraft => {
+  /** `live` binds the draft to its capabilities rather than one query snapshot, so
+   * the docked panel survives its own applies (tablet-read#1b). The modal panel
+   * keeps the opening-query binding it has always had. */
+  createFilters = (mode: Readonly<{live?: boolean}> = {}): NativeLibraryFilterDraft => {
     const source = this.getSnapshot();
     if (!this.current() || !source.capabilities || !source.tab.pivot || !source.sort || !source.collection) throw new Error('native_library_filter_source_required');
     const draft = new NativeLibraryFilterDraft({api: {request: this.request}, capabilities: source.capabilities, pivot: source.tab.pivot, sort: source.sort,
       predicates: source.predicates, fixed: (source.tab.fixedFilter ?? []) as readonly BrowseNode[],
-      current: () => this.current() && this.state.capabilities === source.capabilities && this.state.predicates === source.predicates && this.state.sort === source.sort,
-      apply: predicates => this.setQuery(predicates), onDispose: () => this.filters.delete(draft)});
+      current: () => this.current() && this.state.capabilities === source.capabilities
+        && (mode.live === true || this.state.predicates === source.predicates) && this.state.sort === source.sort,
+      apply: (predicates, keep) => this.setQuery(predicates, this.state.sort, keep), onDispose: () => this.filters.delete(draft)});
     this.filters.add(draft); return draft;
   };
-  private retireFilters() {for (const draft of [...this.filters]) draft.dispose();}
+  private retireFilters(keep?: NativeLibraryFilterDraft) {for (const draft of [...this.filters]) if (draft !== keep) draft.dispose();}
   contains = (entry: ContentEntry): boolean => this.current() && this.state.phase === 'ready' && (this.state.collection
     ? this.entries.has(entry) && this.state.collection.residentItems().includes(entry)
     : this.state.discover.appended.some(section => section.entries.includes(entry)));

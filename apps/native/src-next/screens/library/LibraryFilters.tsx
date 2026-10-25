@@ -1,10 +1,11 @@
 import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
-import {Text, View} from 'react-native';
+import {ScrollView, Text, View} from 'react-native';
 import type {BrowseNode} from '../../../../../packages/client-core/src/browse';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {FilterBuilder, type BrowseLabels, type FilterFieldState} from '../../kit/browse';
-import {Button} from '../../kit/controls';
+import {Button, Focusable} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {useFocusRegistry} from '../../kit/focus';
 import {BottomSheet, SidePanel} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
@@ -15,7 +16,7 @@ import {libraryFilterChange, libraryFilterField} from './filter-controls';
 import {NativeLibraryFilterDraft} from './filters';
 import {nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 
-export function LibraryFilters({draft, source, runtime, labels, owner, onClose, onSave}: {draft: NativeLibraryFilterDraft; source: NativeLibrarySnapshot; runtime: NativeShellRuntime; labels: BrowseLabels; owner: boolean; onClose: () => void; onSave: (view: NativeLibraryViewDraft) => void}) {
+export function LibraryFilters({draft, source, runtime, labels, owner, onClose, onSave, docked = false}: {draft: NativeLibraryFilterDraft; source: NativeLibrarySnapshot; runtime: NativeShellRuntime; labels: BrowseLabels; owner: boolean; onClose: () => void; /** Omitted where the host has no real Save view action (the reading libraries). */ onSave?: (view: NativeLibraryViewDraft) => void; /** tablet-read#1b: the same draft and controls as a pane beside the grid. */ docked?: boolean}) {
   const theme = useTheme(), registry = useFocusRegistry(), state = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
   const [openFields, setOpenFields] = useState<readonly string[]>(() => !theme.isTV && source.capabilities?.fields.some(field => field.id === 'genre') ? ['genre'] : []), [failure, setFailure] = useState<unknown>();
   const [now] = useState(() => new Date());
@@ -35,7 +36,7 @@ export function LibraryFilters({draft, source, runtime, labels, owner, onClose, 
   const result = state.count.value;
   const results = result && defaultI18n.t(result.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: result.total, pivot: source.tab.pivot ?? 'other'});
   const footer = <View style={{flexDirection: 'row', gap: theme.isTV ? 16 : 10}}>
-    {!theme.isTV && <Button focusId="save-view" variant="glass" disabled={!nativeLibraryCanSave(source, {predicates: state.predicates, sort: source.sort!})}
+    {!theme.isTV && onSave && <Button focusId="save-view" variant="glass" disabled={!nativeLibraryCanSave(source, {predicates: state.predicates, sort: source.sort!})}
       onPress={() => onSave({predicates: state.predicates, sort: source.sort!})}>{defaultI18n.t('next.browse.native.saveView')}</Button>}
     <Button focusId="apply" testID={`${panelId}-apply`} variant="primary" disabled={state.count.phase !== 'ready'} onPress={() => {if (draft.apply()) onClose();}} style={{flex: 1}}>
       {results ? defaultI18n.t('next.browse.native.showResults', {results}) : null}
@@ -50,10 +51,35 @@ export function LibraryFilters({draft, source, runtime, labels, owner, onClose, 
       onFieldChange={(id, value) => {
         const field = source.capabilities!.fields.find(candidate => candidate.id === id);
         if (!field) return;
-        try {draft.setPredicates(libraryFilterChange(source.capabilities!, field, state.predicates, value, (source.tab.fixedFilter ?? []) as readonly BrowseNode[], now)); setFailure(undefined);}
+        try {draft.setPredicates(libraryFilterChange(source.capabilities!, field, state.predicates, value, (source.tab.fixedFilter ?? []) as readonly BrowseNode[], now)); if (docked) draft.applyLive(); setFailure(undefined);}
         catch (error) {setFailure(error); runtime.reportError(error);}
       }} onSearchChange={draft.search} onRetry={draft.retryFacet}/>
   </>;
+  const clear = () => {draft.clear(); if (docked) draft.applyLive();};
+  if (docked) {
+    const live = state.count.value, unfiltered = source.unfilteredTotal;
+    const showing = live && (unfiltered
+      ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(live.total)}${live.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
+          total: defaultI18n.t(unfiltered.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: unfiltered.total, pivot: source.tab.pivot ?? 'other'})})
+      : defaultI18n.t(live.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: live.total, pivot: source.tab.pivot ?? 'other'}));
+    return <View testID={panelId} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+      <View style={{paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, gap: 4}}>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+          <Text accessibilityRole="header" style={[browseType(theme, 22, 800, -.02), {color: theme.colors.text, flex: 1}]}>{defaultI18n.t('next.browse.native.filters')}</Text>
+          <Focusable testID={`${panelId}-close`} focusId={`${panelId}-close`} accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.overlays.close')}
+            onPress={onClose} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -10}}>
+            <Icon name="i-x" size={20} color={theme.colors.textSecondary}/>
+          </Focusable>
+        </View>
+        {showing ? <Text style={[browseType(theme, 14.5, 500), {color: theme.colors.textTertiary}]}>{showing}</Text> : null}
+      </View>
+      <ScrollView style={{flex: 1}} contentContainerStyle={{paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24}}>{content}</ScrollView>
+      <View style={{flexDirection: 'row', gap: 10, padding: 20, borderTopWidth: 1, borderTopColor: theme.colors.line}}>
+        <Button testID={`${panelId}-clear`} variant="glass" onPress={clear}>{defaultI18n.t('next.browse.native.clearAll')}</Button>
+        <Button testID={`${panelId}-done`} variant="primary" onPress={() => {draft.dispose(); onClose();}} style={{flex: 1}}>{defaultI18n.t('next.controls.done')}</Button>
+      </View>
+    </View>;
+  }
   return theme.isTV ? <SidePanel testID={panelId} open={state.open} onOpenChange={open => {if (!open) close();}} title={defaultI18n.t('next.browse.native.filters')}
     width={680} topInset={0} initialFocusRef={initialFocusRef} showClose={false} titleType={{size: 44, weight: 800, tracking: -.03, lineHeight: 52.8}}
     style={{paddingTop: 42, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}} footer={footer}>{content}</SidePanel>

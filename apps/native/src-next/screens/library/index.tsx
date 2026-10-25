@@ -43,7 +43,7 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
       // the bounded Reading list (`GET /v1/reading/items`), not generic content.
       if (isReadingLibraryKind(library.kind)) {
         if (selected) retireSelected();
-        return <NativeReadingLibraryScreen key={id} context={context} runtime={runtime} libraryId={id} title={library.name}
+        return <NativeReadingLibraryScreen key={id} context={context} runtime={runtime} libraryId={id} title={library.name} labels={ports.labels}
           onBack={() => runtime.onDestination({kind: 'libraries'})}/>;
       }
       if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name) {

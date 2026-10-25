@@ -4,6 +4,8 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingItem} from '../../../../../packages/client-core/src';
+import {readLibrarySummaries, type LibrarySummary} from '../../../../../packages/client-core/src/library-summary';
+import {formatDuration} from '../../../../../packages/client-core/src/presentation/content';
 import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {GeneratedCover} from '../../kit/artwork';
 import {ReadResumeCard} from '../../kit/cards';
@@ -15,6 +17,8 @@ import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import type {BrowseLabels} from '../../kit/browse';
+import {NativeReadingBooks} from './ReadingBooks';
 import {LibraryCompactHeader, LibraryTabs} from '../library/LibraryScreen';
 import {isReadingLibraryKind} from './platform';
 import {NativeReadingDiscovery} from './reading-discovery';
@@ -25,6 +29,7 @@ export type NativeReadingLibraryScreenProps = Readonly<{
   runtime: NativeShellRuntime;
   libraryId: string;
   title: string;
+  labels: BrowseLabels;
   onBack: () => void;
 }>;
 
@@ -40,11 +45,18 @@ const authorPart = (item: ReadingItem) => item.author ? [{id: 'author', text: it
  * faked; no generic content browse, series route or word-count estimate is
  * used. */
 export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProps) {
-  const {context, runtime, libraryId, title, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  const {context, runtime, libraryId, title, labels, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const library = context.libraries().find(value => value.id === libraryId);
   const kind = library?.kind === 'comic' ? 'comic' : 'book';
   const name = library?.name ?? title, tabs = libraryTabs(kind);
   const [tab, setTab] = useState<LibraryTabId>('discover'), [switcherOpen, setSwitcherOpen] = useState(false), fellBack = useRef(false);
+  const tablet = !theme.isTV && theme.platform !== 'phone'; // Medium, tablet and native web windows share the wide surface.
+  const [summary, setSummary] = useState<LibrarySummary>();
+  useEffect(() => {
+    const ab = new AbortController();
+    void readLibrarySummaries(context.api, ab.signal).then(rows => {const row = rows.find(value => value.id === libraryId); if (!ab.signal.aborted) setSummary(row?.summary);}, () => {});
+    return () => ab.abort();
+  }, [context, libraryId]);
   const discovery = useMemo(() => new NativeReadingDiscovery(context, libraryId), [context, libraryId]);
   const books = useMemo(() => new NativeReadingLibrary(context, libraryId), [context, libraryId]);
   useEffect(() => () => {discovery.dispose(); books.dispose();}, [discovery, books]);
@@ -52,13 +64,14 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const booksState = useSyncExternalStore(books.subscribe, books.getSnapshot);
   useEffect(() => {
     if (tab === 'discover') void discovery.load().catch(runtime.reportError);
-    else void books.load().catch(runtime.reportError);
-  }, [tab, discovery, books, runtime]);
+    else if (!tablet) void books.load().catch(runtime.reportError); // Tablet Books owns its own browse destination.
+  }, [tab, discovery, books, runtime, tablet]);
   // A ready Discover with neither real row has nothing to show; the library's
   // own Books/Volumes grid is the honest destination, never a false empty copy.
   useEffect(() => {
-    if (tab === 'discover' && !fellBack.current && discoveryState.phase === 'ready' && !discoveryState.continueItems.length && !discoveryState.recent.length) {fellBack.current = true; setTab('browse');}
-  }, [tab, discoveryState]);
+    if (tab === 'discover' && !fellBack.current && discoveryState.phase === 'ready' && !discoveryState.continueItems.length
+      && !discoveryState.recent.length && !(tablet && discoveryState.shortReads.length)) {fellBack.current = true; setTab('browse');}
+  }, [tab, discoveryState, tablet]);
   const readingLibraries = context.libraries().filter(value => isReadingLibraryKind(value.kind));
   const switcherItems: MenuEntry[] = readingLibraries.map(value => ({id: value.id, label: value.name, selected: value.id === libraryId,
     onSelect: () => {setSwitcherOpen(false); if (value.id !== libraryId) runtime.onDestination({kind: 'library', libraryId: value.id});}}));
@@ -74,19 +87,23 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const retry = <StateView testID="reading-library-error" variant="inline" {...runtime.error(tab === 'discover' ? discoveryState.error : booksState.error, tab === 'discover' ? retryDiscover : retryBooks, 'library')}/>;
   const empty = <StateView testID="reading-library-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/>;
   const loading = <Text style={[browseType(theme, 14, 500), {color: theme.colors.textTertiary, padding: 20}]}>{defaultI18n.t('status.loading')}</Text>;
-  const columns = 3, gap = 16, width = Math.max(96, (dimensions.width - theme.gutter * 2 - gap * (columns - 1)) / columns);
+  const columns = tablet ? 4 : 3, gap = 16, width = Math.max(96, (dimensions.width - theme.gutter * 2 - gap * (columns - 1)) / columns);
   const discover = <ScrollView testID="reading-discover" contentContainerStyle={{paddingBottom: insets.bottom + 40}}>
     {discoveryState.phase === 'error' ? retry : null}
     {discoveryState.phase === 'loading' && !discoveryState.continueItems.length && !discoveryState.recent.length ? loading : null}
     {discoveryState.continueItems.length ? <DiscoveryRow first title={defaultI18n.t('next.cards.read')}>
-      {discoveryState.continueItems.map(row => <ReadResumeCard key={row.item.id} testID={`reading-continue-${row.item.id}`} width={296}
+      {discoveryState.continueItems.map(row => <ReadResumeCard key={row.item.id} testID={`reading-continue-${row.item.id}`} width={tablet ? 360 : 296}
         title={row.item.title} caption={authorPart(row.item)} detail={row.progress.location.section ? [{id: 'section', text: row.progress.location.section, role: 'context'}] : []}
         progress={Math.min(0.999, Math.max(0, row.progress.location.progression))} palette={tint(row.item.title)}
         artworkFallback={<View accessible={false} importantForAccessibility="no-hide-descendants">{cover(row.item, 81, 122)}</View>}
         onNavigate={() => openDiscover(row.item)}/>)}
     </DiscoveryRow> : null}
     {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
-      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={116} onOpen={openDiscover}/>)}
+      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 172 : 116} onOpen={openDiscover}/>)}
+    </DiscoveryRow> : null}
+    {tablet && discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')}>
+      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={172} onOpen={openDiscover}
+        detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
   </ScrollView>;
   const booksGrid = <ScrollView testID="reading-books" contentContainerStyle={{padding: theme.gutter, paddingBottom: insets.bottom + 40}}
@@ -99,12 +116,33 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
       {booksState.items.map(item => <DiscoveryCoverCard key={item.id} item={item} width={width} onOpen={openBooks}/>)}
     </View> : null}
   </ScrollView>;
+  const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
+  const counts = (summary?.counts ?? []).filter(part => pivots[part.kind]).map(part =>
+    defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]!}));
   return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <LibraryCompactHeader switcher={switcher} onLibraries={onBack} testID="native-reading-library-header">
+    {tablet ? <View style={{paddingTop: insets.top + 6, paddingHorizontal: theme.gutter}}>
+      <Focusable accessibilityRole="button" focusKind="row" accessibilityLabel={defaultI18n.t('next.browse.native.libraries')} onPress={onBack}
+        style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start'}}>
+        <Icon name="i-left" size={20} color={theme.colors.textSecondary}/>
+        <Text style={[browseType(theme, 15, 600), {color: theme.colors.textSecondary}]}>{defaultI18n.t('next.browse.native.libraries')}</Text>
+      </Focusable>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+        <Text accessibilityRole="header" numberOfLines={1} style={[browseType(theme, 44, 800, -.045), {color: theme.colors.text, flexShrink: 1}]}>{name}</Text>
+        {readingLibraries.length > 1 ? <Focusable accessibilityRole="button" focusKind="row" accessibilityLabel={defaultI18n.t('next.browse.native.switchLibraryNamed', {name})}
+          onPress={() => setSwitcherOpen(true)} style={{width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raised}}>
+          <Icon name="i-down" size={22} color={theme.colors.text}/>
+        </Focusable> : null}
+      </View>
+      {counts.length ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
+        {counts.map(text => <Text key={text} style={[browseType(theme, 15, 500), {color: theme.colors.textTertiary}]}>{text}</Text>)}</View> : null}
+      <View style={{marginTop: 16}}><LibraryTabs items={tabs} selected={tab} enabled phone={false} regionId={`reading-tabs-${libraryId}`}
+        leftEdge="reading-tabs-edge" onSelect={id => setTab(id)}/></View>
+    </View> : <LibraryCompactHeader switcher={switcher} onLibraries={onBack} testID="native-reading-library-header">
       <LibraryTabs items={tabs} selected={tab} enabled phone={theme.platform === 'phone'} regionId={`reading-tabs-${libraryId}`}
         leftEdge="reading-tabs-edge" onSelect={id => setTab(id)}/>
-    </LibraryCompactHeader>
-    {tab === 'discover' ? discover : booksGrid}
+    </LibraryCompactHeader>}
+    {tab === 'discover' ? discover : tablet && library ? <NativeReadingBooks context={context} runtime={runtime} library={library} labels={labels}
+      owner={context.session()?.viewer.role === 'owner'}/> : booksGrid}
     <Menu open={switcherOpen} onOpenChange={setSwitcherOpen} title={defaultI18n.t('next.browse.native.switchLibrary')} items={switcherItems}/>
   </View>;
 }
@@ -127,12 +165,13 @@ function DiscoveryRow({title, first = false, onSeeAll, children}: {title: string
 
 /** One sparse-metadata cover: the drawn 116-wide 3:4 art with the title and
  * author under it, using the catalogue's canonical generated cover. */
-function DiscoveryCoverCard({item, width, onOpen}: {item: ReadingItem; width: number; onOpen: (item: ReadingItem) => void}) {
+function DiscoveryCoverCard({item, width, detail, onOpen}: {item: ReadingItem; width: number; detail?: string; onOpen: (item: ReadingItem) => void}) {
   const theme = useTheme(), height = width * 4 / 3;
-  return <Focusable testID={`reading-item-${item.id}`} accessibilityRole="button" accessibilityLabel={item.title} focusKind="row"
+  return <Focusable testID={`reading-item-${item.id}`} accessibilityRole="button" accessibilityLabel={detail ? `${item.title}. ${detail}` : item.title} focusKind="row"
     onPress={() => onOpen(item)} style={{width}}>
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden'}}>{cover(item, width, height)}</View>
     <Text numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.text, marginTop: 7}]}>{item.title}</Text>
     {item.author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
+    {detail ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{detail}</Text> : null}
   </Focusable>;
 }

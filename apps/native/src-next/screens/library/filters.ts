@@ -14,7 +14,7 @@ export type NativeLibraryFilterSnapshot = Readonly<{
 type Options = Readonly<{
   api: LibraryContentApi; capabilities: BrowseCapabilities; pivot: string; sort: BrowseSortSelection;
   predicates: readonly BrowseNode[]; fixed: readonly BrowseNode[];
-  current: () => boolean; apply: (predicates: readonly BrowseNode[]) => void; onDispose: () => void;
+  current: () => boolean; /** `keep` names the docked panel that must survive its own apply. */ apply: (predicates: readonly BrowseNode[], keep?: NativeLibraryFilterDraft) => void; onDispose: () => void;
 }>;
 
 /** A panel-local draft of one actual Library query. It never reads result pages
@@ -103,6 +103,14 @@ export class NativeLibraryFilterDraft {
   apply = (): boolean => {
     if (!this.current() || this.state.count.phase !== 'ready') return false;
     this.options.apply(this.state.predicates); this.dispose(); return true;
+  };
+  /** tablet-read#1b: the docked panel is the live editor, so its real query goes
+   * to the mounted grid now and the panel keeps its own count and facet reads.
+   * The panel's `current` binding never depends on the grid's predicate identity. */
+  applyLive = (): void => {
+    if (!this.current()) return;
+    this.query(this.state.predicates); // Same vocabulary refusal as the modal Apply.
+    this.options.apply(this.state.predicates, this);
   };
   private cancelReads() {
     clearTimeout(this.timer); this.timer = undefined; this.countRead?.abort();
