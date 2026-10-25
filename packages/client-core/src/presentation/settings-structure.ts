@@ -396,7 +396,7 @@ const serverPages: readonly AuthoredPage[] = [
     {id: 'mode', rows: [
       setting('runtime', 'library.segmentDetection', 'settings.server.segmentMode', {type: 'choice', choices: choices('settings.server.segmentMode', ['standard', 'thorough', 'off'])}, {help: 'settings.server.segmentModeHelp'}),
     ]},
-    panel('review', 'server.segments', undefined, {platforms: ['web']}),
+    panel('review', 'server.segments', undefined, {platforms: ['web', 'phone']}),
   ]},
   {id: 'live', title: 'settings.server.live', icon: 'live', needs: c => c.liveTV !== false,
     tabs: [{id: 'sources', title: 'settings.server.liveSources'}, {id: 'recording', title: 'settings.server.recording'}, {id: 'channels', title: 'settings.server.libraryChannels'}],
@@ -539,6 +539,12 @@ const serverPages: readonly AuthoredPage[] = [
       // An empty field is the server's own limit, worked out from its memory; a change waits for a restart.
       setting('connectivity', 'connectionLimit', 'web.connectivity.connectionLimit', {type: 'number', min: 1, max: 65536, empty: {stores: 0, placeholder: 'settings.server.automatic'}}, {help: 'settings.server.connectionLimitHelp'}),
     ]},
+  ]},
+  // The current Settings specification gives remote sources their own Server page.
+  // Native mounts its supported source editor here; the older Storage slot remains
+  // available to existing web consumers until their separate migration.
+  {id: 'remote-sources', title: 'settings.server.remoteSources', icon: 'globe', platforms: ['phone'], sections: [
+    panel('sources', 'server.remoteSources', undefined, {platforms: ['phone']}),
   ]},
   {id: 'storage', title: 'settings.server.storage', icon: 'storage', sections: [
     panel('disk', 'server.diskUsage', 'settings.server.diskUsage'),
