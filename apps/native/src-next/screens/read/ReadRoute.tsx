@@ -7,6 +7,7 @@ import type {ReadNativeHost} from './ReadNativeHost';
 import {nativeReadHost} from './host-component';
 
 type ReadTarget = Extract<NativeShellRoute, {kind: 'read'}>;
+const targetKey = (target: ReadTarget) => JSON.stringify([target.itemId, target.sourceId, target.contentsTarget?.sourceRevision, target.contentsTarget?.index]);
 type Preferences = React.ComponentProps<typeof ReadNativeHost>['preferences'];
 export function createNativeReadRenderer(context: NativeShellBootstrapContext, preferences: Preferences, openSettings: () => void): NativeRouteRenderer {
   if (Platform.isTV) throw new Error('native_read_unavailable');
@@ -16,7 +17,7 @@ export function createNativeReadRenderer(context: NativeShellBootstrapContext, p
     if (!alive || !context.current()) {target = undefined; return;}
     const route = context.navigation.getSnapshot().route;
     if (route.kind === 'read') {
-      if (!target || target.itemId !== route.itemId || target.sourceId !== route.sourceId) target = route;
+      if (!target || targetKey(target) !== targetKey(route)) target = route;
     } else if (route.kind !== 'settings-page' || !context.navigation.retainedRoutes().some(value => value === target)) target = undefined;
   };
   return {
@@ -24,7 +25,7 @@ export function createNativeReadRenderer(context: NativeShellBootstrapContext, p
     renderRetained() {
       reconcile(); if (!target) return null;
       const active = context.navigation.getSnapshot().route.kind === 'read';
-      return <Host key={JSON.stringify([target.itemId, target.sourceId])} context={context} target={target} active={active} preferences={preferences}
+      return <Host key={targetKey(target)} context={context} target={target} active={active} preferences={preferences}
         onBack={() => {if (context.current()) context.navigation.back(context.authority());}} onOpenSettings={openSettings}/>;
     },
     dispose() {alive = false; target = undefined;},

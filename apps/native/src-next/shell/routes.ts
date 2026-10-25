@@ -1,3 +1,4 @@
+import type {ReadingHostContentsTarget} from '../../../../packages/client-core/src/reading-host';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {SavedRoute} from '../../../../packages/client-core/src/saved';
@@ -11,7 +12,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'book'; entry: ContentEntry}
   | {kind: 'audiobook'; entry: ContentEntry}
   | {kind: 'person'; personId: string}
-  | {kind: 'read'; itemId: string; sourceId: string}
+  | {kind: 'read'; itemId: string; sourceId: string; contentsTarget?: ReadingHostContentsTarget}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
   | {kind: 'channel'; sourceId: string; channelId: string}
   | {kind: 'home-see-all'; destination: HomeSeeAll}
