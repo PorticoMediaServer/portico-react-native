@@ -55,7 +55,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
   const shape = backdropShape ?? (tv ? 'side' : 'top');
   const left = tv ? player ? 96 : theme.gutter : player ? 64 : 24;
   const buttonStyle: ViewStyle | undefined = stacked ? {width: '100%', height: 50} : player && !tv ? {height: 40, paddingHorizontal: 16} : undefined;
-  const action = (item: StateAction, primary: boolean) => <StateActionButton testID={testID} key={item.id} action={item} size={player && !tv ? 'small' : 'hero'} variant={primary ? 'primary' : 'glass'} style={buttonStyle} textStyle={player && !tv ? {fontSize: 14.5 * theme.textScale} : undefined} />;
+  const action = (item: StateAction, primary: boolean) => <StateActionButton testID={testID} key={item.id} action={visible ? item : {...item, disabled: true}} size={player && !tv ? 'small' : 'hero'} variant={primary ? 'primary' : 'glass'} style={buttonStyle} textStyle={player && !tv ? {fontSize: 14.5 * theme.textScale} : undefined} />;
   return <View testID={testID} style={[{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}, style]}>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0}}>
       {player ? frozenPicture : shape !== 'none' ? <ColourBackdrop shape={shape} height={backdropHeight} fill={shape !== 'top'} /> : null}
@@ -92,7 +92,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
           {primaryAction && action(primaryAction, true)}
           {secondaryAction && action(secondaryAction, false)}
           {additionalActions?.map(item => action(item, false))}
-          {detailsAction && <StateActionButton testID={testID} action={{...detailsAction, trailingIcon: detailsAction.trailingIcon ?? (tv || detailsPresentation === 'link' ? undefined : 'i-right')}} size={tv ? 'hero' : 'small'} variant={tv ? 'glass' : 'text'} iconSize={!tv ? 16 : undefined} iconColor={!tv ? theme.colors.textSecondary : undefined}
+          {detailsAction && <StateActionButton testID={testID} action={{...detailsAction, disabled: !visible || detailsAction.disabled, trailingIcon: detailsAction.trailingIcon ?? (tv || detailsPresentation === 'link' ? undefined : 'i-right')}} size={tv ? 'hero' : 'small'} variant={tv ? 'glass' : 'text'} iconSize={!tv ? 16 : undefined} iconColor={!tv ? theme.colors.textSecondary : undefined}
             style={!tv ? detailsPresentation === 'link' ? {height: 20, paddingHorizontal: 0, alignSelf: 'center'} : {height: player ? 40 : 44, paddingHorizontal: 6} : undefined}
             textStyle={!tv ? {fontSize: (player ? 14 : 14.5) * theme.textScale, color: theme.colors.textSecondary} : undefined} />}
         </View>
