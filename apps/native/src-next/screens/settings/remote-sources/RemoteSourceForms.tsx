@@ -207,7 +207,7 @@ export function DisconnectEditor({controller, t, source, onCancel, onSaved, isCu
   };
   return <Page title={t('next.remoteSources.disconnectTitle', {name: source.name})} t={t} busy={busy} onCancel={onCancel}
     footer={ambiguous ? <Button onPress={() => {void recover();}} disabled={busy}>{t('next.remoteSources.checkResult')}</Button>
-      : <Button onPress={() => {void remove();}} disabled={busy || name !== source.name}>{t('next.remoteSources.disconnect')}</Button>}>
+      : <Button variant="glass" style={{backgroundColor: `${theme.colors.record}24`}} textStyle={{color: theme.colors.record}} onPress={() => {void remove();}} disabled={busy || name !== source.name}>{t('next.remoteSources.disconnect')}</Button>}>
     <Text style={[theme.type.body, {color: theme.colors.text}]}>{t('next.remoteSources.disconnectBody')}</Text>
     <TextField label={t('next.remoteSources.disconnectConfirm')} value={name} onChangeText={setName} editable={!busy} autoCorrect={false} autoCapitalize="none"/>
     <Problem message={error}/>
