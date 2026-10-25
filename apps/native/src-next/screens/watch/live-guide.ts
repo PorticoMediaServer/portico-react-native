@@ -34,6 +34,7 @@ export class NativeTVLiveGuide {
     this.update();
   }
   getSnapshot = () => this.state;
+  restoreProof = () => {const opening = this.opening;return () => !!opening && this.current(opening);};
   subscribe = (listener: () => void) => {this.listeners.add(listener);return () => {this.listeners.delete(listener);};};
   private publish(state: NativeLiveGuideSnapshot) {this.state = Object.freeze(state);for (const listener of [...this.listeners]) listener();}
   private principal() {const session = this.context.session();return session ? JSON.stringify([session.sessionFamilyId, session.tokenGeneration, session.authorizationHorizon, session.deviceId ?? null, session.installationId ?? null]) : '';}

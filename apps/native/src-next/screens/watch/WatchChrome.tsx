@@ -136,7 +136,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const focus = registry.capture();
   const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null), guideButton = useRef<View>(null);
   const liveGuide = useSyncExternalStore(props.liveGuide?.subscribe ?? noLiveGuideSubscription, props.liveGuide?.getSnapshot ?? emptyLiveGuide);
-  const miniReturn = useRef<PlaybackFence | undefined>(undefined);
+  const miniReturn = useRef<{fence: PlaybackFence; current: () => boolean} | undefined>(undefined);
   const [landing, setLanding] = useState<number>(), [returnAt, setReturnAt] = useState(0), [now, setNow] = useState(() => Date.now());
   const fence = source.fence;
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
@@ -150,10 +150,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   }, [current, theme.isTV, fence, props.liveGuide]);
   useEffect(() => {
     if (!miniOpen || !fence) return;
-    miniReturn.current = fence;
+    miniReturn.current = {fence, current: props.liveGuide?.restoreProof() ?? (() => false)};
     controls.holdOverlay(fence, true);
     return () => {controls.holdOverlay(fence, false);};
-  }, [miniOpen, fence, controls]);
+  }, [miniOpen, fence, controls, props.liveGuide]);
   useEffect(() => {if (miniOpen && (!visible || state.panel)) props.liveGuide?.close(liveGuide);}, [miniOpen, visible, state.panel, props.liveGuide, liveGuide]);
   // tablet-play4: a swipe down on the picture minimises to the dock, the same
   // thing the chevron does. Taps, horizontal seeks and the equalizer keep
@@ -228,8 +228,12 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
   useEffect(() => {
     if (!theme.isTV || !fence || !current() || state.panel || miniOpen) return;
-    const node = visible && sameFence(miniReturn.current, fence) ? guideButton.current : visible ? toggle.current : picture.current;
-    miniReturn.current = undefined;
+    const returning = miniReturn.current;miniReturn.current = undefined;
+    if (returning) {
+      if (visible && sameFence(returning.fence, fence) && returning.current()) guideButton.current?.requestTVFocus?.();
+      return;
+    }
+    const node = visible ? toggle.current : picture.current;
     node?.requestTVFocus?.();
   }, [visible, fence, theme.isTV, current, state.panel, miniOpen]); // The native focus engine owns movement inside the region.
   useTVEventHandler(event => {
