@@ -112,6 +112,8 @@ export interface NativePlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativePlaybackRuntimeSnapshot;
   start: (input: NativePlaybackStart) => Promise<void>;
+  /** The installed queue owner's existing explicit entry command. */
+  queuePlay?: (queueId: string, entryId: string, expectedRevision: string) => Promise<void>;
   /** The existing queue owner, for a server-named container (album, artist, show). */
   cataloguePlayback?: () => Pick<V1QueuePlayer, 'playSegments'> & Readonly<{
     /** Append to the one authority-local queue. The caller's lifetime and the active group's

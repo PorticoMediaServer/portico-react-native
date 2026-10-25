@@ -1,3 +1,4 @@
+import {NativeModules} from 'react-native';
 import {PlaybackService, type PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {DetailService, type DetailProjection} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
