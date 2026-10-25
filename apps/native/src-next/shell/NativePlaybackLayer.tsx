@@ -13,6 +13,7 @@ import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
 import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
+import {NativeListeningNotice} from '../screens/destinations/music/ListeningNotice';
 import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
 import {nativeEqualizer} from '../platform/playback/equalizer';
 import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects';
@@ -200,6 +201,8 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
         <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
           tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>
+        {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
+          notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'tablet' ? 66 : 62) + 10}/>}
         {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined}
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
