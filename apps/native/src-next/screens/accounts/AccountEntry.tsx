@@ -71,6 +71,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const [registerOpening, setRegisterOpening] = useState<Readonly<{source: NativePorticoSignIn; owner: {live: boolean}}>>();
   // The provider completion's opening: the exact transaction this form was drawn for.
   const [providerOpening, setProviderOpening] = useState<Readonly<{transaction: IdentityTransaction; source: NativePorticoSignIn; owner: {live: boolean}; life: AbortController}>>();
+  const [providerUsernameUnavailable, setProviderUsernameUnavailable] = useState(false);
   type SetupReview = Awaited<ReturnType<NativeServerSignIn['reviewHostedSetup']>>;
   const [setupReview, setSetupReview] = useState<SetupReview>();
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
@@ -201,6 +202,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (!source) {setProviderOpening(undefined); return;}
     const owner = {live: true}, life = new AbortController();
     setProviderOpening(Object.freeze({transaction, source, owner, life}));
+    setProviderUsernameUnavailable(false);
     return () => {owner.live = false; life.abort();};
   }, [stage, transaction]);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
@@ -611,8 +613,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (factorKind.current === 'portico') {await account.current!.factor(value); await directory();}
     else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(value) : operation.current!.completeSecondFactor(value)));
   };
-  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string, help?: string) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
-    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid} description={help}/>;
+  const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password', invalid?: string, help?: string, placeholder?: string) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
+    textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy} error={invalid} description={help} placeholder={placeholder}/>;
   const fields = (...children: React.ReactNode[]) => <View style={{alignSelf: 'stretch', width: theme.isTV ? 720 : undefined, gap: 14, marginBottom: 20}}>{children}</View>;
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
@@ -1093,12 +1095,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     return layout(t('auth.createYourAccount'), theme.isTV ? undefined : t('auth.oneAccount'), fields(
       field(t('auth.username'), username, next => {setUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
         !theme.isTV && usernameUnavailable ? t('web.signIn.error.accountTaken') : undefined, theme.isTV ? undefined : t('auth.usernameHelp')),
-      field(t('auth.yourName'), name, edit(setName)), field(t('auth.email'), email, edit(setEmail)), field(t('auth.password'), password, edit(setPassword), true)),
+      theme.isTV ? field(t('auth.yourName'), name, edit(setName))
+        : field(`${t('auth.yourName')} · ${t('field.optional')}`, name, edit(setName), false, undefined, undefined, undefined, t('services.signup.sameUsername')),
+      field(t('auth.email'), email, edit(setEmail)), field(t('auth.password'), password, edit(setPassword), true)),
       action('register', t('auth.createAccount'), async () => {
         const source = opening?.source;
         if (!source || !live(source)) return;
         try {
-          const value = await source.register(submitted.username, submitted.name, password, submitted.email);
+          const value = await source.register(submitted.username, theme.isTV ? submitted.name : submitted.name.trim() || submitted.username.trim(), password, submitted.email);
           if (!live(source)) return;
           setPassword(''); setMasked(value.maskedAddress); setStage('verify');
         } catch (refusal) {
@@ -1108,7 +1112,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
           if (!theme.isTV && porticoUsernameUnavailable(refusal)) {setUsernameUnavailable(true); return;}
           throw refusal;
         }
-      }, !username || !name || !password || !email));
+      }, theme.isTV ? (!username || !name || !password || !email) : (!username || !password || !email)));
   }
   if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
   if (stage === 'provider') {
@@ -1122,7 +1126,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       && account.current === opening.source && registerDraftRev.current === revision;
     const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
     return layout(t('accounts.signIn.portico'), undefined, fields(
-      tx?.needsUsername && field(t('auth.username'), username, edit(setUsername)), tx?.needsUsername && field(t('auth.yourName'), name, edit(setName)),
+      tx?.needsUsername && field(t('auth.username'), username, next => {setProviderUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
+        !theme.isTV && providerUsernameUnavailable ? t('web.signIn.error.accountTaken') : undefined),
+      tx?.needsUsername && (theme.isTV ? field(t('auth.yourName'), name, edit(setName))
+        : field(`${t('auth.yourName')} · ${t('field.optional')}`, name, edit(setName), false, undefined, undefined, undefined, t('services.signup.sameUsername'))),
       tx?.mfaRequired && field(t('auth.verificationCode'), code, edit(setCode)), !tx?.contactVerified && field(t('auth.email'), email, edit(setEmail))),
       action('provider-complete', t('action.continue'), async () => {
         const source = opening?.source;
@@ -1132,8 +1139,17 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
           if (!live()) return;
           contact.current = challenge.challengeId; setMasked(challenge.maskedAddress); setCode(''); setStage('contact');
         } else {
-          await source.finishProvider(username || undefined, name || undefined, code || undefined,
-            {signal: opening.life.signal, isCurrent: live});
+          try {
+            await source.finishProvider(theme.isTV ? username || undefined : username.trim() || undefined,
+              theme.isTV ? name || undefined : name.trim() || username.trim() || undefined, code || undefined,
+              {signal: opening.life.signal, isCurrent: live});
+          } catch (refusal) {
+            // Only the confirmed public-handle collision marks this field, and only while
+            // this very form and draft are still live; a stale refusal publishes nothing.
+            if (!live()) return;
+            if (!theme.isTV && porticoUsernameUnavailable(refusal)) {setProviderUsernameUnavailable(true); return;}
+            throw refusal;
+          }
           if (!live()) return;
           await directory();
         }
