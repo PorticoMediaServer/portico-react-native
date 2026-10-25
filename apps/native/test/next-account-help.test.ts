@@ -5,6 +5,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as directoryChooser from '../src-next/screens/accounts/directory-chooser';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const button = (tree: any, label: string) => nodes(tree).find(node => node.type === 'Button' && node.props.children === label);
@@ -28,6 +29,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'failed'})},
     '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
+    './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {accountCredentials: () => account}},
     '../../platform/server-sign-in': {NativeServerSignIn: class {}}, '../../platform/portico-sign-in': {NativePorticoSignIn: Portico},

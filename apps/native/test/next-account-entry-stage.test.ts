@@ -5,6 +5,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as directoryChooser from '../src-next/screens/accounts/directory-chooser';
 import type {NativeAccountEntryStage} from '../src-next/screens/accounts/AccountEntry';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -30,6 +31,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
+    './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},
     '../../platform/server-connections': {browseNearby: async () => {events.push('discovery'); return [];}}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
