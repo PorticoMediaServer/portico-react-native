@@ -141,6 +141,7 @@ const animatedURL = data(`import React from ${JSON.stringify(
  export const withTiming=(value,config,done)=>{if(done)setImmediate(()=>done(true));return value},withSpring=withTiming,withDelay=(_,value)=>value;
  export const Easing={bezier:()=>x=>x,linear:x=>x},ReduceMotion={Never:'never'};export default{View,ScrollView,createAnimatedComponent:x=>x};`);
 const svgNames = [
+  'SvgXml',
   'Svg',
   'Defs',
   'Pattern',
