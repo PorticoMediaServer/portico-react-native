@@ -6,7 +6,7 @@ import {nativeRouteCrypto} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeScreenLifetime} from './lifetime';
-import type {NativeSettingsLivePorts} from './ports';
+import type {NativeSettingsDownloads, NativeSettingsLivePorts} from './ports';
 import {nativeSettingsContext} from './settings-context';
 import {renderNativeSettingsPanel} from './settings-panels';
 import {nativeTogetherSession} from './together-session';
@@ -29,14 +29,14 @@ export type NativeSettingsOpenRoute = (route: NativeShellRoute) => void;
 export const nativeSettingsPlatform = (): SettingsPlatform => Platform.isTV ? 'tv' : 'phone';
 
 /** One set of genuine ports for the Settings destination and the Dashboard route it opens. */
-export function createNativeSettingsPorts(context: NativeShellBootstrapContext, lifetime: NativeScreenLifetime, openRoute: NativeSettingsOpenRoute): NativeSettingsLivePorts {
+export function createNativeSettingsPorts(context: NativeShellBootstrapContext, lifetime: NativeScreenLifetime, openRoute: NativeSettingsOpenRoute, downloads?: NativeSettingsDownloads): NativeSettingsLivePorts {
   const open = (route: NativeShellRoute): void => {
     lifetime.assert();
     openRoute(route);
   };
   return Object.freeze({
     context,
-    settingsContext: () => nativeSettingsContext(context, nativeSettingsPlatform()),
+    settingsContext: () => nativeSettingsContext(context, nativeSettingsPlatform(), !!downloads),
     serverName: () => context.serverName,
     requestId: nativeSettingsRequestId,
     dvrRequestId: () => nativeSettingsDvrRequestId(lifetime),
@@ -50,6 +50,7 @@ export function createNativeSettingsPorts(context: NativeShellBootstrapContext, 
       /** The genuine approval journey lives on the Servers screen; this row opens it. */
       linkTV: () => open({kind: 'servers'}),
     }),
-    renderSettingsPanel: (id, runtime): ReactNode => renderNativeSettingsPanel(id, {context, lifetime, t: runtime.text.t, openRoute: open}, runtime),
+    renderSettingsPanel: (id, runtime): ReactNode => renderNativeSettingsPanel(id, {context, lifetime, t: runtime.text.t, openRoute: open, downloads}, runtime),
+    ...(downloads ? {downloads} : {}),
   });
 }
