@@ -327,14 +327,21 @@ export class NativeCastCaller {
     const returning=this.returning,report=this.receiver,adapter=this.options.playback();
     if(returning){
       if(!expected||!adapter||!report||!this.state.cast.remoteStopped||!this.viewIsCurrent(expected)||report.itemId!==expected.remote.occurrence.itemId)return;
+      const originalLocal=adapter.getSnapshot();
       const current=()=>this.returning===returning&&this.options.playback()===adapter&&this.receiver===report&&this.state.cast.remoteStopped===true&&this.viewIsCurrent(expected);
+      // This is an ordinary explicit new play, not a restored local fence. A
+      // newer local run while the item read waits wins before start is issued.
+      const localUnchanged=()=>{const now=adapter.getSnapshot();return now.playback.playbackRun===originalLocal.playback.playbackRun&&
+        (originalLocal.fence?!!now.fence&&sameFence(now.fence,originalLocal.fence):!now.fence);};
       const actual=await this.bridge?.current();
       if(!actual||actual.attachmentId!==expected.attachmentId||!current())return;
       const item=await this.request<{id?:string;kind?:string;title?:string;libraryId?:string;posterUrl?:string}>(`/v1/items/${encodeURIComponent(report.itemId)}`,'GET');
-      if(!current()||item.id!==report.itemId||typeof item.title!=='string'||!['song','audiobook_file','movie','episode','extra'].includes(item.kind??''))return;
+      if(!current()||!localUnchanged()||item.id!==report.itemId||typeof item.title!=='string'||!['song','audiobook_file','movie','episode','extra'].includes(item.kind??''))return;
       const entry:ContentEntry=Object.freeze({id:item.id,kind:item.kind as ContentEntry['kind'],title:item.title,
         ...(typeof item.libraryId==='string'?{libraryId:item.libraryId}:{}),...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{}),
         playback:Object.freeze({itemId:item.id,startSeconds:report.positionSeconds})});
+      const latestAttachment=await this.bridge?.current();
+      if(latestAttachment?.attachmentId!==expected.attachmentId||!current()||!localUnchanged())return;
       await adapter.start({entry,target:entry.playback!,lifetime:{signal:this.abort.signal,isCurrent:current}});
       if(current())await this.dismiss();return;
     }

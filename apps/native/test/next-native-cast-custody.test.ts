@@ -14,7 +14,7 @@ const deferred = <T,>() => {
 
 /** Real caller and shared controller; only the native SDK and server IO are held
  * at their public boundaries so the queue event can precede either ACK or status. */
-async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:Promise<void>}={}) {
+async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:Promise<void>;continuation?:Promise<void>}={}) {
   const listeners = new Map<string, Set<(value?: any) => void>>();
   const emit = (name: string, value?: unknown) => {for (const listener of [...(listeners.get(name) ?? [])]) listener(value);};
   class Emitter {
@@ -23,7 +23,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
       return {remove: () => held.delete(listener)};
     }
   }
-  const sent: CastCommand[] = [], requests: {path: string; method?: string; body?: any}[] = [], effects: any[] = [];
+  const sent: CastCommand[] = [], requests: {path: string; method?: string; body?: any}[] = [], effects:any[]=[],starts:any[]=[];
   const loaded = deferred<Extract<CastCommand, {type: 'load'}>>(), read = deferred<void>(), cancellation = deferred<void>();
   const receipt = deferred<unknown>(), cancelReceipt = deferred<unknown>();
   const message = (value: unknown) => emit('PorticoCastMessage', value);
@@ -53,6 +53,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
     subject: {kind: 'music', item: {id: 'song', kind: 'song', title: 'Actual song'}}};
   const playbackListeners = new Set<() => void>();
   const adapter = {
+    start:async(value:any)=>{starts.push(value);},
     getSnapshot: () => ({...snapshot, dock}), subscribe: (listener: () => void) => {playbackListeners.add(listener); return () => playbackListeners.delete(listener);},
     dock: {getSnapshot: () => dock},
     onTransition: async (transition: any) => {effects.push(...transition.effects);},
@@ -68,7 +69,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const api = {baseUrl: 'https://server.test', request: async (path: string, method?: string, body?: any) => {
     requests.push({path, method, body});
     if(path==='/v1/cast/controllers/validate'){await options.validation;return {binding,attemptId:body.attemptId,ticket:'b'.repeat(43)};}
-    if(path==='/v1/items/song')return {id:'song',kind:'song',title:'Actual title'};
+    if(path==='/v1/items/song'){if(requests.filter(request=>request.path===path).length>1)await options.continuation;return {id:'song',kind:'song',title:'Actual title'};}
     if (path === '/v1/cast/configuration') return {applicationId: 'APP'};
     if (path === '/v1/cast/bootstrap' && method === 'POST') return {bootstrap: {id: 'cbs_intent', code: '123456', transfer: {id: 'cbs_intent', state: 'pending'}}};
     if (path === '/v1/cast/bootstrap/cbs_intent' && method === 'GET') {read.resolve(); return receipt.promise;}
@@ -91,7 +92,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const change = (patch: any) => {snapshot = {...snapshot, ...patch}; if (patch.dock) dock = patch.dock; for (const listener of [...playbackListeners]) listener();};
   const choose = () => {selected={deviceName:'TV',deviceId:'sdk_device',attachmentId};emit('PorticoCastSession', {state: 'started',...selected});};
   const committed = {bootstrap: {transfer: {id: 'cbs_intent', state: 'committed', itemId: 'song', playbackState: 'playing'}}};
-  return {stamp,occurrence,attachmentId,retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
+  return {starts,stamp,occurrence,attachmentId,retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
 }
 
 test('Root42 queue/header event before ACK and original receipt does not cancel the accepted target', async t => {
@@ -166,4 +167,16 @@ test('cold-return view controls carry the original actual occurrence and reject 
  assert.equal(f.caller.getSnapshot().receiver,undefined,'a same-item successor without a clock cannot inherit the old occurrence time');
  assert.equal(f.caller.viewIsCurrent(target),false);const count=f.sent.length;f.caller.controls('stop',undefined,target);f.caller.controls('seek',40,target);assert.equal(f.sent.length,count);assert.equal(f.effects.length,0);
  f.retireViewer();assert.equal(f.caller.viewIsCurrent(f.caller.getSnapshot().control!),false);
+});
+
+
+test('a returning Continue here held on metadata cannot replace a newer local run',async t=>{
+ const gate=deferred<void>(),f=await fixture({returning:true,continuation:gate.promise});t.after(()=>f.caller.dispose());
+ for(let n=0;n<20&&!f.caller.getSnapshot().resumed;n++)await new Promise(setImmediate);
+ const target=f.caller.getSnapshot().control!;assert.ok(target);f.caller.controls('stop',undefined,target);
+ const stop=f.sent.at(-1);if(stop?.type!=='stop')throw new Error('missing targeted Stop');
+ f.message({type:'stopped',requestId:stop.requestId,target:stop.target,positionSeconds:83,durationSeconds:240});
+ const continued=f.caller.continueHere(target);for(let n=0;n<10;n++)await new Promise(setImmediate);
+ f.change({fence:{...f.fence,sessionId:'new-local',generation:2},playback:{...f.snapshot().playback,playbackRun:2}});
+ gate.resolve();await continued;assert.equal(f.starts.length,0);assert.equal(f.effects.length,0);
 });
