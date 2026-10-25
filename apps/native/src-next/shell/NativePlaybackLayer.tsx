@@ -14,6 +14,7 @@ import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlayb
 import {NativeVideoSnapshotCapture} from './video-snapshot';
 import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
+import {NativeMusicNowPlaying} from '../screens/destinations/music/MusicNowPlaying';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
 export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
@@ -171,6 +172,10 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
         <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>
+        {local && local.expanded && fence && sameFence(local.fence, fence) && (local.kind === 'music' || local.kind === 'audiobook') &&
+          <NativeMusicNowPlaying snapshot={snapshot} runtime={runtime} onCommand={type => {void action({type, fence}).catch(runtime.reportError);}}
+            onMinimize={() => {const transition = adapter.dock.collapse(fence); if (transition) void adapter.onTransition(transition).catch(runtime.reportError);}}
+            onClose={() => {void action({type: 'close', fence}).catch(runtime.reportError);}}/>}
       </View>
     </Animated.View>
   </View>;
