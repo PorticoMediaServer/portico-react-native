@@ -103,14 +103,16 @@ export function SelectionBar(props: SelectionBarProps) {
   return <>
     <View testID={props.testID} style={styles.tv}>
       <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessible={false} pointerEvents="none"><Defs><LinearGradient id={tintId} x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={colors.accent} stopOpacity={.22}/><Stop offset="1" stopColor={colors.accent} stopOpacity={.12}/></LinearGradient></Defs><Rect width="100%" height="100%" rx={22} fill={`url(#${tintId})`}/></Svg>
-      <SelectionText size={28} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText>
-      {props.subtitle ? <SelectionText size={20} weight={600} secondary>{props.subtitle}</SelectionText> : null}
+      <View style={{flexDirection: 'row', alignItems: 'center', paddingLeft: 12, paddingRight: 18}}>
+        <SelectionText size={28} weight={800} style={{letterSpacing: -0.56}}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText>
+        {props.subtitle ? <SelectionText size={20} weight={600} secondary style={{marginLeft: 12}}>{props.subtitle}</SelectionText> : null}
+      </View>
       <View style={{height: 44, width: 2, backgroundColor: 'rgba(92,179,226,.35)', marginHorizontal: 6}} />
       {mainTV.filter(id => props.fourthSlot !== 'watched' || id !== 'myList').map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
-        style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : 24}} textStyle={{fontSize: 22 * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
+        style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : id === 'play' ? 30 : 24}} textStyle={{fontSize: (id === 'play' ? 24 : 22) * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
-      {props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button> : null}
-      <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{selectionText('next.selection.native.done')}</Button>
+      {props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button> : null}
+      <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{selectionText('next.selection.native.done')}</Button>
     </View>
     <SelectionMenus {...props} returnFocusRef={props.menu === 'more' ? moreRef : props.menu === 'queue' ? queueRef : props.menu === 'watched' ? watchedRef : undefined} />
   </>;
@@ -136,4 +138,4 @@ export function SelectionPhoneActionBar(props: Pick<SelectionBarProps, 'actions'
     })}
   </View>;
 }
-const styles = StyleSheet.create({header: {height: 46, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center'}, count: {position: 'absolute', left: 0, right: 0, alignItems: 'center'}, tv: {height: 92, paddingLeft: 24, paddingRight: 16, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 2, borderColor: 'rgba(92,179,226,.45)'}, phoneActions: {flexDirection: 'row', paddingTop: 9, paddingHorizontal: 8, overflow: 'hidden'}});
+const styles = StyleSheet.create({header: {height: 46, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center'}, count: {position: 'absolute', left: 0, right: 0, alignItems: 'center'}, tv: {height: 92, paddingLeft: 12, paddingRight: 16, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 2, borderColor: 'rgba(92,179,226,.45)'}, phoneActions: {flexDirection: 'row', paddingTop: 9, paddingHorizontal: 8, overflow: 'hidden'}});
