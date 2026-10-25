@@ -3,7 +3,8 @@ import {fetchGuideSourceSummaries, type GuideSourceSummary} from '../../../../..
 import {legacyChannel, legacyChannelRow, legacyGuideSource, type LegacyGuideOptions} from '../../../../../packages/client-core/src/guide/legacy-source';
 import type {GuideChannelRow} from '../../../../../packages/client-core/src/guide/types';
 import {GuideWindowStore, type GuideViewport} from '../../../../../packages/client-core/src/guide/store';
-import {NativeScreenLifetime, NativeScreenStore} from './lifetime';
+import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
+import type {DVRCommandLifetime} from '../../../../../packages/client-core/src/dvr';
 import {nativeGuideEntryKey, type NativeGuideChoice, type NativeGuideMemoryPort} from './guide-memory';
 
 export type NativeLiveSnapshot = Readonly<{sources: readonly GuideSourceSummary[]; loading: boolean; error?: unknown; options: LegacyGuideOptions; view?: 'guide' | 'list'; revision: number; mutating: boolean; mutationError?: unknown}>;
@@ -94,12 +95,17 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
   clearMutationError(): void {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutationError: undefined});}
   /** The native crypto port supplies the existing 48hex protocol key. An unknown outcome
    * retains its exact key and expected revision; never rebase or optimistically toggle it. */
-  async channelPreference(channel: GuideChannelRow, values: Readonly<{favorite: boolean; hidden: boolean}>, requestId: () => Promise<string>): Promise<GuideChannelRow | undefined> {
+  async channelPreference(channel: GuideChannelRow, values: Readonly<{favorite: boolean; hidden: boolean}>, requestId: () => Promise<string>, lifetime?: DVRCommandLifetime): Promise<GuideChannelRow | undefined> {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
+    const capturedValues = original ? Object.freeze({favorite: values.favorite, hidden: values.hidden}) : values;
+    const requireCommand = () => {if (original && (this.disposed || !this.lifetime.current() || original.signal.aborted || !original.isCurrent())) throw screenScopeEnded();};
+    requireCommand();
     this.lifetime.assert();
     if (this.disposed || this.getSnapshot().mutating) return undefined;
-    const raw = legacyChannel(channel);
-    if (!raw) throw new Error('native_channel_record_missing');
-    const key = JSON.stringify([raw.provenance, raw.sourceId, raw.id, raw.generation, raw.preferenceRevision, values]);
+    const native = legacyChannel(channel);
+    if (!native) throw new Error('native_channel_record_missing');
+    const raw = original ? Object.freeze({...native}) : native;
+    const key = JSON.stringify([raw.provenance, raw.sourceId, raw.id, raw.generation, raw.preferenceRevision, capturedValues]);
     this.publish({...this.getSnapshot(), mutating: true, mutationError: undefined});
     try {
       let operation = this.operationKeys.get(key);
@@ -110,15 +116,25 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
         const pending = operation;
         operation.catch(() => {if (this.operationKeys.get(key) === pending) this.operationKeys.delete(key);});
       }
-      const revision = await saveChannelPreference(this.api, this.lifetime.authority.serverId, raw, await operation, values, this.lifetime.signal);
+      let operationId: string;
+      try {operationId = await operation;} catch (error) {requireCommand();throw error;}
+      requireCommand();
+      const api: ChannelApi = original ? {request: async <T,>(path: string, method?: string, body?: unknown): Promise<T> => {
+        requireCommand();
+        try {const value = await this.lifetime.request(signal => this.api.request<T>(path, method, body, signal), original.signal);requireCommand();return value;}
+        catch (error) {requireCommand();throw error;}
+      }} : this.api;
+      const revision = await saveChannelPreference(api, this.lifetime.authority.serverId, raw, operationId, capturedValues, original?.signal ?? this.lifetime.signal);
+      requireCommand();
       this.lifetime.assert();
       if (this.disposed) return undefined;
       this.operationKeys.delete(key);
-      const committed = legacyChannelRow({...raw, ...values, preferenceRevision: revision});
-      this.store.reset(); void this.loadSources();
+      const committed = legacyChannelRow({...raw, ...capturedValues, preferenceRevision: revision});
+      this.store.reset();requireCommand();if (!original) void this.loadSources();
+      requireCommand();
       return committed;
-    } catch (mutationError) {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutationError}); return undefined;}
-    finally {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutating: false});}
+    } catch (mutationError) {requireCommand();if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutationError});requireCommand();if (original) throw mutationError;return undefined;}
+    finally {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutating: false});requireCommand();}
   }
   dispose(): void {if (this.disposed) return; this.disposed = true; this.store.dispose(); this.operationKeys.clear(); this.sourceChoices.clear(); this.clearListeners();}
 }

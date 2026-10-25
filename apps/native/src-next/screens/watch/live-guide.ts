@@ -34,6 +34,13 @@ export class NativeTVLiveGuide {
     this.update();
   }
   getSnapshot = () => this.state;
+  /** Borrow only this exact source/route opening for other live-player reads. */
+  captureSource = () => {
+    const opening = this.opening;
+    if (!opening || !this.current(opening)) return undefined;
+    return Object.freeze({fence: opening.fence, origin: opening.origin, authority: opening.authority, route: opening.route,
+      signal: opening.controller.signal, current: () => this.current(opening), api: this.source(opening).api});
+  };
   restoreProof = (expected: NativeLiveGuideSnapshot) => {
     const opening = this.state === expected && expected.open ? this.opening : undefined;
     return () => !!opening && this.current(opening);

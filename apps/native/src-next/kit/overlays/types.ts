@@ -16,6 +16,8 @@ export type SurfaceProps = {
   footer?: React.ReactNode;
   initialFocusRef?: FocusRef;
   returnFocusRef?: FocusRef;
+  /** Opt out only when the caller owns original-route focus restoration. */
+  restoreFocus?: boolean;
   accessibilityLabel?: string;
   testID?: string;
   style?: StyleProp<ViewStyle>;

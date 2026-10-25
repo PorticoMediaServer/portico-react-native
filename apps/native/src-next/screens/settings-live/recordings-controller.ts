@@ -112,8 +112,23 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   resolve = (detail: RecordingDetail) => this.act(service => service.update(detail.recording, {...detail.recording.options, priority: Math.min(1000, Math.max(detail.recording.options.priority, ...detail.overlaps.map(value => value.priority)) + 1)}));
   saveRule = (rule: RecordingRule, config: RuleConfig) => this.act(service => service.saveRule(rule.id, rule.revision, config));
   /** A new rule is a client-named canonical id with expected revision zero; the receipt is the success boundary. */
-  createRule = (config: RuleConfig, anchor: Occurrence) => this.act(async service => service.saveRule(await service.newRuleID(), 0, config, anchor));
-  previewRule = (config: RuleConfig): Promise<RulePreview> => this.read(() => this.service.preview(config));
+  newRuleID = async (lifetime: DVRCommandLifetime): Promise<string> => {
+    const original = Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent});this.requireCommand(original);
+    try {const id = await this.service.newRuleID(original);this.requireCommand(original);return id;}
+    catch (error) {this.requireCommand(original);throw error;}
+  };
+  createRule = (config: RuleConfig, anchor: Occurrence, lifetime?: DVRCommandLifetime, preparedId?: Promise<string>) => {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;this.requireCommand(original);
+    return this.act(async service => {
+      const id = await (preparedId ?? service.newRuleID(original));this.requireCommand(original);
+      return service.saveRule(id, 0, config, anchor, original);
+    }, original);
+  };
+  previewRule = async (config: RuleConfig, lifetime?: DVRCommandLifetime): Promise<RulePreview> => {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;this.requireCommand(original);
+    try {const preview = await this.read(() => this.service.preview(config, original));this.requireCommand(original);return preview;}
+    catch (error) {this.requireCommand(original);throw error;}
+  };
   deleteRule = (rule: RecordingRule, future: 'keep' | 'cancel') => this.act(service => service.deleteRule(rule, future));
   dispose(): void {if (this.disposed) return; this.disposed = true; this.epoch++; this.pending = undefined; this.service.dispose(); this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true}); this.clearListeners();}
 }
