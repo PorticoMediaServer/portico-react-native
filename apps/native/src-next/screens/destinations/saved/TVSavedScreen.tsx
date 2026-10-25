@@ -121,12 +121,12 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const run = useCallback((work: Promise<unknown>) => {void work.catch(runtime.reportError);}, [runtime]);
   const started = useRef(false);
   useEffect(() => {if (started.current) return; started.current = true; run(controller.select(tab, {sort, filter, period})); run(controller.summary());}, [controller, filter, period, run, sort, tab]);
-  const choose = (next: Tab) => {if (next === tab) return; setTab(next); run(controller.select(next, {sort, filter, period}));};
+  const choose = useCallback((next: Tab) => {if (next === tab) return; setTab(next); run(controller.select(next, {sort, filter, period}));}, [controller, filter, period, run, sort, tab]);
   const tabsState = useMemo(() => ({phase: snapshot.phase, route: {view: tab} as const, error: snapshot.error}), [snapshot.phase, snapshot.error, tab]);
   const tabsDestination = useMemo(() => ({
     subscribe: controller.subscribe, getSnapshot: () => tabsState,
     select: (route: {view?: string}) => {const next = route.view as Tab; if (next && next !== tab) choose(next); return Promise.resolve();},
-  }) as unknown as NativeSavedViewDestination, [controller, tabsState, tab]);
+  }) as unknown as NativeSavedViewDestination, [choose, controller, tabsState, tab]);
   const count = tab === 'watchlist' || tab === 'favorites'
     ? (snapshot.counts?.posters ?? 0) + (snapshot.counts?.squares ?? 0)
     : tab === 'playlists' ? snapshot.playlists?.sections.reduce((sum, section) => sum + section.totalCount, 0) ?? 0
