@@ -1,7 +1,7 @@
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import type {NativeFullWindowOrientation} from '../../platform/layout/full-window';
 
-export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'sleep' | 'style' | 'chapters' | 'episodes' | 'playback-info';
+export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'sleep' | 'style' | 'chapters' | 'episodes' | 'up-next' | 'playback-info';
 export type NativeWatchControlState = Readonly<{
   fence?: PlaybackFence;
   visible: boolean;

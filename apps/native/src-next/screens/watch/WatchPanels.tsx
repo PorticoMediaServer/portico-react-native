@@ -3,9 +3,11 @@ import {ActivityIndicator, ScrollView, Text, View} from 'react-native';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
+import {queueVideoKind} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {NativePlaybackAdapter} from '../../platform/playback/types';
 import type {NativePlaybackSubtitleControls} from '../../platform/playback/subtitle-controls';
 import {subtitleReason} from '../../../../../packages/client-core/src/subtitles';
+import {Artwork} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
 import {Dialog} from '../../kit/overlays';
@@ -14,6 +16,7 @@ import {PanelBackground} from '../../kit/overlays/surface';
 import {Icon, type IconName} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeWatchHostContext} from './WatchHost';
 import type {NativeWatchPanel} from './controls';
 import {nativeWatchTracks} from './track-identity';
@@ -53,6 +56,17 @@ type NativeReportOpening = Readonly<{
   navigation: ReturnType<NonNullable<NativeShellRuntime['navigation']>['getSnapshot']>;
 }>;
 type NativeReportAsk = NativeReportOpening & Readonly<{controller: AbortController; ticket: number}>;
+
+/** The exact page a queue row was drawn on. An accepted output change does not move it; a route
+ * or authority retirement does. A missing route is never proof, so no row is offered without it. */
+type NativeUpNextOpening = Readonly<{
+  fence: PlaybackFence;
+  route: ReturnType<NonNullable<NativeShellRuntime['navigation']>['getSnapshot']>;
+  authority: ShellAuthority;
+  queueId: string;
+  revision: string;
+  entryId: string;
+}>;
 
 /** The real Options/Audio/Subtitles/Quality/Speed/Chapters renderer. The host
  * positions it inside its accepted pane/canvas. It owns no Surface or engine. */
@@ -185,10 +199,37 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const subtitleDiscovered = subtitlePlan ? subtitlePlan.discovered.filter(track => !subtitlePlan.resources.some(resource => resource.discoveryId === track.id && resource.enabled)) : [];
   const rows = ready ? nativeWatchPanelRows(source, ready, names) : undefined;
   const selected = nativeWatchTracks(source);
+  // The accepted window's own wire facts only: an entry is offered where the projection says
+  // it is available and carries a real position after the current one, with a display row the
+  // queue actually published and a video kind the producer admits. No unseen slots, no
+  // filtered-array index, no synthesized whole queue, and no legacy playEntry.
+  const queueView = source.queue.view, selectQueued = playback.selectQueuedEntry;
+  const queueSelection = !!selectQueued && source.capabilities.queueSelection === true;
+  const offered = queueView?.window;
+  const offeredCurrent = offered && queueView && offered.queueId === queueView.queue.id && offered.revision === queueView.queue.revision
+    ? offered.entries.find(entry => entry.entryId === queueView.queue.currentEntryId) : undefined;
+  const currentPosition = offeredCurrent?.available === true ? offeredCurrent.position : undefined;
+  // The original page, read in the same render as the rows: its exact route snapshot object, the
+  // authority, the fence and the accepted queue scope. A missing route is no proof and offers none.
+  const routeNow = (() => {try {return context.runtime.navigation?.getSnapshot();} catch {return undefined;}})();
+  const authorityNow = (() => {try {return context.runtime.getSnapshot().authority;} catch {return undefined;}})();
+  const openingBase = routeNow && authorityNow && queueView
+    ? {fence, route: routeNow, authority: authorityNow, queueId: queueView.queue.id, revision: queueView.queue.revision} : undefined;
+  const following = queueSelection && queueView && offered && currentPosition !== undefined && openingBase
+    ? (() => {
+        const items = new Map(queueView.items.map(item => [item.entryId, item]));
+        return offered.entries.flatMap(row => {
+          const item = items.get(row.entryId);
+          return item && row.entryId !== queueView.queue.currentEntryId && row.available === true && row.position !== undefined && row.position > currentPosition
+            && queueVideoKind(item.kind) ? [{row, item, opening: {...openingBase, entryId: row.entryId}}] : [];
+        });
+      })()
+    : [];
+  const upNextCount = queueView?.remainingCount ?? queueView?.total;
   const rateLabel = (rate: number) => rate === 1 ? t('player.opt.normalSpeed') : `${new Intl.NumberFormat(context.runtime.text.locale, {maximumFractionDigits: 2}).format(rate)}×`;
   const labels: Record<Exclude<NativeWatchPanel, 'episodes'>, string> = {options: t('player.opt.menu'), audio: t('title.audio'), subtitles: t('player.opt.subtitles'),
     quality: t('player.opt.quality'), speed: t('player.opt.speed'), sleep: t('player.opt.sleepTimer'), style: t('player.opt.subtitleStyle'),
-    chapters: t('player.opt.chapters'), 'playback-info': t('player.opt.info')};
+    chapters: t('player.opt.chapters'), 'up-next': t('player.post.upNext'), 'playback-info': t('player.opt.info')};
   const chooseRow = <T,>(row: NativeWatchChoiceRow<T>, action: (value: T) => Promise<void>, preferred: boolean) => <Focusable key={row.id} ref={preferred ? first : undefined}
     focusId={`watch-choice-${row.id}`} testID={`watch-choice-${row.id}`} focusKind="row" focusRadius={theme.isTV ? 12 : 0}
     accessibilityRole="button" accessibilityLabel={[row.primary, row.secondary, row.unavailable ? t('player.opt.unavailable') : undefined].filter(Boolean).join(', ')}
@@ -233,8 +274,76 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     return chapter ? chapter.title || t('player.chapter.numbered', {number: index + 1}) : undefined;
   })() : undefined;
   const retry = () => {void options.load(fence);};
+  // Read a live authority without letting a throwing host turn into a default.
+  const liveAuthority = () => {try {return context.runtime.getSnapshot().authority;} catch {return undefined;}};
+  const liveRoute = () => {try {return context.runtime.navigation?.getSnapshot();} catch {return undefined;}};
+  /** The caller lifetime belongs to the original page, not to the output it replaces: it stays
+   * current through its own accepted change and retires only when that route or authority does. */
+  const upNextLifetime = (opening: NativeUpNextOpening) => {
+    const controller = new AbortController(), stops: (() => void)[] = [];
+    let released = false;
+    const dispose = () => {
+      if (released) return;
+      released = true;
+      for (const stop of stops) {try {stop();} catch {}}
+      stops.length = 0;
+    };
+    const isCurrent = () => {
+      if (released || controller.signal.aborted) return false;
+      // No output predicate here: the command's own accepted source change must survive.
+      const authority = liveAuthority();
+      return !!authority && sameAuthority(authority, opening.authority) && liveRoute() === opening.route;
+    };
+    const check = () => {if (!isCurrent()) {controller.abort(); dispose();}};
+    try {
+      const offRoute = context.runtime.navigation?.subscribe(check);
+      if (offRoute) stops.push(offRoute);
+      stops.push(context.runtime.subscribe(check));
+    } catch {
+      controller.abort(); dispose();
+      return undefined;
+    }
+    return {signal: controller.signal, isCurrent, dispose};
+  };
+  const selectUpNext = (opening: NativeUpNextOpening) => {
+    const select = playback.selectQueuedEntry;
+    if (!select || busy.current || !current()) return;
+    // Prove the original page before dispatch; never borrow a fresh route or default to true.
+    const authority = liveAuthority();
+    if (!authority || !sameAuthority(authority, opening.authority) || !sameFence(playback.getSnapshot().fence, opening.fence)
+      || liveRoute() !== opening.route) return;
+    const view = playback.getSnapshot().queue.view, offeredLive = view?.window;
+    if (!view || view.queue.id !== opening.queueId || view.queue.revision !== opening.revision
+      || !offeredLive || offeredLive.queueId !== opening.queueId || offeredLive.revision !== opening.revision) return;
+    const row = offeredLive.entries.find(entry => entry.entryId === opening.entryId);
+    if (row?.available !== true || row.position === undefined) return;
+    const lifetime = upNextLifetime(opening);
+    if (!lifetime) return;
+    // Disposal is outside the command: a run refused at entry still releases its subscriptions.
+    void run(() => select(opening.fence, {queueId: opening.queueId, expectedRevision: opening.revision, entryId: opening.entryId},
+      {signal: lifetime.signal, isCurrent: lifetime.isCurrent})).finally(lifetime.dispose);
+  };
   let body: React.ReactNode = null;
   if (state.panel === 'playback-info') body = playbackInfo?.(context);
+  else if (state.panel === 'up-next') body = <View style={theme.isTV ? {padding: 4, borderRadius: 14, backgroundColor: '#edf5fa0d'} : {marginHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
+    {following.map(({item, opening}, index) => {
+      const code = item.episode ? t('next.kit.episodeCode', {season: item.episode.seasonNumber, episode: item.episode.number}) : undefined;
+      const minutes = item.durationMs && item.durationMs > 0 ? t('next.kit.duration.minutes', {minutes: Math.round(item.durationMs / 60_000)}) : undefined;
+      return <Focusable key={item.entryId} ref={index === 0 ? first : undefined} focusId={`watch-up-next-entry-${item.entryId}`} testID={`watch-up-next-entry-${item.entryId}`}
+        focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" accessibilityLabel={[item.title, code, minutes].filter(Boolean).join(', ')}
+        disabled={!current() || pending} onPress={() => {if (current()) selectUpNext(opening);}}
+        style={({focused}) => ({minHeight: theme.isTV ? 72 : 64, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
+          borderRadius: theme.isTV ? 12 : 0, backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent', borderBottomWidth: theme.isTV ? 0 : 1, borderBottomColor: '#3b566873'})}>
+        <View style={{width: theme.isTV ? 128 : 84, height: theme.isTV ? 72 : 48, borderRadius: 8, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+          <Artwork source={context.runtime.artwork(item.stillUrl ?? item.backdropUrl)} width={theme.isTV ? 128 : 84} height={theme.isTV ? 72 : 48} style={{opacity: .8}}/>
+        </View>
+        <View style={{flex: 1, minWidth: 0}}>
+          <Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 22 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{item.title}</Text>
+          {(code || minutes) && <Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 2 : 1, color: theme.colors.textTertiary}]}>{[code, minutes].filter(Boolean).join(' · ')}</Text>}
+        </View>
+      </Focusable>;
+    })}
+  </View>;
   else if (choices.phase === 'failed' && state.panel !== 'audio') body = renderError(choices.error, retry);
   else if (choices.phase === 'failed') body = <View style={{padding: theme.isTV ? 14 : 24, alignItems: 'center', gap: 12}}>
     <Icon name="i-audio" size={theme.isTV ? 36 : 22}/><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('player.opt.audioLoadFailed')}</Text>
@@ -338,11 +447,13 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {state.panel === 'speed' && well('speed', expandedBody)}
     {sleep && option('sleep', 'i-moon', sleep.minutes == null ? t('player.opt.off') : t('player.opt.minutes', {count: sleep.minutes}))}
     {state.panel === 'sleep' && well('sleep', expandedBody)}
-    {(!!ready?.chapters.length || playbackInfo || state.panel === 'options' && !!reportOpening) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 22 : 10, marginBottom: theme.isTV ? 8 : 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('next.player.thisTitle')}</Text>}
+    {(!!ready?.chapters.length || playbackInfo || following.length > 0 || state.panel === 'options' && !!reportOpening) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 22 : 10, marginBottom: theme.isTV ? 8 : 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('next.player.thisTitle')}</Text>}
+    {following.length > 0 && option('up-next', 'i-queue', upNextCount === undefined ? undefined : defaultI18n.number(upNextCount, {useGrouping: false}))}
     {state.panel === 'options' && reportOpening && actionRow('report-problem', t('next.states.reportProblem'), undefined, () => {if (current()) openReport(reportOpening);})}
     {state.panel === 'options' && reportSent && <Text testID="watch-report-sent" accessibilityLiveRegion="polite" style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale),
       {marginTop: 6, marginHorizontal: theme.isTV ? 14 : 18, color: theme.colors.textSecondary}]}>{t('about.report.sent', {server: context.runtime.getSnapshot().serverName ?? ''})}</Text>}
     {!!ready?.chapters.length && option('chapters', 'i-queue', chapterInForce)}
+    {state.panel === 'up-next' && well('up-next', expandedBody)}
     {state.panel === 'chapters' && well('chapters', expandedBody)}
     {playbackInfo && option('playback-info', 'i-pulse')}
   </View>;
