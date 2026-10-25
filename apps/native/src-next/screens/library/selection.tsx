@@ -4,10 +4,10 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import {enqueueCatalogueQuerySelection} from '../../../../../packages/client-core/src/catalogue-query-selection';
+import {catalogueQuerySelectionSegments, enqueueCatalogueQuerySelection} from '../../../../../packages/client-core/src/catalogue-query-selection';
 import type {BulkMetadataPreview} from '../../../../../packages/client-core/src/home-selection/metadata-preview';
 import {createCataloguePersonalSelection, enqueueCatalogueSelection, selectionFourthAction,
-  type BrowseSelectionContext, type SelectionSnapshot} from '../../../../../packages/client-core/src/selection-model';
+  type BrowseSelectionContext, type QuerySelectionTarget, type SelectionSnapshot} from '../../../../../packages/client-core/src/selection-model';
 import {mediaSelectionKey} from '../../../../../packages/client-core/src/media-selection';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {selectedItemsLabel} from '../../shell/selection-display';
@@ -27,7 +27,15 @@ import type {NativeLibrarySelectionPort} from './LibraryScreen';
 import {createNativeLibraryPlaySelection} from './play-selection';
 
 type Producer = ReturnType<typeof createNativeLibraryPlaySelection>;
-const leaf = (entry: ContentEntry) => ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind);
+const queryLeaves: ReadonlySet<string> = new Set(['movie', 'episode', 'song', 'audiobook_file']);
+const leaf = (entry: ContentEntry) => queryLeaves.has(entry.kind);
+
+/** The canonical segment builder is a pure validator with no transport: if it
+ * refuses the target, the query executor refuses it too. Asking it keeps the offer
+ * and the dispatch aligned with the one canonical rule, including its filter parse. */
+function queryExecutable(target: QuerySelectionTarget<BrowseSelectionContext>, capability: 'play' | 'queue'): boolean {
+  try {catalogueQuerySelectionSegments(target, capability); return true;} catch {return false;}
+}
 type RegisteredWindow = Readonly<{id: string; first: number; entries: readonly ContentEntry[]; keys: ReadonlyMap<ContentEntry, string>; toggle: (entry: ContentEntry) => void; dispose: () => void}>;
 
 /** Real selection over the library's own applied Browse view.
@@ -170,6 +178,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     const current = producer, op = current?.model.captureOperation();
     if (!current || !op || !visible() || pending || destinations || bulk || personal?.service.getSnapshot().busy
       || !!personal?.service.getSnapshot().results.length) return;
+    const query = op.target.mode === 'query' ? op.target : undefined;
+    if (query && !queryExecutable(query, action === 'play' ? 'play' : 'queue')) return;
     const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current && current.model.isOperationCurrent(op);
     pending = controller; emit();
     try {
@@ -350,8 +360,13 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   // A whole view has query executors for Play and Queue only; every other control
   // would be a stub, so it is not drawn at all.
   const explicit = state?.target?.mode !== 'query';
-  if (summary?.every.play) actions.push({id: 'play', disabled: store.busy()});
-  if (summary?.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
+  const queryTarget = state?.target?.mode === 'query' ? state.target : undefined;
+  // Unchecking one title refines the whole-view target, and the query executor refuses
+  // that refinement: the control is hidden rather than offered and guaranteed to fail.
+  const playable = !!summary?.every.play && (!queryTarget || queryExecutable(queryTarget, 'play'));
+  const queueable = !!summary?.every.queue && store.queueControl() && (!queryTarget || queryExecutable(queryTarget, 'queue'));
+  if (playable) actions.push({id: 'play', disabled: store.busy()});
+  if (queueable) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
   if (explicit && summary?.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
   if (explicit && summary?.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
   if (explicit && summary?.every.playlist) actions.push({id: 'playlist', disabled: store.busy()});
