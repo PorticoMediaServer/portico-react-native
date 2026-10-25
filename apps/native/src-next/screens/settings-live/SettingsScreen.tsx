@@ -362,9 +362,9 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   };
   const engine = useSyncExternalStore(devicePreferences.subscribe, () => devicePreferences.read('playerEngine'));
   const hasDevicePlayer = Platform.OS === 'android' && page.id === 'device' && engine !== undefined;
-  // The drawn Player group sits before Connection (settings-spec advanced group 4, rows
-  // device.connection / device.serverAddress) and before Playback fixes. Anchor on those
-  // source row ids, not on a generated section id, and keep the appended fallback.
+  // The drawn Player group sits before Connection (settings-spec advanced group 4)
+  // and before Playback fixes. The section id is the source anchor; keep the appended
+  // fallback when the page does not carry it.
   const playerSection: SettingsPage['sections'][number] = {
     id: 'device-player',
     advanced: true,
@@ -393,8 +393,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     }] : []),
     ],
   };
-  const connectionAt = page.sections.findIndex(section => section.id === 'deviceConnection' || section.rows.some(row => 'id' in row
-    && (row.id === 'device.connection' || row.id === 'device.playerLink')));
+  const connectionAt = page.sections.findIndex(section => section.id === 'deviceConnection');
   // Television alone moves the injected group before Connection; a phone or tablet keeps
   // the previous appended placement.
   const pageSections: SettingsPage['sections'] = hasDevicePlayer

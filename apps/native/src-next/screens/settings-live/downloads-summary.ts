@@ -1,5 +1,6 @@
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import {createNativeDownloadsDevice, offlineDownloads} from '../downloads/device';
+import {createNativeDownloadsDevice} from '../downloads/device';
+import {offlineDownloads} from '../../platform/offline-downloads';
 import type {NativeSettingsDownloads, NativeSettingsDownloadsSnapshot} from './ports';
 
 /**

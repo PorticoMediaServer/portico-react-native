@@ -195,7 +195,7 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
     case 'about': return <DeviceAboutPanel {...deps} runtime={_runtime}/>;
     case 'privacyNote': return <PrivacyNotePanel {...deps}/>;
     case 'remoteControls': return <RemoteControlsPanel {...deps}/>;
-    case 'equalizer': return <EqualizerPanel deps={deps} runtime={_runtime}/>;
+    case 'equalizer': return <SettingsRow first testID="settings-panel-equalizer" label={deps.t('next.settingsSpec.account.music.groups.0.rows.3.label')} onPress={() => deps.openRoute({kind: 'settings-equalizer'})}/>;
     default: return undefined;
   }
 }

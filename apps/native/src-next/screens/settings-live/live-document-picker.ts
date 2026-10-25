@@ -17,7 +17,7 @@ const available = !Platform.isTV && typeof pickFile === 'function' && typeof can
 /** Read one M3U/XMLTV file through the platform's own document picker. Only the
  * text, display name and byte count cross the bridge; no path or lasting access
  * survives. A cancelled pick returns undefined; a phone/tablet picker is required. */
-export const liveDocumentPicker = available && pickFile && cancelFile && newRequestId ? Object.freeze({
+export const liveDocumentPicker = available ? Object.freeze({
   async pick(kind: 'playlist' | 'guide', signal: AbortSignal): Promise<LivePickedDocument | undefined> {
     if (signal.aborted) return;
     let requestId: string | undefined, started = false;

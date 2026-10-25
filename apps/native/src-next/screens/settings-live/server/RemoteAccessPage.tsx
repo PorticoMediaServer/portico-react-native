@@ -4,7 +4,8 @@ import type {RemoteAccess, RemoteConfiguration} from '../../../../../../packages
 import type {ConnectivityStatus} from '../../../../../../packages/client-core/src/server-administration';
 import {secureConnectionView} from '../../../../../../packages/client-core/src/server-admin/secure-connection';
 import {remoteStatusLine} from '../../../../../../packages/client-core/src/server-admin/status-words';
-import type {CertificateDraft, CertificateStatus, ConnectivityDraft} from '../../../../../../packages/client-core/src/server-admin/server-forms';
+import type {CertificateDraft, ConnectivityDraft} from '../../../../../../packages/client-core/src/server-admin/server-forms';
+import type {CertificateStatus} from '../../../../../../packages/client-core/src/certificates';
 import {Button, Focusable, Select, Switch, TextField} from '../../../kit/controls';
 import {Icon} from '../../../kit/Icon';
 import {BottomSheet} from '../../../kit/overlays';
