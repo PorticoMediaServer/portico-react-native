@@ -110,6 +110,22 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     return {program, providers};
   }
 
+  async accountConfig(guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.rcloneConfig();
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
+  }
+
+  async configureFromAccount(input: Readonly<{name: string; remote: string}>, guard: () => boolean): Promise<void> {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    await this.service.configureRcloneFromConfig(input, guard);
+    this.assertAllowed();
+  }
+
   async testImported(input: RcloneTestInput, guard: () => boolean): Promise<RcloneTestResult> {
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
