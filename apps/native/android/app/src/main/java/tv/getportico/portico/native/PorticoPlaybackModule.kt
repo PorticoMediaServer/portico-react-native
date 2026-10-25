@@ -63,7 +63,7 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
     main.post {
       if (invalidated) { promise.reject("bridge_closed", "Playback bridge is closed."); return@post }
       listening.setSampleRateMatching(PorticoAudioSampleRate.parse(mode))
-      promise.resolve(true)
+      promise.resolve(Arguments.makeNativeMap(listening.audioProcessingFacts(reactApplicationContext)))
     }
   }
 

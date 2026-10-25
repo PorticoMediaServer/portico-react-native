@@ -30,10 +30,9 @@ object PorticoAudioSampleRate {
   const val STRICT = "strict"
   const val OFF = "off"
 
-  /** The listener's chosen mode and the rate the sink actually opened at, for its current item. */
+  /** The listener's chosen mode. The sink does not yet open at a chosen rate and cannot read
+   * its routed device, so no opened rate is recorded anywhere: both stay explicit gaps. */
   @Volatile var mode: String = SMART
-  @Volatile var openedSampleRate: Int = 0
-  fun resetOpened() { openedSampleRate = 0 }
 
   /** What the routed device says about itself. Unknown and arbitrary are different facts. */
   data class RouteFacts(
@@ -106,7 +105,9 @@ object PorticoAudioSampleRate {
     }
   }
 
-  /** Observed facts for the bridge and the signal path, in the native contract's own names. */
+  /** Observed facts for the bridge and the signal path, in the native contract's own names.
+   * `openedSampleRate` is 0 and `openedSampleRateKnown` false until the sink can report the
+   * session it actually opened; `modeImplemented` stays false until it opens at the chosen rate. */
   fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int): Map<String, Any> {
     val route = routeFacts(context, routed)
     return mapOf(
@@ -120,6 +121,8 @@ object PorticoAudioSampleRate {
         "routeRatesKnown" to route.ratesKnown,
         "routeRatesArbitrary" to route.ratesArbitrary,
         "preferredSampleRate" to route.preferredSampleRate,
+        "openedSampleRateKnown" to (openedSampleRate > 0),
+        "modeImplemented" to false,
         "sampleRateMatched" to (sourceRate > 0 && openedSampleRate > 0 && sourceRate == openedSampleRate),
     )
   }

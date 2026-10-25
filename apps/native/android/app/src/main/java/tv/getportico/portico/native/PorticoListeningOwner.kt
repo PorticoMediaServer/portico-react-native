@@ -263,9 +263,14 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   fun setSampleRateMatching(mode: String) {
     PorticoAudioSampleRate.mode = PorticoAudioSampleRate.parse(mode)
-    // A mode change retires the previous item's opened rate; nothing is reported until a sink
-    // open on the current item records one.
-    PorticoAudioSampleRate.resetOpened()
+    // The sink has no chosen-rate open yet; the source rate is the only measured input, and the
+    // opened rate stays unknown rather than echoing the request back as if it were observed.
+    lastSourceRate = 0
+  }
+
+  /** The presentation's own decoded rate, when this item is known; 0 means unreported. */
+  fun recordSourceSampleRate(rate: Int, owner: String) {
+    if (owner.isNotEmpty()) lastSourceRate = if (rate > 0) rate else 0
   }
 
   fun sampleRateMatching(): String = PorticoAudioSampleRate.mode
@@ -273,8 +278,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   /** The sink's own open facts; the routed device stays unknown until the sink can report it,
    * so no support and no physical-rate claim is made here. */
   fun audioProcessingFacts(context: android.content.Context): Map<String, Any> =
-      PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, lastSourceRate, null,
-          PorticoAudioSampleRate.openedSampleRate)
+      PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, lastSourceRate, null, 0)
 
   private fun renders(presentation: Map<String, Any?>?): Boolean = PorticoAudioPlan.playable(decodePlan(presentation))
   private fun accepts(presentation: Map<String, Any?>?): Boolean {
