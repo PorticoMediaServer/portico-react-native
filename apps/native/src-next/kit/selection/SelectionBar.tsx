@@ -23,7 +23,10 @@ const phoneMain: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myL
 const label = (id: SelectionAction) => selectionText(`next.selection.native.action.${id}`);
 
 // Admission belongs to the canonical model/server offers, including TV curation.
-function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'download');}
+// select 24: a TV selection has no owner area, so owner editing and deletion are
+// never drawn there even when a catalogue offer would allow them.
+const tvHidden: ReadonlySet<SelectionAction> = new Set<SelectionAction>(['download', 'edit', 'refresh', 'delete']);
+function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || !tvHidden.has(action.id));}
 function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) {
   const {isTV, colors, platform} = useTheme();
   const queueFirst = useRef<View>(null);
