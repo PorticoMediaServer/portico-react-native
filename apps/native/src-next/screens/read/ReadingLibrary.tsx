@@ -68,6 +68,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const kind = library?.kind === 'comic' ? 'comic' : 'book';
   const name = library?.name ?? title, authoredTabs = useMemo(() => libraryTabs(kind), [kind]);
   const [tab, setTab] = useState<LibraryTabId>('discover'), [switcherOpen, setSwitcherOpen] = useState(false), fellBack = useRef(false);
+  const [paneWidth, setPaneWidth] = useState<number>();
   const tablet = !theme.isTV && theme.platform !== 'phone'; // Medium, tablet and native web windows share the wide surface.
   const [summary, setSummary] = useState<LibrarySummary>();
   const libraryKind = library?.kind, wideId = library?.id;
@@ -120,7 +121,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const retry = <StateView testID="reading-library-error" variant="inline" {...runtime.error(tab === 'discover' ? discoveryState.error : booksState.error, tab === 'discover' ? retryDiscover : retryBooks, 'library')}/>;
   const empty = <StateView testID="reading-library-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/>;
   const loading = <Text style={[browseType(theme, 14, 500), {color: theme.colors.textTertiary, padding: 20}]}>{defaultI18n.t('status.loading')}</Text>;
-  const columns = tablet ? 4 : 3, gap = 16, width = Math.max(96, (dimensions.width - theme.gutter * 2 - gap * (columns - 1)) / columns);
+  const columns = tablet ? 4 : 3, gap = 16, width = Math.max(96, ((paneWidth ?? dimensions.width) - theme.gutter * 2 - gap * (columns - 1)) / columns);
   const discover = <ScrollView testID="reading-discover" contentContainerStyle={{paddingBottom: insets.bottom + 40}}>
     {discoveryState.phase === 'error' ? retry : null}
     {discoveryState.phase === 'loading' && !discoveryState.continueItems.length && !discoveryState.recent.length ? loading : null}
@@ -152,7 +153,12 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
   const counts = (summary?.counts ?? []).filter(part => pivots[part.kind]).map(part =>
     defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]!}));
-  return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
+    // The authored cover grid fills the pane it is laid out in, not the window:
+    // the shell rail is already outside this view.
+    const next = Math.round(event.nativeEvent.layout.width);
+    if (next > 0 && next !== paneWidth) setPaneWidth(next);
+  }}>
     {tablet ? <View style={{paddingTop: insets.top + 6, paddingHorizontal: theme.gutter}}>
       <Focusable accessibilityRole="button" focusKind="row" accessibilityLabel={defaultI18n.t('next.browse.native.libraries')} onPress={onBack}
         style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start'}}>
