@@ -1,6 +1,6 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {Text} from 'react-native';
-import {s3SourceDraft, driveServiceAccountDraft, cloudTokenDraft, type CloudTokenFields, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {Linking, Text} from 'react-native';
+import {s3SourceDraft, driveServiceAccountDraft, cloudTokenDraft, driveOAuthDraft, type CloudTokenFields, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
@@ -11,7 +11,7 @@ import {Page, Problem, receiptCheckRequired, remoteSourceError, useAttempt} from
 
 /** Connection fields remain local write-only drafts. Never replay credentials. */
 export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel, onSaved, form = 'imported'}: {
-  controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive' | 'cloud'; t: typeof defaultI18n.t;
+  controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive' | 'cloud' | 'driveOAuth'; t: typeof defaultI18n.t;
   isCurrent: () => boolean; onCancel: () => void; onSaved: (source: RemoteSource) => void;
 }) {
   const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedDraft = useRef<Readonly<{name: string; remote: string; config: string}> | undefined>(undefined);
@@ -20,16 +20,25 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const [drive, setDrive] = useState<DriveKeyFields>({keyJson: '', location: 'folder', locationId: ''});
   const [cloud, setCloud] = useState<CloudTokenFields>({provider: 'onedrive', token: '', folder: ''});
   const cloudResult = useMemo(() => form === 'cloud' ? cloudTokenDraft(cloud) : undefined, [form, cloud]);
+  const [clientId, setClientId] = useState(''), [clientSecret, setClientSecret] = useState(''), [redirect, setRedirect] = useState('');
+  const [oauthVersion, setOAuthVersion] = useState(0);
+  const oauth = useRef<{clientId: string; clientSecret: string; state?: string; token: string; phase: string} | undefined>(undefined);
+  const retireOAuth = useCallback(() => {const old = oauth.current; oauth.current = undefined; if (old?.state) void controller.cancelDriveOAuth(old.state);}, [controller]);
+  useLayoutEffect(() => () => {retireOAuth();}, [retireOAuth]);
+  const latestRedirect = useRef(redirect); latestRedirect.current = redirect;
+  const oauthResult = useMemo(() => form === 'driveOAuth' && oauth.current?.token ? driveOAuthDraft({...drive,
+    clientId: oauth.current.clientId, clientSecret: oauth.current.clientSecret, token: oauth.current.token}) : undefined, [form, drive, oauthVersion]);
   const driveResult = useMemo(() => form === 'drive' ? driveServiceAccountDraft(drive) : undefined, [form, drive]);
-  const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : cloudResult?.ok ? cloudResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, cloudResult]);
+  const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : cloudResult?.ok ? cloudResult.draft : oauthResult?.ok ? oauthResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, cloudResult, oauthResult]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [tested, setTested] = useState<RcloneTestResult>();
   const [program, setProgram] = useState<RcloneProgram>(), [providers, setProviders] = useState<readonly string[]>([]);
   const draft = useMemo(() => Object.freeze({name, remote: form !== 'imported' ? built?.remote ?? '' : remote, config: form !== 'imported' ? built?.config ?? '' : config}), [name, remote, config, built, form]);
   const latestDraft = useRef(draft); latestDraft.current = draft;
   const saveTicket = useRef<object | undefined>(undefined);
   const renderedRevision = revision.current;
-  const ownsDraft = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
-  const invalidate = () => {revision.current++; testedDraft.current = undefined; setTested(undefined); setError(undefined);};
+  const renderedLease = oauth.current;
+  const ownsDraft = () => current() && revision.current === renderedRevision && latestDraft.current === draft && (form !== 'driveOAuth' || oauth.current === renderedLease);
+  const invalidate = () => {retireOAuth(); setOAuthVersion(value => value + 1); revision.current++; testedDraft.current = undefined; setTested(undefined); setError(undefined);};
   const facts = async () => {
     if (flight.current || !current()) return;
     flight.current = true; setBusy(true); setError(undefined);
@@ -40,6 +49,32 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   useEffect(() => {void facts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const signIn = async () => {
+    if (flight.current || !ownsDraft() || recovery || !program?.available || clientId.trim().length < 8 || clientSecret.length < 8) return;
+    retireOAuth();
+    const lease = {clientId, clientSecret, token: '', phase: 'pending', state: undefined as string | undefined}; oauth.current = lease;
+    const guard = () => current() && revision.current === renderedRevision && oauth.current === lease;
+    flight.current = true; setBusy(true); setError(undefined); setClientSecret(''); setRedirect('');
+    try {
+      const started = await controller.startDriveOAuth(lease.clientId, lease.clientSecret, guard);
+      if (!guard()) {void controller.cancelDriveOAuth(started.state); return;}
+      lease.state = started.state; setOAuthVersion(value => value + 1);
+      if (!guard()) return;
+      await Linking.openURL(started.authorizationUrl);
+    } catch (problem) {if (guard()) {retireOAuth(); setError(remoteSourceError(t, problem)); setOAuthVersion(value => value + 1);}}
+    finally {flight.current = false; if (current()) setBusy(false);}
+  };
+  const checkSignIn = async (paste: boolean) => {
+    if (flight.current || !ownsDraft() || recovery || paste && latestRedirect.current !== redirect || !renderedLease?.state || oauth.current !== renderedLease) return;
+    const guard = () => current() && revision.current === renderedRevision && oauth.current === renderedLease;
+    flight.current = true; setBusy(true); setError(undefined);
+    const address = paste ? redirect : undefined; latestRedirect.current = ''; setRedirect('');
+    try {
+      const answer = await controller.driveOAuthStatus(renderedLease.state, address, guard);
+      if (guard()) {renderedLease.token = answer.token; renderedLease.phase = answer.phase; setOAuthVersion(value => value + 1);}
+    } catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
+    finally {flight.current = false; if (current()) setBusy(false);}
+  };
   const snapshot = controller.getSnapshot().sources, recovery = receiptCheckRequired(snapshot);
   const valid = !!name.trim() && name.length <= 100 && !!draft.remote.trim() && draft.remote.length <= 512 && !!draft.config.trim() && draft.config.length <= 65536;
   const test = async () => {
@@ -61,7 +96,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     flight.current = true;
     const ticket = Object.freeze({draft, revision: renderedRevision}); saveTicket.current = ticket;
     const guard = () => current() && saveTicket.current === ticket && revision.current === ticket.revision;
-    setCloud(value => ({...value, token: ''})); setConfig(''); setS3(value => ({...value, accessKey: '', secretKey: ''})); setDrive(value => ({...value, keyJson: ''})); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
+    retireOAuth(); setClientSecret(''); setRedirect(''); setCloud(value => ({...value, token: ''})); setConfig(''); setS3(value => ({...value, accessKey: '', secretKey: ''})); setDrive(value => ({...value, keyJson: ''})); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
     try {await controller.configureImported(source, ticket.draft, guard); if (guard()) finish();}
     catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
     finally {if (saveTicket.current === ticket) saveTicket.current = undefined; flight.current = false; if (current()) setBusy(false);}
@@ -74,7 +109,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     finally {flight.current = false; if (current()) setBusy(false);}
   };
   const editable = !busy && !recovery && !snapshot.busy;
-  return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
+  return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' || form === 'driveOAuth' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
       : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t('next.remoteSources.saveAndContinue')}</Button>}>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{program?.available && program.version
@@ -104,6 +139,27 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
       <TextField label={t('next.remoteSources.cloudFolder')} description={t('next.remoteSources.cloudFolderHelp')} value={cloud.folder}
         editable={editable} autoCapitalize="none" autoCorrect={false}
         onChangeText={value => {if (flight.current || !current()) return; invalidate(); setCloud(previous => ({...previous, folder: value}));}}/>
+    </> : form === 'driveOAuth' ? <>
+      <TextField label={t('next.remoteSources.driveClientId')} value={clientId} editable={editable} autoCapitalize="none" autoCorrect={false}
+        onChangeText={value => {if (flight.current || !current()) return; invalidate(); setClientId(value); setClientSecret('');}}/>
+      <TextField label={t('next.remoteSources.driveClientSecret')} value={clientSecret} editable={editable} secureTextEntry autoCapitalize="none" autoCorrect={false} textContentType="none"
+        onChangeText={value => {if (flight.current || !current()) return; invalidate(); setClientSecret(value);}}/>
+      <Select label={t('next.remoteSources.driveLocation')} value={drive.location} disabled={!editable} options={[
+        {value: 'folder', label: t('next.remoteSources.driveFolder')}, {value: 'drive', label: t('next.remoteSources.driveDrive')},
+      ]} onValueChange={value => {if (flight.current || !current() || value !== 'folder' && value !== 'drive') return; invalidate(); setDrive(previous => ({...previous, location: value, locationId: ''}));}}/>
+      <TextField label={t(drive.location === 'drive' ? 'next.remoteSources.driveDriveId' : 'next.remoteSources.driveFolderId')} value={drive.locationId} editable={editable} autoCapitalize="none" autoCorrect={false}
+        onChangeText={value => {if (flight.current || !current()) return; invalidate(); setDrive(previous => ({...previous, locationId: value}));}}/>
+      <Button disabled={!editable || !program?.available || clientId.trim().length < 8 || clientSecret.length < 8} onPress={() => {void signIn();}}>{t('next.remoteSources.driveOAuthSignIn')}</Button>
+      {renderedLease?.state && <>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(renderedLease.phase === 'ready' ? 'next.remoteSources.driveOAuthReady' : renderedLease.phase === 'pending' ? 'next.remoteSources.driveOAuthWaiting' : 'next.remoteSources.driveOAuthExpired')}</Text>
+        {renderedLease.phase === 'pending' && <>
+          <Button disabled={!editable} onPress={() => {void checkSignIn(false);}}>{t('next.remoteSources.refresh')}</Button>
+          <TextField label={t('next.remoteSources.driveOAuthPaste')} value={redirect} editable={editable} autoCapitalize="none" autoCorrect={false}
+            onChangeText={value => {if (flight.current || !ownsDraft() || oauth.current !== renderedLease) return; latestRedirect.current = value; setRedirect(value);}}/>
+          <Button disabled={!editable || !redirect.trim()} onPress={() => {void checkSignIn(true);}}>{t('next.remoteSources.driveOAuthPasteAction')}</Button>
+        </>}
+      </>}
+      {oauthResult && !oauthResult.ok && <Problem message={t('next.remoteSources.driveOAuthInvalid')}/>}
     </> : form === 'drive' ? <>
       <TextField label={t('next.remoteSources.driveKey')} value={drive.keyJson} multiline
         editable={editable} autoCapitalize="none" autoCorrect={false} textContentType="none"
