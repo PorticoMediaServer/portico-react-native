@@ -1,5 +1,5 @@
 import React, {useLayoutEffect, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -33,7 +33,10 @@ type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
 export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpenSettings}: {
   controller: NativeReadBook; route: BookRoute; comic: boolean; runtime: NativeShellRuntime; onBack: () => void; onOpenSettings: () => void;
 }) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets();
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  // tablet-read 2/2b draw one reading column and one 380 pt contents column side by side;
+  // 2c keeps the single column. Composition only: no projection, action or fact changes.
+  const wide = dimensions.width >= 900 && dimensions.width > dimensions.height;
   const [more, setMore] = useState(false), [tab, setTab] = useState('contents');
   useLayoutEffect(() => {
     if (!controller.arm()) return;
@@ -62,7 +65,7 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
     ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'detail')}/>
     : !manifest || state.phase !== 'ready'
       ? <SkeletonBlock width="100%" height={520}/>
-      : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime}
+      : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
         versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}/>;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -81,8 +84,8 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion}: {
-  controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime;
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion}: {
+  controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
@@ -92,7 +95,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
   const title = manifest.metadata.title || controller.item.title, author = manifest.metadata.author || controller.item.author?.value;
   const cover = runtime.artwork(controller.item.coverUrl ?? manifest.metadata.coverUrl), tint = generatedCoverTint(title);
-  const coverWidth = theme.platform === 'phone' ? 168 : 190, coverHeight = coverWidth * 3 / 2;
+  const coverWidth = theme.platform === 'phone' ? 168 : wide ? 300 : 190, coverHeight = coverWidth * 3 / 2;
   const duration = manifest.metadata.estimatedSeconds !== undefined ? defaultI18n.duration(manifest.metadata.estimatedSeconds) : '';
   const pages = manifest.metadata.pageCount ?? manifest.pageNames?.length;
   const contents = manifest.format === 'epub' ? manifest.contents ?? [] : [];
@@ -110,8 +113,8 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
     ...(pages !== undefined ? [{label: t('next.reader.pagesStrip'), value: defaultI18n.number(pages)}] : []),
     ...(contents.length ? [{label: t('next.reader.contents'), value: defaultI18n.number(contents.length)}] : []),
   ];
-  return <View style={{width: '100%', maxWidth: 640, alignSelf: 'center'}}>
-    <View style={{alignItems: 'center', paddingHorizontal: 20}}>
+  const column = <>
+    <View style={{alignItems: wide ? 'flex-start' : 'center', paddingHorizontal: 20}}>
       <View style={{width: coverWidth, height: coverHeight, borderRadius: 7, overflow: 'hidden', backgroundColor: theme.colors.raised,
         shadowColor: theme.colors.shadow, shadowOpacity: .55, shadowRadius: 30, shadowOffset: {width: 0, height: 18}, elevation: 12}}>
         {cover ? <Artwork source={cover} width={coverWidth} height={coverHeight} priority/>
@@ -119,18 +122,18 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
       </View>
       {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name}
         onPress={() => onSeries(series, manifest)} style={{marginTop: 14, paddingVertical: 4, maxWidth: '100%'}}>
-        <Text numberOfLines={2} style={[browseType(theme, 13.5, 600), {color: theme.colors.accentStrong, textAlign: 'center'}]}>
+        <Text numberOfLines={2} style={[browseType(theme, 13.5, 600), {color: theme.colors.accentStrong, textAlign: wide ? 'left' : 'center'}]}>
           {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
         </Text>
       </Focusable> : null}
-      <Text accessibilityRole="header" numberOfLines={3} style={[browseType(theme, theme.platform === 'phone' ? 40 : 46, 800, -.03), {color: theme.colors.text, textAlign: 'center', marginTop: 6}]}>{title}</Text>
+      <Text accessibilityRole="header" numberOfLines={3} style={[browseType(theme, theme.platform === 'phone' ? 40 : 46, 800, -.03), {color: theme.colors.text, textAlign: wide ? 'left' : 'center', marginTop: 6}]}>{title}</Text>
       {author ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8}}>
         <View style={{width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedHigh}}>
           <Text style={[browseType(theme, 9.5, 800), {color: theme.colors.text}]}>{initials(author)}</Text>
         </View>
         <Text numberOfLines={1} style={[browseType(theme, 13, 700), {color: theme.colors.text, flexShrink: 1}]}>{author}</Text>
       </View> : null}
-      {facts.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: 6, marginTop: 8}}>
+      {facts.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: wide ? 'flex-start' : 'center', columnGap: 12, rowGap: 6, marginTop: 8}}>
         {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, 13, index === 0 ? 700 : 600), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
       </View> : null}
     </View>
@@ -139,7 +142,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
         {t(saved !== undefined ? 'next.cards.read' : 'next.reader.read')}
       </Button>
       {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
-        onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
+        onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: wide ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
         <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
         <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
         <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
@@ -150,20 +153,26 @@ function ReadBookBody({controller, manifest, series, comic, runtime, saved, curr
       <Text numberOfLines={4} style={[browseType(theme, 14.5, 400), {color: theme.colors.textSecondary, lineHeight: 23, marginTop: 6, paddingLeft: 14,
         borderLeftWidth: 2, borderLeftColor: alpha(theme.colors.text, .2)}]}>{manifest.metadata.openingLines}</Text>
     </View> : null}
-    {contents.length ? <View style={{marginTop: 14}}>
-      <Tabs testID="native-read-book-tabs" value={tab} onValueChange={onTab} items={[
-        {value: 'contents', label: t('next.reader.contents'), panel: <ContentsList entries={contents} currentSection={currentSection} onOpen={index => onRead(manifest, index)}/>},
-        {value: 'details', label: t('next.reader.details'), panel: <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>},
-      ]}/>
-    </View> : <View style={{marginTop: 24, paddingHorizontal: 20}}>
-      <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
-      <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
-    </View>}
-    <Menu open={versionsOpen} onOpenChange={setVersionsOpen} title={t('next.reader.version')} items={versions.map(version => ({
-      id: version.sourceId, label: `${version.format.toUpperCase()} · ${defaultI18n.bytes(version.size)}`,
-      selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
-      onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
-    }))}/>
+  </>;
+  const panel = contents.length ? <View style={{marginTop: wide ? 0 : 14}}>
+    <Tabs testID="native-read-book-tabs" value={tab} onValueChange={onTab} items={[
+      {value: 'contents', label: t('next.reader.contents'), panel: <ContentsList entries={contents} currentSection={currentSection} onOpen={index => onRead(manifest, index)}/>},
+      {value: 'details', label: t('next.reader.details'), panel: <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>},
+    ]}/>
+  </View> : <View style={{marginTop: wide ? 0 : 24, paddingHorizontal: 20}}>
+    <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
+    <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
+  </View>;
+  const versionsMenu = <Menu open={versionsOpen} onOpenChange={setVersionsOpen} title={t('next.reader.version')} items={versions.map(version => ({
+    id: version.sourceId, label: `${version.format.toUpperCase()} · ${defaultI18n.bytes(version.size)}`,
+    selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
+    onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
+  }))}/>;
+  if (!wide) return <View style={{width: '100%', maxWidth: 640, alignSelf: 'center'}}>{column}{panel}{versionsMenu}</View>;
+  return <View testID="native-read-book-split" style={{flexDirection: 'row', alignItems: 'flex-start', gap: 72, paddingHorizontal: 12, width: '100%', maxWidth: 1180, alignSelf: 'center'}}>
+    <View style={{flex: 1, minWidth: 0}}>{column}</View>
+    <View style={{width: 380, minWidth: 0}}>{panel}</View>
+    {versionsMenu}
   </View>;
 }
 
