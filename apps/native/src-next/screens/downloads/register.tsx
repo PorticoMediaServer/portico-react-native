@@ -6,6 +6,8 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
 import {phoneBarHeight, shellLayout} from '../../shell/model';
 import {nativeEntryRoute} from '../../shell/routes';
+import {openNativeReadingDetail} from '../read/eligibility';
+import {isReadingLibraryKind} from '../read/platform';
 import {DownloadsScreen} from './DownloadsScreen';
 import {createNativeDownloadsDevice} from './device';
 import type {NativeDownloadsCopy} from './presentation';
@@ -30,6 +32,7 @@ function DownloadsRoute(props: React.ComponentProps<typeof DownloadsScreen>) {
 
 export const createNativeDownloadsModule: NativeRouteFactory = context => {
   const bound = createNativeDownloadsDevice(context);
+  let readingOpening = false;
   return {
     render: (route, runtime) => route.kind === 'downloads' ? <DownloadsRoute device={bound.device} service={bound.service} runtime={runtime} copy={nativeDownloadsCopy}
       back={() => {if (context.current()) context.navigation.back(context.authority());}}
@@ -37,7 +40,31 @@ export const createNativeDownloadsModule: NativeRouteFactory = context => {
         if (!context.current()) return;
         const live = bound.device.getSnapshot().entries.find(value => value.id === entry.id && value.itemId === entry.itemId);
         const kind = live?.info?.kind ?? live?.kind;
-        if (!live || !live.libraryId || !kind || !['movie', 'episode', 'song', 'audiobook_file', 'extra'].includes(kind)) {
+        if (!live || !live.libraryId || !kind) {
+          runtime.reportError(Object.assign(new Error('invalid_response'), {code: 'invalid_response'})); return;
+        }
+        // A downloaded book or comic opens its own Reading page. The item and
+        // version come from the device's signed binding; the page's start facts
+        // come from an authorized preview manifest, never the cached label.
+        if (kind === 'ebook' || kind === 'comic') {
+          const library = context.libraries().find(value => value.id === live.libraryId);
+          if (!library || !isReadingLibraryKind(library.kind)) {
+            runtime.reportError(Object.assign(new Error('invalid_response'), {code: 'invalid_response'})); return;
+          }
+          let source: Readonly<{sourceId: string; revision: string}> | undefined;
+          try {source = bound.device.publicationSource?.(live);} catch (error) {runtime.reportError(error); return;}
+          if (!source) {runtime.reportError(Object.assign(new Error('invalid_response'), {code: 'invalid_response'})); return;}
+          if (readingOpening) return;
+          readingOpening = true;
+          const snapshot = context.navigation.getSnapshot();
+          const origin = Object.freeze({route: snapshot.route, revision: snapshot.revision});
+          void openNativeReadingDetail(context, origin, {libraryId: live.libraryId, itemId: live.itemId, sourceId: source.sourceId, title: live.info?.title || live.title})
+            .then(ok => {if (!ok) runtime.reportError(Object.assign(new Error('source_unavailable'), {code: 'source_unavailable'}));},
+              error => runtime.reportError(error))
+            .finally(() => {readingOpening = false;});
+          return;
+        }
+        if (!['movie', 'episode', 'song', 'audiobook_file', 'extra'].includes(kind)) {
           runtime.reportError(Object.assign(new Error('invalid_response'), {code: 'invalid_response'})); return;
         }
         // The descriptor uses the cached title's actual identity. The Title owner
