@@ -2114,6 +2114,15 @@
    "text": 38
   },
   {
+   "id": "maven:com.google.zxing:core:3.5.3",
+   "name": "com.google.zxing:core",
+   "version": "3.5.3",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://github.com/zxing/zxing",
+   "text": 38
+  },
+  {
    "id": "maven:com.parse.bolts:bolts-tasks:1.4.0",
    "name": "com.parse.bolts:bolts-tasks",
    "version": "1.4.0",
@@ -2681,15 +2690,15 @@
  ],
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
-  "apps/native/ios/Podfile.lock": "8248330026f0efd324e35ab616ef26268cf6742ea42ee89a767ed6ac33a6286c",
-  "apps/native/licences/android-firetv.txt": "8376ebff5f245acc33042b3b0d701bb8945e0e9eeec8dee216766a087592274d",
-  "apps/native/licences/android-google.txt": "8faf88d7c310a23cd6beb884f6fdb4c1a5d33e6a830ae2897802e955f8917bf6",
+  "apps/native/ios/Podfile.lock": "d8e111a52935ca1eb6abce4fadf00bcdfd4e7a177e42e7ec6098cbd0cb475ac4",
+  "apps/native/licences/android-firetv.txt": "d9f94088392c6c30c8d188028e09448ead2dc3f3706d76b0a17a2e48a8f19e64",
+  "apps/native/licences/android-google.txt": "f604eaa8d0bd8549cf19543b61721cf0e451384326f76d5f5f522a2c781b14ba",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-android.txt": "bbddcd98904d1649bd5f964e7058dcd147b2a5e810f916b348f0521189f63170",
   "apps/native/licences/native-npm.json": "32589e75c42e8f92eff1f4b3f23081078d12372572b89824e6ac5d5a95233259",
   "apps/native/package-lock.json": "8362012e85e0723ae7f98d2f8064aa18a2568048ab4ab3339c96ea8b4b320e49",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
-  "third_party/media-engine/sources.lock.json": "fd6476e21d868db83f65cb4402c336a1473831a34dbfbaa76c6f7a1dde8bd745"
+  "third_party/media-engine/sources.lock.json": "740af586df5f31de3ce936afda7b074c992bdcc475e388355199cd112bfe590f"
  }
 }
