@@ -25,6 +25,8 @@ export type SelectionBarProps = {
   menuTitle?: string;
   /** Localized actual selected kind/count, e.g. 4 movies; generic titles when absent. */
   selectionLabel?: string;
+  /** Episode selections put Watched in the primary slot and My List in More. */
+  fourthSlot?: 'myList' | 'watched';
 };
 export type SelectionOutcome = {id: string; title: string; ok: boolean; reason?: string; artwork?: React.ReactNode};
 export type PickerEntry = {id: string; title: string; size: number; canAdd: boolean; alreadyIn?: number; artwork?: React.ReactNode};

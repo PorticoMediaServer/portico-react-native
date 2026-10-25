@@ -32,7 +32,7 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
   if (props.menu !== null) {retainedMenu.current = props.menu; retainedReturn.current = props.returnFocusRef;}
   const menu = props.menu ?? retainedMenu.current;
   const actions = permitted(props.actions, isTV);
-  const menuIds: readonly SelectionAction[] = menu === 'queue' ? ['playNext', 'playLater'] : menu === 'watched' ? ['watched', 'unwatched'] : ['watched', 'unwatched', 'collection', 'favorite', 'download', 'removeMyList', 'edit', 'refresh', 'delete'];
+  const menuIds: readonly SelectionAction[] = menu === 'queue' ? ['playNext', 'playLater'] : menu === 'watched' ? ['watched', 'unwatched'] : [...(props.fourthSlot === 'watched' ? ['myList' as const] : []), 'watched', 'unwatched', 'collection', 'favorite', 'download', 'removeMyList', 'edit', 'refresh', 'delete'];
   const items: MenuEntry[] = [];
   for (const id of menuIds) {
     const offer = actions.find(action => action.id === id);
@@ -106,7 +106,7 @@ export function SelectionBar(props: SelectionBarProps) {
       <SelectionText size={28} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText>
       {props.subtitle ? <SelectionText size={20} weight={600} secondary>{props.subtitle}</SelectionText> : null}
       <View style={{height: 44, width: 2, backgroundColor: 'rgba(92,179,226,.35)', marginHorizontal: 6}} />
-      {mainTV.map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
+      {mainTV.filter(id => props.fourthSlot !== 'watched' || id !== 'myList').map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
         style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : 24}} textStyle={{fontSize: 22 * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
       <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button>
@@ -116,7 +116,7 @@ export function SelectionBar(props: SelectionBarProps) {
   </>;
 }
 
-export function SelectionPhoneActionBar(props: Pick<SelectionBarProps, 'actions' | 'onAction' | 'onMenuChange'> & {fourthSlot?: 'myList' | 'watched'; bottomInset?: number}) {
+export function SelectionPhoneActionBar(props: Pick<SelectionBarProps, 'actions' | 'onAction' | 'onMenuChange' | 'fourthSlot'> & {bottomInset?: number}) {
   const {isTV, colors} = useTheme();
   if (isTV) return null;
   const recipe = glassRecipe();

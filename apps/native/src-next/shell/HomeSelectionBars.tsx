@@ -25,13 +25,16 @@ export function HomeSelectionBars({controller, runtime, ownerTag, reportError}: 
   const theme = useTheme(), insets = useSafeAreaInsets();
   const [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   if (!snapshot.selection.active) return null;
+  const summary = snapshot.selection.summary;
+  const fourthSlot = summary.count > 0 && summary.types.length === 1 && summary.types[0].kind === 'episode'
+    && summary.types[0].count === summary.count ? 'watched' : 'myList';
   const props: SelectionBarProps = {testID: theme.isTV && runtime ? tvFocusIds(runtime.getSnapshot().authority).surface('selection-bar') : undefined, count: snapshot.selection.summary.count, selectionLabel: selectedItemsLabel(snapshot.selection.summary), selectAllLabel: t('next.home.native.selectRow'),
     onSelectAll: () => controller.selectRow(), onCancel: () => {setMenu(null); controller.clear();},
     onAction: action => {const command = nativeSelectionCommand(action); if (command) {setMenu(null); void controller.execute(command).catch(reportError);}},
     actions: nativeSelectionOffers(snapshot.actions, reason), menu, onMenuChange: setMenu, ownerTag,
-    topInset: insets.top};
+    topInset: insets.top, fourthSlot};
   return <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
     <View style={theme.isTV ? {position: 'absolute', left: 200, right: 96, top: 58} : {position: 'absolute', left: 0, right: 0, top: 0}}><SelectionBar {...props}/></View>
-    {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar actions={props.actions} onAction={props.onAction} onMenuChange={setMenu} bottomInset={Math.max(34, insets.bottom)}/></View>}
+    {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar actions={props.actions} onAction={props.onAction} onMenuChange={setMenu} fourthSlot={props.fourthSlot} bottomInset={Math.max(34, insets.bottom)}/></View>}
   </View>;
 }
