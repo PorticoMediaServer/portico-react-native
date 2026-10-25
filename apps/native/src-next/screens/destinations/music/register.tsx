@@ -8,6 +8,8 @@ import {NativeTVMusicController} from './model';
 import {TVAlbumScreen, TVArtistScreen} from './TVMusicScreens';
 import {PhoneAlbumScreen, PhoneArtistScreen} from './PhoneMusicScreens';
 import {createMusicPlaylistPicker, type MusicPlaylistPickerHandle} from './MusicPlaylistPicker';
+import {nativeDownloadRequest} from '../../watch/download-request';
+import {askNativeDownload} from '../../downloads/request';
 import './MusicDiscoverRoute';
 
 type Page = Readonly<{key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
@@ -45,8 +47,9 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       if (!page) return null;
       const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open({kind: 'music', entry}, context.authority());};
       const back = () => {if (current()) context.navigation.back(context.authority());};
+      const download = (entry: ContentEntry) => {const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);};
       if (!Platform.isTV) return page.entry.kind === 'album'
-        ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>
+        ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back} download={download}/>
         : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
       const pageCurrent = () => {
         const active = context.navigation.getSnapshot().route;

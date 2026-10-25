@@ -64,8 +64,8 @@ function Facts({facts, strongFirst = true}: {facts: readonly string[]; strongFir
 }
 
 /** Play and Shuffle are the drawn wide pair; the round slot carries the drawn More on an artist. */
-function MusicActions({controller, entry, runtime, actions, moreRef, roundMore}: {
-  controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; moreRef: React.RefObject<NativeView | null>; roundMore: boolean;
+function MusicActions({controller, entry, runtime, actions, moreRef, roundMore, download}: {
+  controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; moreRef: React.RefObject<NativeView | null>; roundMore: boolean; download?: (entry: ContentEntry) => void;
 }) {
   const theme = useTheme();
   const run = (work: Promise<unknown>) => {void work.catch(runtime.reportError);};
@@ -75,7 +75,8 @@ function MusicActions({controller, entry, runtime, actions, moreRef, roundMore}:
   return <View style={{flexDirection: 'row', alignItems: 'center', gap: phoneMusicGeometry.actionGap}}>
     <Button style={[action, {flex: 1}]} icon="i-play" textStyle={browseType(theme, 15, 700)} accessibilityLabel={label} onPress={() => run(controller.play())}>{t('entry.play')}</Button>
     <Button variant="glass" style={[action, {flex: 1}]} icon="i-shuffle" textStyle={browseType(theme, 15, 700)} accessibilityLabel={shuffle} onPress={() => run(controller.play(undefined, true))}>{t('title.shuffle')}</Button>
-    {roundMore ? <Button ref={moreRef} variant="glass" iconOnly icon="i-more" style={{height: phoneMusicGeometry.actionHeight, width: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius}}
+    {download ? <Button variant="glass" iconOnly icon="i-dl" style={{height: phoneMusicGeometry.actionHeight, width: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius}}
+      accessibilityLabel={t('next.cards.download')} onPress={() => download(entry)}/> : roundMore ? <Button ref={moreRef} variant="glass" iconOnly icon="i-more" style={{height: phoneMusicGeometry.actionHeight, width: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius}}
       accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, moreRef)}/> : null}
   </View>;
 }
@@ -120,8 +121,8 @@ function AlbumCard({album, runtime, actions, openEntry}: {album: MusicAlbumRow; 
 
 /** phone-app#13: the album body. The canonical controller owns the server lists;
  * this file only draws them at phone size. */
-export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry, onBack}: {
-  controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onBack: () => void;
+export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry, onBack, download}: {
+  controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onBack: () => void; download?: (entry: ContentEntry) => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime);
   const art = runtime.artwork(entry.posterUrl), more = useRef<NativeView>(null);
@@ -145,7 +146,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
         {entry.artist?.name ? <Text numberOfLines={1} style={[browseType(theme, phoneMusicGeometry.albumArtist, 700), {color: theme.colors.accentStrong, marginTop: 4}]}>{entry.artist.name}</Text> : null}
         {facts.length ? <Facts facts={facts}/> : null}
       </View>
-      <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false}/></View>
+      <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false} download={download}/></View>
       {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View> : null}
     </ScrollView>
