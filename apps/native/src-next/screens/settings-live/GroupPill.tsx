@@ -35,6 +35,12 @@ export function NativeTVGroupPill() {
   useEffect(() => () => {sheetRef.current = undefined;}, []);
   if (!group || !owner || !rendered) return null;
   const joined = group.members.filter(member => member.state === 'joined');
+  // Drawn states come only from the service's own readiness, presence and room phase.
+  const pillState = snapshot?.phase === 'reconnecting' ? t('web.together.reconnecting')
+    : group.readiness.aggregate === 'ready' ? t('web.together.inStep') : t('web.together.catchingUp');
+  const memberState = (member: (typeof joined)[number]) => member.readiness === 'buffering' ? t('web.together.loading')
+    : member.readiness === 'lagging' ? t('web.together.catchingUp')
+    : member.presence !== 'connected' ? t('web.together.away') : t('web.together.inStep');
   const permissions = group.permissions, canClaim = !permissions.isHost && permissions.canClaimHost === true;
   /** Whole eligibility is re-read from this owner's current group at dispatch and completion. */
   const eligible = (state: GroupSessionSnapshot | undefined, memberId: string): boolean => {
@@ -64,15 +70,19 @@ export function NativeTVGroupPill() {
         borderRadius: 14, backgroundColor: 'rgba(237,245,250,.12)'}}>
       <Text style={[browseType(theme, 18, 700), {color: theme.colors.text}]}>{group.name}</Text>
       <Text style={[browseType(theme, 16, 600), {color: theme.colors.textSecondary}]}>{t('web.together.here', {count: joined.length})}</Text>
+      <Text numberOfLines={1} style={[browseType(theme, 16, 600), {color: theme.colors.textTertiary, maxWidth: 260}]}>{pillState}</Text>
     </Focusable>
     <SidePanel open={sheet !== undefined} onOpenChange={next => {if (!next) closeSheet();}} title={group.name}
       testID="player-group-sheet" width={620} topInset={0} returnFocusRef={pill}
       style={{paddingTop: 46, paddingLeft: 56, paddingRight: 96}}>
       <View style={{gap: 18}}>
         {joined.map(member => <View key={member.id} style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
-          <Text style={[browseType(theme, 22, 700), {color: theme.colors.text, flex: 1}]}>{member.displayName}</Text>
-          {member.role === 'host' ? <Text style={[browseType(theme, 18, 700), {color: theme.colors.accentStrong}]}>{t('web.together.youHost')}</Text>
-            : member.presence !== 'connected' ? <Text style={[browseType(theme, 18, 600), {color: theme.colors.textTertiary}]}>{t('web.together.away')}</Text> : null}
+          <Text style={[browseType(theme, 22, 700), {color: theme.colors.text, flex: 1}]}>
+            {member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}
+          </Text>
+          <Text style={[browseType(theme, 18, 600), {color: member.role === 'host' ? theme.colors.accentStrong : theme.colors.textTertiary}]}>
+            {member.role === 'host' ? t('web.together.hostStatus', {status: memberState(member)}) : memberState(member)}
+          </Text>
           {permissions.isHost && member.role !== 'host' && <Button variant="glass" size="small" focusId={`group-host-${member.id}`}
             onPress={() => makeHost(member.id, sheet!)}>{t('web.together.makeHost')}</Button>}
         </View>)}
