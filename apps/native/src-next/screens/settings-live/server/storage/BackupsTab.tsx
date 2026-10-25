@@ -3,7 +3,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 import type {BackupSummary, BackupsDocument, BackupKind} from '../../../../../../../packages/client-core/src/administration';
 import {backupProgressFraction} from '../../../../../../../packages/client-core/src/administration';
-import {deleteBackup, getBackups, restoreBackup, restartServer, startBackup, waitForBackupCompletion, waitForServerAnswer} from '../../../../../../../packages/client-core/src/backups';
+import {deleteBackup, getBackups, restoreBackup, startBackup, waitForBackupCompletion, waitForServerAnswer} from '../../../../../../../packages/client-core/src/backups';
 import {presentError} from '../../../../../../../packages/client-core/src/presentation/errors';
 import {when} from '../../../../../../../packages/client-core/src/server-admin/console-words';
 import type {MessageId} from '../../../../../../../packages/i18n/src';
@@ -42,7 +42,7 @@ export function BackupsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts;
   });
   const doRestore = (source: {backupId: string} | {path: string}) => run(async () => {
     await restoreBackup(api, authority.serverId, ports.requestId(), source);
-    await restartServer(api);
+    // The accepted restore job owns its graceful restart; only read its answer.
     setDoc(await waitForServerAnswer(() => getBackups(api, authority.serverId)));
     setRestore(undefined);
   });
