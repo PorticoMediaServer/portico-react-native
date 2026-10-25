@@ -204,7 +204,11 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     ? t('settings.signedInWithAccount', {server: ports.serverName()})
     : t('settings.signedInAs', {server: ports.serverName(), username: account.username});
   // The drawn sheet heads the profile, then the routes this build can really open.
-  const sheetShortcuts = shell.account.actions.filter(action => action.id !== 'settings');
+  const unreadNotifications = shell.unreadNotificationCount ?? 0;
+  const sheetShortcuts = shell.account.actions.filter(action => action.id !== 'settings').map(action =>
+    action.id === 'notifications' && unreadNotifications > 0
+      ? {...action, trailing: <Text style={[shellType(11, 700), {color: theme.colors.ink}]}>{defaultI18n.number(unreadNotifications)}</Text>}
+      : action);
   const closeSettings = () => {controller.lifetime.assert(); ports.context.navigation.back(ports.context.authority());};
   // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
   useEffect(() => {
