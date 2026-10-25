@@ -1,0 +1,64 @@
+name: Checkpoint remaining native suites
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact published native checkpoint source
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: checkpoint-native-completion
+  cancel-in-progress: false
+jobs:
+  remaining:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Validate frozen source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: '[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: portico-react-native
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: portico-react-native/.node-version
+          cache: npm
+          cache-dependency-path: portico-react-native/apps/native/package-lock.json
+      - id: deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: portico-react-native/apps/native
+      - name: Mounted copy checks
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: |
+          status=0
+          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict || status=1
+          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict || status=1
+          node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
+          exit "$status"
+        working-directory: portico-react-native/apps/native
+      - name: All mounted unit tests
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: node --experimental-strip-types --import ./test/register.mjs --test test/next-*.test.ts
+        working-directory: portico-react-native/apps/native
+      - name: Historical test types
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run typecheck:test
+        working-directory: portico-react-native/apps/native
+      - name: Historical hooks
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run lint:hooks
+        working-directory: portico-react-native/apps/native
+      - name: Historical strings
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run lint:strings
+        working-directory: portico-react-native/apps/native
+      - name: All historical unit tests
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: node --experimental-strip-types --import ./test/register.mjs --test $(find test -maxdepth 1 -name '*.test.ts' ! -name 'next-*' -print)
+        working-directory: portico-react-native/apps/native

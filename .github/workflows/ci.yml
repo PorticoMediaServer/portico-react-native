@@ -47,12 +47,13 @@ jobs:
         working-directory: portico-react-native
       - run: python3 scripts/test-ci-affected.py
         working-directory: portico-react-native
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
+      - id: native-deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
       - name: Mounted source and test types
         run: npm run typecheck && npm run typecheck:next-test
         working-directory: portico-react-native/apps/native
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
         name: Mounted application lint (informational)
         run: |
           status=0
@@ -63,7 +64,7 @@ jobs:
           node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
           exit "$status"
         working-directory: portico-react-native/apps/native
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
         name: Affected tests plus mandatory sign-in/session/account/profile guards
         run: python3 scripts/ci-affected.py native-js
         working-directory: portico-react-native
