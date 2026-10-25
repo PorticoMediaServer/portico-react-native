@@ -31,6 +31,7 @@ import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPan
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
 import {NativeWatchHost, type NativeWatchHostBindings, type NativeWatchHostContext} from './WatchHost';
+import {NativeWatchEpisodes} from './EpisodePanel';
 
 export type NativeWatchCapture = Readonly<{
   entry: ContentEntry;
@@ -292,6 +293,25 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
                 && (titleKey(state.entry) === titleKey(member) || state.episodes.some(value => titleKey(value) === titleKey(member))
                 || state.detail?.data?.related?.rows.some(row => row.entries.some(value => titleKey(value) === titleKey(member))) === true);
             }, anchorRef).catch(ports.title.reportError);
+          }}/>;
+      },
+      /** collections 37/38: the season's episodes inside the player, beside the
+       * picture. The picture is the persistent surface; choosing an episode starts
+       * that episode through the one playback adapter. */
+      episodes: (host: NativeWatchHostContext) => {
+        const source = host.source, entry = source.entry;
+        if (!alive() || source.retired || host.fence.kind !== 'queue' || entry?.kind !== 'episode' || !entry.show?.id || !entry.libraryId) return null;
+        const show: ContentEntry = {id: entry.show.id, libraryId: entry.libraryId, kind: 'show', title: entry.show.name};
+        const key = `watch-episodes:${entry.show.id}`;
+        let controller = controllers.get(key);
+        if (!controller) controller = createTitleController(key, show, true);
+        return <NativeWatchEpisodes controller={controller} currentId={entry.id} playing={source.playback.intent === 'playing'} text={host.runtime.text}
+          artwork={host.runtime.artwork} onClose={host.closePanel}
+          onPlay={next => {
+            if (!next.playback) return;
+            const operation = new AbortController();
+            void ports.playback.start({entry: next, target: next.playback,
+              lifetime: {signal: operation.signal, isCurrent: () => alive() && ports.current() === ports.authority && host.fence.kind === 'queue'}}).catch(ports.title.reportError);
           }}/>;
       },
       /** Assembly calls this before its existing player/destination Back handling. */
