@@ -511,15 +511,15 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     </FocusRegion>}
     {!!applied.length ? <FocusRegion id={appliedRegion} entry={applied[0].id} orientation="horizontal" enabled={active.visible}
       edges={{left: ids.rail, up: ids.libraryToolbar(source.library.id), ...(firstKey ? {down: ids.libraryCard(source.library.id, firstKey)} : {})}}
-      style={{paddingHorizontal: theme.isTV ? theme.gutter : rowGutter, paddingTop: theme.isTV ? 24 : 10, paddingBottom: theme.isTV ? 14 : theme.platform === 'phone' ? 0 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
+      style={{paddingHorizontal: theme.isTV ? theme.gutter : rowGutter, paddingTop: theme.isTV ? 24 : tablet ? 12 : 10, paddingBottom: theme.isTV ? 14 : theme.platform === 'phone' ? 0 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
       {applied.map(filter => <Focusable key={filter.id} focusId={filter.id} disabled={!active.visible} accessibilityLabel={defaultI18n.t('next.browse.native.removeFilter', {field: filter.fieldName})}
         onPress={() => destination.setQuery(source.predicates.filter(node => JSON.stringify(node) !== filter.id))}
-        style={{height: theme.isTV ? 52 : 30, borderRadius: theme.isTV ? 14 : theme.platform === 'phone' ? 9 : 17, paddingLeft: theme.isTV ? 20 : 11, paddingRight: theme.platform === 'phone' ? 8 : 7, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.isTV ? alpha(theme.colors.accent, .18) : theme.platform === 'phone' ? theme.colors.raisedHigh : theme.colors.raisedBright,
+        style={{height: theme.isTV ? 52 : tablet ? 44 : 30, borderRadius: theme.isTV ? 14 : tablet ? 20 : theme.platform === 'phone' ? 9 : 17, paddingLeft: theme.isTV ? 20 : tablet ? 14 : 11, paddingRight: theme.isTV ? 20 : tablet ? 6 : theme.platform === 'phone' ? 8 : 7, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.isTV ? alpha(theme.colors.accent, .18) : theme.platform === 'phone' ? theme.colors.raisedHigh : theme.colors.raisedBright,
           borderWidth: theme.isTV ? 1.5 : 0, borderColor: alpha(theme.colors.accentStrong, .5)}}>
-        <Text numberOfLines={1} style={[browseType(theme, theme.isTV ? 20 : 13, 600), {color: theme.colors.text}]}>{filter.label}</Text><Icon name="i-close" size={theme.isTV ? 22 : 14} color={theme.colors.textSecondary}/>
+        <Text numberOfLines={1} style={[browseType(theme, theme.isTV ? 20 : tablet ? 14 : 13, tablet ? 700 : 600), {color: theme.colors.text}]}>{filter.label}</Text><Icon name="i-close" size={theme.isTV ? 22 : tablet ? 16 : 14} color={theme.colors.textSecondary}/>
       </Focusable>)}
-      <Focusable focusId="clear" disabled={!active.visible} onPress={() => destination.setQuery(base as readonly BrowseNode[])} style={{height: theme.isTV ? 52 : 30, justifyContent: 'center', paddingHorizontal: 8}}>
-        <Text style={[browseType(theme, theme.isTV ? 20 : 13, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.t('next.browse.native.clearAll')}</Text>
+      <Focusable focusId="clear" disabled={!active.visible} onPress={() => destination.setQuery(base as readonly BrowseNode[])} style={{height: theme.isTV ? 52 : tablet ? 44 : 30, justifyContent: 'center', paddingHorizontal: 8}}>
+        <Text style={[browseType(theme, theme.isTV ? 20 : tablet ? 14 : 13, tablet ? 700 : 600), {color: theme.colors.textTertiary}]}>{defaultI18n.t('next.browse.native.clearAll')}</Text>
       </Focusable>
       {count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{count}</Text>}
     </FocusRegion> : count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.isTV ? theme.gutter : rowGutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
