@@ -29,7 +29,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'saved-destination'; destination: Readonly<{kind: 'playlist' | 'collection'; id: string}>}
   | {kind: 'settings-equalizer'}
   | {kind: 'server-dashboard'}
-  | {kind: 'server-settings'}
+  | {kind: 'server-settings'; page?: 'libraries' | 'remote'}
   | {kind: 'server-segments'}
   | {kind: 'collection'; libraryId: string; collectionId: string; title: string}
   | {kind: 'library-mark-all' | 'library-edit-pins' | 'library-settings'; libraryId: string}

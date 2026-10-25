@@ -13,7 +13,7 @@ import {StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {Artwork} from '../../kit/artwork';
-import {Icon} from '../../kit/Icon';
+import {TVServerPageMenu} from './server/TVServerPageMenu';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
 import {Screen, ScreenText, useScreenEntry} from './Screen';
@@ -45,13 +45,8 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
   return <Screen style={theme.isTV ? {paddingTop: 56} : undefined}>
     <ServerBand viewerRole={role} audience="administrators"/>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
-      {theme.isTV && <View style={{width: 480}}>
-        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginLeft: 20, marginBottom: 24}]}>{t('next.shell.serverSettings')}</Text>
-        <ServerHeader serverName={ports.serverName()} viewerRole={role} audience="administrators" variant="group" style={{padding: 20}}/>
-        <FocusRegion id={column} entry="dashboard" orientation="vertical" edges={{left: ids.rail, right: rows}} onLayout={enter}>
-          <Focusable focusId="dashboard" testID="server-page-dashboard" accessibilityRole="button" accessibilityLabel={t('next.shell.dashboard')} accessibilityState={{selected: true}} focusKind="row" style={{paddingHorizontal: 20, minHeight: 50, borderRadius: 14, backgroundColor: `${theme.colors.accent}29`, flexDirection: 'row', alignItems: 'center', gap: 16}}><Icon name="i-pulse" size={24} color={theme.colors.accentStrong}/><ScreenText>{t('next.shell.dashboard')}</ScreenText></Focusable>
-        </FocusRegion>
-      </View>}
+      <TVServerPageMenu role={role} page="dashboard" serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
+        onSelect={page => {if (page !== 'dashboard') ports.context.navigation.open({kind: 'server-settings', page}, controller.lifetime.authority);}}/>
       <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 80}} style={{flex: 1}}>
         {!theme.isTV && <Button variant="text" size="small" icon="i-left" onPress={() => ports.context.navigation.back(controller.lifetime.authority)}>{t('action.back')}</Button>}
         <View style={theme.isTV ? {height: 60, overflow: 'hidden'} : undefined}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience="administrators" facts={theme.isTV ? [] : facts}/></View>
