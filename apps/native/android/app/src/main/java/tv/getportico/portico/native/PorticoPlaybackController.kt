@@ -1232,6 +1232,9 @@ internal class PorticoPlaybackController(private val context: Context) {
     next["seekPlan"] = media["seekPlan"]
     next["audio"] = attached?.get("audio") ?: command?.get("audio")
     next["subtitles"] = attached?.get("subtitles") ?: command?.get("subtitles")
+    // Display metadata belongs to the validated attachment, never its playback intent.
+    // Missing stays missing (Automatic), including after an earlier attachment chose Off.
+    attached?.get("matchFrameRate")?.let { next["matchFrameRate"] = it }
     // The same command again changes nothing, and must not churn JavaScript's command barrier.
     val before = command?.let { HashMap(it).apply { remove("commandRevision") } }
     if (before == HashMap(next).apply { remove("commandRevision") }) return
