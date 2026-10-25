@@ -65,7 +65,7 @@ export function TVTrustedCertificates({context}: {context?: NativeShellBootstrap
       initialFocusRef={cancelFocus} dismissOnOutsidePress={!busy} dismissOnBack={!busy} showClose={!busy}
       footer={<View style={{gap: 12}}>
         <Button ref={cancelFocus} variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button>
-        <Button variant="text" disabled={busy} onPress={() => {void confirm();}}>{t('connection.certificates.forget')}</Button>
+        <Button variant="text" disabled={busy} textStyle={{color: theme.colors.danger}} onPress={() => {void confirm();}}>{t('connection.certificates.forget')}</Button>
       </View>}>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('connection.certificates.body', {address: captured?.certificate.address ?? ''})}</Text>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('connection.certificates.fingerprint')}</Text>

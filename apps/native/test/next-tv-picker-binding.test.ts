@@ -112,7 +112,7 @@ test('TV profile-switch hand-off preserves its current family, selection control
   let created = 0, disposed = 0, exited = 0;
   const current = {sessionFamilyId: 'current-family', viewer: {serverId: 'server', profileId: 'current'}};
   const {AccountRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {
-    './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
+    './TVServerChooser': {TVServerChooser: 'TVServerChooser'}, './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
     ...shared(back), '../../platform/accounts': {nativeAccounts: {}}, '../../platform/app-session-storage': {},
     '../../platform/profile-selection': {nativeProfileSelection: (server: string, family: string) => {
       assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
