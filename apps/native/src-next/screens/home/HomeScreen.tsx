@@ -21,7 +21,7 @@ import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
 import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
-import {useTheme, type Theme} from '../../kit/theme';
+import {nativeType, useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
