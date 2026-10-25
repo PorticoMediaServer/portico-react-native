@@ -121,7 +121,6 @@ export class NativeServerSignIn {
       const retained = await nativeAppSessions.read(); this.assertCurrent();
       const issued = await initializeServer(api, store, {setupToken: token, name: name.trim(), username: username.trim(), password,
         authMode: 'local', interactive: true}, this.controller.signal);
-      const completed = await store.read();
       // Pending Hosted claims are never sessions. Retain a fresh local grant for
       // cancellation cleanup before any asynchronous snapshot or publication.
       if ('claimRequired' in issued) throw mismatch();
@@ -142,7 +141,7 @@ export class NativeServerSignIn {
           || snapshot.account.primaryProfileId !== issued.viewer.profileId) throw mismatch();
         this.server = {...server, name: name.trim(), signIn: 'local', setupRequired: false};
         const result = await this.consume({kind: 'signed-in', session: issued, snapshot,
-          accountScoped: issued.viewer.role === 'account', passwordChangeRequired: false});
+          accountScoped: false, passwordChangeRequired: false});
         await store.change(old => {
           this.assertCurrent();
           if (!completed || old?.requestId !== completed.requestId || old.setupToken !== completed.setupToken || old.authMode !== 'local') throw mismatch();
