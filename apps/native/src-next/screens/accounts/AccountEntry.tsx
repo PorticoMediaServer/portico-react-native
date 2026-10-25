@@ -56,6 +56,9 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     if (!expected || pinRecoveryRef.current !== expected || expected.retired) return false;
     expected.retired = true; pinRecoveryRef.current = undefined; expected.controller.dispose(); setPinRecovery(undefined); return true;
   };
+  const targetRef = useRef(target), activeRef = useRef(appActive), retryEpoch = useRef(0), remainingRetry = useRef(20);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
