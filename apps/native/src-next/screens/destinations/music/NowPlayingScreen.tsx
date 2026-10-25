@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useId, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
-import type {V1QueuePolicyIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import type {V1QueueEditIntent, V1QueuePolicyIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {PlaybackFence} from '../../../../../../packages/player-core/src';
 import type {MessageId} from '../../../../../../packages/i18n/src';
 import {useSyncExternalStore} from 'react';
@@ -60,6 +60,8 @@ export type NowPlayingScreenProps = Readonly<{
   retry?: Readonly<{enabled: boolean; run: (fence: PlaybackFence) => void}>;
   /** The real Play on controller, opened only for the output and page this screen drew. */
   playOn?: Readonly<{enabled: boolean; open: (fence: PlaybackFence) => void}>;
+  /** The guarded queue edit for loaded upcoming rows, bound to the fence this screen drew. */
+  queueEdit?: Readonly<{enabled: boolean; lease?: object; apply: (fence: PlaybackFence, intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
   onClose: () => void;
   /** music-plus (MC-8): the committed plan plus the engine's own current-song facts. */
   signal?: MusicSignalView;
@@ -77,7 +79,7 @@ export function NowPlayingScreen(props: NowPlayingScreenProps) {
   return theme.isTV ? <TVNowPlayingScreen {...props} equalizerCopy={equalizerCopy()}/> : <TouchNowPlayingScreen {...props}/>;
 }
 
-function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
+function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
   // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
@@ -179,7 +181,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       <Button testID={`${testID}-close`} variant="glass" size="small" icon="i-down" accessibilityLabel={t('player.minimize')} onPress={onClose}>{t('action.close')}</Button>
     </View>
     {!side && sheet ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
-      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork}/> : null}
+      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEdit ? {enabled: queueEdit.enabled, lease: queueEdit.lease, fenceKey: JSON.stringify(playback.fence), apply: (intent, queueId, expectedRevision) => queueEdit.apply(playback.fence, intent, queueId, expectedRevision)} : undefined}/> : null}
     </View> : null}
   </View>;
   return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
@@ -206,7 +208,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
               <Text style={[browseType(theme, 20, 800, -0.02), {color: theme.colors.text}]}>{t(lyrics ? 'player.lyrics' : 'player.queue')}</Text>
             </View>}
           </View>
-          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork}/> : lyrics}
+          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEdit ? {enabled: queueEdit.enabled, lease: queueEdit.lease, fenceKey: JSON.stringify(playback.fence), apply: (intent, queueId, expectedRevision) => queueEdit.apply(playback.fence, intent, queueId, expectedRevision)} : undefined}/> : lyrics}
         </View>
       </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>
