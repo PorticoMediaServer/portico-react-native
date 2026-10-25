@@ -17,19 +17,20 @@ type Ticket = {live: boolean; scope: object};
 /** Empty authenticated directory only. Joining still uses the parent's original
  * invitation parser, issuer inspection and normal account continuation. */
 export function TVNoServers(props: Props) {
+  const {isCurrent, onBack} = props;
   const theme = useTheme(), t = defaultI18n.t;
   const [joining, setJoining] = useState(false), [address, setAddress] = useState(''), [invitation, setInvitation] = useState('');
   const [field, setField] = useState<'address' | 'invitation'>('address');
   const draft = useMemo(() => Object.freeze({joining, address, invitation, field}), [joining, address, invitation, field]);
   const latest = useRef(draft); latest.current = draft;
-  const scope = useMemo(() => ({isCurrent: props.isCurrent}), [props.isCurrent]);
+  const scope = useMemo(() => ({isCurrent}), [isCurrent]);
   const active = useRef<Ticket | undefined>(undefined), [committed, setCommitted] = useState<Ticket>();
   if (active.current && active.current.scope !== scope) {active.current.live = false; active.current = undefined;}
   useLayoutEffect(() => {const ticket = {live: true, scope}; active.current = ticket; setCommitted(ticket);
     return () => {ticket.live = false; if (active.current === ticket) active.current = undefined;};}, [scope]);
-  const current = useCallback(() => !!committed?.live && committed.scope === scope && active.current === committed && props.isCurrent(), [committed, scope, props.isCurrent]);
+  const current = useCallback(() => !!committed?.live && committed.scope === scope && active.current === committed && isCurrent(), [committed, scope, isCurrent]);
   const owns = () => current() && latest.current === draft && !props.busy;
-  const back = useCallback(() => {if (!current()) return; if (joining) {setInvitation(''); setJoining(false);} else props.onBack();}, [current, joining, props.onBack]);
+  const back = useCallback(() => {if (!current()) return; if (joining) {setInvitation(''); setJoining(false);} else onBack();}, [current, joining, onBack]);
   useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!joining || !current()) return false; back(); return true;});
     return () => subscription.remove();}, [joining, current, back]);
   return <FocusProvider><View testID="tv-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
