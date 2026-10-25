@@ -25,6 +25,14 @@ export type NativeReadBookState = Readonly<{
 }>;
 type BookRoute = Extract<NativeShellRoute, {kind: 'read-book'}>;
 type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
+/** The committed page a sheet was opened from: exact route/revision, session
+ * family, viewer and authority, plus that page's own lifetime signal. */
+export type NativeReadOwnerEditLease = Readonly<{
+  origin: NativeReadOrigin; sessionFamilyId: string; viewer: LocalSession['viewer']; authority: ShellAuthority;
+  signal: AbortSignal; isCurrent: () => boolean;
+  /** This page's own state publications, so a version/loading change retires the sheet. */
+  subscribe: (listener: () => void) => () => void;
+}>;
 
 const refused = () => Object.assign(new Error('native_read_book_refused'), {name: 'AbortError', code: 'cancelled'});
 const cancelled = (error: unknown): boolean => error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
@@ -230,6 +238,18 @@ export class NativeReadBook {
     try {
       return await openNativeRead(this.context, {itemId: this.item.id, sourceId: manifest.sourceId, ...(contentsTarget ? {contentsTarget} : {})}, life.signal, origin);
     } finally {if (this.command === ticket) this.command = undefined;}
+  };
+  /** The committed page a sheet may be opened from. Nothing later is adopted. */
+  /** The committed ready page a sheet may be opened from, for this exact
+   * rendered manifest. Nothing later is adopted. */
+  ownerEditLease = (manifest: ReadingManifest): NativeReadOwnerEditLease | undefined => {
+    const origin = this.origin, life = this.life, captured = this.captured, authority = this.authority;
+    if (!origin || !life || !captured || !authority || !this.current() || this.state.phase !== 'ready' || this.state.manifest !== manifest) return undefined;
+    return Object.freeze({
+      origin, sessionFamilyId: captured.sessionFamilyId, viewer: captured.viewer, authority, signal: life.signal,
+      isCurrent: () => this.life === life && this.current() && this.state.phase === 'ready' && this.state.manifest === manifest,
+      subscribe: this.subscribe,
+    });
   };
   /** Open the series the page actually drew for the manifest it actually drew.
    * The latest state is never substituted for a retained render. */

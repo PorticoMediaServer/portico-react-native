@@ -15,8 +15,11 @@ import {shellLayout} from '../../shell/model';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeReadBook} from './read-book-model';
+import type {NativeReadOwnerEditLease} from './read-book-model';
 import type {NativeReadVersion} from './read-book-model';
+import {ReadOwnerEditSheet} from './ReadOwnerEditSheet';
 
 const {t} = defaultI18n;
 const initials = (author: string): string => author.trim().split(/\s+/).slice(0, 2).map(part => part.slice(0, 1).toUpperCase()).join('') || '·';
@@ -32,8 +35,9 @@ type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
  * descriptive facts only; choosing another real available version reloads this
  * page's projection for that source. The Read action is the one openNativeRead
  * door with the exact manifest it drew. */
-export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpenSettings}: {
-  controller: NativeReadBook; route: BookRoute; comic: boolean; runtime: NativeShellRuntime; onBack: () => void; onOpenSettings: () => void;
+export function ReadBookScreen({controller, route, comic, owner, context, runtime, onBack, onOpenSettings}: {
+  controller: NativeReadBook; route: BookRoute; comic: boolean; owner: boolean; context: NativeShellBootstrapContext;
+  runtime: NativeShellRuntime; onBack: () => void; onOpenSettings: () => void;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   // tablet-read 2/2b draw one reading column and one 380 pt contents column side by side;
@@ -42,6 +46,8 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
   const wide = dimensions.width > dimensions.height && layout.kind !== 'phone', rowHero = layout.kind !== 'phone';
   const [more, setMore] = useState(false), [tab, setTab] = useState('contents'), [heroHeight, setHeroHeight] = useState(0), [collapsed, setCollapsed] = useState(false);
+  const [edit, setEdit] = useState<Readonly<{lease: NativeReadOwnerEditLease; owner: object; key: number}>>();
+  const editSeq = useRef(0);
   useLayoutEffect(() => {
     if (!controller.arm()) return;
     void controller.load().catch(() => {});
@@ -52,9 +58,14 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   const savedProgress = state.progress?.progress;
   const currentSection = savedProgress && !savedProgress.stale ? savedProgress.location.section : undefined;
   const contents = manifest?.format === 'epub' ? manifest.contents ?? [] : [];
+  // The sheet lease is taken from this committed ready render; a retained menu
+  // after Back cannot borrow the successor arm/life.
+  const editLease = manifest ? controller.ownerEditLease(manifest) : undefined;
   const menu: readonly MenuEntry[] = [
     ...(state.read ? [{id: 'read-mark', label: t(state.read.read ? 'next.reader.markUnread' : 'next.reader.markRead'), icon: 'i-check' as IconName,
       onSelect: () => {setMore(false); toggleRead(state.read!);}}] : []),
+    ...(owner && editLease ? [{id: 'edit-details', label: t('web.metadata.editTitle', {title}), tone: 'owner' as const,
+      onSelect: () => {if (!editLease.isCurrent()) return; setMore(false); setEdit({lease: editLease, owner: {}, key: ++editSeq.current});}}] : []),
     ...(contents.length ? [{id: 'details', label: t('next.reader.details'), selected: tab === 'details', onSelect: () => {setTab('details'); setMore(false);}}] : []),
     {id: 'settings', label: t('next.reader.openSettings'), onSelect: () => {setMore(false); onOpenSettings();}},
   ];
@@ -119,6 +130,8 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
       {body}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
+    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} title={title}
+      onClose={ticket => setEdit(current => current?.owner === ticket ? undefined : current)}/> : null}
   </View>;
 }
 

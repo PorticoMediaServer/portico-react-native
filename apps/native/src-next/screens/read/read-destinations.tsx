@@ -72,7 +72,9 @@ export function createNativeReadBookRenderer(context: NativeShellBootstrapContex
       if (!controller) return null;
       const library = readingLibrary(context, route.libraryId);
       if (!library) return null;
-      return <ReadBookScreen controller={controller} route={route} comic={library.kind === 'comic'} runtime={runtime}
+      const role = context.session()?.viewer.role;
+      return <ReadBookScreen controller={controller} route={route} comic={library.kind === 'comic'} context={context}
+        owner={role === 'owner'} runtime={runtime}
         onBack={() => {if (current() && context.navigation.getSnapshot().route === route) context.navigation.back(context.authority());}}
         onOpenSettings={() => {if (current() && context.navigation.getSnapshot().route === route) openNativeReadingSettings(context);}}/>;
     },
