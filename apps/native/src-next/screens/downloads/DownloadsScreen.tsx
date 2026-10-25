@@ -59,14 +59,14 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   // holds and what is left, then the profile's actual reading publications and
   // everything else as two-column lists. Phone and medium keep today's page.
   const expanded = !theme.isTV && dimensions.width >= 1024;
-  // tablet11b draws watching downloads on the left with the rules beside them.
-  // A reading page keeps the full-width lists and rules below (tablet-read12).
-  const rulesBeside = expanded && !empty && readingEntries.length === 0;
   const readingEntry = (entry: OfflineEntry) => {
     const kind = entry.info?.kind ?? entry.kind;
     return kind === 'ebook' || kind === 'comic';
   };
   const readingEntries = snapshot.entries.filter(readingEntry), watchingEntries = snapshot.entries.filter(entry => !readingEntry(entry));
+  // tablet11b draws watching downloads on the left with the rules beside them.
+  // A reading page keeps the full-width lists and rules below (tablet-read12).
+  const rulesBeside = expanded && !empty && readingEntries.length === 0;
   const storedBytes = (entry: OfflineEntry) => entry.state === 'ready' ? entry.bytes : entry.bytesDone;
   const readingBytes = readingEntries.reduce((sum, entry) => sum + storedBytes(entry), 0);
   const watchingBytes = watchingEntries.reduce((sum, entry) => sum + storedBytes(entry), 0);

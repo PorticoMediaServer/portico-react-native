@@ -79,9 +79,14 @@ export function downloadRowText(entry: OfflineEntry, facts: OfflineEntryFacts | 
       if (location && location.format === reading.format) {
         if (location.format === 'epub') metadata.push(defaultI18n.t('downloads.percent', {percent: Math.round(location.progression * 100)}));
         else {
-          const page = location.pageIndex + 1;
-          if (reading.pageCount === undefined) metadata.push(defaultI18n.t('next.reader.pageLabel', {page}));
-          else if (page <= reading.pageCount) metadata.push(defaultI18n.t('next.reader.pageOf', {page, count: reading.pageCount}));
+          const pageIndex = location.pageIndex;
+          // The wire location makes pageIndex optional for non-EPUB formats; a
+          // missing index omits the place instead of inventing page 0.
+          if (typeof pageIndex === 'number' && Number.isSafeInteger(pageIndex) && pageIndex >= 0) {
+            const page = pageIndex + 1;
+            if (reading.pageCount === undefined) metadata.push(defaultI18n.t('next.reader.pageLabel', {page}));
+            else if (page <= reading.pageCount) metadata.push(defaultI18n.t('next.reader.pageOf', {page, count: reading.pageCount}));
+          }
         }
       }
     } else {
