@@ -82,15 +82,15 @@ function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime:
       <View style={{marginTop: 10, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
         <View style={{paddingHorizontal: 14, paddingVertical: 12}}>
           <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-            <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{t('web.maintenance.totalLabel')}</Text>
-            <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{defaultI18n.bytes(doc.totalBytes)}</Text>
+            <Text style={[shellType(16, 700), {color: theme.colors.text}]}>{t('web.maintenance.totalLabel')}</Text>
+            <Text style={[shellType(22, 800, 'normal', -.02), {color: theme.colors.text}]}>{defaultI18n.bytes(doc.totalBytes)}</Text>
           </View>
-      <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.storageLede')}</Text>
+          <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.storageLede')}</Text>
         </View>
         {doc.categories.filter(category => category.present).map(category => <View key={category.id} style={{paddingHorizontal: 14, paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft}}>
           <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 10}}>
-            <Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{category.name}</Text>
-            <Text style={[shellType(14, 600), {color: theme.colors.textSecondary}]}>{defaultI18n.bytes(category.bytes)}</Text>
+            <Text style={[shellType(15.5, 600), {color: theme.colors.text, flex: 1}]}>{category.name}</Text>
+            <Text style={[shellType(15, 700), {color: theme.colors.textSecondary}]}>{defaultI18n.bytes(category.bytes)}</Text>
           </View>
           {Number.isFinite(doc.totalBytes) && doc.totalBytes > 0 && Number.isFinite(category.bytes) && category.bytes >= 0 ? <View accessible={false} style={{height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 6, marginBottom: 2, backgroundColor: alpha(theme.colors.text, .09)}}>
             <View style={{height: '100%', width: `${Math.max(0, Math.min(1, category.bytes / doc.totalBytes)) * 100}%`, borderRadius: 3, backgroundColor: theme.colors.accent}}/>
