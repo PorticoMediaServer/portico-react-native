@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
@@ -21,6 +21,7 @@ import type {NativeEntryActions} from '../entry-actions';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
 import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
 import {useDestinationEntryFocus} from '../useEntryFocus';
+import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
@@ -121,9 +122,19 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false);
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
   // tv-more1: Jump to is drawn only under a title sort, over the titles this page has actually
-  // loaded; nothing claims an index for a page it has not read.
-  const page = useRef<ScrollView>(null), [jumpOpen, setJumpOpen] = useState(false), [scrollY, setScrollY] = useState(0);
-  const offsets = useRef({region: 0, body: 0, grids: new Map<'posters' | 'squares', number>(), cards: new Map<string, Readonly<{section: 'posters' | 'squares'; y: number}>>()});
+  // loaded; nothing claims an index for a page it has not read. Every measurement is kept
+  // relative to its own parent, so a parent's layout callback arriving later cannot bake a stale
+  // offset into a card, and a sheet is retired with the scope that drew it.
+  const page = useRef<ScrollView>(null), [scrollY, setScrollY] = useState(0);
+  const measured = useRef({scope: '', region: 0, body: 0, grids: new Map<'posters' | 'squares', number>(),
+    cards: new Map<string, Readonly<{section: 'posters' | 'squares'; y: number}>>()});
+  type JumpOpening = Readonly<{token: number; scope: string}>;
+  const jump = useRef<JumpOpening | undefined>(undefined), jumpToken = useRef(0), jumpAlive = useRef(true);
+  const [jumpOpening, setJumpOpening] = useState<JumpOpening>();
+  useLayoutEffect(() => {
+    jumpAlive.current = true;
+    return () => {jumpAlive.current = false; jump.current = undefined;};
+  }, []);
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const run = useCallback((work: Promise<unknown>) => {void work.catch(runtime.reportError);}, [runtime]);
@@ -145,37 +156,62 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
   const list = useMemo(() => [...posters.map(entry => ({entry, section: 'posters' as const})), ...squares.map(entry => ({entry, section: 'squares' as const}))], [posters, squares]);
+  // The key is the server's own bucket for this title, kept whole (#, a non-Latin letter, a
+  // multi-character bucket); only a title the server gives no bucket keeps its first character.
   const letterOf = (entry: ContentEntry): string | undefined => {
-    const value = titleBucketValue(entry); const letter = typeof value === 'string' ? [...value.trim()][0]?.toUpperCase() : undefined;
-    return letter && /^[A-Z]$/.test(letter) ? letter : undefined;
+    const sortLetter = typeof entry.sortLetter === 'string' ? entry.sortLetter.trim() : '';
+    if (sortLetter) return sortLetter;
+    const value = titleBucketValue(entry), chars = typeof value === 'string' ? [...value.trim()] : [];
+    return chars[0];
   };
   const jumpLetters = useMemo(() => {
     const seen = new Map<string, Readonly<{key: string; index: number; id: string}>>();
     list.forEach(({entry}, index) => {const key = letterOf(entry); if (key && !seen.has(key)) seen.set(key, {key, index, id: entry.id});});
     return [...seen.values()].sort((left, right) => left.index - right.index);
   }, [list]);
-  const listKey = list.map(item => item.entry.id).join('|');
   const showJump = (tab === 'watchlist' || tab === 'favorites') && sort === 'title' && jumpLetters.length > 1;
-  const cardTop = (id: string): number | undefined => {
-    const at = offsets.current.cards.get(id); if (!at) return undefined;
-    const grid = offsets.current.grids.get(at.section); return grid === undefined ? undefined : grid + at.y;
+  // One drawn query owns the measurements and the sheet. A successor scope resets them here, before
+  // any of its cards lay out, and retires an opening before any of its callbacks can run; a page
+  // that merely appends keeps every retained card's measurement.
+  const scope = `${tab}:${sort}:${filter}`;
+  // A reused component can be handed a different controller or authority without the query
+  // changing, so that replacement retires the measurements and the sheet too.
+  const owner = useRef<Readonly<{controller: unknown; authority: ShellAuthority}> | undefined>(undefined);
+  const replaced = owner.current === undefined || owner.current.controller !== controller || !sameAuthority(owner.current.authority, authority);
+  if (replaced) owner.current = {controller, authority};
+  if (replaced || measured.current.scope !== scope) measured.current = {scope, region: 0, body: 0, grids: new Map(), cards: new Map()};
+  if (jump.current && (replaced || jump.current.scope !== scope || !active.visible)) jump.current = undefined;
+  const opening = jumpOpening && jump.current === jumpOpening && jumpOpening.scope === scope && active.visible ? jumpOpening : undefined;
+  /** The exact object this render draws into; a late callback from another scope writes only its
+   * own retired object, never this one. */
+  const measurement = measured.current;
+  const openJump = () => {const next = {token: ++jumpToken.current, scope}; jump.current = next; setJumpOpening(next);};
+  const closeJump = (target: JumpOpening) => {
+    if (jump.current !== target) return;
+    jump.current = undefined;
+    if (jumpAlive.current) setJumpOpening(current => current === target ? undefined : current);
   };
-  // A new list draws new cards, so measurements from the old one are dropped instead of reused;
-  // the effect follows the drawn titles, not a new array each render.
-  useEffect(() => {offsets.current.cards.clear(); offsets.current.grids.clear();}, [listKey]);
+  const jumpCurrent = (target: JumpOpening) => jumpAlive.current && jump.current === target && target.scope === scope && active.visible;
+  const cardTop = (id: string): number | undefined => {
+    const at = measurement.cards.get(id), grid = at ? measurement.grids.get(at.section) : undefined;
+    return at && grid !== undefined ? measurement.region + measurement.body + grid + at.y : undefined;
+  };
   const selectedLetter = (() => {
     if (!jumpLetters.length) return undefined;
     const edge = scrollY + 140; let found: string | undefined;
     for (const letter of jumpLetters) {const top = cardTop(letter.id); if (top !== undefined && top <= edge) found = letter.key;}
     return found ?? jumpLetters[0]!.key;
   })();
-  const measured = (section: 'posters' | 'squares', entry: ContentEntry, child: React.ReactNode) => <View key={entry.id} style={{width: 200}}
-    onLayout={event => {offsets.current.cards.set(entry.id, {section, y: event.nativeEvent.layout.y});}}>{child}</View>;
-  const card = (entry: ContentEntry) => measured('posters', entry, <PosterCard testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
+  // The scope is part of the key: a successor query remounts its cards, so they lay their own
+  // coordinates out instead of inheriting an old scope's. An appended page keeps every retained
+  // card mounted.
+  const measure = (section: 'posters' | 'squares', entry: ContentEntry, child: React.ReactNode) => <View key={`${scope}:${entry.id}`} style={{width: 200}}
+    onLayout={event => {measurement.cards.set(entry.id, {section, y: event.nativeEvent.layout.y});}}>{child}</View>;
+  const card = (entry: ContentEntry) => measure('posters', entry, <PosterCard testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
   // tv-more3: on a saved album or audiobook, OK plays it; hold OK still opens its menu. A square
   // that has nothing to play keeps opening its own page.
-  const square = (entry: ContentEntry) => measured('squares', entry, <SquareCard testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
+  const square = (entry: ContentEntry) => measure('squares', entry, <SquareCard testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
     {...(entry.playback ? {primaryAction: 'play' as const, onPlay: () => actions.play(entry)} : {onNavigate: () => openEntry(entry)})}
     onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
@@ -193,8 +229,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       </View> : <Empty tab="history" browseHome={browseHome}/>)
         : tab === 'watchlist' || tab === 'favorites' ? ((posters.length || squares.length)
           ? <View>
-            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<View onLayout={event => {offsets.current.grids.set('posters', offsets.current.body + event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{posters.map(card)}</View></> : null}
-            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View onLayout={event => {offsets.current.grids.set('squares', offsets.current.body + event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
+            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<View onLayout={event => {measurement.grids.set('posters', event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{posters.map(card)}</View></> : null}
+            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View onLayout={event => {measurement.grids.set('squares', event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
           </View> : <Empty tab={tab} browseHome={browseHome}/>)
         : null;
   // tv-more1/3 draw the server's own quick filters, with counts in the Filters menu; a server
@@ -223,12 +259,12 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
           enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
       </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}
-        onLayout={event => {offsets.current.region = event.nativeEvent.layout.y;}}>
+        onLayout={event => {measurement.region = event.nativeEvent.layout.y;}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 24}}>
         {tab !== 'history' ? <>
           <Button focusId="saved-sort" ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
           <Button focusId="saved-filter" ref={filterAnchor} variant="glass" icon="i-filter" size="compact" onPress={() => setFilterOpen(true)} accessibilityLabel={t('filter.title')}>{t('filter.title')}</Button>
-          {showJump && <Chip focusId="saved-jump" disabled={!active.visible} onPress={() => setJumpOpen(true)}>{t('next.browse.native.jumpTo')}</Chip>}
+          {showJump && <Chip focusId="saved-jump" disabled={!active.visible} onPress={openJump}>{t('next.browse.native.jumpTo')}</Chip>}
           <View style={{width: 1.5, height: 40, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
           {quickFilters.length
             ? quickFilters.map(option => <Chip focusId={`saved-filter-${option.id}`} key={option.id} selected={filter === option.id}
@@ -244,7 +280,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
-      <View onLayout={event => {offsets.current.body = offsets.current.region + event.nativeEvent.layout.y;}}
+      <View onLayout={event => {measurement.body = event.nativeEvent.layout.y;}}
         style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
       </FocusRegion>}
     </ScrollView>
@@ -257,12 +293,13 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
     <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
       footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
-    <LibraryJumpSheet open={jumpOpen} panelId={`${ids.savedGrid}.jump`} letters={jumpLetters.map(letter => ({key: letter.key, index: letter.index}))} selected={selectedLetter}
+    {opening && <LibraryJumpSheet open panelId={`${ids.savedGrid}.jump`} letters={jumpLetters.map(letter => ({key: letter.key, index: letter.index}))} selected={selectedLetter}
       onSelect={key => {
+        if (!jumpCurrent(opening)) return;
         const target = jumpLetters.find(letter => letter.key === key), top = target ? cardTop(target.id) : undefined;
         if (top !== undefined) page.current?.scrollTo({y: Math.max(0, top - 24), animated: true});
-        setJumpOpen(false);
-      }} onClose={() => setJumpOpen(false)}/>
+        closeJump(opening);
+      }} onClose={() => closeJump(opening)}/>}
     {selection?.render()}
   </View>;
 }
