@@ -170,6 +170,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     journalKey = "listening-v1:$principal"
     pausedAt = 0.0; wasPlaying = false
     this.session = session!!
+    // The file's own rate for this item, from the session's plan; the rate the sink opens at is
+    // a different fact and stays unknown until the sink can report it.
+    recordSourceSampleRate(num(decodePlan(presentation(session))?.get("sampleRate"))?.toInt() ?: 0, owner)
     audible = null; end = null; queueHeader = null
     queue = if (queueId != null) hashMapOf("id" to queueId, "revision" to queueRevision) else null
     duration = num(handover["durationSeconds"])!!
@@ -268,9 +271,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     lastSourceRate = 0
   }
 
-  /** The presentation's own decoded rate, when this item is known; 0 means unreported.
-   * NOTE: no caller wires this yet on this baseline, so `requestedSampleRate` is 0 too and
-   * must not be reported as a presentation-derived fact until a real caller exists. */
+  /** The presentation's own decoded rate for the item the owner just adopted; 0 unreported.
+   * Called from [adopt] only, so the rate belongs to the current owner and item. */
   fun recordSourceSampleRate(rate: Int, owner: String) {
     if (owner.isNotEmpty()) lastSourceRate = if (rate > 0) rate else 0
   }
