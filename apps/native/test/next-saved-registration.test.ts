@@ -24,6 +24,7 @@ async function load(isTV: boolean) {
     './SavedScreen': {SavedScreen: 'SavedScreen'}, './SavedDirectoryScreen': {SavedDirectoryScreen: 'SavedDirectoryScreen'},
     './SavedListScreen': {SavedListScreen: 'SavedListScreen'}, './SavedResourceScreen': {SavedResourceScreen: 'SavedResourceScreen'},
     './navigation': {nativeSavedRouteTarget, openNativeSavedView: () => true},
+    '../downloads/view': {createNativeDownloadsView: () => ({render: () => null, dispose: () => {}})},
   });
   return {module, registrations, host};
 }

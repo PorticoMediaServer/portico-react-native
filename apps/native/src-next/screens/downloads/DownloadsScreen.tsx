@@ -26,6 +26,8 @@ export type {NativeDownloadsCopy} from './presentation';
 export type NativeDownloadsScreenProps = Readonly<{
   device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
   back: () => void; openTitle: (entry: OfflineEntry) => void;
+  /** Saved's own Downloads tab draws the Saved chrome above this screen. */
+  inline?: boolean;
   /** The same authority-local service the route created; its requests are the
    * server's whole-container preparations for this device. */
   service?: Pick<DownloadsService, 'subscribe' | 'getSnapshot'>;
@@ -33,7 +35,7 @@ export type NativeDownloadsScreenProps = Readonly<{
 
 /** The device adapter publishes only this viewer's native files. No server preparation
  * is ever counted as a file available here, or substituted for a local action. */
-export function DownloadsScreen({device, runtime, copy, back, openTitle, service}: NativeDownloadsScreenProps) {
+export function DownloadsScreen({device, runtime, copy, back, openTitle, service, inline}: NativeDownloadsScreenProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const snapshot = useSyncExternalStore(device.subscribe, device.getSnapshot);
   const [failure, setFailure] = useState<unknown>(), [entryMenu, setEntryMenu] = useState<{entry: OfflineEntry; anchor: RefObject<View | null>}>();
@@ -84,13 +86,13 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   const downloadRow = (entry: OfflineEntry, separator: boolean) => <DownloadRow key={entry.id} entry={entry} device={device} runtime={runtime} copy={copy} separator={separator} menuOpen={menu?.id === entry.id}
     onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={device.openOffline ? () => run(() => device.openOffline!(entry)) : undefined} onRetry={() => run(() => device.resume(entry))}/>;
   return <View testID="native-downloads-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <View style={{height: Math.max(96, insets.top + 48), paddingTop: Math.max(50, insets.top), paddingHorizontal: 10, justifyContent: 'center'}}>
+    {!inline && <View style={{height: Math.max(96, insets.top + 48), paddingTop: Math.max(50, insets.top), paddingHorizontal: 10, justifyContent: 'center'}}>
       <Focusable testID="downloads-back" accessibilityLabel={t('saved.title')} onPress={back} style={{height: 38, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingRight: 6, marginLeft: -4}}>
         <Icon name="i-left" size={24} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 16, 600), {color: theme.colors.textSecondary}]}>{t('saved.title')}</Text>
       </Focusable>
       <Text pointerEvents="none" accessibilityRole="header" style={[browseType(theme, 17, 700), {position: 'absolute', left: 80, right: 80, bottom: 13, textAlign: 'center', color: theme.colors.text}]}>{t('downloads.title')}</Text>
-    </View>
-    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingBottom: 28}}>
+    </View>}
+    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingTop: inline ? 8 : 0, paddingBottom: 28}}>
       {!snapshot.supported ? <StateView title={t('downloads.unavailableOnDevice')}/> : <>
         {failure && <StateView {...runtime.error(failure, () => run(device.open))}/>}
         {empty && <View style={{paddingTop: 58, paddingHorizontal: 24, alignItems: 'center'}}>

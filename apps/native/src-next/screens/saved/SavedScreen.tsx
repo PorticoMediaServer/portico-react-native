@@ -1,5 +1,5 @@
-import React, {useCallback, useEffect, useRef, useSyncExternalStore, type RefObject} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -7,7 +7,7 @@ import type {PinnedResource} from '../../../../../packages/client-core/src/libra
 import type {SavedEntry, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
-import {Focusable} from '../../kit/controls';
+import {Focusable, Tabs} from '../../kit/controls';
 import {StateView} from '../../kit/states';
 import {Icon, type IconName} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
@@ -39,24 +39,53 @@ export type NativeSavedScreenProps = Readonly<{
   actions: NativeSavedActions; selection?: NativeSavedSelectionPort; onThisPhone: MessageId;
   downloadsCopy: NativeSavedDownloadsCopy;
   activation: NativeDestinationActivationPort;
+  /** Saved's own Downloads tab body. Present on handhelds that draw the wider Saved chrome. */
+  downloads?: (runtime: NativeShellRuntime) => React.ReactNode;
 }>;
 
 /** phone-app9: Saved is the genuine hub, with My List and actual device downloads.
  * Every other row opens its existing SavedRoute; pins keep the producer's order. */
-export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy, activation}: NativeSavedScreenProps) {
+export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy, activation, downloads}: NativeSavedScreenProps) {
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), insets = useSafeAreaInsets(), scroll = useRef<ScrollView>(null);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
-  const downloads = useSyncExternalStore(device.subscribe, device.getSnapshot);
+  const deviceState = useSyncExternalStore(device.subscribe, device.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const report = useCallback((error: unknown) => runtime.reportError(error), [runtime]);
   useEffect(() => {void destination.load().catch(report); void device.open().catch(report);}, [destination, device, report]);
   useEffect(() => selection?.register(snapshot.myList), [selection, snapshot.myList]);
   useEffect(() => runtime.registerScrollToTop({kind: 'saved'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
+  // tablet11/11b/12: the wider Saved page keeps its real title and seven tabs around
+  // the same routes. Downloads is the last tab and draws inside this page, so the shell
+  // sidebar and this chrome stay in place; phone keeps the pushed page.
+  const tablet = !theme.isTV && theme.platform !== 'phone';
+  const [savedTab, setSavedTab] = useState<'watchlist' | 'downloads'>('watchlist');
+  const showDownloads = useCallback(() => {
+    if (tablet) {setSavedTab('downloads'); return;}
+    actions.openDownloads();
+  }, [actions, tablet]);
+  const chooseTab = (value: string) => {
+    if (value === 'downloads') {setSavedTab('downloads'); return;}
+    setSavedTab('watchlist');
+    if (value === 'watchlist') return;
+    actions.openView({view: value as 'favorites' | 'playlists' | 'collections' | 'views' | 'history'});
+  };
+  const downloadsOpen = tablet && !!downloads && savedTab === 'downloads';
+  useEffect(() => {
+    if (!downloadsOpen) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {setSavedTab('watchlist'); return true;});
+    return () => subscription.remove();
+  }, [downloadsOpen]);
+  const tabItems = [
+    {value: 'watchlist', label: t('saved.tab.watchlist')}, {value: 'favorites', label: t('saved.tab.favorites')},
+    {value: 'playlists', label: t('saved.tab.playlists')}, {value: 'collections', label: t('saved.tab.collections')},
+    {value: 'views', label: t('saved.tab.savedViews')}, {value: 'history', label: t('saved.tab.history')},
+    {value: 'downloads', label: t('downloads.title')},
+  ] as const;
   // The actual server shape window supplies the drawn poster preview. Filtering
   // one mixed page locally could hide later posters and misstate its count.
   const items = snapshot.myList.projection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
-  const localGroups = groupOfflineEntries(downloads.entries);
+  const localGroups = groupOfflineEntries(deviceState.entries);
   const summary = snapshot.summary;
   const rows: readonly {id: string; label: MessageId; icon: IconName; count?: number; view: SavedRoute}[] = [
     {id: 'favorites', label: 'saved.tab.favorites', icon: 'i-heart', count: summary && summary.favorites.posters + summary.favorites.squares, view: {view: 'favorites'}},
@@ -71,10 +100,15 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   const pinKind = (kind: PinnedResource['kind']) => kind === 'view' ? t('title.savedView') : t('title.kind', {kind});
   return <View testID="native-saved-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView ref={scroll} contentContainerStyle={{paddingTop: Math.max(58, insets.top), paddingBottom: 28}}>
-      <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
+    {tablet && <View style={{paddingTop: Math.max(insets.top, 10)}}>
+      <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: theme.gutter}]}>{t('saved.title')}</Text>
+      <Tabs items={tabItems} value={downloadsOpen ? 'downloads' : 'watchlist'} onValueChange={chooseTab} accessibilityLabel={t('saved.title')} testID="saved-tablet-tabs" style={{marginTop: 8}}/>
+    </View>}
+    {downloadsOpen ? <View style={{flex: 1}}>{downloads(runtime)}</View>
+      : <ScrollView ref={scroll} contentContainerStyle={{paddingTop: tablet ? 8 : Math.max(58, insets.top), paddingBottom: 28}}>
+      {!tablet && <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
         <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text}]}>{t('saved.title')}</Text>
-      </View>
+      </View>}
       {snapshot.phase === 'error' && <StateView variant="inline" title={t('saved.loadFailed')} body={presentError(snapshot.error, 'saved', {operation: 'load'}).body}
         primaryAction={{id: 'retry', label: t('saved.retry'), onPress: () => {void destination.load().catch(report);}}}/>}
       <SavedSection first>
@@ -83,15 +117,15 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
           {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)}/>)}
         </ScrollView>}
       </SavedSection>
-      {downloads.supported && <SavedSection>
-        <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(downloads.usedBytes)})} onPress={actions.openDownloads}/>
+      {!tablet && deviceState.supported && <SavedSection>
+        <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(deviceState.usedBytes)})} onPress={showDownloads}/>
         {!!localGroups.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
-          {localGroups.map(group => <SavedDownloadCard key={group.key} group={group} device={device} copy={downloadsCopy} onOpen={() => openNativeSavedDownload(device, group, actions.openDownloads, report)}/>)}
+          {localGroups.map(group => <SavedDownloadCard key={group.key} group={group} device={device} copy={downloadsCopy} onOpen={() => openNativeSavedDownload(device, group, showDownloads, report)}/>)}
         </ScrollView>}
       </SavedSection>}
-      <View style={{marginHorizontal: 16, marginTop: 24, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
+      {!tablet && <View style={{marginHorizontal: 16, marginTop: 24, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
         {rows.map((row, index) => <SavedLink key={row.id} testID={`saved-view-${row.id}`} label={t(row.label)} icon={row.icon} value={row.count === undefined ? undefined : defaultI18n.number(row.count)} separator={index > 0} onPress={() => actions.openView(row.view)}/>)}
-      </View>
+      </View>}
       <View style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 24, marginHorizontal: theme.gutter, marginBottom: 6}}>
         <Text accessibilityRole="header" style={[theme.type.rowHeading, {color: theme.colors.text}]}>{t('pins.heading')}</Text>
         <Focusable testID="saved-edit-pins" accessibilityLabel={t('pins.edit')} onPress={actions.editPins} hitSlop={12}><Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{t('pins.edit')}</Text></Focusable>
@@ -100,8 +134,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
         {snapshot.pins.map((pin, index) => <SavedLink key={JSON.stringify([pin.kind, pin.id])} testID={`saved-pin-${pin.kind}-${encodeURIComponent(pin.id)}`} label={pin.name} caption={pinKind(pin.kind)}
           icon={pin.kind === 'playlist' ? 'i-queue' : pin.kind === 'collection' ? 'i-stack' : 'i-filter'} separator={index > 0} onPress={() => actions.openPin(pin)}/>)}
       </View>}
-    </ScrollView>
-    {selection?.render()}
+    </ScrollView>}
+    {!downloadsOpen && selection?.render()}
   </View>;
 }
 
