@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Text} from 'react-native';
-import {s3SourceDraft, driveServiceAccountDraft, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
+import {s3SourceDraft, driveServiceAccountDraft, cloudTokenDraft, type CloudTokenFields, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
@@ -11,15 +11,17 @@ import {Page, Problem, receiptCheckRequired, remoteSourceError, useAttempt} from
 
 /** Connection fields remain local write-only drafts. Never replay credentials. */
 export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel, onSaved, form = 'imported'}: {
-  controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive'; t: typeof defaultI18n.t;
+  controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive' | 'cloud'; t: typeof defaultI18n.t;
   isCurrent: () => boolean; onCancel: () => void; onSaved: (source: RemoteSource) => void;
 }) {
   const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedDraft = useRef<Readonly<{name: string; remote: string; config: string}> | undefined>(undefined);
   const [name, setName] = useState(source?.name ?? ''), [remote, setRemote] = useState(''), [config, setConfig] = useState('');
   const [s3, setS3] = useState<S3SourceFields>({endpoint: '', region: '', accessKey: '', secretKey: '', bucket: '', folder: ''});
   const [drive, setDrive] = useState<DriveKeyFields>({keyJson: '', location: 'folder', locationId: ''});
+  const [cloud, setCloud] = useState<CloudTokenFields>({provider: 'onedrive', token: '', folder: ''});
+  const cloudResult = useMemo(() => form === 'cloud' ? cloudTokenDraft(cloud) : undefined, [form, cloud]);
   const driveResult = useMemo(() => form === 'drive' ? driveServiceAccountDraft(drive) : undefined, [form, drive]);
-  const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult]);
+  const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : cloudResult?.ok ? cloudResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, cloudResult]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [tested, setTested] = useState<RcloneTestResult>();
   const [program, setProgram] = useState<RcloneProgram>(), [providers, setProviders] = useState<readonly string[]>([]);
   const draft = useMemo(() => Object.freeze({name, remote: form !== 'imported' ? built?.remote ?? '' : remote, config: form !== 'imported' ? built?.config ?? '' : config}), [name, remote, config, built, form]);
@@ -59,7 +61,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     flight.current = true;
     const ticket = Object.freeze({draft, revision: renderedRevision}); saveTicket.current = ticket;
     const guard = () => current() && saveTicket.current === ticket && revision.current === ticket.revision;
-    setConfig(''); setS3(value => ({...value, accessKey: '', secretKey: ''})); setDrive(value => ({...value, keyJson: ''})); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
+    setCloud(value => ({...value, token: ''})); setConfig(''); setS3(value => ({...value, accessKey: '', secretKey: ''})); setDrive(value => ({...value, keyJson: ''})); setTested(undefined); testedDraft.current = undefined; setBusy(true); setError(undefined);
     try {await controller.configureImported(source, ticket.draft, guard); if (guard()) finish();}
     catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
     finally {if (saveTicket.current === ticket) saveTicket.current = undefined; flight.current = false; if (current()) setBusy(false);}
@@ -72,7 +74,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     finally {flight.current = false; if (current()) setBusy(false);}
   };
   const editable = !busy && !recovery && !snapshot.busy;
-  return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' ? 'next.remoteSources.connectDrive' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
+  return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
       : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t('next.remoteSources.saveAndContinue')}</Button>}>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{program?.available && program.version
@@ -90,6 +92,18 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
         value={s3[key]} editable={editable} autoCapitalize="none" autoCorrect={false} secureTextEntry={key === 'secretKey'} textContentType="none"
         onChangeText={value => {if (flight.current || !current()) return; invalidate(); setS3(previous => ({...previous, [key]: value,
           ...((key === 'endpoint' || key === 'accessKey') ? {secretKey: ''} : {})}));}}/>)}
+    </> : form === 'cloud' ? <>
+      <Select label={t('next.remoteSources.cloudProvider')} value={cloud.provider} disabled={!editable} options={[
+        {value: 'onedrive', label: t('next.remoteSources.cloudOneDrive')}, {value: 'dropbox', label: t('next.remoteSources.cloudDropbox')},
+      ]} onValueChange={value => {if (flight.current || !current() || value !== 'onedrive' && value !== 'dropbox') return; invalidate(); setCloud(previous => ({...previous, provider: value, token: ''}));}}/>
+      <TextField label={t('next.remoteSources.cloudToken')} description={t('next.remoteSources.cloudTokenHelp')} value={cloud.token}
+        editable={editable} multiline autoCapitalize="none" autoCorrect={false} textContentType="none"
+        onChangeText={value => {if (flight.current || !current()) return; invalidate(); setCloud(previous => ({...previous, token: value}));}}/>
+      {cloud.token !== '' && cloudResult && !cloudResult.ok && <Problem message={t(({json: 'next.remoteSources.cloudTokenNotJson', token: 'next.remoteSources.cloudTokenMissing',
+        client: 'next.remoteSources.cloudTokenClient', google: 'next.remoteSources.cloudTokenGoogle', folder: 'next.remoteSources.cloudFolderInvalid'} as const)[cloudResult.reason])}/>}
+      <TextField label={t('next.remoteSources.cloudFolder')} description={t('next.remoteSources.cloudFolderHelp')} value={cloud.folder}
+        editable={editable} autoCapitalize="none" autoCorrect={false}
+        onChangeText={value => {if (flight.current || !current()) return; invalidate(); setCloud(previous => ({...previous, folder: value}));}}/>
     </> : form === 'drive' ? <>
       <TextField label={t('next.remoteSources.driveKey')} value={drive.keyJson} multiline
         editable={editable} autoCapitalize="none" autoCorrect={false} textContentType="none"
