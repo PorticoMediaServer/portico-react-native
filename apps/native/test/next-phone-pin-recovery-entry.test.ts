@@ -106,8 +106,8 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     await act(() => forgot().props.onPress());
     const replaced = tree.props;
     controllers.at(-1).phase = 'done';
-    await act(() => [...back.listeners][0]!()); // synchronously retire recovery
-    await act(() => [...back.listeners][0]!()); // reset the sign-in operation
+    await act(() => {[...back.listeners][0]!();}); // synchronously retire recovery
+    await act(() => {[...back.listeners][0]!();}); // reset the sign-in operation
     await act(() => tree.props.onLocal());
     await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Field').props.onChangeText('https://successor.example'));
     await act(() => tree.props.primaryAction.onPress());
