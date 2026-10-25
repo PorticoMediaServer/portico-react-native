@@ -1,3 +1,4 @@
+import {MissingTitlesTab} from '../server/storage/MissingTitlesTab';
 import {loadInitialOwnerLibrary} from './initial-library';
 import type {NativeScreenLifetime} from '../lifetime';
 import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
@@ -107,6 +108,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
       <View style={{flexDirection: 'row', marginTop: 14, marginBottom: 4}}>
         <Button size="compact" icon="i-plus" onPress={() => setAdding(true)}>{t('web.empty.addLibrary')}</Button>
       </View>
+      <MissingTitlesTab ports={ports} runtime={runtime} t={runtime.text.t as Translate}/>
       {state.directory.phase === 'error' && <StateView {...runtime.error(state.directory.error, () => {void controller.refresh();})}/>}
       {!libraries.length && <LibraryGroup style={{marginTop: 12}}>
         <LibraryRow first label={t('next.ownerLibraries.empty')} help={t('next.ownerLibraries.emptyHelp')}/>
