@@ -191,6 +191,7 @@ const source69PreferenceBindings:Readonly<Record<string,SettingsBinding>>={
  'quality.mobileData':{form:'preferences',key:'quality.mobile',scope:'profile-device-class',codec:'video-quality-choice'},
  // The shared structure names the same row by its stored key.
  'quality.mobile':{form:'preferences',key:'quality.mobile',scope:'profile-device-class',codec:'video-quality-choice'},
+ 'quality.downloadQuality':{form:'preferences',key:'quality.downloads',scope:'profile-device-class',codec:'video-quality-choice'},
  'quality.directPlay':{form:'preferences',key:'delivery.directPlay',scope:'profile-device-class'},
  'quality.directStream':{form:'preferences',key:'delivery.directStream',scope:'profile-device-class'},
  'quality.transcode':{form:'preferences',key:'delivery.transcode',scope:'profile-device-class'},
