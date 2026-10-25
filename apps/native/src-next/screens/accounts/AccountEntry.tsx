@@ -107,6 +107,19 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
   const acting = useRef(false), adoptingTV = useRef(false);
+  useLayoutEffect(() => {
+    lifetime.current = true;
+    return () => {
+      lifetime.current = false;
+      const ticket = invitationOpening.current;
+      if (ticket) {
+        ticket.active = false; invitationOpening.current = undefined;
+        // The source preserves an already publishing canonical adoption until its
+        // atomic handoff finishes; all retained UI actions retire synchronously.
+        ticket.source.dispose();
+      }
+    };
+  }, []);
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);

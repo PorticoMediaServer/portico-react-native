@@ -391,7 +391,7 @@ export class NativeServerSignIn {
     this.assertCurrent();
     const api = this.api, server = this.server, routes = api?.getRouteConnection(), pin = routes?.pin;
     if (!api || !server || !routes || !pin || server.signIn !== 'local' || server.setupRequired || !this.admission
-      || this.account || this.expectedTarget || this.localInvitation) throw mismatch();
+      || this.account || this.expectedTarget || this.localInvitation || this.complete || this.busy) throw mismatch();
     this.invitationBinding = () => {
       const live = api.getRouteConnection()?.pin;
       return this.api === api && this.server === server && !!live
