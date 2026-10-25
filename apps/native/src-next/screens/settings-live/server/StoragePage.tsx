@@ -11,6 +11,7 @@ import {LimitsTab} from './storage/LimitsTab';
 import {BackupsTab} from './storage/BackupsTab';
 import {NativeStorageSpaceUsage} from './storage/SpaceUsage';
 import {NativeEmptyCache} from './storage/EmptyCache';
+import {NativeDownloadsUsage} from './storage/DownloadsUsage';
 import {useSettingsRequestScope} from '../use-settings-request-scope';
 
 type ViewerRole = 'owner' | 'administrator' | 'member';
@@ -40,6 +41,7 @@ export function NativeServerStorage({ports, runtime, compactHeader = false}: {po
       <SpaceTab ports={ports} runtime={runtime} t={t}/>
       <NativeEmptyCache context={context} runtime={runtime}/>
       <BackupsTab ports={ports} runtime={runtime} t={t}/>
+      <NativeDownloadsUsage ports={ports} runtime={runtime}/>
       <LimitsTab ports={ports} runtime={runtime} t={t}/>
     </ScrollView>
   </View>;
