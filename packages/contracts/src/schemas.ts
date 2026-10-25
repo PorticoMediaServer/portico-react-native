@@ -18795,6 +18795,12 @@ export const schemas = {
             "id": {
               "type": "string"
             },
+            "identityId": {
+              "type": "string"
+            },
+            "identityType": {
+              "type": "string"
+            },
             "observedAt": {
               "type": "string"
             },
@@ -74315,6 +74321,60 @@ export const schemas = {
   },
   "GetItemsIdFileInfoResponse": {
     "properties": {
+      "disc": {
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "bluray",
+              "dvd"
+            ],
+            "type": "string"
+          },
+          "titles": {
+            "items": {
+              "properties": {
+                "angles": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "chapters": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "durationMs": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "number": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "number",
+                "durationMs",
+                "chapters",
+                "angles"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "fileId",
+          "kind",
+          "titles"
+        ],
+        "type": "object"
+      },
       "files": {
         "items": {
           "properties": {
@@ -114205,6 +114265,9 @@ export const schemas = {
               },
               "type": "array"
             },
+            "artworkUrl": {
+              "type": "string"
+            },
             "candidates": {
               "items": {
                 "properties": {
@@ -114574,6 +114637,12 @@ export const schemas = {
         "items": {
           "properties": {
             "id": {
+              "type": "string"
+            },
+            "identityId": {
+              "type": "string"
+            },
+            "identityType": {
               "type": "string"
             },
             "observedAt": {
@@ -127248,6 +127317,150 @@ export const schemas = {
                 "type": "object"
               },
               "type": "array"
+            },
+            "shortReads": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "estimatedSeconds": {
+                    "maximum": 10800,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "item": {
+                    "properties": {
+                      "author": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "source": {
+                            "enum": [
+                              "owner",
+                              "file-metadata",
+                              "file-name",
+                              "folder"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maxLength": 4096,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "source"
+                        ],
+                        "type": "object"
+                      },
+                      "coverUrl": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "enum": [
+                          "epub",
+                          "pdf",
+                          "cbz"
+                        ],
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "inventoryAvailable": {
+                        "type": "boolean"
+                      },
+                      "libraryId": {
+                        "type": "string"
+                      },
+                      "publicationType": {
+                        "properties": {
+                          "source": {
+                            "enum": [
+                              "owner",
+                              "file-metadata"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "enum": [
+                              "book",
+                              "magazine",
+                              "newspaper"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "source"
+                        ],
+                        "type": "object"
+                      },
+                      "series": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 4096,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "number": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "source": {
+                            "enum": [
+                              "owner",
+                              "file-metadata",
+                              "file-name",
+                              "folder"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "source"
+                        ],
+                        "type": "object"
+                      },
+                      "sourceId": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "libraryId",
+                      "title",
+                      "format",
+                      "sourceId",
+                      "inventoryAvailable"
+                    ],
+                    "type": "object"
+                  },
+                  "wordCount": {
+                    "maximum": 44999,
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "item",
+                  "wordCount",
+                  "estimatedSeconds"
+                ],
+                "type": "object"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -127399,6 +127612,373 @@ export const schemas = {
       }
     },
     "required": [
+      "items"
+    ],
+    "type": "object"
+  },
+  "GetReadingPeriodicalGroupsRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetReadingPeriodicalGroupsResponse": {
+    "additionalProperties": false,
+    "properties": {
+      "groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "type": "string"
+            },
+            "issueCount": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "latest": {
+              "additionalProperties": false,
+              "properties": {
+                "issueDate": {
+                  "maxLength": 10,
+                  "minLength": 7,
+                  "pattern": "^[0-9]{4}-[0-9]{2}(-[0-9]{2})?$",
+                  "type": "string"
+                },
+                "item": {
+                  "properties": {
+                    "author": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "source": {
+                          "enum": [
+                            "owner",
+                            "file-metadata",
+                            "file-name",
+                            "folder"
+                          ],
+                          "type": "string"
+                        },
+                        "value": {
+                          "maxLength": 4096,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "source"
+                      ],
+                      "type": "object"
+                    },
+                    "coverUrl": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "enum": [
+                        "epub",
+                        "pdf",
+                        "cbz"
+                      ],
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "inventoryAvailable": {
+                      "type": "boolean"
+                    },
+                    "libraryId": {
+                      "type": "string"
+                    },
+                    "publicationType": {
+                      "properties": {
+                        "source": {
+                          "enum": [
+                            "owner",
+                            "file-metadata"
+                          ],
+                          "type": "string"
+                        },
+                        "value": {
+                          "enum": [
+                            "book",
+                            "magazine",
+                            "newspaper"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "source"
+                      ],
+                      "type": "object"
+                    },
+                    "series": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 4096,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "number": {
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        "source": {
+                          "enum": [
+                            "owner",
+                            "file-metadata",
+                            "file-name",
+                            "folder"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "source"
+                      ],
+                      "type": "object"
+                    },
+                    "sourceId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "libraryId",
+                    "title",
+                    "format",
+                    "sourceId",
+                    "inventoryAvailable"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "item",
+                "issueDate"
+              ],
+              "type": "object"
+            },
+            "name": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "issueCount",
+            "latest"
+          ],
+          "type": "object"
+        },
+        "maxItems": 100,
+        "type": "array"
+      },
+      "libraryId": {
+        "type": "string"
+      },
+      "nextCursor": {
+        "pattern": "^[A-Za-z0-9_-]{171}\\.[A-Za-z0-9_-]{43}$",
+        "type": "string"
+      },
+      "publicationType": {
+        "enum": [
+          "magazine",
+          "newspaper"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "libraryId",
+      "publicationType",
+      "groups"
+    ],
+    "type": "object"
+  },
+  "GetReadingPeriodicalIssuesRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetReadingPeriodicalIssuesResponse": {
+    "properties": {
+      "items": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "issueDate": {
+              "maxLength": 10,
+              "minLength": 7,
+              "pattern": "^[0-9]{4}-[0-9]{2}(-[0-9]{2})?$",
+              "type": "string"
+            },
+            "item": {
+              "properties": {
+                "author": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "owner",
+                        "file-metadata",
+                        "file-name",
+                        "folder"
+                      ],
+                      "type": "string"
+                    },
+                    "value": {
+                      "maxLength": 4096,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "coverUrl": {
+                  "type": "string"
+                },
+                "format": {
+                  "enum": [
+                    "epub",
+                    "pdf",
+                    "cbz"
+                  ],
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "inventoryAvailable": {
+                  "type": "boolean"
+                },
+                "libraryId": {
+                  "type": "string"
+                },
+                "publicationType": {
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "owner",
+                        "file-metadata"
+                      ],
+                      "type": "string"
+                    },
+                    "value": {
+                      "enum": [
+                        "book",
+                        "magazine",
+                        "newspaper"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "series": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "maxLength": 4096,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "number": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "source": {
+                      "enum": [
+                        "owner",
+                        "file-metadata",
+                        "file-name",
+                        "folder"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "source"
+                  ],
+                  "type": "object"
+                },
+                "sourceId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "libraryId",
+                "title",
+                "format",
+                "sourceId",
+                "inventoryAvailable"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "item",
+            "issueDate"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "libraryId": {
+        "type": "string"
+      },
+      "nextCursor": {
+        "type": "string"
+      },
+      "publicationType": {
+        "enum": [
+          "magazine",
+          "newspaper"
+        ],
+        "type": "string"
+      },
+      "seriesId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "libraryId",
+      "seriesId",
+      "publicationType",
       "items"
     ],
     "type": "object"
@@ -136674,6 +137254,9 @@ export const schemas = {
                 "type": "string"
               },
               "type": "array"
+            },
+            "artworkUrl": {
+              "type": "string"
             },
             "candidates": {
               "items": {
@@ -149018,13 +149601,25 @@ export const schemas = {
       "settings": {
         "properties": {
           "cacheApplied": {
+            "description": "Observed projection of the cache the mount has actually applied, not the desired configuration.",
             "type": "boolean"
           },
           "cacheError": {
+            "enum": [
+              "source_changed",
+              "mount_unavailable",
+              "cache_refused",
+              "cache_record_failed"
+            ],
             "type": "string"
           },
           "cacheSupported": {
             "type": "boolean"
+          },
+          "cacheUsedBytes": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
           "generation": {
             "type": "string"
@@ -149065,6 +149660,19 @@ export const schemas = {
               "checksums": {
                 "type": "boolean"
               },
+              "connectTimeoutSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "dirCacheSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "doubleCheckFolders": {
+                "type": "boolean"
+              },
               "fullRecheckDays": {
                 "enum": [
                   0,
@@ -149076,8 +149684,37 @@ export const schemas = {
                 "minimum": -9007199254740991,
                 "type": "integer"
               },
+              "idleTimeoutSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "introsMode": {
+                "enum": [
+                  "off",
+                  "inherit",
+                  "sound",
+                  "picture"
+                ],
+                "type": "string"
+              },
               "loudness": {
                 "type": "boolean"
+              },
+              "lowLevelRetries": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "readBufferBytes": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "retries": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
               },
               "scanIntervalSeconds": {
                 "enum": [
@@ -149128,6 +149765,7 @@ export const schemas = {
           "saved",
           "cacheSupported",
           "cacheApplied",
+          "cacheUsedBytes",
           "scanIntervalObserved",
           "values"
         ],
@@ -149463,12 +150101,16 @@ export const schemas = {
           "viewerFence"
         ],
         "type": "object"
+      },
+      "truncated": {
+        "type": "boolean"
       }
     },
     "required": [
       "scope",
       "path",
-      "remotes"
+      "remotes",
+      "truncated"
     ],
     "type": "object"
   },
@@ -149699,6 +150341,14 @@ export const schemas = {
             "minimum": -9007199254740991,
             "type": "integer"
           },
+          "backgroundSpeed": {
+            "type": "string"
+          },
+          "cacheUsedBytes": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
           "connectionsInUse": {
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
@@ -149749,7 +150399,24 @@ export const schemas = {
             "minimum": -9007199254740991,
             "type": "integer"
           },
+          "program": {
+            "type": "string"
+          },
+          "programIncluded": {
+            "type": "boolean"
+          },
+          "programRevision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "programVersion": {
+            "type": "string"
+          },
           "rangeSupport": {
+            "type": "string"
+          },
+          "remote": {
             "type": "string"
           },
           "scanIntervalSeconds": {
@@ -149775,7 +150442,8 @@ export const schemas = {
           "analysisReads",
           "scanIntervalSeconds",
           "libraries",
-          "librariesTruncated"
+          "librariesTruncated",
+          "cacheUsedBytes"
         ],
         "type": "object"
       }
@@ -178349,6 +179017,12 @@ export const schemas = {
             "id": {
               "type": "string"
             },
+            "identityId": {
+              "type": "string"
+            },
+            "identityType": {
+              "type": "string"
+            },
             "observedAt": {
               "type": "string"
             },
@@ -179028,6 +179702,12 @@ export const schemas = {
         "items": {
           "properties": {
             "id": {
+              "type": "string"
+            },
+            "identityId": {
+              "type": "string"
+            },
+            "identityType": {
               "type": "string"
             },
             "observedAt": {
@@ -196714,6 +197394,19 @@ export const schemas = {
           "checksums": {
             "type": "boolean"
           },
+          "connectTimeoutSeconds": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "dirCacheSeconds": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "doubleCheckFolders": {
+            "type": "boolean"
+          },
           "fullRecheckDays": {
             "enum": [
               0,
@@ -196725,8 +197418,37 @@ export const schemas = {
             "minimum": -9007199254740991,
             "type": "integer"
           },
+          "idleTimeoutSeconds": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "introsMode": {
+            "enum": [
+              "off",
+              "inherit",
+              "sound",
+              "picture"
+            ],
+            "type": "string"
+          },
           "loudness": {
             "type": "boolean"
+          },
+          "lowLevelRetries": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "readBufferBytes": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "retries": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
           "scanIntervalSeconds": {
             "enum": [
@@ -196797,13 +197519,25 @@ export const schemas = {
       "settings": {
         "properties": {
           "cacheApplied": {
+            "description": "Observed projection of the cache the mount has actually applied, not the desired configuration.",
             "type": "boolean"
           },
           "cacheError": {
+            "enum": [
+              "source_changed",
+              "mount_unavailable",
+              "cache_refused",
+              "cache_record_failed"
+            ],
             "type": "string"
           },
           "cacheSupported": {
             "type": "boolean"
+          },
+          "cacheUsedBytes": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
           "generation": {
             "type": "string"
@@ -196844,6 +197578,19 @@ export const schemas = {
               "checksums": {
                 "type": "boolean"
               },
+              "connectTimeoutSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "dirCacheSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "doubleCheckFolders": {
+                "type": "boolean"
+              },
               "fullRecheckDays": {
                 "enum": [
                   0,
@@ -196855,8 +197602,37 @@ export const schemas = {
                 "minimum": -9007199254740991,
                 "type": "integer"
               },
+              "idleTimeoutSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "introsMode": {
+                "enum": [
+                  "off",
+                  "inherit",
+                  "sound",
+                  "picture"
+                ],
+                "type": "string"
+              },
               "loudness": {
                 "type": "boolean"
+              },
+              "lowLevelRetries": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "readBufferBytes": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "retries": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
               },
               "scanIntervalSeconds": {
                 "enum": [
@@ -196907,6 +197683,7 @@ export const schemas = {
           "saved",
           "cacheSupported",
           "cacheApplied",
+          "cacheUsedBytes",
           "scanIntervalObserved",
           "values"
         ],
@@ -196916,6 +197693,80 @@ export const schemas = {
     "required": [
       "scope",
       "settings"
+    ],
+    "type": "object"
+  },
+  "PutStorageSourceProgramRequest": {
+    "properties": {
+      "executable": {
+        "description": "Absolute program path, required unless useIncluded is true.",
+        "type": "string"
+      },
+      "expectedRevision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "operationId": {
+        "type": "string"
+      },
+      "useIncluded": {
+        "description": "true asks for the rclone included with Portico Server; executable must then be omitted.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "operationId",
+      "expectedRevision"
+    ],
+    "type": "object"
+  },
+  "PutStorageSourceProgramResponse": {
+    "properties": {
+      "program": {
+        "properties": {
+          "executable": {
+            "type": "string"
+          },
+          "included": {
+            "type": "boolean"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "executable",
+          "version",
+          "revision",
+          "included"
+        ],
+        "type": "object"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "program"
     ],
     "type": "object"
   },

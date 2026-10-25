@@ -7327,7 +7327,8 @@ export const routes = [
     "query": [
       "libraryId",
       "limit",
-      "seriesLimit"
+      "seriesLimit",
+      "shortReadsLimit"
     ],
     "errors": [
       "invalid_request",
@@ -7368,6 +7369,62 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_reading_periodical_groups",
+    "method": "GET",
+    "path": "/v1/libraries/{libraryId}/reading/periodicals",
+    "summary": "Read accepted typed and dated Reading periodical groups",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "publicationType",
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_mismatch",
+      "request_in_progress",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_reading_periodical_issues",
+    "method": "GET",
+    "path": "/v1/libraries/{libraryId}/reading/periodicals/{seriesId}/issues",
+    "summary": "Read dated issues in one accepted typed Reading series",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "publicationType",
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_mismatch",
+      "request_in_progress",
       "internal"
     ],
     "status": 200,
@@ -8194,6 +8251,7 @@ export const routes = [
       "request_in_progress",
       "source_credentials_required",
       "source_unavailable",
+      "source_folders_unsupported",
       "administration_unavailable",
       "internal"
     ],
@@ -8316,7 +8374,7 @@ export const routes = [
     "access": "owner",
     "requires": "admin",
     "lane": "default",
-    "cost": "constant",
+    "cost": "page_sized",
     "bodyLimit": 0,
     "errors": [
       "unauthorized",
@@ -8324,6 +8382,7 @@ export const routes = [
       "not_found",
       "invalid_request",
       "administration_unavailable",
+      "source_folders_unsupported",
       "internal"
     ],
     "status": 200,
@@ -15453,6 +15512,31 @@ export const routes = [
     "admission": "admin"
   },
   {
+    "id": "put_storage_source_program",
+    "method": "PUT",
+    "path": "/v1/storage/sources/{id}/settings/program",
+    "summary": "Change the rclone program that serves one mounted source",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 8192,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_mismatch",
+      "idempotency_key_reused",
+      "request_in_progress",
+      "administration_unavailable",
+      "internal",
+      "revision_required"
+    ],
+    "status": 200,
+    "admission": "admin-long"
+  },
+  {
     "id": "put_storage_source_read_profile",
     "method": "PUT",
     "path": "/v1/storage/sources/{id}/settings/read-profile",
@@ -19010,6 +19094,8 @@ export const routePaths = {
   "get_reading_continue": "/v1/reading/continue",
   "get_reading_discover": "/v1/reading/discover",
   "get_reading_items": "/v1/reading/items",
+  "get_reading_periodical_groups": "/v1/libraries/{libraryId}/reading/periodicals",
+  "get_reading_periodical_issues": "/v1/libraries/{libraryId}/reading/periodicals/{seriesId}/issues",
   "get_reading_series_items": "/v1/libraries/{libraryId}/reading/series/{seriesId}",
   "get_reading_sessions_sessionId_assets": "/v1/reading/sessions/{sessionId}/assets",
   "get_reading_sessions_sessionId_pages_pageIndex": "/v1/reading/sessions/{sessionId}/pages/{pageIndex}",
@@ -19351,6 +19437,7 @@ export const routePaths = {
   "put_shows_id_metadata_screen_season": "/v1/shows/{id}/metadata/screen/season",
   "put_shows_id_metadata_tvdb": "/v1/shows/{id}/metadata/tvdb",
   "put_storage_source_advanced": "/v1/storage/sources/{id}/settings/advanced",
+  "put_storage_source_program": "/v1/storage/sources/{id}/settings/program",
   "put_storage_source_read_profile": "/v1/storage/sources/{id}/settings/read-profile",
   "put_storage_sources_webdav_id": "/v1/storage/sources/webdav/{id}",
   "put_v1_items_itemId_subtitles_resource": "/v1/items/{itemId}/subtitles/{resource}",

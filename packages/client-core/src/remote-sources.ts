@@ -23,7 +23,7 @@ export type RcloneReceipt=Readonly<{operationId:string;sourceId:string;generatio
 /** One remote of the server account's own rclone configuration. `reason` says why
  * an unsupported one is unsupported; no value from its section is here. */
 export type RcloneConfigRemote=Readonly<{name:string;kind:string;supported:boolean;reason:'kind'|'encrypted'|'wrapper'|'duplicate'|'ambiguous'|''}>;
-export type RcloneConfigView=Readonly<{path:string;remotes:readonly RcloneConfigRemote[]}>;
+export type RcloneConfigView=Readonly<{path:string;remotes:readonly RcloneConfigRemote[];truncated:boolean}>;
 export type RemoteReceipt=Readonly<{operationId:string;accepted:true;removed:boolean;source:RemoteSource}>;
 /** What one command was allowed to do, kept beside its operation id so a later
  * receipt (live or recovered) must still match the original target and posture. */
@@ -42,10 +42,11 @@ export type RemoteFolderPage=Readonly<{sourceId:string;generation:string;path:st
 export type SourceLibraryUse=Readonly<{libraryId:string;name:string;kind:string;folders:number}>;
 /** A source's present state: the reads it holds now, when it was last checked,
  * and the libraries its folders went into. Nothing here is estimated. */
-export type RemoteSourceStatus=Readonly<{sourceId:string;generation:string;state:string;errorCode?:string;rangeSupport:string;lastCheckedAt:string;connectionsInUse:number;playbackReads:number;analysisReads:number;scanIntervalSeconds:number;libraries:readonly SourceLibraryUse[];librariesTruncated:boolean}>;
+export type RemoteSourceStatus=Readonly<{sourceId:string;generation:string;state:string;errorCode?:string;rangeSupport:string;lastCheckedAt:string;connectionsInUse:number;playbackReads:number;analysisReads:number;scanIntervalSeconds:number;libraries:readonly SourceLibraryUse[];librariesTruncated:boolean;program?:string;programVersion?:string;programRevision?:number;programIncluded?:boolean;remote?:string;backgroundSpeed?:string}>;
 /** The drawn Advanced page: how a source's folders are checked, the disk its
  * read cache may use, and which analysis stages run for files found through it. */
-export type SourceAdvanced=Readonly<{scanIntervalSeconds:number;watchForChanges:boolean;scanOnStart:boolean;fullRecheckDays:number;cacheBytes:number;cacheFloorBytes:number;seekPreviews:boolean;chapterImages:boolean;waveforms:boolean;loudness:boolean;checksums:boolean}>;
+export type SourceAdvanced=Readonly<{scanIntervalSeconds:number;watchForChanges:boolean;scanOnStart:boolean;fullRecheckDays:number;cacheBytes:number;cacheFloorBytes:number;seekPreviews:boolean;chapterImages:boolean;waveforms:boolean;loudness:boolean;checksums:boolean;introsMode:'off'|'inherit'|'sound'|'picture';doubleCheckFolders:boolean;dirCacheSeconds:number;readBufferBytes:number;connectTimeoutSeconds:number;idleTimeoutSeconds:number;retries:number;lowLevelRetries:number}>;
+export type SourceProgram=Readonly<{executable:string;version:string;revision:number;included:boolean}>;
 export type SourceAdvancedSettings=Readonly<{sourceId:string;generation:string;revision:number;saved:boolean;cacheSupported:boolean;cacheApplied:boolean;cacheError?:string;scanIntervalObserved:number;values:SourceAdvanced}>;
 const sourceReadPresets:Readonly<Record<SourceReadPreset,SourceReadValues>>=Object.freeze({
  list:{scanDepth:'file_list_only',wholeFileReads:false,connections:2,requestsPerSecond:2,bytesPerSecond:0},
@@ -53,6 +54,66 @@ const sourceReadPresets:Readonly<Record<SourceReadPreset,SourceReadValues>>=Obje
  everything:{scanDepth:'complete',wholeFileReads:true,connections:8,requestsPerSecond:10,bytesPerSecond:0},
  ask:{scanDepth:'basic',wholeFileReads:false,connections:2,requestsPerSecond:2,bytesPerSecond:0},
 });
+/** The drawn S3 form's fields. The owner fills these in; Portico writes the
+ * rclone configuration section, so nobody types rclone's file format. */
+export type S3SourceFields=Readonly<{endpoint:string;region:string;accessKey:string;secretKey:string;bucket:string;folder:string}>;
+export type S3SourceDraft=Readonly<{remote:string;config:string}>;
+const s3Value=(value:string,max:number):boolean=>value.length>=1&&value.length<=max&&!/[\r\n\u0000]/.test(value);
+const s3FolderPart=/^[^\\/\r\n\u0000]{1,255}$/;
+/**
+ * One S3-compatible source as the exact section the server's own validator and
+ * candidate test accept. Undefined means a field is not usable; nothing is
+ * guessed or partly written. The display name is not part of the section.
+ */
+export function s3SourceDraft(fields:S3SourceFields):S3SourceDraft|undefined{
+ const endpoint=fields.endpoint.trim();
+ let url:URL;
+ try{url=new URL(endpoint);}catch{return undefined;}
+ if(url.protocol!=='https:'||!url.hostname||url.username||url.password||url.search||url.hash||url.pathname!=='/')return undefined;
+ if(!/^https:\/\/[^\s]+$/i.test(endpoint))return undefined;
+ const region=fields.region.trim();
+ if(region&&!/^[a-z0-9-]{1,32}$/i.test(region))return undefined;
+ const accessKey=fields.accessKey.trim();
+ if(!s3Value(accessKey,256))return undefined;
+ if(!s3Value(fields.secretKey,1024))return undefined;
+ const bucket=fields.bucket.trim();
+ if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(bucket))return undefined;
+ const folder=fields.folder.trim().replace(/^\/+|\/+$/g,'');
+ if(folder&&(folder.length>1024||!folder.split('/').every(part=>part!=='.'&&part!=='..'&&s3FolderPart.test(part))))return undefined;
+ const config=['[portico]','type = s3','provider = Other',`access_key_id = ${accessKey}`,`secret_access_key = ${fields.secretKey}`,`endpoint = ${endpoint}`,...(region?[`region = ${region}`]:[])].join('\n')+'\n';
+ return Object.freeze({remote:`portico:${bucket}${folder?`/${folder}`:''}`,config});
+}
+
+/** The drawn Google Drive form: the owner's own service-account key and where
+ * the files are. Portico writes the rclone section; the key is never shown back. */
+export type DriveKeyFields=Readonly<{name:string;keyJson:string;location:'folder'|'drive';locationId:string}>;
+export type DriveKeyDraft=Readonly<{remote:string;config:string;email:string}>;
+export type DriveKeyResult=Readonly<{ok:true;draft:DriveKeyDraft}|{ok:false;reason:'json'|'oauth'|'type'|'email'|'key'|'location'}>;
+const driveLocationId=/^[A-Za-z0-9_-]{1,200}$/;
+/**
+ * One Google Drive source signed in with the owner's own service-account key.
+ * The key is parsed, never authored: it must be a `service_account` JSON object
+ * with a real address and private key, and the section carries it compactly so
+ * it is one INI value. OAuth client files are told apart, not accepted here.
+ */
+export function driveServiceAccountDraft(fields:DriveKeyFields):DriveKeyResult{
+ let parsed:unknown;
+ try{parsed=JSON.parse(fields.keyJson);}catch{return Object.freeze({ok:false,reason:'json'});}
+ if(!record(parsed))return Object.freeze({ok:false,reason:'json'});
+ if(parsed.type!=='service_account')return Object.freeze({ok:false,reason:record(parsed.installed)||record(parsed.web)?'oauth':'type'});
+ const email=parsed.client_email;
+ if(!text(email,320)||!/^[^@\s]+@[^@\s]+$/.test(email))return Object.freeze({ok:false,reason:'email'});
+ const key=parsed.private_key;
+ if(typeof key!=='string'||key.length<64||key.length>16_384||!key.includes('BEGIN PRIVATE KEY'))return Object.freeze({ok:false,reason:'key'});
+ const locationId=fields.locationId.trim();
+ if(!driveLocationId.test(locationId))return Object.freeze({ok:false,reason:'location'});
+ const credentials=JSON.stringify(parsed);
+ if(credentials.length>60_000||/[\r\n]/.test(credentials))return Object.freeze({ok:false,reason:'key'});
+ const target=fields.location==='drive'?`team_drive = ${locationId}`:`root_folder_id = ${locationId}`;
+ const config=['[portico]','type = drive','scope = drive.readonly',`service_account_credentials = ${credentials}`,target].join('\n')+'\n';
+ return Object.freeze({ok:true,draft:Object.freeze({remote:'portico:',config,email})});
+}
+
 /** The four drawn choices, exactly the server's own SourceReadPreset values. */
 export function sourceReadPreset(name:SourceReadPreset):SourceReadValues{return Object.freeze({...sourceReadPresets[name]});}
 export function sourceReadPresetName(values:SourceReadValues):SourceReadPreset|undefined{
@@ -85,13 +146,16 @@ function sourceLibraryUse(raw:unknown):SourceLibraryUse{
 }
 function sourceAdvanced(raw:unknown):SourceAdvanced{
  if(!record(raw))invalid();
- const {scanIntervalSeconds,watchForChanges,scanOnStart,fullRecheckDays,cacheBytes,cacheFloorBytes,seekPreviews,chapterImages,waveforms,loudness,checksums}=raw;
+ const {scanIntervalSeconds,watchForChanges,scanOnStart,fullRecheckDays,cacheBytes,cacheFloorBytes,seekPreviews,chapterImages,waveforms,loudness,checksums,doubleCheckFolders,dirCacheSeconds,readBufferBytes,connectTimeoutSeconds,idleTimeoutSeconds,retries,lowLevelRetries}=raw;
  if(!integer(scanIntervalSeconds)||![0,900,3600,21600,86400,604800].includes(scanIntervalSeconds))invalid();
  if(typeof watchForChanges!=='boolean'||typeof scanOnStart!=='boolean')invalid();
  if(!integer(fullRecheckDays)||![0,7,14,30].includes(fullRecheckDays))invalid();
  if(!integer(cacheBytes)||cacheBytes>64*1024*1024*1024||!integer(cacheFloorBytes)||cacheFloorBytes>1024*1024*1024*1024)invalid();
- if(![seekPreviews,chapterImages,waveforms,loudness,checksums].every(value=>typeof value==='boolean'))invalid();
- return Object.freeze({scanIntervalSeconds,watchForChanges,scanOnStart,fullRecheckDays,cacheBytes,cacheFloorBytes,seekPreviews,chapterImages,waveforms,loudness,checksums}) as SourceAdvanced;
+ if(![seekPreviews,chapterImages,waveforms,loudness,checksums,doubleCheckFolders].every(value=>typeof value==='boolean'))invalid();
+ const introsMode=raw.introsMode;
+ if(introsMode!=='off'&&introsMode!=='inherit'&&introsMode!=='sound'&&introsMode!=='picture')invalid();
+ for(const value of [dirCacheSeconds,readBufferBytes,connectTimeoutSeconds,idleTimeoutSeconds,retries,lowLevelRetries])if(!integer(value))invalid();
+ return Object.freeze({scanIntervalSeconds,watchForChanges,scanOnStart,fullRecheckDays,cacheBytes,cacheFloorBytes,seekPreviews,chapterImages,waveforms,loudness,checksums,introsMode,doubleCheckFolders,dirCacheSeconds,readBufferBytes,connectTimeoutSeconds,idleTimeoutSeconds,retries,lowLevelRetries}) as SourceAdvanced;
 }
 function sourceAdvancedSettings(raw:unknown,id:string):SourceAdvancedSettings{
  if(!record(raw)||raw.sourceId!==id||!text(raw.generation,64)||!raw.generation||!integer(raw.revision)||typeof raw.saved!=='boolean'||typeof raw.cacheSupported!=='boolean'||typeof raw.cacheApplied!=='boolean'||!integer(raw.scanIntervalObserved))invalid();
@@ -101,7 +165,11 @@ function sourceAdvancedSettings(raw:unknown,id:string):SourceAdvancedSettings{
 function remoteSourceStatus(raw:unknown,id:string):RemoteSourceStatus{
  if(!record(raw)||raw.sourceId!==id||!text(raw.generation,64)||!raw.generation||!text(raw.state,100)||!text(raw.rangeSupport,32)||!text(raw.lastCheckedAt,64)||!integer(raw.connectionsInUse)||!integer(raw.playbackReads)||!integer(raw.analysisReads)||!integer(raw.scanIntervalSeconds)||!Array.isArray(raw.libraries)||raw.libraries.length>10||typeof raw.librariesTruncated!=='boolean')invalid();
  if(raw.errorCode!==undefined&&!text(raw.errorCode,100))invalid();
- return Object.freeze({sourceId:id,generation:raw.generation,state:raw.state,...(raw.errorCode===undefined?{}:{errorCode:raw.errorCode as string}),rangeSupport:raw.rangeSupport,lastCheckedAt:raw.lastCheckedAt,connectionsInUse:raw.connectionsInUse,playbackReads:raw.playbackReads,analysisReads:raw.analysisReads,scanIntervalSeconds:raw.scanIntervalSeconds,libraries:Object.freeze(raw.libraries.map(sourceLibraryUse)),librariesTruncated:raw.librariesTruncated});
+ return Object.freeze({sourceId:id,generation:raw.generation,state:raw.state,...(raw.errorCode===undefined?{}:{errorCode:raw.errorCode as string}),rangeSupport:raw.rangeSupport,lastCheckedAt:raw.lastCheckedAt,connectionsInUse:raw.connectionsInUse,playbackReads:raw.playbackReads,analysisReads:raw.analysisReads,scanIntervalSeconds:raw.scanIntervalSeconds,libraries:Object.freeze(raw.libraries.map(sourceLibraryUse)),librariesTruncated:raw.librariesTruncated,
+  ...(text(raw.program,8192)&&raw.program?{program:raw.program}:{}),...(text(raw.programVersion,256)&&raw.programVersion?{programVersion:raw.programVersion}:{}),
+  ...(integer(raw.programRevision)&&raw.programRevision>0?{programRevision:raw.programRevision}:{}),
+  ...(typeof raw.programIncluded==='boolean'?{programIncluded:raw.programIncluded}:{}),
+  ...(text(raw.remote,8192)&&raw.remote?{remote:raw.remote}:{}),...(text(raw.backgroundSpeed,64)&&raw.backgroundSpeed?{backgroundSpeed:raw.backgroundSpeed}:{})});
 }
 /** `alreadyDone`: the last command found, on a fresh read, that what it asked for is already so (a share removed elsewhere).
  * `operationKind` picks the receipt route that command's outcome is recovered from. */
@@ -138,9 +206,9 @@ function source(x:unknown):RemoteSource{
  if(x.mountId!==undefined&&!text(x.mountId,256))invalid();
  return Object.freeze({id:x.id,kind:x.kind as RemoteSource['kind'],name:x.name,rootPath:x.rootPath,generation:x.generation,state:x.state,rangeSupport:oneOfOr('remote-sources','source.rangeSupport',x.rangeSupport,['unknown','conditional','unsupported','sequential'] as const,'unknown'),insecureLocal:x.insecureLocal,credentialPresent:x.credentialPresent,...(x.origin===undefined?{}:{origin:x.origin as string}),...(errorCode===undefined?{}:{errorCode}),...(x.mountId===undefined?{}:{mountId:x.mountId as string})});
 }
-const messages:Record<string,string>={remote_source_changed:'This source changed. Refresh before submitting a new configuration.',storage_command_conflict:'The source changed or this operation conflicts with a previous receipt.',storage_operation_expired:'The operation expired. Check the device clock and refresh.',remote_credentials_required:'The provider rejected the credentials. The previous configuration remains active.',source_credentials_required:'The provider rejected the credentials. The previous configuration remains active.',remote_invalid_configuration:'Check the endpoint, approved network access and configuration.',remote_range_unsupported:'The server cannot safely range-read this provider representation.',remote_binary_changed:'The approved rclone executable changed. Reapprove it in source configuration.',remote_budget_exceeded:'This operation exceeded the configured safety budget.',remote_rate_limited:'The provider or server is busy. Check the original receipt before retrying.',revision_mismatch:'This source changed. Refresh before saving.',idempotency_key_reused:'This operation was already used. Refresh and try again.',request_in_progress:'Another source change is in progress. Try again in a moment.',refresh_failed:'The profile was saved, but the refreshed values could not be read.',remote_administration_unavailable:'The rclone program on this server is unavailable. Check the server, then test again.',remote_source_not_listed:'The source was saved, but the list does not agree with the receipt yet. Refresh before continuing.',unauthorized:'Owner sign-in is required.',forbidden:'This viewer cannot manage sources.'};
+const messages:Record<string,string>={remote_source_changed:'This source changed. Refresh before submitting a new configuration.',storage_command_conflict:'The source changed or this operation conflicts with a previous receipt.',storage_operation_expired:'The operation expired. Check the device clock and refresh.',remote_credentials_required:'The provider rejected the credentials. The previous configuration remains active.',source_credentials_required:'The provider rejected the credentials. The previous configuration remains active.',remote_invalid_configuration:'Check the endpoint, approved network access and configuration.',remote_range_unsupported:'The server cannot safely range-read this provider representation.',remote_binary_changed:'The approved rclone executable changed. Reapprove it in source configuration.',remote_budget_exceeded:'This operation exceeded the configured safety budget.',remote_rate_limited:'The provider or server is busy. Check the original receipt before retrying.',source_folders_unsupported:'Folder browsing inside a mounted source is not available on this server.',revision_mismatch:'This source changed. Refresh before saving.',idempotency_key_reused:'This operation was already used. Refresh and try again.',request_in_progress:'Another source change is in progress. Try again in a moment.',refresh_failed:'The profile was saved, but the refreshed values could not be read.',remote_administration_unavailable:'The rclone program on this server is unavailable. Check the server, then test again.',remote_source_not_listed:'The source was saved, but the list does not agree with the receipt yet. Refresh before continuing.',unauthorized:'Owner sign-in is required.',forbidden:'This viewer cannot manage sources.'};
 const CONFLICT='storage_command_conflict';
-const ERROR_CODES=new Set(['remote_source_changed','storage_command_conflict','storage_operation_expired','remote_credentials_required','remote_invalid_configuration','remote_range_unsupported','remote_binary_changed','remote_budget_exceeded','remote_rate_limited','revision_mismatch','idempotency_key_reused','request_in_progress','refresh_failed','source_credentials_required','administration_unavailable','remote_administration_unavailable','remote_source_not_listed','storage_command_capacity','storage_allocation_recovery_required','unauthorized','forbidden','not_permitted','invalid_request','internal']);
+const ERROR_CODES=new Set(['remote_source_changed','storage_command_conflict','storage_operation_expired','remote_credentials_required','remote_invalid_configuration','remote_range_unsupported','remote_binary_changed','remote_budget_exceeded','remote_rate_limited','revision_mismatch','idempotency_key_reused','request_in_progress','refresh_failed','source_credentials_required','administration_unavailable','remote_administration_unavailable','remote_source_not_listed','storage_command_capacity','storage_allocation_recovery_required','unauthorized','forbidden','not_permitted','invalid_request','source_folders_unsupported','internal']);
 function normalizedCode(value:unknown):string{return typeof value==='string'&&ERROR_CODES.has(value)?value:'internal';}
 
 /**
@@ -263,13 +331,13 @@ export class RemoteSourceService{
   const raw=await this.request(routePath('get_storage_source_rclone_config'));
   if(!this.live()||epoch!==this.epoch)throw new Error('Scope changed.');
   this.fence(raw);
-  if(!record(raw)||!text(raw.path)||!Array.isArray(raw.remotes)||raw.remotes.length>200)invalid();
+  if(!record(raw)||!text(raw.path)||!Array.isArray(raw.remotes)||raw.remotes.length>200||typeof raw.truncated!=='boolean')invalid();
   const remotes=raw.remotes.map(value=>{
    if(!record(value)||!text(value.name,64)||!value.name||!text(value.kind,32)||typeof value.supported!=='boolean'||!['','kind','encrypted','wrapper','duplicate','ambiguous'].includes(String(value.reason)))invalid();
    if(value.supported&&(value.reason!==''||!value.kind))invalid();
    return Object.freeze({name:value.name,kind:value.kind,supported:value.supported,reason:value.reason as RcloneConfigRemote['reason']});
   });
-  return Object.freeze({path:raw.path,remotes:Object.freeze(remotes)});
+  return Object.freeze({path:raw.path,remotes:Object.freeze(remotes),truncated:raw.truncated});
  }
  /** Saves a source from one remote of that configuration. The section itself is
   * read on the server and never sent to, or read back by, this client. */
@@ -507,6 +575,25 @@ async networkPolicy(libraryId:string):Promise<NetworkPolicy>{const epoch=this.ep
   this.fence(raw);
   if(!record(raw)||!record(raw.folders))invalid();
   return remoteFolderPage(raw.folders,id);
+ }
+ /** Change the rclone program that serves a mounted source; the mount approves
+  * it by running it with version before it is accepted. */
+ async setProgram(id:string,expectedRevision:number,choice:Readonly<{useIncluded?:boolean;executable?:string}>,guard?:()=>boolean):Promise<SourceProgram>{
+  if(!this.live()||(guard&&!guard()))throw new Error('Scope changed.');
+  if(!text(id,256)||!id||!Number.isSafeInteger(expectedRevision)||expectedRevision<1)throw new Error('Invalid program change.');
+  const useIncluded=choice.useIncluded===true;
+  const executable=choice.executable??'';
+  if(!useIncluded&&(!text(executable)||!executable))throw new Error('Invalid program change.');
+  const op=await this.operationId();
+  if(!/^\d{13}-[0-9a-f-]{36}$/i.test(op))invalid();
+  const epoch=this.epoch;
+  const raw=await this.request(encodedRoutePath('put_storage_source_program',{id:encodeURIComponent(id)}),'PUT',{operationId:op,expectedRevision,useIncluded,...(useIncluded?{}:{executable})},guard);
+  if(!this.live()||(guard&&!guard())||epoch!==this.epoch)throw new Error('Scope changed.');
+  this.fence(raw);
+  if(!record(raw)||!record(raw.program)||!text(raw.program.executable)||!raw.program.executable||!text(raw.program.version,256))invalid();
+  if(!integer(raw.program.revision)||raw.program.revision<expectedRevision)invalid();
+  if(typeof raw.program.included!=='boolean')invalid();
+  return Object.freeze({executable:raw.program.executable,version:raw.program.version,revision:raw.program.revision,included:raw.program.included});
  }
  /** The Advanced page as saved; unsaved values default from the source's folders. */
  async readAdvanced(id:string,guard?:()=>boolean):Promise<SourceAdvancedSettings>{
