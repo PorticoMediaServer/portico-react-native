@@ -148,12 +148,12 @@ export class NativeHomeCustomizeController {
     return this.retry();
   };
   captureReset = (layout: HomeLayoutView | undefined): NativeHomeResetOpening | undefined => {
-    if (!this.editable() || this.state.pickedId || !layout || layout !== this.base) return;
+    if (!this.editable() || this.state.conflict || this.state.pickedId || !layout || layout !== this.base) return;
     return Object.freeze({controller: this, layout, revision: layout.revision});
   };
   /** Confirm only the exact controller/document/revision this opening drew. */
   resetConfirmed = async (opening: NativeHomeResetOpening): Promise<boolean> => {
-    if (!this.editable() || this.state.pickedId || !this.base || opening.controller !== this || opening.layout !== this.base || opening.revision !== this.base.revision) return false;
+    if (!this.editable() || this.state.conflict || this.state.pickedId || !this.base || opening.controller !== this || opening.layout !== this.base || opening.revision !== this.base.revision) return false;
     this.command = {kind: 'reset', rows: this.state.rows, revision: opening.revision, generation: this.generation, abort: new AbortController(), accepted: false};
     return this.retry();
   };

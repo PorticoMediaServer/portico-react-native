@@ -34,7 +34,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   const picked = useRef<View>(null), scroller = useRef<ScrollView>(null), returning = useRef(false);
   const [reset, setReset] = useState<NativeHomeResetOpening>(), [choosing, setChoosing] = useState(false);
   const resetOwner = useRef<NativeHomeResetOpening | undefined>(undefined);
-  if (resetOwner.current?.controller !== controller) resetOwner.current = undefined;
+  if (resetOwner.current && (resetOwner.current.controller !== controller || resetOwner.current.layout !== state.layout || state.phase !== 'ready' || state.pending || state.retry || state.pickedId || state.conflict)) resetOwner.current = undefined;
   const resetOpening = reset && resetOwner.current === reset && reset.controller === controller ? reset : undefined;
   const closeReset = (opening: NativeHomeResetOpening | undefined) => {
     if (!opening || resetOwner.current !== opening) return;
