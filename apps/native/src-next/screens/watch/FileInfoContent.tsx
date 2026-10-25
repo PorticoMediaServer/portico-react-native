@@ -132,6 +132,7 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
       {!!model.owner.actions.filter(action => action.id !== 'merge-title').length && <View style={{flexDirection: 'row', gap: 12, paddingTop: 14, paddingBottom: 8}}>
         {model.owner.actions.filter(action => action.id !== 'merge-title').map(action => <Button key={action.id} focusId={`watch-file-owner-${action.id}`} testID={`watch-file-owner-${action.id}`} variant="glass" size="small" icon={action.id === 'split-versions' ? 'i-split' : 'i-merge'} onPress={() => onManage(action.id)}>{action.label}</Button>)}
       </View>}
+      <Text style={[tvType(theme, 18, 400), {color: theme.colors.textTertiary, lineHeight: 26, paddingTop: 4, paddingBottom: 12}]}>{t('next.overlays.deleteVersionNote')}</Text>
     </OwnerSurface> : model.owner && <View style={{marginTop: 16, borderWidth: 1, borderColor: theme.colors.line, borderRadius: 16, overflow: 'hidden'}}>
       <View style={{flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12, backgroundColor: '#153140'}}>
         <Icon name="i-server" size={20} color={theme.colors.textSecondary}/>
@@ -145,6 +146,7 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
           {location.actions.map(action => <Button key={action.id} focusId={`watch-file-${location.id}-${action.id}`} testID={`watch-file-${location.id}-${action.id}`} variant="glass" size="small" icon="i-trash" onPress={() => onManage(action.id, location.id)} textStyle={{color: theme.colors.record}}>{action.label}</Button>)}
         </View>)}
         {model.owner.actions.map(action => <Button key={action.id} focusId={`watch-file-owner-${action.id}`} testID={`watch-file-owner-${action.id}`} variant="glass" size="small" onPress={() => onManage(action.id)}>{action.label}</Button>)}
+        <Text style={[label, {lineHeight: 19}]}>{t('next.overlays.deleteVersionNote')}</Text>
       </View>
     </View>}
   </ScrollView>;
