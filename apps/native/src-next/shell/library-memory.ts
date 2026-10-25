@@ -12,6 +12,23 @@ export class LastLibraryMemory {
   private pending = new Map<string, Promise<unknown>>();
   private readonly storage: LibraryRecordStore;
   constructor(storage: LibraryRecordStore) {this.storage = storage;}
+  /** Sidebar state shares the injected device store, never the synchronized preference API. */
+  async readSidebar(scope: ShellScope, current: () => boolean): Promise<boolean> {
+    const key = 'next.sidebar-expanded.v1:' + scopeKey(scope);
+    await this.pending.get(key)?.catch(() => {});
+    if (!current()) return true;
+    return this.storage.change(key, raw => ({record: raw, value: current() && typeof raw === 'boolean' ? raw : true}));
+  }
+  rememberSidebar(scope: ShellScope, expanded: boolean, current: () => boolean): Promise<void> {
+    const key = 'next.sidebar-expanded.v1:' + scopeKey(scope);
+    const write = (this.pending.get(key) ?? Promise.resolve()).catch(() => {}).then(() => {
+      if (!current()) return;
+      return this.storage.change(key, raw => ({record: current() ? expanded : raw, value: undefined}));
+    });
+    this.pending.set(key, write);
+    void write.finally(() => {if (this.pending.get(key) === write) this.pending.delete(key);}).catch(() => {});
+    return write;
+  }
   private key(scope: ShellScope): string {return 'next.last-library.v1:' + scopeKey(scope);}
   async read(scope: ShellScope): Promise<string | undefined> {
     const key = this.key(scope);
