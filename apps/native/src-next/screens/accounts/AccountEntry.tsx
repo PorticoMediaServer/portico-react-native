@@ -649,6 +649,9 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       && lifetime.current && stageRef.current === renderedStage;
     const change = (set: (value: string) => void) => (value: string) => {if (current()) set(value);};
     const back = () => {if (current() && !busyRef.current) backRef.current();};
+    const failure = ticket?.controller.failure(error);
+    if (failure === 'expired') return <StateLayout testID="accounts-invitation-expired" icon="i-warn" title={t('accounts.invitation.expiredTitle')} body={t('accounts.invitation.expiredBody')}
+      primaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
     if (stage === 'invitation-code') return <StateLayout testID="accounts-invitation-code" title={t('web.directJoin.title')}
       body={t('services.start.whereBody')} beforeActions={<>{status}<TextField label={t('web.directJoin.code')} value={code}
         onChangeText={change(setCode)} autoCapitalize="characters" autoCorrect={false} autoComplete="off" editable={!busy}/></>}
@@ -666,7 +669,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         {preview.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
         {preview.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}
         <TextField label={t('web.directJoin.name')} value={name} onChangeText={change(setName)} editable={!busy}/>
-        <TextField label={t('web.directJoin.username')} value={username} onChangeText={change(setUsername)} autoCapitalize="none" autoCorrect={false} editable={!busy}/>
+        <TextField label={t('web.directJoin.username')} value={username} error={failure === 'username' ? t('web.directJoin.error.taken') : undefined} onChangeText={change(setUsername)} autoCapitalize="none" autoCorrect={false} editable={!busy}/>
         <TextField label={t('auth.password')} value={password} onChangeText={change(setPassword)} secureTextEntry autoComplete="new-password" editable={!busy}/>
         <TextField label={t('web.directJoin.confirm')} value={setupPasswordConfirm} onChangeText={change(setSetupPasswordConfirm)} secureTextEntry autoComplete="new-password" editable={!busy}/>
       </View>}
