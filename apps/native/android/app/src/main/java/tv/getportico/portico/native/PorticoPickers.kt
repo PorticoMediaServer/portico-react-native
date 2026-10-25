@@ -220,11 +220,13 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
     @Volatile var reading = false
   }
   private var active: Request? = null
+  @Volatile private var closed = false
   private var nextCode = 0x5044
   private val main = Handler(Looper.getMainLooper())
 
   private val listener: ActivityEventListener = object : BaseActivityEventListener() {
     override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+      if (closed) return
       val request = active ?: return
       if (request.code != requestCode || request.reading) return
       request.reading = true
@@ -240,6 +242,7 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
   override fun getName(): String = "PorticoDocumentFiles"
 
   override fun invalidate() {
+    closed = true
     reactApplicationContext.removeActivityEventListener(listener)
     val request = active; active = null
     if (request != null) { request.cancelled = true; request.promise.resolve(null) }
@@ -248,6 +251,7 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
 
   @ReactMethod
   fun pick(requestId: String, kind: String, promise: Promise) {
+    if (closed) { promise.reject("bridge_closed", "bridge_closed"); return }
     if (TelevisionDisplay.isTelevision) { promise.reject("document_picker_unavailable", "Choose playlist files on a phone or tablet."); return }
     if (!requestId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) || (kind != "playlist" && kind != "guide")) { promise.reject("document_request_invalid", "Invalid document request."); return }
     if (active != null) { promise.reject("document_picker_busy", "Another file is being read."); return }
@@ -265,6 +269,7 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
 
   @ReactMethod
   fun cancel(requestId: String, promise: Promise) {
+    if (closed) { promise.resolve(false); return }
     val request = active
     val current = request != null && request.id == requestId
     if (current) { request!!.cancelled = true; active = null; request.promise.resolve(null) }
@@ -272,21 +277,21 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
   }
 
   private fun finish(request: Request, result: com.facebook.react.bridge.WritableMap?, code: String?, message: String?) {
-    if (active !== request || request.cancelled) return
+    if (closed || active !== request || request.cancelled) return
     active = null
     if (result != null) request.promise.resolve(result)
     else request.promise.reject(code ?: "document_file", message ?: "Read failed.")
   }
 
   private fun read(uri: Uri, request: Request) {
-    if (request.cancelled) return
+    if (closed || request.cancelled) return
     val context = reactApplicationContext
     val name = displayName(context, uri)
     val extension = name.substringAfterLast('.', "").lowercase()
     val allowed = if (request.kind == "playlist") setOf("m3u", "m3u8") else setOf("xml")
     if (extension !in allowed) { main.post { finish(request, null, "document_format", if (request.kind == "playlist") "Choose an M3U playlist file." else "Choose an XMLTV guide file.") }; return }
     val bytes = boundedDocument(context, uri, 16 * 1024 * 1024, request)
-    if (bytes == null || request.cancelled) { if (!request.cancelled) main.post { finish(request, null, "document_file", "Read failed, the file is empty, or it is larger than 16 MB.") }; return }
+    if (bytes == null || closed || request.cancelled) { if (!closed && !request.cancelled) main.post { finish(request, null, "document_file", "Read failed, the file is empty, or it is larger than 16 MB.") }; return }
     val text = try {
       Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
         .decode(ByteBuffer.wrap(bytes)).toString()
@@ -305,12 +310,12 @@ class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJ
     context.contentResolver.openInputStream(uri)?.use { input ->
       val out = ByteArrayOutputStream()
       val chunk = ByteArray(65536)
-      while (!request.cancelled && out.size() <= limit) {
+      while (!closed && !request.cancelled && out.size() <= limit) {
         val read = input.read(chunk, 0, Math.min(chunk.size, limit + 1 - out.size()))
         if (read <= 0) break
         out.write(chunk, 0, read)
       }
-      if (!request.cancelled && out.size() in 1..limit) out.toByteArray() else null
+      if (!closed && !request.cancelled && out.size() in 1..limit) out.toByteArray() else null
     }
   } catch (_: Exception) { null }
 

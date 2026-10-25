@@ -13,6 +13,8 @@ import {liveDocumentPicker} from './live-document-picker';
 
 type Picked = Readonly<{title: string; bytes: number}>;
 type UploadInput = Readonly<{id: string; requestId: string; expectedRevision: number; name: string; playlist: string; guide: string; tunerCount: number}>;
+/** The committed lease for one drawn confirmation. Edits and flights mutate the
+ * same family; cleanup always retires this family and its latest picker/text. */
 type Opening = {
   readonly id: number;
   readonly abort: AbortController;
@@ -24,6 +26,7 @@ type Opening = {
   reading?: 'playlist' | 'guide';
   pick?: AbortController;
   error?: unknown;
+  retired: boolean;
 };
 
 const limit = 16 * 1024 * 1024;
@@ -47,19 +50,22 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
   controller: NativeLiveOwnerController; runtime: NativeShellRuntime; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void;
 }) {
   const theme = useTheme(), t = runtime.text.t;
-  const [opening, setOpening] = useState<Opening>();
   const active = useRef<Opening>(), sequence = useRef(0);
+  const [, render] = useState(0);
+  const changed = () => render(value => value + 1);
+  const opening = active.current;
+  const current = opening && !opening.retired ? opening : undefined;
   const retire = (target: Opening) => {
-    if (target.phase === 'closed') return;
-    target.phase = 'closed';target.abort.abort();target.pick?.abort();
-    // Uploaded text does not outlive the opening that collected it.
-    target.draft = emptyInput();target.preview = undefined;target.files = {};target.reading = undefined;target.error = undefined;
+    if (target.retired) return;
+    target.retired = true;target.phase = 'closed';target.abort.abort();target.pick?.abort();
+    // Uploaded text does not outlive the lease that collected it.
+    target.draft = emptyInput();target.preview = undefined;target.files = {};target.reading = undefined;target.pick = undefined;target.error = undefined;
   };
   useLayoutEffect(() => {
     let owned: Opening | undefined;
     if (open) {
-      owned = {id: ++sequence.current, abort: new AbortController(), phase: 'open', draft: emptyInput(), revision: 0, files: {}};
-      active.current = owned;setOpening(owned);
+      owned = {id: ++sequence.current, abort: new AbortController(), phase: 'open', draft: emptyInput(), revision: 0, files: {}, retired: false};
+      active.current = owned;changed();
     }
     return () => {
       if (!owned) return;
@@ -71,71 +77,68 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
     if (active.current !== target) return;
     active.current = undefined;
     retire(target);
+    changed();
     onOpenChange(false);
   };
-  const current = opening && active.current === opening && opening.phase !== 'closed' ? opening : undefined;
-  const input = current?.draft ?? blank, files = current?.files ?? {}, preview = current?.preview, busy = current?.phase === 'checking' || current?.phase === 'saving', reading = current?.reading;
+  const input = current?.draft ?? blank, files = current?.files ?? {}, preview = current?.preview, revision = current?.revision, busy = current?.phase === 'checking' || current?.phase === 'saving', reading = current?.reading;
   const edit = (target: Opening, patch: Pick<Partial<UploadInput>, 'name' | 'tunerCount'>) => {
-    if (active.current !== target || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
-    const next: Opening = {...target, draft: Object.freeze({...target.draft, ...patch, requestId: makeId()}), revision: target.revision + 1, preview: undefined, error: undefined};
-    active.current = next;setOpening(next);
+    if (active.current !== target || target.retired || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
+    target.draft = Object.freeze({...target.draft, ...patch, requestId: makeId()});
+    target.revision += 1;target.preview = undefined;target.error = undefined;changed();
   };
   const choose = async (target: Opening, field: 'playlist' | 'guide') => {
-    if (!liveDocumentPicker || active.current !== target || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
+    if (!liveDocumentPicker || active.current !== target || target.retired || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
     target.pick?.abort();
     const pickController = new AbortController();
-    const picking: Opening = {...target, reading: field, preview: undefined, error: undefined, pick: pickController};
-    active.current = picking;setOpening(picking);
+    target.pick = pickController;target.reading = field;target.preview = undefined;target.error = undefined;changed();
     try {
       const picked = await liveDocumentPicker.pick(field, pickController.signal);
-      if (!picked || active.current !== picking || picking.phase !== 'open' || picking.abort.signal.aborted || pickController.signal.aborted) return;
-      const other = field === 'playlist' ? picking.draft.guide : picking.draft.playlist;
+      if (!picked || active.current !== target || target.retired || target.phase !== 'open' || target.reading !== field ||
+        target.abort.signal.aborted || pickController.signal.aborted) return;
+      const other = field === 'playlist' ? target.draft.guide : target.draft.playlist;
       if (byteLength(picked.data) + byteLength(other) > limit) throw new Error('The playlist and guide together must be no larger than 16 MB.');
-      const draft = Object.freeze({...picking.draft, [field]: picked.data, requestId: makeId()});
-      const next: Opening = {...picking, draft, revision: picking.revision + 1, reading: undefined, pick: undefined, files: {...picking.files, [field]: {title: picked.title, bytes: picked.bytes}}};
-      active.current = next;setOpening(next);
+      target.draft = Object.freeze({...target.draft, [field]: picked.data, requestId: makeId()});
+      target.revision += 1;target.reading = undefined;target.pick = undefined;
+      target.files = {...target.files, [field]: {title: picked.title, bytes: picked.bytes}};
+      changed();
     } catch (failure) {
-      if (active.current === picking && !pickController.signal.aborted) {
-        const next: Opening = {...picking, reading: undefined, pick: undefined, error: failure};active.current = next;setOpening(next);
+      if (active.current === target && !target.retired && !target.abort.signal.aborted && !pickController.signal.aborted && target.reading === field) {
+        target.reading = undefined;target.pick = undefined;target.error = failure;changed();
       }
     } finally {
-      if (active.current === picking) {
-        const next: Opening = {...picking, reading: undefined, pick: undefined};active.current = next;setOpening(next);
+      if (active.current === target && !target.retired && target.reading === field) {
+        target.reading = undefined;target.pick = undefined;changed();
       }
     }
   };
   const check = async (target: Opening, renderedRevision: number) => {
-    if (active.current !== target || target.phase !== 'open' || target.revision !== renderedRevision || !target.draft.name.trim() || !target.draft.playlist || target.abort.signal.aborted) return;
-    const checking: Opening = {...target, phase: 'checking', preview: undefined, error: undefined};
-    active.current = checking;setOpening(checking);
-    const caller = {isCurrent: () => active.current === checking && checking.phase === 'checking' && !checking.abort.signal.aborted, signal: checking.abort.signal};
+    if (active.current !== target || target.retired || target.phase !== 'open' || target.revision !== renderedRevision ||
+      !target.draft.name.trim() || !target.draft.playlist || target.abort.signal.aborted) return;
+    target.phase = 'checking';target.preview = undefined;target.error = undefined;changed();
+    const caller = {isCurrent: () => active.current === target && !target.retired && target.phase === 'checking' && !target.abort.signal.aborted, signal: target.abort.signal};
     try {
-      const value = await controller.previewFiles(checking.draft, caller);
-      if (active.current !== checking || checking.phase !== 'checking' || checking.abort.signal.aborted) return;
-      const next: Opening = {...checking, phase: 'open', preview: {revision: checking.revision, value}};
-      active.current = next;setOpening(next);
+      const value = await controller.previewFiles(target.draft, caller);
+      if (active.current !== target || target.retired || target.phase !== 'checking' || target.abort.signal.aborted) return;
+      target.phase = 'open';target.preview = {revision: target.revision, value};changed();
     } catch (failure) {
-      if (active.current === checking && !checking.abort.signal.aborted) {
-        const next: Opening = {...checking, phase: 'open', error: failure};active.current = next;setOpening(next);
+      if (active.current === target && !target.retired && target.phase === 'checking' && !target.abort.signal.aborted) {
+        target.phase = 'open';target.error = failure;changed();
       }
     }
   };
   const save = async (target: Opening, renderedRevision: number) => {
-    if (active.current !== target || target.phase !== 'open' || target.revision !== renderedRevision || target.preview?.revision !== renderedRevision || target.abort.signal.aborted) return;
-    const saving: Opening = {...target, phase: 'saving', error: undefined};
-    active.current = saving;setOpening(saving);
-    const caller = {isCurrent: () => active.current === saving && saving.phase === 'saving' && !saving.abort.signal.aborted, signal: saving.abort.signal};
+    if (active.current !== target || target.retired || target.phase !== 'open' || target.revision !== renderedRevision ||
+      target.preview?.revision !== renderedRevision || target.abort.signal.aborted) return;
+    target.phase = 'saving';target.error = undefined;changed();
+    const caller = {isCurrent: () => active.current === target && !target.retired && target.phase === 'saving' && !target.abort.signal.aborted, signal: target.abort.signal};
     try {
-      const saved = await controller.saveFiles(saving.draft, caller);
-      if (active.current !== saving || saving.phase !== 'saving' || saving.abort.signal.aborted) return;
-      if (saved) {onSaved();close(saving);}
-      else {
-        const next: Opening = {...saving, phase: 'open', error: controller.getSnapshot().error ?? new Error('save_live_source')};
-        active.current = next;setOpening(next);
-      }
+      const saved = await controller.saveFiles(target.draft, caller);
+      if (active.current !== target || target.retired || target.phase !== 'saving' || target.abort.signal.aborted) return;
+      if (saved) {onSaved();close(target);}
+      else {target.phase = 'open';target.error = controller.getSnapshot().error ?? new Error('save_live_source');changed();}
     } catch (failure) {
-      if (active.current === saving && !saving.abort.signal.aborted) {
-        const next: Opening = {...saving, phase: 'open', error: failure};active.current = next;setOpening(next);
+      if (active.current === target && !target.retired && target.phase === 'saving' && !target.abort.signal.aborted) {
+        target.phase = 'open';target.error = failure;changed();
       }
     }
   };
@@ -149,7 +152,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
     footer={<View style={{flexDirection: 'row', gap: 10}}>
       <Button variant="glass" disabled={busy} onPress={() => {if (current) close(current);}}>{t('action.cancel')}</Button>
       <Button variant="primary" loading={busy} disabled={busy || !!reading || !input.name.trim() || !input.playlist}
-        onPress={() => {if (current) {if (preview) void save(current, current.revision);else void check(current, current.revision);}}}>{t(preview ? 'web.liveTv.addSource' : 'web.liveTv.checkFiles')}</Button>
+        onPress={() => {if (current && revision !== undefined) {if (preview) void save(current, revision);else void check(current, revision);}}}>{t(preview ? 'web.liveTv.addSource' : 'web.liveTv.checkFiles')}</Button>
     </View>} testID="live-owner-upload">
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{gap: 16}}>
       <TextField testID="live-owner-upload-name" label={t('web.liveTv.sourceName')} value={input.name} maxLength={100} disabled={busy || !!reading} onChangeText={name => {if (current) edit(current, {name});}}/>
@@ -158,7 +161,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
       <TextField testID="live-owner-upload-tuners" label={t('web.dvrSettings.tuners')} description={t('web.liveTv.tunersHelp')} keyboardType="number-pad"
         value={String(input.tunerCount)} disabled={busy || !!reading}
         onChangeText={value => {const count = Number(value);if (current && Number.isSafeInteger(count) && count >= 0 && count <= 64) edit(current, {tunerCount: count});}}/>
-      {current && current.error !== undefined && <StateView testID="live-owner-upload-error" {...runtime.error(current.error, () => {if (active.current === current) {const next: Opening = {...current, error: undefined};active.current = next;setOpening(next);}})}/>}
+      {current && current.error !== undefined && <StateView testID="live-owner-upload-error" {...runtime.error(current.error, () => {if (active.current === current && !current.retired) {current.error = undefined;changed();}})}/>}
       {preview && <View testID="live-owner-upload-preview" style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 12, padding: 14, gap: 6}}>
         <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{[t('server.live.channelCount', {count: preview.value.channels}), t('server.live.programCount', {count: preview.value.programmes})].join(' · ')}</Text>
         {!!preview.value.names.length && <Text numberOfLines={3} style={[shellType(13), {color: theme.colors.textSecondary}]}>{preview.value.names.slice(0, 6).join(', ')}{preview.value.names.length > 6 ? '…' : ''}</Text>}
