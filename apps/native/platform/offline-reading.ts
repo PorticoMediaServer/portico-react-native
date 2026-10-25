@@ -20,7 +20,7 @@ type NativeReads = {
 };
 const native = NativeModules.PorticoDownloads as NativeReads | undefined;
 export const nativePublicationReadsAvailable = () => !Platform.isTV && !!native && ['publicationOpen', 'publicationRead', 'publicationMember', 'publicationMemberRead', 'publicationCancel', 'publicationClose'].every(key => typeof Reflect.get(native, key) === 'function');
-const fail = (code = 'reading_unavailable'): never => {throw new ReadingError(code);};
+function fail(code = 'reading_unavailable'): never {throw new ReadingError(code);}
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const integer = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= max;
 const digest = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
