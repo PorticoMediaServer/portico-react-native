@@ -117,6 +117,14 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {lines.map((line, index) => <Text key={index} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: theme.isTV ? 700 : 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale),
       {marginTop: theme.isTV ? (index ? 6 : 0) : (index ? 0 : 10), color: theme.isTV ? theme.colors.textSecondary : theme.colors.textTertiary}]}>{line}</Text>)}
   </View>;
+  const styleSummary = style ? style.fields.map(field => field.values.find(value => value.value === field.current)?.label).filter(Boolean).join(' · ') : undefined;
+  // tv-player 4 draws the chapter in force as the Chapters row's own value.
+  const chapterInForce = ready?.chapters.length ? (() => {
+    const position = source.playback.positionSeconds * 1000;
+    const index = ready.chapters.findIndex((chapter, at) => position >= chapter.startMs && (!ready.chapters[at + 1] || position < ready.chapters[at + 1]!.startMs));
+    const chapter = index >= 0 ? ready.chapters[index] : undefined;
+    return chapter ? chapter.title || t('player.chapter.numbered', {number: index + 1}) : undefined;
+  })() : undefined;
   const retry = () => {void options.load(fence);};
   let body: React.ReactNode = null;
   if (state.panel === 'playback-info') body = playbackInfo?.(context);
@@ -159,7 +167,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
         <Text style={{marginTop: 6, color: theme.colors.textTertiary}}>{t('player.opt.providedByOpenSubtitles')}</Text>
       </View>}
     </>}
-    {style && style.fields.length > 0 && actionRow('subtitle-style', t('player.opt.subtitleStyle'), style.fields.map(field => field.values.find(value => value.value === field.current)?.label).filter(Boolean).join(' · '),
+    {style && style.fields.length > 0 && !theme.isTV && actionRow('subtitle-style', t('player.opt.subtitleStyle'), styleSummary,
       () => {if (current()) context.openPanel('style');})}
     {subtitleReasonText && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 8, color: theme.colors.textTertiary}}>{subtitleReasonText}</Text>}
     {selected.resource && source.subtitles?.plan && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6}}>
@@ -210,6 +218,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   if (state.panel !== 'style' && (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info')) body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
     {option('subtitles', 'i-cc', selected.subtitlesOff ? t('player.opt.off') : rows?.subtitles.find(row => row.selected)?.primary)}
     {state.panel === 'subtitles' && well('subtitles', expandedBody)}
+    {style && style.fields.length > 0 && theme.isTV && option('style', 'i-type', styleSummary)}
     {option('audio', 'i-audio', rows?.audio.find(row => row.selected)?.primary)}
     {state.panel === 'audio' && well('audio', expandedBody)}
     {option('quality', 'i-quality', rows?.qualities.find(row => row.selected)?.primary)}
@@ -218,8 +227,8 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {state.panel === 'speed' && well('speed', expandedBody)}
     {sleep && option('sleep', 'i-moon', sleep.minutes == null ? t('player.opt.off') : t('player.opt.minutes', {count: sleep.minutes}))}
     {state.panel === 'sleep' && well('sleep', expandedBody)}
-    {(!!ready?.chapters.length || playbackInfo) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 18 : 10, marginBottom: 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('player.more')}</Text>}
-    {!!ready?.chapters.length && option('chapters', 'i-queue')}
+    {(!!ready?.chapters.length || playbackInfo) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 22 : 10, marginBottom: theme.isTV ? 8 : 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('player.more')}</Text>}
+    {!!ready?.chapters.length && option('chapters', 'i-queue', chapterInForce)}
     {state.panel === 'chapters' && well('chapters', expandedBody)}
     {playbackInfo && option('playback-info', 'i-pulse')}
   </View>;
