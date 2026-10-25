@@ -1,5 +1,5 @@
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
-import React, {useCallback, useEffect, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
@@ -86,7 +86,7 @@ let kept: {binding: Binding; position: number} | undefined;
 /** The app is not on screen. */
 let away = false;
 /** The surface the mounted `PorticoPlayer` view draws on. */
-let surface: string | null = null;
+let surface: Readonly<{owner: object; lease: string; handle: string}> | null = null;
 /** The app's component, which the system addresses transport keys to. */
 let component: unknown;
 
@@ -226,11 +226,12 @@ class Engine {
   /** Gives the element the view's surface, or takes it away. */
   attach(): void {
     this.takeKeys();
-    if (!this.opened || this.closed || this.attached === surface) return;
+    const wanted = surface?.lease === this.binding.lease ? surface.handle : null;
+    if (!this.opened || this.closed || this.attached === wanted) return;
     try {
       if (this.attached) this.player.clearSurfaceHandle(this.attached);
-      if (surface) this.player.setSurfaceHandle(surface);
-      this.attached = surface;
+      if (wanted) this.player.setSurfaceHandle(wanted);
+      this.attached = wanted;
     } catch (error) {
       trace(`surface: ${String((error as Error)?.message ?? error)}`, true);
     }
@@ -619,11 +620,31 @@ export const PorticoPlaybackModule = withEvents({
  * The surface the picture is drawn on. As on Apple, the view's lifetime and the lease's are
  * separate: the engine plays without a surface, and takes whichever one is mounted.
  */
-export function PorticoPlayer({lease: _lease, pictureInPictureRequest: _request, children: _children, onLayout, ...view}: ViewProps & {lease: string; pictureInPictureRequest?: number}): React.ReactElement {
+export function PorticoPlayer({lease: viewLease, surfaceActive: _active, pictureInPictureRequest: _request, pictureInPictureBinding: _pictureBinding, children: _children, onLayout, ...view}: ViewProps & {lease: string; surfaceActive?: boolean; pictureInPictureRequest?: number; pictureInPictureBinding?: unknown}): React.ReactElement {
   const app = useKeplerAppStateManager();
   component ??= app.getComponentInstance();
-  const created = useCallback((handle: string) => { surface = handle; engine?.attach(); }, []);
-  const destroyed = useCallback(() => { surface = null; engine?.attach(); }, []);
+  const owner = useRef<object>({}).current;
+  const held = useRef(viewLease); held.current = viewLease;
+  const handle = useRef<string | null>(null);
+  const attach = useCallback(() => {
+    // A late native creation from a retired lease never steals the current surface.
+    if (!handle.current || !held.current || held.current !== lease) return;
+    surface = {owner, lease: held.current, handle: handle.current};
+    engine?.attach();
+  }, [owner]);
+  const created = useCallback((value: string) => {handle.current = value; attach();}, [attach]);
+  const destroyed = useCallback(() => {
+    handle.current = null;
+    if (surface?.owner !== owner) return;
+    surface = null; engine?.attach();
+  }, [owner]);
+  useEffect(() => {
+    attach();
+    return () => {
+      if (surface?.owner !== owner || surface.lease !== viewLease) return;
+      surface = null; engine?.attach();
+    };
+  }, [attach, owner, viewLease]);
   useEffect(() => destroyed, [destroyed]);
   const [size, setSize] = useState({width: 0, height: 0});
   const laidOut = useCallback((event: LayoutChangeEvent) => { const {width, height} = event.nativeEvent.layout; setSize({width, height}); onLayout?.(event); }, [onLayout]);
