@@ -255,6 +255,24 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val url = plan["url"] as String
     return if (url.startsWith("/")) HashMap(plan).apply { put("url", origin + url) } else plan
   }
+  // Music Match sample rate (23 Oct ruling): this device's own value. Reviewable WIP for
+  // Media: the mode is held and reported here; the sink must open at
+  // PorticoAudioSampleRate.choose(...) and record the rate it actually opened before
+  // audioProcessingFacts can ever answer sampleRateMatched = true.
+  @Volatile private var sampleRateMode: String = PorticoAudioSampleRate.SMART
+  @Volatile private var lastSourceRate: Int = 0
+  @Volatile private var lastOpenedRate: Int = 0
+
+  fun setSampleRateMatching(mode: String) {
+    sampleRateMode = PorticoAudioSampleRate.parse(mode)
+  }
+
+  fun sampleRateMatching(): String = sampleRateMode
+
+  /** The pitch-rate facts the player actually rendered at; equality only. */
+  fun audioProcessingFacts(context: android.content.Context): Map<String, Any> =
+      PorticoAudioSampleRate.facts(context, sampleRateMode, lastSourceRate, lastOpenedRate)
+
   private fun renders(presentation: Map<String, Any?>?): Boolean = PorticoAudioPlan.playable(decodePlan(presentation))
   private fun accepts(presentation: Map<String, Any?>?): Boolean {
     val plan = plan(presentation) ?: return false
