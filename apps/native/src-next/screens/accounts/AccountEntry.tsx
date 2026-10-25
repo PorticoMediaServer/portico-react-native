@@ -76,7 +76,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
-  const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'failed'>('idle');
+  const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
   const [memberMove, setMemberMove] = useState<MemberMove>(), [moveSnapshot, setMoveSnapshot] = useState<MemberMoveSnapshot>();
   const memberMoveRef = useRef<MemberMove | undefined>(undefined), memberOperation = useRef<NativeServerSignIn | undefined>(undefined), memberFactorOperation = useRef<NativeServerSignIn | undefined>(undefined);
   const stopMemberMove = () => {memberMoveRef.current?.dispose(); memberMoveRef.current = undefined; memberOperation.current = undefined; setMemberMove(undefined); setMoveSnapshot(undefined);};
@@ -230,7 +230,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
         !Number.isSafeInteger(value.policyRevision) || value.policyRevision < 0) || new Set(out.items.map(value => value.id)).size !== out.items.length)
         throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
-      setServers(out.items); setDirectoryList('idle');
+      setServers(out.items); setDirectoryList('ready');
     } catch (failure) {
       if (!current()) return;
       const presentation = presentError(failure, 'portico-account');
@@ -779,7 +779,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
     primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
-  if (!Platform.isTV && stage === 'servers' && directoryList === 'idle' && servers.length === 0) {
+  if (!Platform.isTV && stage === 'servers' && directoryList === 'ready' && servers.length === 0) {
     const source = operation.current, attempt = directoryAttempt.current, scope = accountScope.current;
     const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && operation.current === source
       && directoryAttempt.current === attempt && accountScope.current === scope
