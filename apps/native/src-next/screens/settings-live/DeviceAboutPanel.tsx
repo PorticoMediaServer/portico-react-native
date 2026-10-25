@@ -1,13 +1,16 @@
 import React, {useEffect, useState} from 'react';
-import {Linking, Platform, View} from 'react-native';
+import {Linking, Platform, Text, View} from 'react-native';
 import {routePath, type RouteResponse} from '../../../../../packages/contracts/src/routes';
 import {SettingsRow} from '../../kit/shell';
 import {StateView} from '../../kit/states';
+import {useTheme} from '../../kit/theme';
+import {shellType} from '../../kit/shell/visual';
 import type {NativeSettingsPanelDeps} from './settings-panels';
 import type {NativeShellRuntime} from '../../shell/runtime';
 
 /** Installation facts already supplied by bootstrap; no guessed version or device name. */
 export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: NativeSettingsPanelDeps & {runtime: NativeShellRuntime}) {
+  const theme = useTheme();
   const [serverVersion, setServerVersion] = useState<string>(), [versionError, setVersionError] = useState<unknown>(), [retry, setRetry] = useState(0);
   useEffect(() => {
     const caller = new AbortController();
@@ -25,6 +28,10 @@ export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: Nat
     void Linking.openURL(`https://${helpAddress}`).catch(error => {if (lifetime.current()) runtime.reportError(error);});
   };
   return <View testID="settings-panel-about">
+    <View testID="settings-about-credits" style={{paddingHorizontal: theme.isTV ? 24 : 14, paddingVertical: theme.isTV ? 18 : 12, gap: 12}}>
+      <Text style={[shellType(theme.isTV ? 20 : 13, 400, theme.isTV ? 29 : 19), {color: theme.colors.textTertiary}]}>{t('about.legal')}</Text>
+      <Text style={[shellType(theme.isTV ? 20 : 13, 400, theme.isTV ? 29 : 19), {color: theme.colors.textTertiary}]}>{t('about.datasetCredit')}</Text>
+    </View>
     <SettingsRow first label={t('about.appVersion')} value={context.appVersion}/>
     <SettingsRow label={t('about.server')} value={context.serverName}/>
     {serverVersion !== undefined && <SettingsRow testID="settings-server-version" label={t('about.serverVersion')} value={serverVersion}/>}
