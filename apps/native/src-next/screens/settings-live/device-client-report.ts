@@ -6,17 +6,26 @@ import {reportBody} from '../../platform/error-journal';
 import type {NativeSettingsPanelDeps} from './settings-panels';
 
 /** Explicitly requested, bounded/redacted diagnostics for this captured server only. */
-export async function sendNativeDeviceReport({context, lifetime}: Pick<NativeSettingsPanelDeps, 'context' | 'lifetime'>): Promise<void> {
-  lifetime.assert();
+export async function sendNativeDeviceReport({context, lifetime}: Pick<NativeSettingsPanelDeps, 'context' | 'lifetime'>, consent: Readonly<{signal: AbortSignal; current: () => boolean}>): Promise<void> {
+  const assertConsent = () => {
+    lifetime.assert();
+    if (consent.signal.aborted || !consent.current()) throw Object.assign(new Error('native_device_report_consent_ended'), {name: 'AbortError'});
+  };
+  assertConsent();
   const identity = installationIdentity();
   if (!identity) throw new Error('native_device_report_installation_unavailable');
   const crash = await lastCrash();
-  lifetime.assert();
+  assertConsent();
   if (installationIdentity() !== identity) throw new Error('native_device_report_installation_changed');
   const deviceClass = Platform.isTV ? 'television' : 'mobile';
   const body = reportBody({appVersion: identity.appVersion, platform: identity.platform, deviceClass, deviceName: identity.name,
     now: Date.now(), fatal: crash, entries: journal.list()});
-  await lifetime.request(signal => sendClientReport(context.api, lifetime.authority.serverId,
-    {platform: identity.platform, deviceClass, appVersion: identity.appVersion, body}, signal));
+  await lifetime.request(signal => {
+    assertConsent();
+    if (installationIdentity() !== identity) throw new Error('native_device_report_installation_changed');
+    return sendClientReport(context.api, lifetime.authority.serverId,
+      {platform: identity.platform, deviceClass, appVersion: identity.appVersion, body}, signal);
+  }, consent.signal);
+  assertConsent();
   if (crash) await forgetCrash(crash);
 }
