@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
-import {ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type TextStyle} from 'react-native';
+import {BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type TextStyle} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src';
@@ -27,10 +27,10 @@ import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave, t
 import {LibraryToolbar} from './LibraryToolbar';
 import {LibraryListRow} from './LibraryListRow';
 import {NativeLibraryDirectory} from './directory';
-import {LibraryFilters} from './LibraryFilters';
+import {LibraryFilters, libraryFiltersDockWidth, libraryFiltersOverWidth, libraryFiltersTabletPane} from './LibraryFilters';
 import {LibraryJumpSheet} from './LibraryJumpSheet';
 import {libraryJumpLetter, libraryJumpLetters} from './jump';
-import type {NativeLibraryFilterDraft} from './filters';
+import type {NativeLibraryFilterDraft, NativeLibraryFilterSnapshot} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
 import {libraryTabletGridGeometry} from './library-grid';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
@@ -70,6 +70,7 @@ export type NativeLibraryScreenProps = Readonly<{
 }>;
 const noSubscribe = () => () => {};
 const noSelection = () => undefined;
+const noFilterSnapshot = (): NativeLibraryFilterSnapshot | undefined => undefined;
 
 /** Screen-local geometry named for this lane. Numbers come from the phone frame's
  * own CSS: the compact row is 44 high, the back control 38 with its optical -4
@@ -165,6 +166,26 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const summaries = useSyncExternalStore(directory.subscribe, directory.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
+  // tablet4/5: the filter panel is a split view on expanded and a panel over the
+  // grid on medium, so the route owns the draft that both the pane and the grid read.
+  const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
+  const filterOpening = useRef(0), filtersRef = useRef<NativeLibraryFilterDraft>();
+  const filterState = useSyncExternalStore(filterDraft?.subscribe ?? noSubscribe, filterDraft?.getSnapshot ?? noFilterSnapshot);
+  const openFilters = useCallback(() => {
+    filtersRef.current?.dispose(); filterOpening.current++;
+    const next = destination.createFilters();
+    filtersRef.current = next; setFilterDraft(next);
+  }, [destination]);
+  // A retained close can arrive after a newer draft replaced this one. Only the
+  // draft the caller actually owns is disposed and cleared, so an old panel never
+  // erases its successor.
+  const closeFilters = useCallback((subject?: NativeLibraryFilterDraft) => {
+    const current = filtersRef.current;
+    if (!current || subject && current !== subject) return;
+    filtersRef.current = undefined; current.dispose(); setFilterDraft(undefined);
+  }, []);
+  useEffect(() => {if (!active.visible) closeFilters(filtersRef.current);}, [active.visible, closeFilters]);
+  useEffect(() => () => {filtersRef.current?.dispose(); filtersRef.current = undefined;}, []);
   const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   useEffect(() => {void destination.load().catch(runtime.reportError); void directory.load().catch(runtime.reportError);}, [destination, directory, runtime]);
   // The drawn loading page waits the kit's own skeleton delay before drawing shapes; the
@@ -242,35 +263,66 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const expanded = dimensions.width >= 1024;
   const shellWidth = shellPhone || theme.isTV ? 0 : expanded ? 248 : 84;
   const contentWidth = areaWidth || Math.max(0, dimensions.width - shellWidth);
+  // tablet4/5: Filters docks at 380 on expanded and covers the grid at 420 on
+  // medium. The grid only ever sees the column it is actually given.
+  const docked = tabletLayout && expanded && !!filterDraft;
+  const over = tabletLayout && !expanded && !!filterDraft;
+  const gridWidth = Math.max(0, contentWidth - (docked ? libraryFiltersDockWidth : 0));
+  // Back closes the panel before it leaves the library, as the phone sheet does.
+  useEffect(() => {
+    if (!docked && !over) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {closeFilters(filtersRef.current); return true;});
+    return () => subscription.remove();
+  }, [docked, over, closeFilters]);
+  const panel = filterDraft && <LibraryFilters key={filterOpening.current} draft={filterDraft} source={state} runtime={runtime} labels={props.labels} owner={props.owner}
+    onClose={() => closeFilters(filterDraft)} docked geometry={libraryFiltersTabletPane}/>;
+  // The phone sheet and the TV panel own their exit motion, so their draft stays
+  // mounted while it closes; the tablet panes have no exit motion to finish.
+  const sheet = filterDraft && !tabletLayout && <LibraryFilters key={filterOpening.current} draft={filterDraft} source={state} runtime={runtime} labels={props.labels} owner={props.owner}
+    onClose={() => filterDraft?.dispose()} onSave={view => actions.saveView(destination, view)}/>;
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} onLayout={event => setAreaWidth(event.nativeEvent.layout.width)}
     style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {wash}
-    {header}
-    {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
-    {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
-      : state.collection ? <View style={{flex: 1}}>
-        <LibraryGrid {...props} source={state} paneWidth={contentWidth} tablet={tabletLayout} expanded={expanded} entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
-        {emptyShown && <View testID="library-empty-page" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
-          <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} firstCardRegion={firstCardRegion}
-            onLeave={() => {if (!empty) setEmptyHeld(false);}}/>
-        </View>}
+    <View style={{flex: 1, flexDirection: docked ? 'row' : 'column'}}>
+      <View style={{flex: 1}}>
+        {header}
+        {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
+        {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
+          : state.collection ? <View style={{flex: 1}}>
+            <LibraryGrid {...props} source={state} paneWidth={gridWidth} tablet={tabletLayout} expanded={expanded} filtersOpen={filterState?.open ?? false} onFilters={openFilters} dockedFilters={docked}
+              entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
+            {emptyShown && <View testID="library-empty-page" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
+              <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} firstCardRegion={firstCardRegion}
+                onLeave={() => {if (!empty) setEmptyHeld(false);}}/>
+            </View>}
+          </View>
+          : loading ? <LibraryLoading theme={theme} width={theme.isTV ? dimensions.width : contentWidth} height={dimensions.height} tablet={tabletLayout} expanded={expanded} elapsedMs={loadingElapsed}/>
+          : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)}/>
+          : state.tab.shows === 'rows' ? <ScrollView>
+            {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
+            {state.discover.appended.map(section => <View key={section.id}>
+            <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: theme.gutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
+            <ScrollView horizontal scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: theme.gutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}
+              onScroll={event => {
+                if (!active.visible || !section.nextCursor) return;
+                const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+                if (contentOffset.x + layoutMeasurement.width >= contentSize.width - 10 * (theme.isTV ? 228 : 122)) void destination.nextDiscover(section.id).catch(runtime.reportError);
+              }}>
+              {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
+            </ScrollView>
+          </View>)}</ScrollView> : null}
       </View>
-      : loading ? <LibraryLoading theme={theme} width={theme.isTV ? dimensions.width : contentWidth} height={dimensions.height} tablet={tabletLayout} expanded={expanded} elapsedMs={loadingElapsed}/>
-      : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)}/>
-      : state.tab.shows === 'rows' ? <ScrollView>
-        {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
-        {state.discover.appended.map(section => <View key={section.id}>
-        <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: theme.gutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
-        <ScrollView horizontal scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: theme.gutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}
-          onScroll={event => {
-            if (!active.visible || !section.nextCursor) return;
-            const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-            if (contentOffset.x + layoutMeasurement.width >= contentSize.width - 10 * (theme.isTV ? 228 : 122)) void destination.nextDiscover(section.id).catch(runtime.reportError);
-          }}>
-          {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
-        </ScrollView>
-      </View>)}</ScrollView> : null}
+      {docked && <View testID="library-filters-dock" style={{width: libraryFiltersDockWidth, backgroundColor: theme.colors.raised,
+        borderLeftWidth: 1, borderLeftColor: alpha(theme.colors.text, .07)}}>{panel}</View>}
+    </View>
+    {over && <View style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation}}>
+      <Pressable accessible={false} onPress={() => closeFilters(filtersRef.current)} style={[StyleSheet.absoluteFill, {backgroundColor: alpha('#03080c', .62)}]}/>
+      <View testID="library-filters-over" accessibilityViewIsModal importantForAccessibility="yes"
+        style={{position: 'absolute', top: 0, bottom: 0, right: 0, width: libraryFiltersOverWidth, maxWidth: '100%', backgroundColor: theme.colors.raised,
+          shadowColor: '#000', shadowOffset: {width: -20, height: 0}, shadowOpacity: .6, shadowRadius: 40}}>{panel}</View>
+    </View>}
+    {sheet}
     {props.selection?.render()}
   </View>;
 }
@@ -309,7 +361,7 @@ function LibraryEmpty({runtime, regionId, upRegionId, firstCardRegion, onLeave}:
   </FocusRegion>;
 }
 
-function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, paneWidth, tablet, expanded, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; /** The live width of this route's column, after the rail or sidebar and any docked pane. */ paneWidth: number; /** True on the medium and expanded tablet layouts, where the drawn grid is not the phone's. */ tablet: boolean; /** The one expanded classification the skeleton uses too: 1024 and wider. */ expanded: boolean; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
+function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, paneWidth, tablet, expanded, filtersOpen, onFilters, dockedFilters, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; /** The live width of this route's column, after the rail or sidebar and any docked pane. */ paneWidth: number; /** True on the medium and expanded tablet layouts, where the drawn grid is not the phone's. */ tablet: boolean; /** The one expanded classification the skeleton uses too: 1024 and wider. */ expanded: boolean; /** The route owns the filter draft, so the panel is drawn beside or over this grid. */ filtersOpen: boolean; onFilters: () => void; /** True while that panel is docked beside the grid. */ dockedFilters: boolean; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
   const theme = useTheme(), registry = useFocusRegistry(), grid = useRef<WindowedGridHandle>(null);
   const collection = source.collection!, state = useSyncExternalStore(collection.subscribe, collection.getSnapshot);
   const pageSubscribe = useCallback((listener: () => void) => collection.subscribePage(0, listener), [collection]);
@@ -336,12 +388,6 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const [jumpOpen, setJumpOpen] = useState(false), jumpAnchor = useRef<View>(null);
   const jumpLetters = useMemo(() => libraryJumpLetters(state.positionIndex), [state.positionIndex]);
   const jumpLetter = useMemo(() => libraryJumpLetter(jumpLetters, visible.first), [jumpLetters, visible.first]);
-  const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
-  const filterState = useSyncExternalStore(filterDraft?.subscribe ?? noSubscribe, filterDraft?.getSnapshot ?? noSelection);
-  const filterOpening = useRef(0);
-  // Keep the closed surface mounted so its own exit motion/focus return can finish.
-  const closeFilters = useCallback(() => filterDraft?.dispose(), [filterDraft]);
-  useEffect(() => {if (!active.visible) {filterDraft?.dispose(); setFilterDraft(undefined);}}, [active.visible, filterDraft]);
   const initialIndex = useRef(source.memory.firstVisibleIndex).current;
   const offset = useRef(destination.getMemory().offset), range = useRef(visible), registered = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {const held = registered; return () => {held.current?.(); held.current = undefined;};}, [collection]);
@@ -377,9 +423,9 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const columns = list ? 1 : theme.isTV ? 7 : tablet ? tabletGeometry!.columns : 3;
   return <View style={{flex: 1}}>
     <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
-      <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
+      <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filtersOpen} docked={dockedFilters}
         canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}
-        onFilters={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}
+        onFilters={onFilters}
         onSort={sort => destination.setQuery(source.predicates, sort)} onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}
         onQuick={destination.setQuick} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}
         onJump={() => setJumpOpen(true)} jumpEnabled={!!state.positionIndex && !!Object.keys(state.positionIndex).length} jumpAnchor={jumpAnchor}
@@ -417,8 +463,6 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       height={theme.isTV ? 514 : 480} style={{position: 'absolute', right: theme.isTV ? 40 : 2, top: theme.isTV ? 174 : 110}}/>}
     <LibraryJumpSheet open={jumpOpen} panelId={`${ids.libraryToolbar(source.library.id)}.jump`} letters={jumpLetters} selected={jumpLetter}
       onSelect={key => {setJumpOpen(false); grid.current?.scrollToLetter(key);}} onClose={() => setJumpOpen(false)}/>
-    {filterDraft && <LibraryFilters key={filterOpening.current} draft={filterDraft} source={source} runtime={runtime} labels={labels} owner={owner} onClose={closeFilters}
-      onSave={view => actions.saveView(destination, view)}/>}
   </View>;
 }
 
