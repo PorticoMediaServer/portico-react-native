@@ -33,7 +33,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},
     '../../platform/server-connections': {browseNearby: async () => {events.push('discovery'); return [];}}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
-    '../../tv/auth': {}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
+    '../../tv/auth': {}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
   });
   const onStageChange = (...args: NativeAccountEntryStage[]) => {
     assert.equal(phase, 'layout'); assert.equal(args.length, 1, 'the observer receives only the stage, never fields or authority');

@@ -49,7 +49,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     '../../platform/account-authority': {hostedUrl: 'https://hosted.test'},
     '../../tv/auth': {TVProfilePINForm: 'PIN', TVForgotPINHandoff: 'Forgot', TVFrontDoor: 'Front', TVCodePresenter: 'Code',
       TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required'},
-    './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
+    './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
     './directory-chooser': {directoryRows: (servers: readonly {id: string; name: string}[]) => servers.map(server => ({id: server.id, name: server.name, offline: false})),
       directoryFailure: (server: unknown, error: unknown) => !server ? 'other' : error === undefined ? 'opening' : 'waiting',
       directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
