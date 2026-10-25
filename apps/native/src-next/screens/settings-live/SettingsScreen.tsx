@@ -55,6 +55,8 @@ import {NativeServerStreaming} from './server/StreamingPage';
 import {NativeServerSegments} from './server/SegmentsPage';
 import {PhoneServerPageHeader} from './server/PhoneServerPageHeader';
 import {NativeRemoteSourcesScreen} from '../settings/remote-sources/NativeRemoteSourcesScreen';
+import {NativeDashboardScreen} from './DashboardScreen';
+import type {NativeDashboardController} from './dashboard-controller';
 import QRCode from 'react-native-qrcode-svg';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
@@ -65,7 +67,7 @@ export function nativeSettingsIcon(name: string): IconName {
   return Object.hasOwn(nextIcons, key) ? key as IconName : 'i-sliders';
 }
 
-export function NativeSettingsScreen({ports, controller, runtime, devicePreferences}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences}) {
+export function NativeSettingsScreen({ports, controller, runtime, devicePreferences, dashboard}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; dashboard?: NativeDashboardController}) {
   const theme = useTheme(), t = runtime.text.t, registry = useFocusRegistry(), insets = useSafeAreaInsets();
   const shell = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -221,6 +223,13 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const generalPage = !theme.isTV && page.id === 'general';
   const streamingPage = !theme.isTV && page.id === 'streaming';
   const segmentsPage = !theme.isTV && page.id === 'segments';
+  // Medium and expanded Settings draw the owner Dashboard as a Settings page; phone keeps
+  // its dedicated pushed Dashboard route.
+  const dashboardPage = !theme.isTV && !compact && page.id === 'dashboard' && dashboard !== undefined;
+  const dashboardDenied = useCallback(() => {
+    const first = accountPages[0]?.id;
+    if (first) setSelected(first);
+  }, [accountPages]);
   const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
@@ -276,7 +285,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
             <ServerHeader serverName={ports.serverName()} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone"/>
             {grouped(serverPages, compact ? [] : tabletServerClusters).map((group, index) => <React.Fragment key={group[0]?.id ?? index}>
               {index > 0 && <View style={{height: 10}}/>}
-              {group.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => value.id === 'dashboard' ? ports.context.navigation.open({kind: 'server-dashboard'}, ports.context.authority()) : choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
+              {group.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => value.id === 'dashboard' ? (dashboard !== undefined && !compact ? choose(value.id) : ports.context.navigation.open({kind: 'server-dashboard'}, ports.context.authority())) : choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
                 <View style={{width: 30, height: 30, borderRadius: 8, backgroundColor: alpha(theme.colors.accent, .16), alignItems: 'center', justifyContent: 'center'}}><Icon name={nativeSettingsIcon(value.icon)} size={18} color={theme.colors.accentStrong}/></View>
                 <Text numberOfLines={1} style={[shellType(15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text><Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
               </Focusable>)}
@@ -286,9 +295,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
         {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>}
-        {!compact && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {!compact && !dashboardPage && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {dashboardPage ? <NativeDashboardScreen controller={dashboard!} ports={ports} runtime={runtime} inline onDenied={dashboardDenied} deniedFallback={null}/> : segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && matches.length > 0 && <Text testID="settings-search-count" style={[shellType(20, 600), {color: theme.colors.textTertiary, marginBottom: 18}]}>{t('next.shell.tvSettingsMatchCount', {count: matches.length})}</Text>}
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}

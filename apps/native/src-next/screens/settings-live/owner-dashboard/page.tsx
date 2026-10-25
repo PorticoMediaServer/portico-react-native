@@ -53,6 +53,8 @@ export type OwnerDashboardPageProps = Readonly<{
   onShowAll: () => void;
   onShowFewer: () => void;
   onRetryAll: () => void;
+  /** The same page inside the tablet Settings split: no page-level Back header. */
+  inline?: boolean;
 }>;
 
 /** One page for every width of the owner Dashboard's phone layout (owner-dashboard.html frames 2–8). */
@@ -60,7 +62,7 @@ export function OwnerDashboardPage(props: OwnerDashboardPageProps) {
   const {t, role} = props, theme = useTheme(), viewport = useWindowDimensions().height;
   const [scrolled, setScrolled] = useState(false), [stuck, setStuck] = useState(false);
   const [first, setWindow] = useState<{first: number; last: number}>({first: 0, last: 0});
-  const bar = props.topInset + 48, headerTop = useRef(0), listTop = useRef(0), scrollTop = useRef(0);
+  const bar = props.inline ? 0 : props.topInset + 48, headerTop = useRef(0), listTop = useRef(0), scrollTop = useRef(0);
   const owner = role === 'owner', compact = ownerUsesCompactRows(props.streamTotals), expanded = props.expanded && compact;
   const rows = expanded ? props.allStreams : props.streams;
   const count = props.streamTotals.streams, collapsedLast = Math.min(rows.length, 10) - 1;
@@ -122,7 +124,7 @@ export function OwnerDashboardPage(props: OwnerDashboardPageProps) {
       <BlurView pointerEvents="none" style={{position: 'absolute', inset: 0}} blurType="dark" blurAmount={20} reducedTransparencyFallbackColor={theme.colors.ink}/>
       <OwnerNowPlayingHeader t={t} people={props.people} count={count} expanded onShowFewer={props.onShowFewer} sticky/>
     </View> : null}
-    <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: bar, paddingTop: props.topInset, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', zIndex: 20, backgroundColor: scrolled ? alpha(theme.colors.ink, .84) : 'transparent', borderBottomWidth: scrolled ? 1 : 0, borderBottomColor: alpha(theme.colors.text, .07)}}>
+    {!props.inline && <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: bar, paddingTop: props.topInset, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', zIndex: 20, backgroundColor: scrolled ? alpha(theme.colors.ink, .84) : 'transparent', borderBottomWidth: scrolled ? 1 : 0, borderBottomColor: alpha(theme.colors.text, .07)}}>
       {scrolled ? <BlurView pointerEvents="none" style={{position: 'absolute', inset: 0}} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.ink}/> : null}
       <Focusable testID="owner-dashboard-back" accessibilityRole="button" accessibilityLabel={t('action.back')} onPress={props.onBack} focusRadius={20} style={{width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center'}}>
         <Icon name="i-left" size={22} color={theme.colors.text}/>
@@ -131,7 +133,7 @@ export function OwnerDashboardPage(props: OwnerDashboardPageProps) {
         <Text numberOfLines={1} style={[shellType(16.5, 800, 'normal', -.015), {color: theme.colors.text}]}>{t('next.dashboard.title')}</Text>
         <Text numberOfLines={1} style={[shellType(12, 600), {color: theme.colors.accentStrong}]}>{props.serverName}</Text>
       </View> : null}
-    </View>
+    </View>}
   </View>;
 }
 
