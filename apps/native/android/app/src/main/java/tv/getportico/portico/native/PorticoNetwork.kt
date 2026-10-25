@@ -140,6 +140,12 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
   fun forgetCertificate(origin: String?) = PorticoServerTrust.forget(origin)
 
   @ReactMethod
+  fun forgetCapturedCertificate(origin: String?, fingerprint: String?, serverId: String?, promise: Promise) {
+    if (PorticoServerTrust.forgetCaptured(origin, fingerprint, serverId)) promise.resolve(true)
+    else promise.reject("certificate_changed", "certificate_changed")
+  }
+
+  @ReactMethod
   fun forgetServerCertificates(serverId: String?, origins: ReadableArray?, promise: Promise) {
     val values = origins?.toArrayList()?.mapNotNull { it as? String }
     if (serverId == null || origins == null || values == null || values.size != origins.size() || values.size > 256 ||

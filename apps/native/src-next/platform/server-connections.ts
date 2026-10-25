@@ -140,6 +140,15 @@ export async function savedCertificates(): Promise<SavedCertificate[]> {
 export function forgetSavedCertificate(address: string): void {
   NativeModules.PorticoNetwork?.forgetCertificate?.(savedCertificateOrigin(address));
 }
+/** Confirmation removes only this displayed tuple, atomically with native pin writers. */
+export async function forgetCapturedCertificate(value: SavedCertificate): Promise<void> {
+  const parsed = parseSavedCertificates([value]);
+  const remove = NativeModules.PorticoNetwork?.forgetCapturedCertificate;
+  if (parsed.length !== 1 || typeof remove !== 'function') throw new RouteError('cancelled', 'certificate_changed');
+  const captured = parsed[0]!;
+  if (await remove(savedCertificateOrigin(captured.address), captured.fingerprint, captured.serverId) !== true)
+    throw new RouteError('cancelled', 'certificate_changed');
+}
 const proofTLSLeaves = new WeakMap<Response, string>();
 /** Native TLS metadata for this exact proof Response, never an HTTP header or TXT. */
 export function nativeProofTLSLeaf(response: Response): string | undefined {return proofTLSLeaves.get(response);}
