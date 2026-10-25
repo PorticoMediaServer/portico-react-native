@@ -393,7 +393,7 @@ export class NativeServerSignIn {
         && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;
     };
     const invitationApi = new HttpLocalApi(api.baseUrl, '', nativeNetworkFetch); invitationApi.useRoutes(routes);
-    this.localInvitation = new NativeLocalInvitation({api: invitationApi, current: this.current, signIn: (username, password) => this.signInLocal(username, password)});
+    this.localInvitation = new NativeLocalInvitation({api: invitationApi, origin: routeOrigin(api.baseUrl), serverId: pin.serverId, current: this.current, signIn: (username, password) => this.signInLocal(username, password)});
     return this.localInvitation;
   }
   signInLocal(username: string, password: string) {
