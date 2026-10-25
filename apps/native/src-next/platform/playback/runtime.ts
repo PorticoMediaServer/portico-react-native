@@ -235,7 +235,16 @@ export class NativePlaybackRuntime {
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
     // X-02: the profile's Sound settings are what the listening engine renders with, so the
     // same adopt path the web player uses runs here on start and on every settings change.
-    const adoptAudioEffects = () => {const effects = this.o.settings().audioEffects; if (effects) this.playback.adoptAudioEffectsPreference(effects);};
+    const adoptAudioEffects = () => {
+      const effects = this.o.settings().audioEffects;
+      if (!effects) return;
+      this.playback.adoptAudioEffectsPreference(effects);
+      // The engine's own rate matcher, when this build has one. A rejected mode stays
+      // unapplied: the signal path reports the observed output rate, never the setting.
+      const bridge = (NativeModules as unknown as {PorticoPlaybackModule?: {setAudioSampleRateMatching?: (mode: string) => Promise<unknown>}}).PorticoPlaybackModule?.setAudioSampleRateMatching;
+      if (effects.sampleRateMatching && typeof bridge === 'function')
+        void Promise.resolve(bridge(effects.sampleRateMatching)).catch(error => {if (__DEV__) console.warn('[audio-sample-rate]', error);});
+    };
     adoptAudioEffects();
     this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { adoptAudioEffects(); this.queue.listening.refreshAudiobookPreferences(); this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
     this.offs.push(this.choices.subscribe(() => {

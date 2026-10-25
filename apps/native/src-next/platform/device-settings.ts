@@ -2,14 +2,14 @@ import type {CompositeId} from '../../../../packages/client-core/src/presentatio
 import {engineSettings, parseEngineSetting} from './playback/engine-choice';
 import type {NativeQueueStore} from './queue-storage';
 
-export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr';
+export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'music.sampleRateMatching';
 type Owner = Readonly<{current: () => boolean; subscribePreferences: (listener: () => void) => () => void}>;
 type Ports = Readonly<{storage: Pick<NativeQueueStore, 'change'>; readRecord: () => unknown; acceptRecord: (raw: unknown) => void}>;
 const sources = new WeakMap<Owner, NativeDeviceSettings>();
 const object = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw);
 const ended = () => Object.assign(new Error('native_device_settings_retired'), {name: 'AbortError'});
 export function nativeDeviceSettingSupported(id: string): id is NativePlaybackDeviceSetting {
-  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr';
+  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'music.sampleRateMatching';
 }
 
 /** The four installation fields consumed by the actual playback runtime. The
@@ -24,6 +24,7 @@ export class NativeDeviceSettings {
     this.assert(); if (!nativeDeviceSettingSupported(id)) return;
     const raw = this.ports.readRecord(), record = object(raw) ? raw : {};
     if (id === 'playerEngine') return parseEngineSetting(record.playerEngine);
+    if (id === 'music.sampleRateMatching') return record[id] === 'strict' || record[id] === 'off' ? record[id] as string : record[id] === 'smart' ? 'smart' : undefined;
     return record[id] === true;
   };
   subscribe = (listener: () => void): (() => void) => {
@@ -32,7 +33,9 @@ export class NativeDeviceSettings {
   write = async (id: CompositeId, value: string | boolean): Promise<void> => {
     this.assert();
     if (!nativeDeviceSettingSupported(id)) throw Object.assign(new Error('native_device_setting_unsupported'), {code: 'unsupported'});
-    if (id === 'playerEngine' ? !engineSettings.some(setting => setting === value) : typeof value !== 'boolean') throw new Error('native_device_setting_value_invalid');
+    if (id === 'playerEngine' ? !engineSettings.some(setting => setting === value)
+      : id === 'music.sampleRateMatching' ? typeof value !== 'string' || !['smart', 'strict', 'off'].includes(value)
+      : typeof value !== 'boolean') throw new Error('native_device_setting_value_invalid');
     await this.ports.storage.change('preferences:v1', raw => {
       this.assert();
       if (raw !== null && raw !== undefined && !object(raw)) throw new Error('native_device_settings_record_invalid');

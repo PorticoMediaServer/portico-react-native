@@ -4,6 +4,7 @@ import type {DirectSnapshot} from '../../../../../packages/client-core/src/profi
 import type {SettingsContext, SettingsCustomId, SettingsPlatform} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import {playerSettingsSupport} from '../../platform/playback/native-listening-kinds';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
+import {NativeModules, Platform} from 'react-native';
 
 export type NativeSettingsContextSource = Readonly<{
   account: DirectSnapshot;
@@ -37,6 +38,8 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
       downloads: false,
       playbackSpeed: playerSettingsSupport.playbackSpeed,
       audioEffects: playerSettingsSupport.audioEffects,
+      // Only the device whose engine actually has a rate-matching bridge offers the row.
+      sampleRateMatching: Platform.OS === 'ios' && typeof NativeModules?.PorticoPlaybackModule?.setAudioSampleRateMatching === 'function',
     }),
   });
 }

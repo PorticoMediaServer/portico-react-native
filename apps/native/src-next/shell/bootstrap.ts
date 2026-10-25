@@ -15,7 +15,7 @@ import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/cli
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
-import {bindNativeDeviceSettings} from '../platform/device-settings';
+import {bindNativeDeviceSettings, nativeDeviceSettings} from '../platform/device-settings';
 import {bindNativeServerPreferences} from '../platform/server-preferences';
 import {rememberNativeServerDisplay} from '../platform/server-display';
 import {readNativeServerDisplays} from '../platform/server-display';
@@ -200,8 +200,13 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),
-      settings: () => ({...nativePlaybackSettings(currentPreferences().effective, installationSettings), audiobook: audiobookPreferences(currentPreferences()),
-        audioEffects: musicAudioEffects(currentPreferences())}), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
+      settings: () => {
+        // The sample-rate match is this device's own engine value, never the profile's.
+        let matching: 'smart' | 'strict' | 'off' | undefined;
+        try {const value = nativeDeviceSettings(context).read('music.sampleRateMatching'); matching = value === 'smart' || value === 'strict' || value === 'off' ? value : undefined;} catch {matching = undefined;}
+        return {...nativePlaybackSettings(currentPreferences().effective, installationSettings), audiobook: audiobookPreferences(currentPreferences()),
+          audioEffects: {...musicAudioEffects(currentPreferences()), ...(matching ? {sampleRateMatching: matching} : {})}};
+      }, subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
     playOn = new NativePlayOn({api: local, session: () => current() ? session : undefined,
       deviceName: () => installationIdentity()?.name ?? (Platform.OS === 'ios' ? 'iPhone' : 'Android phone'),
       playback: () => playback, current, reportError: error => {if (current()) console.warn('[playOn]', error);}});
