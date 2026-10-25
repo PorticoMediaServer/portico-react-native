@@ -47,7 +47,7 @@ export type RemoteSourceStatus=Readonly<{sourceId:string;generation:string;state
  * read cache may use, and which analysis stages run for files found through it. */
 export type SourceAdvanced=Readonly<{scanIntervalSeconds:number;watchForChanges:boolean;scanOnStart:boolean;fullRecheckDays:number;cacheBytes:number;cacheFloorBytes:number;seekPreviews:boolean;chapterImages:boolean;waveforms:boolean;loudness:boolean;checksums:boolean;introsMode:'off'|'inherit'|'sound'|'picture';doubleCheckFolders:boolean;dirCacheSeconds:number;readBufferBytes:number;connectTimeoutSeconds:number;idleTimeoutSeconds:number;retries:number;lowLevelRetries:number}>;
 export type SourceProgram=Readonly<{executable:string;version:string;revision:number;included:boolean}>;
-export type SourceAdvancedSettings=Readonly<{sourceId:string;generation:string;revision:number;saved:boolean;cacheSupported:boolean;cacheApplied:boolean;cacheError?:string;scanIntervalObserved:number;values:SourceAdvanced}>;
+export type SourceAdvancedSettings=Readonly<{sourceId:string;generation:string;revision:number;saved:boolean;cacheSupported:boolean;cacheApplied:boolean;cacheError?:string;cacheUsedBytes:number;scanIntervalObserved:number;values:SourceAdvanced}>;
 const sourceReadPresets:Readonly<Record<SourceReadPreset,SourceReadValues>>=Object.freeze({
  list:{scanDepth:'file_list_only',wholeFileReads:false,connections:2,requestsPerSecond:2,bytesPerSecond:0},
  once:{scanDepth:'basic',wholeFileReads:false,connections:4,requestsPerSecond:4,bytesPerSecond:0},
@@ -60,6 +60,9 @@ export type S3SourceFields=Readonly<{endpoint:string;region:string;accessKey:str
 export type S3SourceDraft=Readonly<{remote:string;config:string}>;
 const s3Value=(value:string,max:number):boolean=>value.length>=1&&value.length<=max&&!/[\r\n\u0000]/.test(value);
 const s3FolderPart=/^[^\\/\r\n\u0000]{1,255}$/;
+// Root-only grammar: scheme and authority, an optional bare slash, nothing that
+// could normalise into a path, query, fragment or userinfo.
+const s3EndpointShape=/^https:\/\/(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9a-fA-F:.]+\])(?::([0-9]{1,5}))?\/?$/i;
 /**
  * One S3-compatible source as the exact section the server's own validator and
  * candidate test accept. Undefined means a field is not usable; nothing is
@@ -67,10 +70,12 @@ const s3FolderPart=/^[^\\/\r\n\u0000]{1,255}$/;
  */
 export function s3SourceDraft(fields:S3SourceFields):S3SourceDraft|undefined{
  const endpoint=fields.endpoint.trim();
+ const shape=s3EndpointShape.exec(endpoint);
+ if(!shape)return undefined;
+ if(shape[1]!==undefined){const port=Number(shape[1]);if(port<1||port>65535)return undefined;}
  let url:URL;
  try{url=new URL(endpoint);}catch{return undefined;}
- if(url.protocol!=='https:'||!url.hostname||url.username||url.password||url.search||url.hash||url.pathname!=='/')return undefined;
- if(!/^https:\/\/[^\s]+$/i.test(endpoint))return undefined;
+ if(url.protocol!=='https:'||!url.hostname||url.pathname!=='/'||url.search||url.hash||url.username||url.password)return undefined;
  const region=fields.region.trim();
  if(region&&!/^[a-z0-9-]{1,32}$/i.test(region))return undefined;
  const accessKey=fields.accessKey.trim();
@@ -86,7 +91,7 @@ export function s3SourceDraft(fields:S3SourceFields):S3SourceDraft|undefined{
 
 /** The drawn Google Drive form: the owner's own service-account key and where
  * the files are. Portico writes the rclone section; the key is never shown back. */
-export type DriveKeyFields=Readonly<{name:string;keyJson:string;location:'folder'|'drive';locationId:string}>;
+export type DriveKeyFields=Readonly<{keyJson:string;location:'folder'|'drive';locationId:string}>;
 export type DriveKeyDraft=Readonly<{remote:string;config:string;email:string}>;
 export type DriveKeyResult=Readonly<{ok:true;draft:DriveKeyDraft}|{ok:false;reason:'json'|'oauth'|'type'|'email'|'key'|'location'}>;
 const driveLocationId=/^[A-Za-z0-9_-]{1,200}$/;
@@ -158,9 +163,9 @@ function sourceAdvanced(raw:unknown):SourceAdvanced{
  return Object.freeze({scanIntervalSeconds,watchForChanges,scanOnStart,fullRecheckDays,cacheBytes,cacheFloorBytes,seekPreviews,chapterImages,waveforms,loudness,checksums,introsMode,doubleCheckFolders,dirCacheSeconds,readBufferBytes,connectTimeoutSeconds,idleTimeoutSeconds,retries,lowLevelRetries}) as SourceAdvanced;
 }
 function sourceAdvancedSettings(raw:unknown,id:string):SourceAdvancedSettings{
- if(!record(raw)||raw.sourceId!==id||!text(raw.generation,64)||!raw.generation||!integer(raw.revision)||typeof raw.saved!=='boolean'||typeof raw.cacheSupported!=='boolean'||typeof raw.cacheApplied!=='boolean'||!integer(raw.scanIntervalObserved))invalid();
+ if(!record(raw)||raw.sourceId!==id||!text(raw.generation,64)||!raw.generation||!integer(raw.revision)||typeof raw.saved!=='boolean'||typeof raw.cacheSupported!=='boolean'||typeof raw.cacheApplied!=='boolean'||!integer(raw.cacheUsedBytes)||!integer(raw.scanIntervalObserved))invalid();
  if(raw.cacheError!==undefined&&!['source_changed','mount_unavailable','cache_refused','cache_record_failed'].includes(String(raw.cacheError)))invalid();
- return Object.freeze({sourceId:id,generation:raw.generation,revision:raw.revision,saved:raw.saved,cacheSupported:raw.cacheSupported,cacheApplied:raw.cacheApplied,...(raw.cacheError===undefined?{}:{cacheError:raw.cacheError as string}),scanIntervalObserved:raw.scanIntervalObserved,values:sourceAdvanced(raw.values)});
+ return Object.freeze({sourceId:id,generation:raw.generation,revision:raw.revision,saved:raw.saved,cacheSupported:raw.cacheSupported,cacheApplied:raw.cacheApplied,...(raw.cacheError===undefined?{}:{cacheError:raw.cacheError as string}),cacheUsedBytes:raw.cacheUsedBytes,scanIntervalObserved:raw.scanIntervalObserved,values:sourceAdvanced(raw.values)});
 }
 function remoteSourceStatus(raw:unknown,id:string):RemoteSourceStatus{
  if(!record(raw)||raw.sourceId!==id||!text(raw.generation,64)||!raw.generation||!text(raw.state,100)||!text(raw.rangeSupport,32)||!text(raw.lastCheckedAt,64)||!integer(raw.connectionsInUse)||!integer(raw.playbackReads)||!integer(raw.analysisReads)||!integer(raw.scanIntervalSeconds)||!Array.isArray(raw.libraries)||raw.libraries.length>10||typeof raw.librariesTruncated!=='boolean')invalid();
