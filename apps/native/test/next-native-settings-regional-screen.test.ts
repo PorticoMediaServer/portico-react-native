@@ -1,3 +1,4 @@
+import {nativeEqualizer} from '../src-next/platform/playback/equalizer';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as structure from '../../../packages/client-core/src/presentation/settings-structure';
@@ -59,6 +60,12 @@ async function fixture() {
     './server/TroubleshootingPage': {NativeServerTroubleshooting: 'NativeServerTroubleshooting'},
     './server/StoragePage': {NativeServerStorage: 'NativeServerStorage'},
     './server/IntegrationsPage': {NativeServerIntegrations: 'NativeServerIntegrations'},
+    './server/GeneralPage': {NativeServerGeneral: 'NativeServerGeneral'},
+    './server/StreamingPage': {NativeServerStreaming: 'NativeServerStreaming'},
+    './server/SegmentsPage': {NativeServerSegments: 'NativeServerSegments'},
+    './server/PhoneServerPageHeader': {PhoneServerPageHeader: 'PhoneServerPageHeader'},
+    '../settings/remote-sources/NativeRemoteSourcesScreen': {NativeRemoteSourcesScreen: 'NativeRemoteSourcesScreen'},
+    '../../platform/playback/equalizer': {nativeEqualizer},
     '../../tv/auth/TVHandoff': {publicTVHandoffAddress: (value: string) => ({url: value, display: value, pathname: '/settings/profile', search: ''})},
   });
   const preferences = parsePreferenceSnapshot({deviceClass: 'mobile', registryRevision: 'regional-screen', registry: {revision: 'regional-screen', fields: [{key: 'region.locale', type: 'locale', default: 'en-US', group: 'region', labelKey: 'preferences.region.locale', scopes: ['profile-server']}]} ,

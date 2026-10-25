@@ -12,7 +12,7 @@ import * as homeCapabilities from '../../../packages/client-core/src/home-select
 import * as homePresentation from '../../../packages/client-core/src/presentation/home-spotlight';
 import * as serverText from '../../../packages/client-core/src/presentation/server-text';
 import {defaultI18n} from '../../../packages/i18n/src';
-import {createTheme} from '../src-next/kit/theme';
+import {createTheme, nativeType} from '../src-next/kit/theme';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import * as shellModel from '../src-next/shell/model';
 import * as focusModel from '../src-next/shell/tv-focus';
@@ -58,7 +58,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../../../../packages/client-core/src/presentation/server-text': serverText, '../../../../../packages/client-core/src/presentation/kit-model': {},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
     '../../kit/layout': {Row, Hero: 'Hero', FocusPreviewHero: 'Preview'}, '../../kit/layout/types': {}, '../../kit/layout/FocusAnchor': {useFocusAnchor},
-    '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
+    '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
     '../../shell/model': shellModel, '../../shell/tv-focus': focusModel, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './HomeHeroFacts': {}, './model': homeModel,
   });
   const screenServices = await screenModule(source('screens/native-screen-services.tsx'), {

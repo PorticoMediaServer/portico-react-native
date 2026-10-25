@@ -1,3 +1,4 @@
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -42,6 +43,7 @@ async function savedScreen() {
     '../home/model': {homeCardText: () => ({caption: []})},
     './model': {NativeSavedDestination: class {}}, './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
     '../downloads/playback': {openNativeSavedDownload: () => {}},
+    '../../../../../packages/client-core/src/presentation/errors': {presentError},
   });
   const actions = {openView: (view: unknown) => opened.push(view), openEntry: (item: unknown) => opened.push(item), menuEntry: () => {}, openDownloads: () => opened.push('downloads'),
     openPin: (pin: unknown) => opened.push(pin), editPins: () => opened.push('edit')};

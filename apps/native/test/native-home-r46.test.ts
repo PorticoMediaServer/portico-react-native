@@ -8,7 +8,7 @@ import {serverTextLabel} from '../../../packages/client-core/src/presentation/se
 import type {HomeRow} from '../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
-import {createTheme} from '../src-next/kit/theme';
+import {createTheme, nativeType} from '../src-next/kit/theme';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
@@ -25,7 +25,7 @@ const desktopTheme = createTheme({isTV: false, width: 1440});
 function factsModule(theme: typeof phoneTheme) {
   return screenModule(new URL('../src-next/screens/home/HomeHeroFacts.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text'},
-    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {useTheme: () => theme},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
   });
 }
 
@@ -181,7 +181,7 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../kit/layout/types': {itemSelection: () => ({})},
     '../../kit/states': {StateView: 'StateView', HomeSkeleton: 'HomeSkeleton', SkeletonBlock: 'SkeletonBlock'},
     '../../platform/home-action-diagnostics': {homeActionDiagnostics: {action() {}}},
-    '../../kit/theme': {useTheme: typeof theme === 'function' ? theme : () => theme}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
+    '../../kit/theme': {nativeType, useTheme: typeof theme === 'function' ? theme : () => theme}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
     './HomeHeroFacts': {HomeHeroFacts: 'HomeHeroFacts', HomeRemoteHint: 'HomeRemoteHint'},
     './model': {authorizedHome: (value: unknown) => value, platformRows: () => rows, homeRowHasContent, homeCardText: () => ({title: 'x'}), homePlayTarget: () => undefined, pageAtVisibleEnd: () => false},
   });

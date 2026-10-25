@@ -5,6 +5,8 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 const {react} = hooks();
 const {renderNativeSettingsPanel} = await screenModule(new URL('../src-next/screens/settings-live/settings-panels.tsx', import.meta.url), {
   react, 'react-native': {},
+  './DeviceAboutPanel': {DeviceAboutPanel: 'DeviceAboutPanel'},
+  './owner-libraries/IntroCreditsReview': {IntroCreditsReview: 'IntroCreditsReview'},
   '../../../../../packages/client-core/src/installation': {installationIdentity: () => undefined},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {},
   '../../kit/controls': {},

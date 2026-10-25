@@ -6,7 +6,7 @@ import * as homePresentation from '../../../packages/client-core/src/presentatio
 import * as homeCapabilities from '../../../packages/client-core/src/home-selection';
 import * as serverText from '../../../packages/client-core/src/presentation/server-text';
 import {defaultI18n} from '../../../packages/i18n/src';
-import {createTheme} from '../src-next/kit/theme';
+import {createTheme, nativeType} from '../src-next/kit/theme';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {activateCard, holdCard} from '../src-next/kit/cards/model';
 import {itemSelection} from '../src-next/kit/layout/types';
@@ -49,7 +49,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Row: 'Row', Hero: 'Hero'}, '../../kit/layout/types': {itemSelection},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({offset: {value: 0}, scrollRef: {current: null}})},
-    '../../kit/states': {}, '../../kit/theme': {useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
+    '../../kit/states': {}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
     './HomeHeroFacts': {}, './model': homeModel,
   });
   try {

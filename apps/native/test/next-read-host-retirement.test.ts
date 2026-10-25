@@ -1,4 +1,5 @@
-import test from 'node:test';
+import * as startupDiagnostics from '../src-next/screens/read/startup-diagnostics';
+import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {HttpLocalApi, createReadingHost, connectReadingHost} from '../../../packages/client-core/src';
@@ -8,6 +9,11 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery, appleReaderEntry} from '../src-next/screens/read/asset-origin';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+
+// The native bundle supplies this compile-time flag; exercise its production path.
+const previousDev = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
+Object.defineProperty(globalThis, '__DEV__', {configurable: true, value: false});
+after(() => {if (previousDev) Object.defineProperty(globalThis, '__DEV__', previousDev); else Reflect.deleteProperty(globalThis, '__DEV__');});
 
 const rows = [...(nativeReadingSettingsSection.groups ?? []), ...(nativeReadingSettingsSection.advanced?.groups ?? [])].flatMap(group => group.rows);
 const fields = rows.map(row => ({key: row.key!, type: typeof row.control.default === 'boolean' ? 'boolean' : typeof row.control.default === 'number' ? 'integer' : 'string',
@@ -44,6 +50,7 @@ test(`the actual native host retains activity ${activity.initial}->${activity.cu
     '../../platform/server-connections': {nativeRouteCrypto: {random: () => new Uint8Array(24).fill(7)}},
     '../../kit/states': {StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
+    './startup-diagnostics': startupDiagnostics,
   });
   const props = {context, target: {itemId: 'item', sourceId: 'source'}, active: activity.initial,
     preferences: {getSnapshot: () => preferences, subscribe: () => () => {}}, onBack() {}, onOpenSettings() {}};

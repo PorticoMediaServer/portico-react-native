@@ -1,3 +1,5 @@
+import {defaultI18n} from '../../../packages/i18n/src';
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -12,7 +14,7 @@ function elements(node: any): Element[] {
   if (Array.isArray(node)) return node.flatMap(elements);
   return node && typeof node === 'object' && 'props' in node ? [node, ...elements(node.props.children)] : [];
 }
-const runtime = {text: {}, artwork: () => undefined, reportError() {}};
+const runtime = {text: defaultI18n, artwork: () => undefined, reportError() {}};
 const theme = createTheme({width: 390, isTV: false});
 const selection = (calls: string[], active = false) => ({active, selected: false, onToggle: () => calls.push('toggle'), onEnter: () => calls.push('enter')});
 
@@ -91,6 +93,7 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     './model': {savedProjectionCount: () => undefined, savedDirectoryCount: () => undefined},
     './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
     '../downloads/playback': {openNativeSavedDownload},
+    '../../../../../packages/client-core/src/presentation/errors': {presentError},
   });
   const tree = host.render(() => SavedScreen({destination: {subscribe() {}, getSnapshot: () => state}, runtime, device: {subscribe() {}, getSnapshot: () => ({entries: []})},
     actions, activation: {subscribe() {}, getSnapshot: () => ({visible: false, intent: 'restore', revision: 2})}, selection: {item: () => selected, render: () => 'actual-toolbar'}}));

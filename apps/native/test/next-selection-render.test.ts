@@ -30,7 +30,7 @@ const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const useWindowDimensions=()=>globalThis.__porticoSelectionRenderTest.viewport;
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0}};`);
-const theme = moduleURL(`const s=globalThis.${stateKey}; export const useTheme=()=>s.theme; export const fontFamilies=s.fontFamilies; export const nativeType=s.nativeType;`);
+const theme = moduleURL(`const s=globalThis.${stateKey}; export const activeTextScale=()=>s.theme.textScale; export const useTheme=()=>s.theme; export const fontFamilies=s.fontFamilies; export const nativeType=s.nativeType;`);
 const reanimated = moduleURL(`import {useRef} from ${JSON.stringify(import.meta.resolve('react'))};
   export const useSharedValue=value=>useRef({value}).current;
   export const useAnimatedStyle=fn=>fn(); export const cancelAnimation=()=>{};
