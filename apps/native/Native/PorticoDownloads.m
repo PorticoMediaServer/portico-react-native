@@ -906,9 +906,55 @@ static void PorticoRefuseUnreadable(RCTPromiseRejectBlock reject) {
   reject(@"manifest_unreadable", @"Downloads on this device can't be read right now.", nil);
 }
 
+// Cover-page uploads: the app sends only bounded image bytes; this module
+// generates the private cache file, its opaque handle and its file URI.
+static NSString *PorticoCoverActualMime(NSData *data) {
+  const unsigned char *bytes = data.bytes;
+  NSUInteger length = data.length;
+  if (length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return @"image/jpeg";
+  if (length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47
+      && bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A) return @"image/png";
+  if (length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46
+      && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) return @"image/webp";
+  return nil;
+}
+static NSString *PorticoCoverExtension(NSString *mime) {
+  if ([mime isEqualToString:@"image/jpeg"]) return @".jpg";
+  if ([mime isEqualToString:@"image/png"]) return @".png";
+  return @".webp";
+}
+/** Strict canonical base64: bounded before decode, multiple of four, no
+ * whitespace, ignored character or malformed tail. */
+static BOOL PorticoCoverBase64Valid(NSString *value) {
+  const NSUInteger maximum = 13981016;
+  NSUInteger length = value.length;
+  if (length == 0 || length > maximum || length % 4 != 0) return NO;
+  const char *bytes = value.UTF8String;
+  if (!bytes) return NO;
+  NSUInteger padding = 0;
+  for (NSUInteger index = 0; index < length; index++) {
+    char c = bytes[index];
+    if (c == '=') {padding++; if (padding > 2 || index < length - 2) return NO; continue;}
+    if (padding) return NO;
+    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/')) return NO;
+  }
+  return YES;
+}
+static NSString *PorticoCoverDirectory(NSError **error) {
+  NSString *root = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+  if (!root) { if (error) *error = [NSError errorWithDomain:@"portico_cover" code:1 userInfo:nil]; return nil; }
+  NSString *directory = [root stringByAppendingPathComponent:@"portico-cover-uploads"];
+  if (![[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:error]) return nil;
+  return directory;
+}
+
 @implementation PorticoDownloads {
   PorticoDownloadOwner *_owner;
   PorticoPublicationReads *_publicationReads;
+  NSMutableDictionary<NSString *, NSString *> *_coverFiles;
+  NSLock *_coverLock;
+  NSUInteger _coverGeneration;
+  BOOL _coverRetired;
 }
 
 RCT_EXPORT_MODULE()
@@ -917,13 +963,15 @@ RCT_EXPORT_MODULE()
   if ((self = [super init])) {
     _owner = [PorticoDownloadOwner shared];
     _publicationReads=[PorticoPublicationReads new];
+    _coverFiles=[NSMutableDictionary dictionary];
+    _coverLock=[NSLock new];
     _owner.emitter = self;
     // Another wake: the owner reads whether the device is unlocked on the main queue.
     dispatch_async(dispatch_get_main_queue(), ^{ [PorticoDownloadOwner start]; });
   }
   return self;
 }
-- (void)invalidate {[_publicationReads invalidate];[super invalidate];}
+- (void)invalidate {[_publicationReads invalidate];[_coverLock lock];_coverRetired=YES;_coverGeneration++;NSArray<NSString *> *paths=[_coverFiles allValues];[_coverFiles removeAllObjects];[_coverLock unlock];for (NSString *path in paths) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];[super invalidate];}
 - (dispatch_queue_t)methodQueue { return _owner.queue; }
 - (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
 - (void)startObserving { _porticoObserving = YES; }
@@ -980,4 +1028,50 @@ RCT_EXPORT_METHOD(publicationMember:(NSString *)handle operation:(double)operati
 RCT_EXPORT_METHOD(publicationMemberRead:(NSString *)handle operation:(double)operation offset:(double)offset length:(double)length resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {[_publicationReads range:handle operation:operation offset:offset length:length member:YES resolve:resolve reject:reject];}
 RCT_EXPORT_METHOD(publicationCancel:(NSString *)handle operation:(double)operation) {[_publicationReads cancel:handle operation:operation];}
 RCT_EXPORT_METHOD(publicationClose:(NSString *)handle) {[_publicationReads close:handle];}
+
+// One bounded image-only private temp file. The caller sends bytes only; the
+// filename, directory and opaque handle are generated here.
+RCT_EXPORT_METHOD(writeCoverImage:(NSString *)mime base64:(NSString *)base64 resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  if (![mime isKindOfClass:NSString.class] || ![base64 isKindOfClass:NSString.class]) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  if (![mime isEqualToString:@"image/jpeg"] && ![mime isEqualToString:@"image/png"] && ![mime isEqualToString:@"image/webp"]) {reject(@"unsupported_image", @"unsupported_image", nil);return;}
+  if (!PorticoCoverBase64Valid(base64)) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+  if (!data || data.length == 0 || data.length > 10 * 1024 * 1024) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  // Canonical equality also rejects non-zero unused tail bits in the last sextet.
+  if (![[data base64EncodedStringWithOptions:0] isEqualToString:base64]) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  NSString *actual = PorticoCoverActualMime(data);
+  if (![actual isEqualToString:mime]) {reject(@"unsupported_image", @"unsupported_image", nil);return;}
+  NSUInteger generation; BOOL retired;
+  [_coverLock lock];generation=_coverGeneration;retired=_coverRetired;[_coverLock unlock];
+  if (retired) {reject(@"cancelled", @"cancelled", nil);return;}
+  NSError *error = nil;
+  NSString *directory = PorticoCoverDirectory(&error);
+  if (!directory) {reject(@"write_failed", @"write_failed", error);return;}
+  NSString *path = [directory stringByAppendingPathComponent:[[NSUUID UUID].UUIDString stringByAppendingString:PorticoCoverExtension(mime)]];
+  if (![data writeToFile:path options:NSDataWritingAtomic error:&error]) {reject(@"write_failed", @"write_failed", error);return;}
+  NSNumber *size = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil][NSFileSize];
+  if (![size isEqualToNumber:@(data.length)]) {[[NSFileManager defaultManager] removeItemAtPath:path error:nil];reject(@"write_failed", @"write_failed", nil);return;}
+  NSString *handle = [NSUUID UUID].UUIDString;
+  BOOL registered = NO;
+  [_coverLock lock];
+  if (!_coverRetired && _coverGeneration == generation) {_coverFiles[handle]=path;registered=YES;}
+  [_coverLock unlock];
+  if (!registered) {[[NSFileManager defaultManager] removeItemAtPath:path error:nil];reject(@"cancelled", @"cancelled", nil);return;}
+  resolve(@{@"handle":handle, @"uri":[NSURL fileURLWithPath:path].absoluteString, @"size":size});
+}
+RCT_EXPORT_METHOD(deleteCoverImage:(NSString *)handle resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  if (![handle isKindOfClass:NSString.class]) {resolve(nil);return;}
+  [_coverLock lock];NSString *path = _coverFiles[handle];[_coverLock unlock];
+  if (!path) {resolve(nil);return;}
+  NSString *directory = PorticoCoverDirectory(nil);
+  if (!directory || ![[path stringByDeletingLastPathComponent] isEqualToString:directory]) {
+    [_coverLock lock];[_coverFiles removeObjectForKey:handle];[_coverLock unlock];
+    reject(@"invalid_handle", @"invalid_handle", nil);return;
+  }
+  NSError *error = nil;
+  if ([[NSFileManager defaultManager] removeItemAtPath:path error:&error] || ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+    [_coverLock lock];[_coverFiles removeObjectForKey:handle];[_coverLock unlock];
+    resolve(nil);
+  } else reject(@"delete_failed", @"delete_failed", error);
+}
 @end
