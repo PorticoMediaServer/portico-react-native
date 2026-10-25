@@ -35,6 +35,7 @@ import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneNoServers} from './PhoneNoServers';
 import {TVNoServers} from './TVNoServers';
+import {TVOfflineServers} from './TVOfflineServers';
 import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
 import {PhoneMovePassword} from './PhoneMovePassword';
 import {PhoneMoveCode} from './PhoneMoveCode';
@@ -109,7 +110,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   };
   const targetRef = useRef(target), activeRef = useRef(appActive), retryEpoch = useRef(0), remainingRetry = useRef(20);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const directoryConnectRef = useRef<(value: HostedServer, automatic?: boolean) => void>(() => {});
+  const directoryConnectRef = useRef<(value: HostedServer, automatic?: boolean, expectedTarget?: HostedServer) => void>(() => {});
   const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
@@ -293,9 +294,9 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       setDirectoryList('idle'); throw failure;
     }
   };
-  const connectDirectory = (value: HostedServer, automatic = false) => {
+  const connectDirectory = (value: HostedServer, automatic = false, expectedTarget = value) => {
     if (busyRef.current || acting.current || adoptingTV.current || !lifetime.current) return;
-    if (automatic && (stageRef.current !== 'servers' || targetRef.current !== value || !activeRef.current)) return;
+    if (automatic && (stageRef.current !== 'servers' || targetRef.current !== expectedTarget || !activeRef.current || !servers.includes(value))) return;
     stopRetry(); targetRef.current = value;
     if (!automatic) {retryDelay.current = 20; setRetryIn(20);}
     remainingRetry.current = retryDelay.current;
@@ -488,8 +489,13 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const status = failure && !failure.silent ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
   const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
   const hostedWaiting = stage === 'servers' && !!target && error instanceof HostedSignInUnavailable;
+  const offlineRows = Platform.isTV && stage === 'servers' && directoryList === 'ready' ? directoryRows(servers) : [];
+  const allTVOffline = offlineRows.length > 0 && offlineRows.every(row => row.offline);
   useEffect(() => {
-    if (stage !== 'servers' || !target || (directoryView !== 'waiting' && !hostedWaiting) || busy || !appActive) return;
+    if (allTVOffline && !target && !busy && appActive && servers[0]) directoryConnectRef.current(servers[0]);
+  }, [allTVOffline, target, busy, appActive, servers]);
+  useEffect(() => {
+    if (stage !== 'servers' || !target || (directoryView !== 'waiting' && !(allTVOffline && directoryView === 'unreachable') && !hostedWaiting) || busy || !appActive) return;
     const attempt = directoryAttempt.current, epoch = ++retryEpoch.current, capturedTarget = target;
     const current = () => lifetime.current && retryEpoch.current === epoch && directoryAttempt.current === attempt
       && stageRef.current === 'servers' && targetRef.current === capturedTarget && activeRef.current
@@ -498,13 +504,18 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       if (!current()) return;
       const seconds = remainingRetry.current;
       setRetryIn(seconds);
-      if (seconds <= 0) {retryDelay.current = nextRetryDelay(retryDelay.current); directoryConnectRef.current(capturedTarget, true); return;}
+      if (seconds <= 0) {
+        retryDelay.current = nextRetryDelay(retryDelay.current);
+        const index = servers.indexOf(capturedTarget);
+        const next = allTVOffline && !hostedWaiting && index >= 0 ? servers[(index + 1) % servers.length] : capturedTarget;
+        directoryConnectRef.current(next ?? capturedTarget, true, capturedTarget); return;
+      }
       retryTimer.current = setTimeout(() => {if (!current()) return; remainingRetry.current -= 1; tick();}, 1000);
     };
     tick();
     const stopOwnedRetry = () => {if (retryEpoch.current === epoch) stopRetry();};
     return stopOwnedRetry;
-  }, [stage, target, directoryView, hostedWaiting, busy, appActive]);
+  }, [stage, target, directoryView, hostedWaiting, busy, appActive, allTVOffline, servers]);
   const resumeSetupRef = useRef<() => void>(() => {});
   resumeSetupRef.current = () => {void run(async () => {
     const source = operation.current;
@@ -935,8 +946,17 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: chooseAnother}}/>;
   if (stage === 'servers' && target && directoryAccessRefused(error) && !singleTVFailure) return <DirectoryAccessRefused serverName={target.name} busy={busy}
     onOther={chooseAnother} onRefresh={() => {cancelDirectory(); void run(directory);}}/>;
-  if (stage === 'servers' && target && directoryView === 'opening') return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
+  if (stage === 'servers' && target && directoryView === 'opening' && !allTVOffline) return <StateLayout testID="accounts-server-opening" title={t('web.chooser.connecting', {server: target.name})}
     primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
+  if (allTVOffline && !hostedWaiting && !directoryAccessRefused(error) && (!target || directoryView === 'opening' || directoryView === 'waiting' || directoryView === 'unreachable')) {
+    const captured = servers, scope = accountScope.current, attempt = directoryAttempt.current;
+    const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && directoryAttempt.current === attempt && accountScope.current === scope
+      && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope.accountId
+      && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope.familyId;
+    return <TVOfflineServers rows={offlineRows} scope={scope} revision={attempt} isCurrent={current} busy={busy} activeId={target?.id}
+      retryIn={target ? retryIn : undefined} onRetry={id => {if (!current()) return; const row = captured.find(value => value.id === id); if (row) connectDirectory(row);}}
+      onBack={() => {if (current()) back();}} onRefresh={() => {if (current()) {cancelDirectory(); void run(directory);}}}/>;
+  }
   if (stage === 'servers' && target && directoryView === 'unreachable' && !singleTVFailure) {
     const body = directoryOfflineBody(target);
     return <StateLayout testID="accounts-server-unreachable" title={t('web.chooser.unreachableTitle', {server: target.name})} body={t(body.key, body.values)}
