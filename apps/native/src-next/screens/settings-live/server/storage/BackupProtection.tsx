@@ -14,6 +14,7 @@ export function NativeBackupProtection({source, settings, current: ownerCurrent,
   const theme = useTheme(), [editor, setEditor] = useState<Editor>(), [secret, setSecret] = useState(''), [repeat, setRepeat] = useState(''), [busy, setBusy] = useState(false), [problem, setProblem] = useState(false), [uncertain, setUncertain] = useState(false);
   const view = useMemo(() => ({source, active: true, editor: undefined as Editor | undefined, flight: undefined as object | undefined, uncertain: false}), [source]);
   useLayoutEffect(() => {view.active = true;return () => {view.active = false;view.editor?.abort.abort();view.editor = undefined;view.flight = undefined;};}, [view]);
+  useLayoutEffect(() => {if (view.editor && view.editor.settings !== settings) {view.editor.abort.abort();view.editor = undefined;setEditor(undefined);setSecret('');setRepeat('');}}, [settings, view]);
   const current = () => view.active && view.source === source && ownerCurrent();
   const held = editor && view.editor === editor && !editor.abort.signal.aborted && current() ? editor : undefined;
   const close = () => {if (!held || !current() || view.editor !== held) return;view.editor = undefined;held.abort.abort();setEditor(undefined);setSecret('');setRepeat('');};
@@ -29,7 +30,7 @@ export function NativeBackupProtection({source, settings, current: ownerCurrent,
     } catch (error) {failure(error);if (current()) {view.uncertain = true;setUncertain(true);setProblem(true);}}
     finally {if (view.flight === flight) {view.flight = undefined;if (current()) setBusy(false);}}
   };
-  const protect = () => {const captured = held;if (!captured || !secret || secret !== repeat || view.flight) return;const passphrase = secret;setSecret('');setRepeat('');void save({passphraseProtected:true,passphrase},captured);};
+  const protect = () => {const captured = held;if (!captured || !current() || view.editor !== captured || captured.abort.signal.aborted || source.getSnapshot().settings !== captured.settings || !secret || secret !== repeat || view.flight) return;const passphrase = secret;setSecret('');setRepeat('');void save({passphraseProtected:true,passphrase},captured);};
   const reconcile = async () => {if (!current() || view.flight) return;const flight = {};view.flight = flight;setBusy(true);try {await source.load();if (current() && source.getSnapshot().settings) {view.uncertain = false;setUncertain(false);setProblem(false);}} catch (error) {failure(error);if (current()) setProblem(true);} finally {if (view.flight === flight) {view.flight = undefined;if (current()) setBusy(false);}}};
   return <View style={{gap:10}}>
     <Text style={[shellType(15,600),{color:theme.colors.text}]}>{t('next.settingsSpec.server.storage.advanced.groups.3.rows.1.label')}</Text><Text style={{color:theme.colors.textSecondary}}>{t('next.settingsSpec.server.storage.advanced.groups.3.rows.1.help')}</Text>
