@@ -49,13 +49,6 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   if (state.menu) {
     const menu = state.menu;
     const select: MenuEntry = {id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => {
-      if (theme.isTV) {
-        const before = controller.getSnapshot().selection.active;
-        controller.closeMenu();
-        const result = controller.toggle(menu.windowId, menu.key);
-        if (result.ok && !before && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
-        return;
-      }
       const current = controller.getSnapshot();
       if (current.menu?.key !== menu.key || current.menu.windowId !== menu.windowId) return;
       // Pick before closing: a retained menu window may be released by closeMenu.

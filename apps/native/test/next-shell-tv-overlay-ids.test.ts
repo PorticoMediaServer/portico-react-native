@@ -13,8 +13,12 @@ test('actual Home overlays export fenced native rating controls and append genui
   const ownerTag = h.react.createElement('ExistingOwnerBadge', {variant: 'badge'});
   const row = {id: 'continue', title: 'Continue Watching', seeAll: {type: 'library', libraryId: 'movies'}};
   const state: any = {displayMembers: [{item: {kind: 'movie'}, entry: {id: 'actual'}}], rating: {value: 6, phase: 'ready'},
-    menu: null, mixedEdit: false, deletion: null};
-  const controller = {subscribe: () => () => {}, getSnapshot: () => state, closeMenu: () => {calls.push('close-menu');},
+    menu: null, mixedEdit: false, deletion: null, selection: {active: false, selectedKeys: []}};
+  const controller = {subscribe: () => () => {}, getSnapshot: () => state, closeMenu: () => {calls.push('close-menu'); state.menu = null;},
+    toggle: (windowId: string, key: string) => {
+      if (!state.menu || state.menu.windowId !== windowId || state.menu.key !== key) return {ok: false, reason: 'unregistered-window'};
+      calls.push('pick-retained-item'); state.selection = {active: true, selectedKeys: [key]}; return {ok: true};
+    },
     setRatingValue: (value: number) => calls.push(value), submitRating: async () => {calls.push('submit-rating');}};
   const runtime = {getSnapshot: () => ({authority, account: {viewerRole: 'owner'}}), homeMenuRow: () => row,
     actions: {seeAll: (destination: unknown) => calls.push(destination)}};
@@ -24,7 +28,7 @@ test('actual Home overlays export fenced native rating controls and append genui
     '../kit/shell': {ServerMark: 'ServerMark'}, '../kit/overlays': {Menu: 'Menu', Dialog: 'Dialog'}, '../kit/selection': {DeleteMediaDialog: 'Delete', MixedEditExplainer: 'Mixed'},
     '../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'},
     '../kit/controls/Button': {Button: 'Button'}, '../kit/controls/Focusable': {Focusable: 'Focusable'}, '../kit/artwork': {}, '../kit/Icon': {Icon: 'Icon'},
-    '../kit/theme': {useTheme: () => ({isTV: layoutMode === 'tv', layoutMode, type: {}, colors: {}})}, '../platform/haptics': {}, './selection-display': {memberTitle: () => 'Actual title'},
+    '../kit/theme': {useTheme: () => ({isTV: layoutMode === 'tv', layoutMode, type: {}, colors: {}})}, '../platform/haptics': {selectionHaptic: async () => {calls.push('selection-haptic');}}, './selection-display': {memberTitle: () => 'Actual title'},
     './HomeDestinationPicker': {HomeDestinationPicker: 'Picker'}, './HomeBulkEditor': {HomeBulkEditor: 'Editor'}, './tv-focus': {tvFocusIds},
   });
   const render = () => h.render(() => HomeSelectionOverlays({controller, runtime, ownerTag, reportError: (error: unknown) => {throw error;}}));
@@ -39,6 +43,18 @@ test('actual Home overlays export fenced native rating controls and append genui
   assert.equal(menu.props.items.at(-1).id, 'see-all');
   menu.props.items.at(-1).onSelect();
   assert.deepEqual(calls.slice(-2), ['close-menu', row.seeAll], 'the actual offered row descriptor reaches the existing route callback');
+  state.menu = {windowId: 'retained-window', key: 'retained-key', member: state.displayMembers[0], groups: []};
+  const select = nodes(render()).find(node => node.type === 'Menu').props.items.find((item: any) => item.id === 'select');
+  calls.length = 0;
+  select.onSelect();
+  assert.deepEqual(state.selection.selectedKeys, ['retained-key'], 'TV Select picks the current retained member before closing can release its window');
+  assert.deepEqual(calls, ['pick-retained-item', 'selection-haptic', 'close-menu']);
+  calls.length = 0;
+  state.menu = {windowId: 'new-window', key: 'new-key', member: state.displayMembers[0], groups: []};
+  select.onSelect();
+  assert.deepEqual(calls, [], 'a retained stale Select callback cannot close or toggle the replacement menu');
+  assert.equal(state.menu.key, 'new-key');
+  state.menu = null;
   state.deletion = {phase: 'loading', preview: null, confirmation: '', removeFiles: true, error: null, result: null};
   for (layoutMode of ['tv', 'tablet']) {
     const deletion = nodes(render()).find(node => node.type === 'Delete');
