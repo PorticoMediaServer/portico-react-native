@@ -121,7 +121,11 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   // collections 41a/43: who read it, how long it is and how many chapters; on TV the
   // author leads that row (frame 43's meta) and keeps its own link, while the phone
   // keeps the author on its own line.
-  const chapterCount = chapters.length ? chapterSection?.totalCount : entity.count;
+  // A book's entity count is its container's item count — the book files — not
+  // chapters (listening_entity.go counts catalog_book_files, then replaces the
+  // count with ContainerPersonalCounts over those same files). So only a real
+  // chapter list can name a chapter count; a parts book names none.
+  const chapterCount = chapters.length ? chapterSection?.totalCount : undefined;
   const facts = [entity.narrators?.length ? t('next.kit.readBy', {name: defaultI18n.list(entity.narrators ?? [])}) : undefined,
     entity.duration === undefined ? undefined : duration(entity.duration), chapterCount === undefined ? undefined : t('title.chapterCount', {count: chapterCount})]
     .filter((value): value is string => !!value);
