@@ -39,6 +39,7 @@ export class NativeWatchControls {
   private readonly time: NativeWatchControlClock;
   private hiddenByBack = false;
   private gestureScrubbing = false;
+  private overlayHeld = false;
   constructor(isTV: boolean, time: NativeWatchControlClock = clock) {this.isTV = isTV; this.time = time;}
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = (): NativeWatchControlState => this.state;
@@ -50,7 +51,7 @@ export class NativeWatchControls {
   }
   private cancel(): void {if (this.timer !== undefined) this.time.clear(this.timer); this.timer = undefined;}
   private current(fence: PlaybackFence): boolean {return !this.disposed && sameFence(this.state.fence, fence);}
-  private pinned(): boolean {return this.context.paused || this.context.scrubbing || this.gestureScrubbing || this.context.focusHeld || !this.context.autoHide;}
+  private pinned(): boolean {return this.context.paused || this.context.scrubbing || this.gestureScrubbing || this.overlayHeld || this.context.focusHeld || !this.context.autoHide;}
   private suppressed(): boolean {return !this.context.expanded || !!this.state.panel && this.context.hiddenByPanel;}
   source(fence: PlaybackFence | undefined, context: NativeWatchControlContext): void {
     const changed = fence ? !sameFence(this.state.fence, fence) : !!this.state.fence;
@@ -58,7 +59,7 @@ export class NativeWatchControls {
     this.context = context;
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
-      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false;
+      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false;
       this.publish({fence, panel: undefined, panelFocus: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
     }
     if (!fence) {this.cancel(); this.publish({visible: false, panel: undefined, focus: 'surface'}); return;}
@@ -101,6 +102,13 @@ export class NativeWatchControls {
     this.gestureScrubbing = scrubbing;
     if (scrubbing) this.reveal(fence);
     else this.arm();
+  }
+  /** A chrome-owned people sheet keeps its opener visible until focus returns. */
+  holdOverlay(fence: PlaybackFence, held: boolean): void {
+    if (!this.current(fence) || this.overlayHeld === held) return;
+    this.overlayHeld = held;
+    if (held) this.reveal(fence);
+    else {this.deadline = this.time.now() + 4000; this.arm();}
   }
   open(panel: NativeWatchPanel, fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.context.expanded) return false;
