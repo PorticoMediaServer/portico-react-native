@@ -118,7 +118,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
-  type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace};
+  type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace; createSource?: () => NativeAccountWorkspace};
   const accountWorkspace = useRef<WorkspaceOpening | undefined>(undefined);
   const retireAccountWorkspace = () => {const ticket = accountWorkspace.current; accountWorkspace.current = undefined; if (ticket) {ticket.active = false; ticket.source?.dispose();}};
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
@@ -563,7 +563,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     }}>{t('auth.forgotPassword')}</Button>}
       <Button variant="text" disabled={busy} onPress={() => {if (lifetime.current && stageRef.current === 'ended-sign-in') {setUsername(''); setPassword(''); reset(); onBack?.();}}}>{t('auth.useDifferentAccount')}</Button>
     </View>);
-  if (stage === 'account-workspace' && accountWorkspace.current?.source) {
+  if (stage === 'account-workspace' && accountWorkspace.current?.createSource) {
     const ticket = accountWorkspace.current;
     const current = () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace';
     const leave = (destination: 'servers' | 'address' | 'account-sign-out' | 'invitation-entry') => {
@@ -576,7 +576,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       if (destination === 'servers') void run(directory);
       if (destination === 'address') setAddress('');
     };
-    return <PhoneAccountWorkspace source={ticket.source!} username={ticket.username}
+    return <PhoneAccountWorkspace createSource={ticket.createSource!} username={ticket.username}
       onDone={() => leave('servers')} onJoin={() => leave('invitation-entry')} onFind={() => leave('address')} onSignOut={() => leave('account-sign-out')}/>;
   }
   if (stage === 'welcome' && theme.isTV) return <TVFrontDoor busy={busy} error={status}
@@ -1020,10 +1020,14 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         cancelDirectory(); retireAccountWorkspace();
         const ticket: WorkspaceOpening = {active: true, username: session.account.username, scope: {...scope}}; accountWorkspace.current = ticket;
         stageRef.current = 'account-workspace';
-        try {ticket.source = new NativeAccountWorkspace(nativeAccounts, ticket.scope,
-          () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace');
-          setStage('account-workspace');
-        } catch (failure) {retireAccountWorkspace(); stageRef.current = 'servers'; setStage('servers'); setError(failure);}
+        ticket.createSource = () => {
+          if (!ticket.active || accountWorkspace.current !== ticket || !lifetime.current || stageRef.current !== 'account-workspace')
+            throw Object.assign(new Error('native_account_changed'), {code: 'account_changed'});
+          ticket.source?.dispose();
+          return ticket.source = new NativeAccountWorkspace(nativeAccounts, ticket.scope,
+            () => ticket.active && accountWorkspace.current === ticket && lifetime.current && stageRef.current === 'account-workspace');
+        };
+        setStage('account-workspace');
       }} : {})} isCurrent={current} notice={notice} busy={busy} error={notice ? undefined : status} onBack={() => {if (current()) back();}}
       onJoin={(raw, origin) => {
         if (!current() || busyRef.current || acting.current) return;

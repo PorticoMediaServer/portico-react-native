@@ -39,16 +39,17 @@ export class NativeAccountWorkspace {
   dispose() {this.listeners.clear(); this.end(); this.off();}
   private retireReads() {this.requests.forEach(request => request.abort()); this.requests.clear();}
   menu() {this.assert(); ++this.epoch; this.retireReads(); this.publish({page: 'menu', phase: 'idle'});}
-  private request = async <T,>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => {
-    this.assert(); const epoch = this.epoch; if (method !== 'GET' || body !== undefined) throw changed();
+  private assertEpoch(epoch: number) {this.assert(); if (epoch !== this.epoch) throw changed();}
+  private requestFor = (epoch: number) => async <T,>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => {
+    this.assertEpoch(epoch); if (method !== 'GET' || body !== undefined) throw changed();
     const request = new AbortController(), abort = () => request.abort(); this.requests.add(request);
     this.controller.signal.addEventListener('abort', abort, {once: true}); signal?.addEventListener('abort', abort, {once: true});
     if (signal?.aborted) abort(); const timer = setTimeout(abort, 15000);
     try {
-      const session = await this.credentials.accessSession(); this.assert();
+      const session = await this.credentials.accessSession(); this.assertEpoch(epoch);
       if (epoch !== this.epoch || request.signal.aborted || session.account.id !== this.scope.accountId || session.familyId !== this.scope.familyId) throw changed();
       const api = new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch);
-      const result = await api.request<T>(path, method, undefined, request.signal); this.assert();
+      const result = await api.request<T>(path, method, undefined, request.signal); this.assertEpoch(epoch);
       if (epoch !== this.epoch || request.signal.aborted) throw changed(); return result;
     } catch (error) {if (epoch === this.epoch && !request.signal.aborted && this.current() && error instanceof ApiError && error.status === 401) this.end(); throw error;}
     finally {this.requests.delete(request); clearTimeout(timer); this.controller.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort);}
@@ -56,12 +57,13 @@ export class NativeAccountWorkspace {
   async open(page: Exclude<AccountWorkspacePage, 'menu'>) {
     this.assert(); const epoch = ++this.epoch; this.retireReads(); this.publish({page, phase: 'loading'});
     try {
+      this.assertEpoch(epoch); const request = this.requestFor(epoch);
       let content: Pick<AccountWorkspaceSnapshot, 'security' | 'sessions' | 'notifications'>;
-      if (page === 'security') content = {security: parseSecurityState(await this.request(routePath('account_security_get')), this.scope)};
-      else if (page === 'notifications') content = {notifications: (await new AccountNotificationsClient(this.request).page(undefined, this.controller.signal)).items};
+      if (page === 'security') content = {security: parseSecurityState(await request(routePath('account_security_get')), this.scope)};
+      else if (page === 'notifications') content = {notifications: (await new AccountNotificationsClient(request).page(undefined, this.controller.signal)).items};
       else {
-        const review = new AccountSessionReviewService({api: {request: this.request}, scope: this.scope});
-        try {await review.refresh(); const value = review.getSnapshot();
+        const review = new AccountSessionReviewService({api: {request}, scope: this.scope});
+        try {this.assertEpoch(epoch); await review.refresh(); const value = review.getSnapshot();
           if (value.phase !== 'ready') throw changed(); content = {sessions: value.items};
         } finally {review.dispose();}
       }
