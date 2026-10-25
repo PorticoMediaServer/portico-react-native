@@ -35,6 +35,7 @@ export type DockPresentation = Readonly<{
   previousLabel?: string;
   nextLabel?: string;
   skipBackSeconds: number;
+  skipForwardSeconds?: number;
   capabilities: DockCapabilities;
   device?: string;
 }>;
