@@ -14,12 +14,13 @@ import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
 import {ConnectionEditor, DisconnectEditor, ReadingEditor, Page, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
 
+import {SourceFolderBrowser} from './SourceFolderBrowser';
 import {SourceStatusPanel} from './SourceStatusPanel';
 import {AccountConfigEditor} from './AccountConfigEditor';
 import {ImportedSourceEditor} from './ImportedSourceEditor';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
-type Mode = {kind: 'choose' | 'accountConfig'} | {kind: 'connection' | 'imported'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect'; source: RemoteSource};
+type Mode = {kind: 'choose' | 'accountConfig'} | {kind: 'connection' | 'imported'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect' | 'folders'; source: RemoteSource};
 
 /** Canonical WebDAV and imported source management. Settings owns the entry. */
 export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
@@ -64,6 +65,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     onCancel={close} onSaved={source => open({kind: 'reading', source})}/>;
   if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close}
     onSaved={source => open({kind: 'reading', source})}/>;
+  if (mode?.kind === 'folders') return <SourceFolderBrowser key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close}/>;
   if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
   if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
   const state = snapshot.sources, needsReceipt = receiptCheckRequired(state), blocked = state.busy || needsReceipt;
@@ -84,6 +86,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), selected)}</Text>
       {!!selected.origin && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{selected.origin}</Text>}
       <Button variant="text" onPress={close}>{t('next.remoteSources.back')}</Button>
+      <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'folders', source: selected})}>{t('next.remoteSources.foldersSection')}</Button>
       <Button variant="glass" disabled={blocked} onPress={() => open({kind: 'reading', source: selected})}>{t('next.remoteSources.reading')}</Button>
       {(selected.kind === 'webdav' || selected.kind === 'rclone') && <>
         <Button variant="glass" disabled={blocked} onPress={() => open({kind: selected.kind === 'rclone' ? 'imported' : 'connection', source: selected})}>{t('next.remoteSources.connection')}</Button>

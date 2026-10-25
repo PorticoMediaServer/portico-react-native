@@ -101,6 +101,15 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     finally {if (!this.allowed()) this.dispose();}
   }
 
+  async sourceFolders(source: RemoteSource, options: Readonly<{path?: string; cursor?: string; showHidden?: boolean}>, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.listFolders(source.id, {...options, limit: 100}, guard);
+    this.assertAllowed();
+    if (!guard() || result.generation !== String(source.generation)) throw screenScopeEnded();
+    return result;
+  }
+
   async sourceStatus(source: RemoteSource, guard: () => boolean) {
     this.assertAllowed();
     if (!guard()) throw screenScopeEnded();
