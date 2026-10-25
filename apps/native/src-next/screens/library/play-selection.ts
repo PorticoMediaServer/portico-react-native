@@ -10,8 +10,9 @@ const cancelled = () => Object.assign(new Error('native_library_selection_retire
 const unavailable = () => Object.assign(new Error('native_library_selection_unavailable'), {code: 'unavailable'});
 
 /** One captured applied Browse query, not a Home context. Recreate after a
- * query/token change. Only leaf Play is installed: other grants/executors and
- * whole-query expansion are deliberately absent from this binding. */
+ * query/token change. Leaves carry the grants the library actually executes:
+ * play, queue, My List, Favorite, Watched and the playlist/collection pickers.
+ * Whole-query expansion stays absent from this binding. */
 export function createNativeLibraryPlaySelection(context: NativeShellBootstrapContext, source: NativeLibraryDestination) {
   const lifetime = nativeDestinationLifetime(context), opening = source.getSnapshot(), viewer = context.session()!.viewer;
   if (opening.phase !== 'ready' || !opening.revision || !opening.collection || !opening.sort) throw unavailable();
@@ -78,7 +79,7 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
           while (cursor < entries.length) {
             const index = cursor++;
             items[index] = await readCatalogueSelectionItem({api: context.api, scope: lifetime.scope, requestId: common.requestId,
-              signal: controller.signal, isCurrent: live}, entries[index], {play: true, queue, myList: true, favorite: true, watched: true});
+              signal: controller.signal, isCurrent: live}, entries[index], {play: true, queue, myList: true, favorite: true, watched: true, playlist: true, collection: true});
           }
         }));
         if (!live()) throw cancelled();

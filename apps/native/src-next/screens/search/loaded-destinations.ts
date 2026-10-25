@@ -29,6 +29,8 @@ export class NativeLoadedDestinations {
   private attemptedCollection = false;
   private collectionItems: readonly string[];
   private readonly collectionReceipts: EntryOutcomes[] = [];
+  /** The real pending failures, resolved against the captured entries only. */
+  private playlistFailure?: Readonly<{id: string; title: string; code: string}>;
 
   constructor(options: CatalogueSelectionOptions, input: readonly ContentEntry[]) {
     this.options = options;
@@ -62,7 +64,28 @@ export class NativeLoadedDestinations {
   private changed = () => {this.revision++; for (const listener of [...this.listeners]) listener();};
   subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = () => this.revision;
+  /** Confirmed outcomes across every retained receipt: the newest state of each
+   * captured id wins, so a retried title counts once and a still-missing one stays
+   * failed. Nothing is counted twice and nothing is inferred from absence. */
+  private collectionOutcome() {
+    const state = new Map<string, Readonly<{state: 'added' | 'unchanged' | 'failed'; code?: string}>>();
+    for (const receipt of this.collectionReceipts) {
+      for (const id of receipt.added) state.set(id, {state: 'added'});
+      for (const id of receipt.unchanged) state.set(id, {state: 'unchanged'});
+      for (const failure of receipt.failed) state.set(failure.itemId, {state: 'failed', code: failure.code});
+    }
+    const added: string[] = [], unchanged: string[] = [], failed: {id: string; title: string; code: string}[] = [];
+    for (const entry of this.entries) {
+      const outcome = state.get(entry.id);
+      if (!outcome) continue;
+      if (outcome.state === 'added') added.push(entry.id);
+      else if (outcome.state === 'unchanged') unchanged.push(entry.id);
+      else failed.push({id: entry.id, title: entry.title, code: outcome.code ?? 'unavailable'});
+    }
+    return Object.freeze({added: Object.freeze(added), unchanged: Object.freeze(unchanged), failed: Object.freeze(failed)});
+  }
   snapshot = () => ({busy: this.running, chosen: this.chosen, completed: this.completed, collectionReceipts: Object.freeze([...this.collectionReceipts]),
+    collectionOutcome: this.collectionOutcome(), playlistFailure: this.playlistFailure,
     playlists: this.playlists.getSnapshot(), playlist: this.playlist.getSnapshot(),
     collections: this.collections.getSnapshot(), collection: this.collection.getSnapshot()});
   private async eligibility(kind: 'playlist' | 'collection') {
@@ -122,8 +145,17 @@ export class NativeLoadedDestinations {
   private async append() {
     this.assertCurrent();
     if (this.chosen?.kind === 'playlist') {
-      this.completed = await appendPlaylistSelection(this.playlist, this.entries.map(entry => entry.id), this.completed,
-        count => {this.completed = count; this.changed();}, () => !this.disposed && !this.options.signal.aborted && this.options.isCurrent());
+      try {
+        this.completed = await appendPlaylistSelection(this.playlist, this.entries.map(entry => entry.id), this.completed,
+          count => {this.completed = count; this.changed();}, () => !this.disposed && !this.options.signal.aborted && this.options.isCurrent());
+        this.playlistFailure = undefined;
+      } catch (error) {
+        // The completed prefix is real; the next captured entry is the one that
+        // did not go in, and its own error code is the reason. Nothing is invented.
+        const entry = this.entries[this.completed];
+        this.playlistFailure = entry ? Object.freeze({id: entry.id, title: entry.title, code: (error as {code?: string}).code ?? 'unavailable'}) : undefined;
+        throw error;
+      }
     } else if (this.chosen?.kind === 'collection') {
       if (!this.collectionItems.length) throw unavailable();
       const state = this.collection.getSnapshot();
@@ -140,6 +172,7 @@ export class NativeLoadedDestinations {
       if (after.pending || after.retryPending || after.mutationError || !after.result?.entries) throw after.mutationError ?? unavailable();
       const receipt = after.result.entries;
       if (!this.collectionReceipts.includes(receipt)) this.collectionReceipts.push(receipt);
+      // Retry keeps only the ids this receipt left unresolved.
       const missing = new Set(receipt.failed.map(failure => failure.itemId));
       this.collectionItems = Object.freeze(this.collectionItems.filter(id => missing.has(id)));
       this.attemptedCollection = false;

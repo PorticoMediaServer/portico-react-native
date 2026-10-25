@@ -29,16 +29,21 @@ export function NativeDestinationPicker({controller, kind, open, selectionLabel,
     : personal.resources.flatMap(resource => resource.kind === 'collection'
       ? [{id: resource.id, title: resource.name, size: resource.entryCount, canAdd: true, artwork: artwork(resource.artworkPaths?.[0])}]
       : []);
-  const receipt = kind === 'collection' ? snapshot.collectionReceipts[snapshot.collectionReceipts.length - 1] : undefined;
+  const outcome = snapshot.collectionOutcome;
   const destination = kind === 'playlist'
     ? {id: selected ?? '', title: snapshot.playlist.playlist?.name ?? '', size: snapshot.playlist.playlist?.entryCount}
     : {id: selected ?? '', title: snapshot.collection.resource?.name ?? '', size: snapshot.collection.resource?.entryCount};
+  // Only known titles and their coded reason are shown; an unresolved id is never
+  // printed. The completed prefix and the original receipt survive a retry.
+  const coded = (code: string) => presentError({code}, 'detail', {operation: 'action'}).body;
   const result: PickerResult | undefined = !selected ? undefined : kind === 'playlist'
-    ? {destination, processed: snapshot.completed, inserted: snapshot.completed, total: count, failed: 0, failures: [], complete: snapshot.completed >= count}
-    : receipt
-      ? {destination, processed: receipt.added.length + receipt.unchanged.length + receipt.failed.length, inserted: receipt.added.length,
-          alreadyIn: receipt.unchanged.length, failed: receipt.failed.length, total: count, complete: true,
-          failures: receipt.failed.map(failure => ({id: failure.itemId, title: failure.itemId, reason: failure.code}))}
+    ? {destination, processed: snapshot.completed + (snapshot.playlistFailure ? 1 : 0), inserted: snapshot.completed, total: count,
+        failed: snapshot.playlistFailure ? 1 : 0, complete: snapshot.completed >= count || !!snapshot.playlistFailure,
+        failures: snapshot.playlistFailure ? [{id: snapshot.playlistFailure.id, title: snapshot.playlistFailure.title, reason: coded(snapshot.playlistFailure.code)}] : []}
+    : snapshot.collectionReceipts.length
+      ? {destination, processed: outcome.added.length + outcome.unchanged.length + outcome.failed.length, inserted: outcome.added.length,
+          alreadyIn: outcome.unchanged.length, failed: outcome.failed.length, total: count, complete: true,
+          failures: outcome.failed.map(failure => ({id: failure.id, title: failure.title, reason: coded(failure.code)}))}
       : {destination, total: count, failures: [], complete: false};
   const loading = kind === 'playlist' ? saved.phase === 'loading' : personal.loading;
   const error = kind === 'playlist'
