@@ -191,9 +191,13 @@ export function RestoredShell() {
       || error.category === 'unsupported-version')) {
       return withDownloads(<CompactRecovery presented={error} serverName={serverName} downloads={remembered} onRetry={complete} onChoose={chooseAccounts}/>, false);
     }
+    // DESIGN "TV focus": a page's starting focus is its main action. The drawn state layout
+    // (connect.html 10) starts on Try again, so the recovery declares it instead of relying
+    // on the platform's first focusable after a failed restore.
+    const restore = error.action === 'try-again' || error.action === 'refresh';
     return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone="error"
-      primaryAction={error.action === 'try-again' || error.action === 'refresh' ? {id: 'restore', label: error.actionLabel, onPress: complete} : undefined}
-      secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts}}/>);
+      primaryAction={restore ? {id: 'restore', label: error.actionLabel, onPress: complete, hasTVPreferredFocus: theme.isTV} : undefined}
+      secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts, hasTVPreferredFocus: theme.isTV && !restore}}/>);
   }
   return withDownloads(<AccountEntry downloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete}/>);
 }
