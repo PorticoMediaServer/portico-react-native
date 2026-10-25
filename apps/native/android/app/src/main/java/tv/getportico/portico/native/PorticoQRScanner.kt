@@ -11,7 +11,7 @@ class PorticoQRScanner(context: ReactApplicationContext) : ReactContextBaseJavaM
   @Volatile private var pending: Pending? = null
   @Volatile private var closed = false
   private val listener = object : BaseActivityEventListener() {
-    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
       if (requestCode != REQUEST_CODE) return
       val owned = pending ?: return
       if (closed) { retireOriginal(owned); return }
