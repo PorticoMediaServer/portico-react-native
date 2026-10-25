@@ -31,7 +31,7 @@ export type NativeWatchHostContext = Readonly<{
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
-  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet' | 'tabletop'>;
+  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet' | 'tabletop' | 'bar'>;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   /** foldable5: the episodes that follow, beside the tabletop's controls column. */
@@ -151,6 +151,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
       <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={noticesEnabled && expanded && lossNotice && lossNotice.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
         tabletop={!isTV && layout.mode === 'tabletop' && layout.episodes ? (layout.controls.width < window.width ? 'column' : 'stacked') : undefined}
+        bar={!isTV && layout.mode === 'full-window' && window.width >= 1024}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
