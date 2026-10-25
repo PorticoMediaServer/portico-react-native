@@ -1,15 +1,9 @@
 name: CI
 on:
-  push:
-    branches: [main]
-  pull_request:
+  schedule:
+    - cron: '23 * * * *'
   workflow_dispatch:
     inputs:
-      base:
-        description: Optional comparison commit (otherwise use origin/main)
-        type: string
-        required: false
-        default: ''
       apple_reading_commit:
         description: Public-only Reading Foundation test source (full published commit)
         type: string
@@ -25,14 +19,14 @@ permissions:
   contents: read
 concurrency:
   group: ci-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 env:
-  CI_BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
+  CI_FULL_TREE: '1'
 jobs:
   javascript:
     if: ${{ !inputs.apple_reading_commit }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {path: portico-react-native, fetch-depth: 0}
@@ -65,16 +59,20 @@ jobs:
           exit "$status"
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        name: Affected tests plus mandatory sign-in/session/account/profile guards
-        run: python3 scripts/ci-affected.py native-js
+        name: Full-tree tests plus mandatory sign-in/session/account/profile guards
+        run: |
+          status=0
+          python3 scripts/ci-affected.py native-js > "$RUNNER_TEMP/full-ci.log" 2>&1 || status=$?
+          tail -n 20 "$RUNNER_TEMP/full-ci.log"
+          exit "$status"
         working-directory: portico-react-native
 
   apple-contracts:
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 40
     concurrency:
       group: apple-contracts-${{ github.workflow }}-${{ inputs.apple_reading_commit || github.ref }}
-      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+      cancel-in-progress: false
     steps:
       - name: Validate requested public test source
         if: ${{ inputs.apple_reading_commit != '' }}
@@ -104,27 +102,12 @@ jobs:
           "$RUNNER_TEMP/portico-download-attempts"
           clang -fobjc-arc -framework Foundation -framework Security -o "$RUNNER_TEMP/portico-installation-storage" apps/native/test/native-installation-storage-tests.m
           "$RUNNER_TEMP/portico-installation-storage"
-      - name: Affected Reading stream Foundation tests
+      - name: All Reading stream Foundation tests
         if: ${{ !inputs.apple_reading_commit }}
         env:
           PORTICO_APPLE_TEST_OUT_DIR: ${{ runner.temp }}/apple-reading
           CI: '1'
-        run: |
-          set -euo pipefail
-          git rev-parse --verify "$CI_BASE^{commit}" > /dev/null
-          set +e
-          git diff --quiet "$CI_BASE" HEAD -- \
-            'apps/native/Native/PorticoReading*' \
-            'apps/native/test/apple-reading*' \
-            apps/native/scripts/check-apple-reading-stream.sh \
-            apps/native/ios/Portico.xcodeproj/project.pbxproj
-          changed=$?
-          set -e
-          case "$changed" in
-            0) echo 'Reading source unchanged; Foundation stream check is nightly.' ;;
-            1) bash apps/native/scripts/check-apple-reading-stream.sh ;;
-            *) exit "$changed" ;;
-          esac
+        run: bash apps/native/scripts/check-apple-reading-stream.sh
       - name: Public Foundation-only Reading and playback tests
         if: ${{ !inputs.apple_reading_commit }}
         run: |
