@@ -97,6 +97,12 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
           </Focusable>;
         })}
       </ScrollView>
+      {/* tv-detail frame 5 draws the season hint under the list, where the focus is. */}
+      {focus.kind === 'season' && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 22, marginLeft: 22}}>
+        <View style={{paddingHorizontal: 10, minWidth: 44, height: 36, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', justifyContent: 'center'}}>
+          <Text style={[browseType(theme, 17, 800), {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text></View>
+        <Text style={[browseType(theme, 19, 600, 0, 26.6), {color: theme.colors.textTertiary}]}>{t('next.watch.seasonOptions')}</Text>
+      </View>}
     </View>
     <View style={{flex: 1, minWidth: 0}}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 24, paddingRight: 24, paddingBottom: 2}}
@@ -131,18 +137,14 @@ export function FocusBand({focus, show, open, nextUp, text, onRetry, renderError
   const theme = useTheme(), t = defaultI18n.t;
   if (focus.kind === 'season') {
     const season = focus.season;
+    // tv-detail frame 5 draws the season summary as one meta line over a two-line synopsis.
     return <View testID="tv-episode-band" style={{marginTop: 30}}>
-      <Text accessibilityRole="header" style={[browseType(theme, 42, 800, -.03), {color: theme.colors.text}]}>{season.title || t('title.season', {number: season.number})}</Text>
-      <View style={{flexDirection: 'row', gap: 20, marginTop: 8}}>
-        {season.firstAired ? <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{season.firstAired.slice(0, 4)}</Text> : null}
-        {season.episodeCount !== undefined ? <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: season.episodeCount})}</Text> : null}
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 24, rowGap: 8, marginBottom: 8}}>
+        <Text accessibilityRole="header" style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{season.title || t('title.season', {number: season.number})}</Text>
+        {season.firstAired ? <Text style={[browseType(theme, 22, 400), {color: theme.colors.textTertiary}]}>{season.firstAired.slice(0, 4)}</Text> : null}
+        {season.episodeCount !== undefined ? <Text style={[browseType(theme, 22, 400), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: season.episodeCount})}</Text> : null}
       </View>
-      {season.overview ? <Text numberOfLines={3} style={[browseType(theme, 24, 500), {color: theme.colors.textSecondary, lineHeight: 36, marginTop: 12}]}>{season.overview}</Text> : null}
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 20}}>
-        <View style={{paddingHorizontal: 10, height: 38, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', justifyContent: 'center'}}>
-          <Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text></View>
-        <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{t('next.watch.seasonOptions')}</Text>
-      </View>
+      {season.overview ? <Text numberOfLines={2} style={[browseType(theme, 22, 400, 0, 31.9), {color: theme.colors.textSecondary}]}>{season.overview}</Text> : null}
     </View>;
   }
   const entry = focus.entry, data = open.entry?.id === entry.id ? open.data : undefined;
@@ -157,39 +159,40 @@ export function FocusBand({focus, show, open, nextUp, text, onRetry, renderError
   const remaining = duration !== undefined ? durationText(Math.max(0, duration - progress), t) : undefined;
   const rating = data?.facts?.contentRating ?? entry.contentRating;
   const airDate = entry.airDate ?? episode?.airDate;
-  return <View testID="tv-episode-band" style={{marginTop: 30, flexDirection: 'row', gap: 40}}>
-    <View style={{flex: 1.5, minWidth: 0}}>
-      <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 42, 800, -.03), {color: theme.colors.text}]}>{entry.displayTitle ?? entry.title}</Text>
-      <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 18, rowGap: 8, marginTop: 8}}>
+  return <View testID="tv-episode-band" style={{marginTop: 30, flexDirection: 'row', gap: 24}}>
+    <View style={{flex: 640, minWidth: 0}}>
+      <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 42, 800, -.03, 45.36), {color: theme.colors.text, marginBottom: 10}]}>{entry.displayTitle ?? entry.title}</Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 24, rowGap: 8, marginBottom: 14}}>
         {code ? <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{code.text}</Text> : null}
-        {airDate ? <Text style={[browseType(theme, 22, 500), {color: theme.colors.textSecondary}]}>{defaultI18n.date(airDate, 'long')}</Text> : null}
-        {duration !== undefined ? <Text style={[browseType(theme, 22, 500), {color: theme.colors.textSecondary}]}>{durationText(duration, t)}</Text> : null}
-        {rating ? <View style={{paddingHorizontal: 10, height: 40, borderRadius: 6, borderWidth: 1, borderColor: '#edf5fa40', justifyContent: 'center'}}>
-          <Text style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>{rating}</Text></View> : null}
+        {airDate ? <Text style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{defaultI18n.date(airDate, 'long')}</Text> : null}
+        {duration !== undefined ? <Text style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{durationText(duration, t)}</Text> : null}
+        {rating ? <View style={{borderWidth: 1.5, borderColor: '#edf5fa47', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 3}}>
+          <Text style={[browseType(theme, 20, 600), {color: theme.colors.text}]}>{rating}</Text></View> : null}
       </View>
-      {(data?.item.overview ?? entry.overview) ? <Text numberOfLines={3} style={[browseType(theme, 24, 500), {color: theme.colors.textSecondary, lineHeight: 36, marginTop: 12}]}>{data?.item.overview ?? entry.overview}</Text> : null}
-      {resuming && remaining ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 14}}>
-        <View style={{width: 320, height: 6, borderRadius: 3, backgroundColor: '#edf5fa29'}}><View style={{height: 6, width: `${duration ? Math.min(1, progress / duration) * 100 : 0}%`, borderRadius: 3, backgroundColor: theme.colors.accentStrong}}/></View>
-        <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{t('entry.resume')}<Text style={{fontWeight: '500', color: theme.colors.textSecondary}}>, {t('next.kit.remaining', {time: remaining})}</Text></Text>
-      </View> : data?.personal.watched ? <Text style={[browseType(theme, 24, 700), {color: theme.colors.textSecondary, marginTop: 14}]}>{t('card.watched')}</Text> : null}
+      {(data?.item.overview ?? entry.overview) ? <Text numberOfLines={3} style={[browseType(theme, 22, 400, 0, 31.9), {color: theme.colors.textSecondary}]}>{data?.item.overview ?? entry.overview}</Text> : null}
+      {resuming && remaining ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 18}}>
+        <View style={{width: 220, height: 6, borderRadius: 6, backgroundColor: '#edf5fa29'}}><View style={{height: 6, width: `${duration ? Math.min(1, progress / duration) * 100 : 0}%`, borderRadius: 6, backgroundColor: theme.colors.accentStrong}}/></View>
+        <Text style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{t('entry.resume')}<Text style={{fontWeight: '500', color: theme.colors.textSecondary}}>, {t('next.kit.remaining', {time: remaining})}</Text></Text>
+      </View> : data?.personal.watched ? <Text style={[browseType(theme, 22, 700), {color: theme.colors.textSecondary, marginTop: 18}]}>{t('card.watched')}</Text> : null}
       {open.phase === 'error' && open.error ? <View style={{marginTop: 12}}>{renderError(open.error, onRetry)}</View> : null}
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 18}}>
-        <View style={{paddingHorizontal: 10, height: 38, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', justifyContent: 'center'}}>
-          <Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text></View>
-        <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{t('next.watch.episodeOptions')}</Text>
-      </View>
     </View>
-    {credits.length > 0 && <View style={{flex: 1, minWidth: 0, paddingTop: 4, gap: 14}}>
-      {cast.length > 0 && <View style={{flexDirection: 'row', gap: 18}}>
-        <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, width: 150}]}>{t('next.watch.guestStars')}</Text>
-        <View style={{flex: 1, gap: 4}}>
+    <View style={{flex: 516, minWidth: 0, paddingTop: 8, gap: 14}}>
+      {cast.length > 0 && <View style={{flexDirection: 'row', gap: 16}}>
+        <Text style={[browseType(theme, 22, 400), {color: theme.colors.textTertiary, width: 128}]}>{t('next.watch.guestStars')}</Text>
+        <View style={{flex: 1, gap: 6}}>
           {cast.slice(0, 3).map(credit => <Text key={credit.id} style={[browseType(theme, 22, 600), {color: theme.colors.text}]}>{credit.name}
-            {credit.role ? <Text style={{fontWeight: '500', color: theme.colors.textSecondary}}>{'  '}{credit.role}</Text> : null}</Text>)}
+            {credit.role ? <Text style={{fontWeight: '500', color: theme.colors.textTertiary}}>{'  '}{credit.role}</Text> : null}</Text>)}
           {cast.length > 3 ? <Text style={[browseType(theme, 22, 500), {color: theme.colors.textTertiary}]}>{t('next.watch.andMore', {count: cast.length - 3})}</Text> : null}
         </View>
       </View>}
       {directors.length > 0 && <Text style={[browseType(theme, 22, 600), {color: theme.colors.text}]}>{t('title.directedBy', {names: directors.join(', ')})}</Text>}
       {writers.length > 0 && <Text style={[browseType(theme, 22, 600), {color: theme.colors.text}]}>{t('title.writtenBy', {names: writers.join(', ')})}</Text>}
-    </View>}
+      {/* tv-detail frame 6 puts the remote hint under this episode's credits. */}
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 26}}>
+        <View style={{paddingHorizontal: 10, minWidth: 44, height: 36, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', justifyContent: 'center'}}>
+          <Text style={[browseType(theme, 17, 800), {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text></View>
+        <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{t('next.watch.episodeOptions')}</Text>
+      </View>
+    </View>
   </View>;
 }
