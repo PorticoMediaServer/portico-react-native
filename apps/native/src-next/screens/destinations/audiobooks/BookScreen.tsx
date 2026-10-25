@@ -98,7 +98,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
     entity.duration === undefined ? undefined : duration(entity.duration), entity.count === undefined ? undefined : t('title.chapterCount', {count: entity.count})].filter((value): value is string => !!value);
   const resume = snapshot.listening?.resume;
   const canResume = !!resume && !snapshot.listening?.resumeUnavailable;
-  const resumeLabel = canResume && current !== undefined ? t('title.resumeChapter', {chapter: t('next.kit.chapter', {number: current})}) : t(canResume ? 'entry.resume' : 'entry.play');
+  const resumeLabel = canResume && current !== undefined ? t('title.resumeChapterNumber', {number: current}) : t(canResume ? 'entry.resume' : 'entry.play');
   const onPlay = () => {void (canResume ? controller.resume() : controller.startOver()).catch(error => runtime.reportError(error));};
   const retry = () => {void controller.load();};
   // phone-player 41: Download sits beside Finished; mobile web has none, and the TV
