@@ -11,6 +11,8 @@ import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
+import {askNativeDownload} from '../../downloads/request';
+import {nativeDownloadRequest} from '../../watch/download-request';
 import type {NativeAudiobookController} from './model';
 
 const t = defaultI18n.t;
@@ -81,6 +83,9 @@ export function BookScreen({controller, entry, runtime, actions, onBack}: {
   const resumeLabel = canResume && current !== undefined ? t('title.resumeChapter', {chapter: t('next.kit.chapter', {number: current})}) : t(canResume ? 'entry.resume' : 'entry.play');
   const onPlay = () => {void (canResume ? controller.resume() : controller.startOver()).catch(error => runtime.reportError(error));};
   const retry = () => {void controller.load();};
+  // phone-player 41: Download sits beside Finished; mobile web has none, and the TV
+  // page draws Resume, Start over and More only (collections 43).
+  const download = nativeDownloadRequest(entity);
   return <View testID={tv ? 'native-tv-book' : 'native-phone-book'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0, overflow: 'hidden'}}>
       <View style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}/>
@@ -110,6 +115,8 @@ export function BookScreen({controller, entry, runtime, actions, onBack}: {
             <Button variant="glass" icon="i-restart" onPress={() => {void controller.startOver().catch(error => runtime.reportError(error));}} accessibilityLabel={t('action.startOver')}>{tv ? t('action.startOver') : undefined}</Button>
             {!tv ? <Button variant="glass" iconOnly icon={'i-check'} accessibilityLabel={t('title.markFinished')}
               accessibilityState={{checked: snapshot.finished}} onPress={() => {void controller.markFinished().catch(error => runtime.reportError(error));}}/> : null}
+            {!tv && download ? <Button variant="glass" iconOnly icon="i-dl" accessibilityLabel={t('action.download')}
+              onPress={() => askNativeDownload(download)}/> : null}
             {tv ? <Button variant="glass" iconOnly icon="i-more" accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity)}/> : null}
           </View>
         </View>
