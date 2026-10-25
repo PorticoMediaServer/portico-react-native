@@ -93,12 +93,12 @@ export function AppliedFilterChips({filters, onRemove, onClear, platform, childr
 }
 
 /** The host pins this measured block above its windowed grid; it never owns scrolling data. */
-export function BrowseToolbar({model, platform, sticky = false, resultCount, onQuickChange, onFilters, onSortChange, onReshuffle, labels, applied = [], onRemoveFilter, onClearFilters, view, cardSize, save, onJump, onSelect, selection, children, testID}: BrowseToolbarProps) {
+export function BrowseToolbar({model, platform, sticky = false, resultCount, onQuickChange, onFilters, filtersOpen = false, onSortChange, onReshuffle, labels, applied = [], onRemoveFilter, onClearFilters, view, cardSize, save, onJump, onSelect, selection, children, testID}: BrowseToolbarProps) {
   const theme = useTheme(), {width} = useWindowDimensions(), target = browsePlatform(theme, platform), phone = target === 'phone', tv = target === 'tv';
   if (applied.length > 0 && !onRemoveFilter) throw new Error('Applied browse filters need a real remove callback.');
   if (selection) return <View testID={testID}>{selection}</View>;
   const sort = <SortMenu sorts={model.sorts} value={model.sort} label={labels.sort} onValueChange={onSortChange} onReshuffle={onReshuffle}/>;
-  const filters = <FiltersButton count={model.applied.length} onPress={onFilters}/>;
+  const filters = <FiltersButton count={model.applied.length} open={filtersOpen} onPress={onFilters}/>;
   const quick = model.quick.map(item => <QuickToggle key={item.id} checked={item.active} onCheckedChange={checked => onQuickChange(item.id, checked)}>{item.label?.text ?? labels.quick(item)}</QuickToggle>);
   const count = <Text accessibilityLiveRegion="polite" style={[browseType(theme, tv ? 22 : phone ? 13 : 14.5, 600), {color: phone || tv ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{resultCount}</Text>;
   return <View testID={testID} accessibilityLabel={t('next.browse.native.toolbar')} style={{zIndex: sticky ? theme.layers.sticky : undefined, backgroundColor: sticky ? alpha(theme.colors.ink, .86) : undefined, paddingTop: phone ? 10 : sticky ? 12 : 20, paddingBottom: sticky ? 12 : 0}}>

@@ -18,6 +18,8 @@ export type BrowseToolbarProps = Readonly<{
   model: BrowseToolbarModel; platform?: BrowsePlatform; sticky?: boolean;
   resultCount: ReactNode;
   onQuickChange: (id: string, checked: boolean) => void; onFilters: () => void;
+  /** True while the caller's Filters surface is open, so the chip reads as open. */
+  filtersOpen?: boolean;
   onSortChange: (sort: BrowseSortSelection) => void; onReshuffle?: () => void;
   labels: BrowseLabels; applied?: readonly AppliedFilterChip[];
   onRemoveFilter?: (id: string) => void; onClearFilters?: () => void;

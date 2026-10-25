@@ -148,7 +148,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
   }}>
-    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount={resultCount}
+    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount={resultCount} filtersOpen={!!filters}
       onFilters={openFilters} onQuickChange={quick} onSortChange={applySort}
       onReshuffle={() => {if (sort) applySort({...sort, seed: (sort.seed ?? 0) + 1});}}/> : null}
     {applied.length ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingHorizontal: theme.gutter, paddingTop: 10}}>
