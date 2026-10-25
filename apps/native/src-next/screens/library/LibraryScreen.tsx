@@ -32,6 +32,7 @@ import {LibraryJumpSheet} from './LibraryJumpSheet';
 import {libraryJumpLetter, libraryJumpLetters} from './jump';
 import type {NativeLibraryFilterDraft} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
+import {libraryTabletGridGeometry} from './library-grid';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import type {NativeMarkAllRequest} from './mark-all';
@@ -158,6 +159,9 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   useSyncExternalStore(actions.menuState?.subscribe ?? noSubscribe, actions.menuState?.getSnapshot ?? (() => 0));
   const entryRequest = useMemo(() => createDestinationEntryFocus(registry), [registry]);
   const [entered, setEntered] = useState(false), onEntered = useCallback(() => setEntered(true), []);
+  // This route's own laid-out width. It is read on every layout, so a collapsed
+  // sidebar, a fold or a docked pane is already excluded before the grid sizes.
+  const [areaWidth, setAreaWidth] = useState(0);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const summaries = useSyncExternalStore(directory.subscribe, directory.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
@@ -230,20 +234,29 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</LibraryCompactHeader>
     : <StickyBrowseHeader name={state.library.name} switcher={switcher} ambient={ambient} menu={menu}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</StickyBrowseHeader>;
+  // One classification for the grid and its skeleton: the drawn tablet grid is
+  // medium below 1024 and expanded from 1024, whatever the theme calls the
+  // platform at that width.
+  const shellPhone = dimensions.width < 600 || dimensions.width < 1024 && dimensions.height < 600;
+  const tabletLayout = !theme.isTV && !shellPhone;
+  const expanded = dimensions.width >= 1024;
+  const shellWidth = shellPhone || theme.isTV ? 0 : expanded ? 248 : 84;
+  const contentWidth = areaWidth || Math.max(0, dimensions.width - shellWidth);
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} onLayout={event => setAreaWidth(event.nativeEvent.layout.width)}
+    style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {wash}
     {header}
     {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
       : state.collection ? <View style={{flex: 1}}>
-        <LibraryGrid {...props} source={state} entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
+        <LibraryGrid {...props} source={state} paneWidth={contentWidth} tablet={tabletLayout} expanded={expanded} entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
         {emptyShown && <View testID="library-empty-page" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
           <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} firstCardRegion={firstCardRegion}
             onLeave={() => {if (!empty) setEmptyHeld(false);}}/>
         </View>}
       </View>
-      : loading ? <LibraryLoading theme={theme} width={dimensions.width} height={dimensions.height} elapsedMs={loadingElapsed}/>
+      : loading ? <LibraryLoading theme={theme} width={theme.isTV ? dimensions.width : contentWidth} height={dimensions.height} tablet={tabletLayout} expanded={expanded} elapsedMs={loadingElapsed}/>
       : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)}/>
       : state.tab.shows === 'rows' ? <ScrollView>
         {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
@@ -265,17 +278,20 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
 /** The drawn loading page: the real header and tabs are already above it, and the
  * count and posters are the only unknown shapes. Skeleton positions use the same
  * grid geometry as the loaded page, so nothing jumps when the first page lands. */
-function LibraryLoading({theme, width, height, elapsedMs}: {theme: Theme; width: number; height: number; elapsedMs: number}) {
-  const tv = theme.isTV, columns = tv ? 7 : 3, gap = tv ? 32 : 10;
-  const cardWidth = tv ? 200 : Math.floor((width - 62) / 3);
-  const contentWidth = tv ? Math.max(0, width - theme.gutter - 72) : Math.max(0, width - 32);
+function LibraryLoading({theme, width, height, tablet, expanded, elapsedMs}: {theme: Theme; width: number; height: number; tablet: boolean; expanded: boolean; elapsedMs: number}) {
+  const tv = theme.isTV;
+  const tabletGeometry = tablet ? libraryTabletGridGeometry(width, {expanded, rail: false}) : undefined;
+  const columns = tv ? 7 : tabletGeometry ? tabletGeometry.columns : 3, gap = tv ? 32 : tabletGeometry ? tabletGeometry.gap : 10;
+  const cardWidth = tv ? 200 : tabletGeometry ? tabletGeometry.itemWidth : Math.floor((width - 62) / 3);
+  const gutter = tv ? theme.gutter : tabletGeometry ? tabletGeometry.gutter : 16, right = tv ? theme.gutter : tabletGeometry ? tabletGeometry.rightGutter : 16;
+  const contentWidth = tv ? Math.max(0, width - theme.gutter - 72) : tabletGeometry ? Math.max(0, width - gutter - right) : Math.max(0, width - 32);
   return <View testID="library-loading" style={{flex: 1, overflow: 'hidden'}}>
-    {showSkeleton(elapsedMs) && <View style={{paddingHorizontal: tv ? theme.gutter : 16, marginTop: tv ? 24 : 10, marginBottom: tv ? 22 : 12}}>
+    {showSkeleton(elapsedMs) && <View style={{paddingLeft: gutter, paddingRight: right, marginTop: tv ? 24 : 10, marginBottom: tv ? 22 : 12}}>
       <SkeletonBlock width={tv ? 160 : 80} height={tv ? 22 : 11} radius={tv ? 11 : 6}/>
     </View>}
-    <View style={{paddingHorizontal: tv ? theme.gutter : 16}}>
+    <View style={{paddingLeft: gutter, paddingRight: right}}>
       <GridSkeleton testID="library-loading-grid" elapsedMs={elapsedMs} scrollOffset={0} viewportHeight={Math.max(0, height - (tv ? 300 : 240))}
-        width={contentWidth} columns={columns} cardWidth={cardWidth} gap={gap} rowGap={tv ? 40 : 22} totalCount={columns * 3}/>
+        width={contentWidth} columns={columns} cardWidth={cardWidth} gap={gap} rowGap={tv ? 40 : tabletGeometry ? tabletGeometry.rowGap : 22} totalCount={columns * 3}/>
     </View>
   </View>;
 }
@@ -293,8 +309,8 @@ function LibraryEmpty({runtime, regionId, upRegionId, firstCardRegion, onLeave}:
   </FocusRegion>;
 }
 
-function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
-  const theme = useTheme(), dimensions = useWindowDimensions(), registry = useFocusRegistry(), grid = useRef<WindowedGridHandle>(null);
+function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, paneWidth, tablet, expanded, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; /** The live width of this route's column, after the rail or sidebar and any docked pane. */ paneWidth: number; /** True on the medium and expanded tablet layouts, where the drawn grid is not the phone's. */ tablet: boolean; /** The one expanded classification the skeleton uses too: 1024 and wider. */ expanded: boolean; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
+  const theme = useTheme(), registry = useFocusRegistry(), grid = useRef<WindowedGridHandle>(null);
   const collection = source.collection!, state = useSyncExternalStore(collection.subscribe, collection.getSnapshot);
   const pageSubscribe = useCallback((listener: () => void) => collection.subscribePage(0, listener), [collection]);
   const pageVersion = useCallback(() => collection.getPageVersion(0), [collection]);
@@ -346,13 +362,19 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const base = source.tab.fixedFilter ?? [], filtered = JSON.stringify(source.predicates) !== JSON.stringify(base);
   const applied = libraryAppliedFilters(toolbar.applied.filter(node => !base.some(fixed => JSON.stringify(fixed) === JSON.stringify(node))), source.capabilities!, labels);
   const appliedRegion = `${ids.libraryToolbar(source.library.id)}.applied`;
+  const alphabet = !!state.positionIndex && state.total !== undefined && source.sort?.field === 'title' && source.sort.direction === 'asc' && !source.predicates.length;
+  const tabletGeometry = tablet ? libraryTabletGridGeometry(paneWidth, {expanded, rail: alphabet}) : undefined;
   const total = source.unfilteredTotal;
   const count = state.total === undefined ? undefined : filtered && total
     ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(state.total)}${state.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
       total: defaultI18n.t(total.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: total.total, pivot: source.tab.pivot ?? 'other'})})
     : defaultI18n.t(state.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: state.total, pivot: source.tab.pivot ?? 'other'});
-  const width = list ? dimensions.width - 32 : theme.isTV ? 200 : Math.floor((dimensions.width - 62) / 3), gap = list ? 0 : theme.isTV ? 32 : 10;
-  const columns = list ? 1 : theme.isTV ? 7 : 3;
+  const width = list ? paneWidth - 32 : theme.isTV ? 200 : tabletGeometry ? tabletGeometry.itemWidth : Math.floor((paneWidth - 62) / 3);
+  const gap = list ? 0 : theme.isTV ? 32 : tabletGeometry ? tabletGeometry.gap : 10;
+  const rowGap = list ? 0 : theme.isTV ? 40 : tabletGeometry ? tabletGeometry.rowGap : 22;
+  const gutter = theme.isTV ? theme.gutter : tabletGeometry ? tabletGeometry.gutter : 16;
+  const rightGutter = list ? 16 : theme.isTV ? 72 : tabletGeometry ? tabletGeometry.rightGutter : 26;
+  const columns = list ? 1 : theme.isTV ? 7 : tablet ? tabletGeometry!.columns : 3;
   return <View style={{flex: 1}}>
     <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
@@ -380,7 +402,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     {count && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
     <WindowedGrid key={view.generation} ref={grid} testID={list ? "library-list" : "library-grid"} collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={list ? 70 : width * 1.5 + (theme.isTV ? 72 : 43)}
-      gap={gap} rowGap={list ? 0 : theme.isTV ? 40 : 22} gutter={theme.isTV ? theme.gutter : 16} rightGutter={list ? 16 : theme.isTV ? 72 : 26} selection={selected}
+      gap={gap} rowGap={rowGap} gutter={gutter} rightGutter={rightGutter} selection={selected}
       onVisibleRange={changedRange} onScrollOffset={changedOffset} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
       renderPlaceholder={() => <View style={{width, height: list ? 70 : width * 1.5, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}
       renderItem={(entry, context) => {
@@ -390,7 +412,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
           {list ? <LibraryListRow entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/> : <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/>}
         </FocusRegion>;
       }}/>
-    {state.positionIndex && state.total !== undefined && source.sort?.field === 'title' && source.sort.direction === 'asc' && !source.predicates.length && <AlphabetRail positionIndex={state.positionIndex}
+    {alphabet && state.positionIndex !== undefined && state.total !== undefined && <AlphabetRail positionIndex={state.positionIndex}
       total={state.total} firstVisible={visible.first} lastVisible={visible.last} testID="library-alphabet" onJump={index => grid.current?.scrollToIndex(index)}
       height={theme.isTV ? 514 : 480} style={{position: 'absolute', right: theme.isTV ? 40 : 2, top: theme.isTV ? 174 : 110}}/>}
     <LibraryJumpSheet open={jumpOpen} panelId={`${ids.libraryToolbar(source.library.id)}.jump`} letters={jumpLetters} selected={jumpLetter}
