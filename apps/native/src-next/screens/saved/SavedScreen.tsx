@@ -103,12 +103,21 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     {value: 'views', label: t('saved.tab.savedViews')}, {value: 'history', label: t('saved.tab.history')},
     {value: 'downloads', label: t('downloads.title')},
   ] as const;
+  // states 4b / a991: a page already read may stay on screen only for a positively known
+  // transport failure. A refusal, permission, missing or invalid answer takes the ordinary
+  // error state instead of stale documents. TV keeps its existing recovery unchanged.
+  const documentError = theme.isTV ? snapshot.error : snapshot.error ?? snapshot.myList.error ?? snapshot.myListSquares.error;
+  const documentFacts = documentError ? presentError(documentError, 'saved', {operation: 'load'}) : undefined;
+  const transportFailure = documentFacts !== undefined && (documentFacts.category === 'unreachable' || documentFacts.category === 'offline'
+    || documentFacts.category === 'timeout' || documentFacts.category === 'busy');
+  const retainedDocument = !!snapshot.myList.projection || !!snapshot.myListSquares?.projection;
+  const admitted = theme.isTV || documentFacts === undefined || (transportFailure && retainedDocument);
   // The actual server shape window supplies the drawn poster preview. Filtering
   // one mixed page locally could hide later posters and misstate its count.
-  const items = snapshot.myList.projection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
+  const posterProjection = admitted ? snapshot.myList.projection : undefined, squareProjection = admitted ? snapshot.myListSquares?.projection : undefined;
+  const items = posterProjection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
   const localGroups = groupOfflineEntries(deviceState.entries);
   const summary = snapshot.summary;
-  const posterProjection = snapshot.myList.projection, squareProjection = snapshot.myListSquares?.projection;
   const posterEntries = posterProjection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
   const squareEntries = squareProjection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
   const pageTotal = (projection: typeof posterProjection) => projection?.sections.reduce((sum, section) => sum + section.totalCount, 0) ?? 0;
@@ -161,13 +170,13 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       {!tablet && <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
         <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text}]}>{t('saved.title')}</Text>
       </View>}
-      {snapshot.phase === 'error' && <StateView variant="inline" title={t('saved.loadFailed')} body={presentError(snapshot.error, 'saved', {operation: 'load'}).body}
+      {documentFacts && (theme.isTV || !transportFailure || !retainedDocument) && <StateView variant="inline" title={t('saved.loadFailed')} body={documentFacts.body}
         primaryAction={{id: 'retry', label: t('saved.retry'), onPress: () => {void destination.load().catch(report);}}}/>}
       {tablet ? <View style={{marginTop: 12}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: theme.gutter}}>
-          <Chip ref={filterRef} testID="saved-my-list-filters" icon="i-filter" onPress={() => setFilterOpen(true)} accessibilityLabel={t('next.browse.native.filters')}>{t('next.browse.native.filters')}</Chip>
-          <Chip ref={sortRef} testID="saved-my-list-sort" icon="i-sort" trailingIcon="i-down" onPress={() => setSortOpen(true)} accessibilityLabel={t('next.browse.native.sort')}>{t('next.browse.native.sort')}</Chip>
-          {selection?.start && <Chip testID="saved-my-list-select" icon="i-check" onPress={() => selection.start?.(snapshot.myList)} accessibilityLabel={t('next.selection.select')}>{t('next.selection.select')}</Chip>}
+          {admitted && <><Chip ref={filterRef} testID="saved-my-list-filters" icon="i-filter" onPress={() => setFilterOpen(true)} accessibilityLabel={t('next.browse.native.filters')}>{t('next.browse.native.filters')}</Chip>
+          <Chip ref={sortRef} testID="saved-my-list-sort" icon="i-sort" trailingIcon="i-down" onPress={() => setSortOpen(true)} accessibilityLabel={t('next.browse.native.sort')}>{t('next.browse.native.sort')}</Chip></>}
+          {admitted && selection?.start && <Chip testID="saved-my-list-select" icon="i-check" onPress={() => selection.start?.(snapshot.myList)} accessibilityLabel={t('next.selection.select')}>{t('next.selection.select')}</Chip>}
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto'}}>
             <Focusable testID="saved-my-list-grid" accessibilityLabel={t('next.browse.native.grid')} accessibilityState={{selected: !listMode}} onPress={() => setListMode(false)} focusRadius={8}
               style={{width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: !listMode ? theme.colors.raisedBright : undefined}}>
@@ -189,7 +198,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
           : listMode ? <View style={{marginTop: 8}}>{posterEntries.map(entry => <SavedMyListRow key={entry.id} entry={entry} runtime={runtime} actions={actions}/>)}</View>
           : <View onLayout={event => setGridWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: theme.gutter - 5, marginTop: 8}}>
             {posterEntries.map(entry => <View key={entry.id} style={{width: `${100 / myListColumns}%`, padding: 5}}>
-              <SavedMyListCard entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)} width={gridWidth ? Math.floor(gridWidth / myListColumns - 10) : undefined}/>
+              <SavedMyListCard entry={entry} runtime={runtime} actions={actions} selection={admitted ? selection?.item(entry) : undefined} width={gridWidth ? Math.floor(gridWidth / myListColumns - 10) : undefined}/>
             </View>)}
           </View>}
         {(() => {const section = snapshot.phase === 'ready' ? posterProjection?.sections.find(value => value.nextCursor) : undefined; return section ? <View style={{alignItems: 'center', paddingVertical: 12}}>
@@ -202,7 +211,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       </View> : <SavedSection first>
         <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
         {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
-          {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)}/>)}
+          {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={admitted ? selection?.item(entry) : undefined}/>)}
         </ScrollView>}
       </SavedSection>}
       {!tablet && deviceState.supported && <SavedSection>
@@ -223,7 +232,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
           icon={pin.kind === 'playlist' ? 'i-queue' : pin.kind === 'collection' ? 'i-stack' : 'i-filter'} separator={index > 0} onPress={() => actions.openPin(pin)}/>)}
       </View>}
     </ScrollView>}
-    {!downloadsOpen && selection?.render()}
+    {!downloadsOpen && admitted && selection?.render()}
     <Menu testID="saved-my-list-filter-menu" open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterRef} returnFocusRef={filterRef} title={t('filter.title')} items={filterItems}/>
     <Menu testID="saved-my-list-sort-menu" open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortRef} returnFocusRef={sortRef} title={t('next.browse.native.sort')} items={sortItems}/>
   </View>;
