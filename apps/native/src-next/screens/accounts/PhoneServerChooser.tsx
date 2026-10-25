@@ -34,8 +34,8 @@ export function PhoneServerChooser({snapshot, busy, error, onBack, onSelect, onS
         <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textSecondary}]}>{t(server.labelKey)}</Text></View>
       {!selected && <Icon name="i-right" size={16} color={theme.colors.textTertiary}/>}
     </Focusable>
-    <Button testID={`phone-server-menu-${server.id}`} variant="text" size="compact" icon="i-more" disabled={busy}
-      accessibilityLabel={t('action.more')} onPress={() => setMenu(server)} style={{minWidth: 42, paddingHorizontal: 8}}/>
+    <Button testID={`phone-server-menu-${server.id}`} variant="icon" iconOnly size="compact" icon="i-more" disabled={busy}
+      accessibilityLabel={t('next.browse.native.moreFor', {title: server.name})} onPress={() => setMenu(server)} style={{minWidth: 42, paddingHorizontal: 8}}/>
   </View>;
   return <View testID="phone-server-chooser" style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 12}}>
     <View style={{height: 5, width: 38, borderRadius: 3, alignSelf: 'center', backgroundColor: theme.colors.textTertiary, marginBottom: 8}}/>
