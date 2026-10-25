@@ -65,10 +65,10 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
   const signalRef = useRef<View | null>(null);
   const closePanel = useCallback(() => {
     setPanel(null);
-    if (theme.isTV) requestAnimationFrame(() => (signalRef.current as unknown as {requestTVFocus?: () => void} | null)?.requestTVFocus?.());
-  }, [theme.isTV]);
+    if (theme.isTV && panel !== 'signal') requestAnimationFrame(() => (signalRef.current as unknown as {requestTVFocus?: () => void} | null)?.requestTVFocus?.());
+  }, [theme.isTV, panel]);
   useEffect(() => {
-    if (!panel) return;
+    if (!panel || (theme.isTV && panel === 'signal')) return;
     const back = BackHandler.addEventListener('hardwareBackPress', () => {closePanel(); return true;});
     const release = theme.isTV ? registerOverlayKeys(key => {if (key === 'escape' || key === 'menu') {closePanel(); return true;} return false;}) : () => {};
     return () => {back.remove(); release();};
@@ -140,7 +140,7 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
       <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>
     </View> : null}
     <View style={{flex: 1, paddingTop: topInset, paddingBottom: bottomInset}}>
-      {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={closePanel}/></View> : null}
+      {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={closePanel} contextTitle={p.identity.title} returnFocusRef={signalRef}/></View> : null}
       {panel === 'eq' ? <View style={{position: 'absolute', inset: 0, zIndex: 30, backgroundColor: theme.colors.ink}}>
         <NativeWatchEqualizer onBack={closePanel} copy={equalizerCopy()} reportError={reportError} store={nativeEqualizer}/>
       </View> : null}
