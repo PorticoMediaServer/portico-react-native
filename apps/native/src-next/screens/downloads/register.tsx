@@ -37,12 +37,16 @@ export const createNativeDownloadsModule: NativeRouteFactory = context => {
         if (!context.current()) return;
         const live = bound.device.getSnapshot().entries.find(value => value.id === entry.id && value.itemId === entry.itemId);
         const kind = live?.info?.kind ?? live?.kind;
-        if (!live || !live.libraryId || !kind || !['movie', 'episode', 'song', 'audiobook_file', 'extra'].includes(kind)) {
+        // A downloaded publication opens the shared book destination, which reads
+        // the real ebook or comic entity from its authorized library page. The
+        // download's own metadata only supplies that genuine identity.
+        const destinationKind = kind === 'ebook' || kind === 'comic' ? 'book' : kind;
+        if (!live || !live.libraryId || !kind || !['movie', 'episode', 'song', 'audiobook_file', 'extra', 'ebook', 'comic'].includes(kind)) {
           runtime.reportError(Object.assign(new Error('invalid_response'), {code: 'invalid_response'})); return;
         }
         // The descriptor uses the cached title's actual identity. The Title owner
         // reads its authorized detail; this does not synthesize a detail response.
-        const title: ContentEntry = {id: live.itemId, libraryId: live.libraryId, kind: kind as ContentEntry['kind'], title: live.info?.title || live.title};
+        const title: ContentEntry = {id: live.itemId, libraryId: live.libraryId, kind: destinationKind as ContentEntry['kind'], title: live.info?.title || live.title};
         context.navigation.open(nativeEntryRoute(title), context.authority());
       }}/> : null,
     dispose: bound.dispose,
