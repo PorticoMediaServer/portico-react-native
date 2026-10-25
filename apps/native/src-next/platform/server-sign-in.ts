@@ -33,6 +33,7 @@ const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed
 /** Current product sign-in commands. UI frames are separate; no retired screen is imported.
  * Every path uses the canonical probe, real verified routes, account/profile API and secure store. */
 export class NativeServerSignIn {
+  static parseInvitationLink = NativeLocalInvitation.parseLink;
   readonly probe = new ServerSignInProbe(nativeNetworkFetch);
   private readonly controller = new AbortController();
   private readonly installation = installationIdentity();
@@ -54,6 +55,7 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
+  private readonly expectedInvitation?: Readonly<{origin: string; serverId?: string}>;
   private readonly expectedTarget?: Readonly<{serverId: string; fingerprint: string}>;
   private ownerResetReady = false;
   private ownerResetGrant?: Extract<DirectSignIn, {kind: 'signed-in'}>;
@@ -64,7 +66,8 @@ export class NativeServerSignIn {
   private invitationBinding?: () => boolean;
   private localInvitation?: NativeLocalInvitation<Awaited<ReturnType<NativeServerSignIn['signInLocal']>>>;
   private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
-  constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean; expectedTarget?: Readonly<{serverId: string; fingerprint: string}>} = {}) {
+  constructor(owner: NativeAccounts = nativeAccounts, options: {expectedInvitation?: Readonly<{origin: string; serverId?: string}>; requiredSetupHandoff?: boolean; expectedTarget?: Readonly<{serverId: string; fingerprint: string}>} = {}) {
+    this.expectedInvitation = options.expectedInvitation ? Object.freeze({...options.expectedInvitation}) : undefined;
     this.expectedTarget = options.expectedTarget ? Object.freeze({...options.expectedTarget}) : undefined;
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
@@ -97,6 +100,7 @@ export class NativeServerSignIn {
   /** The returned kind drives the credential destination. Local pairing is explicit afterward. */
   inspect(address: string) {
     return this.run(async () => {
+      if (this.expectedInvitation && routeOrigin(address) !== this.expectedInvitation.origin) throw mismatch();
       const server = await this.probe.inspect(address); this.assertCurrent();
       if (!server && (this.probe.getSnapshot().error as {code?: string})?.code === 'identity_code_needed') {
         const captured = pendingCertificate(routeOrigin(address));
@@ -107,6 +111,7 @@ export class NativeServerSignIn {
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
       if (this.expectedTarget && (server.id !== this.expectedTarget.serverId || server.signIn !== 'local' || server.setupRequired)) throw mismatch();
+      if (this.expectedInvitation && (server.setupRequired || server.signIn !== 'local' || this.expectedInvitation.serverId && server.id !== this.expectedInvitation.serverId)) throw mismatch();
       this.server = server; return server;
     });
   }

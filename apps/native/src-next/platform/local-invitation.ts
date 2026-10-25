@@ -12,6 +12,7 @@ const cancelled = () => Object.assign(new Error('invitation_retired'), {name: 'A
 
 /** A memory-only recipient for an already proved, local-sign-in server. */
 export class NativeLocalInvitation<T> {
+  static parseLink(raw: string) {return parseJoinLink(raw);}
   private readonly ports: Ports<T>;
   private readonly abort = new AbortController();
   private readonly client: PeopleInvitationsClient;
