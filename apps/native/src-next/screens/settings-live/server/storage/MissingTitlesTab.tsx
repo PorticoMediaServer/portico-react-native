@@ -1,3 +1,4 @@
+import {useSettingsRequestScope} from '../../use-settings-request-scope';
 import React, {useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 import {ConsoleClient, type MissingTitlesRule} from '../../../../../../../packages/client-core/src/console';
@@ -20,9 +21,9 @@ const RULES: readonly MissingTitlesRule[] = ['immediately', 'after_days', 'never
 
 /** Settings › Server › Storage & backups › Missing titles (owner-server.html frame 37). */
 export function MissingTitlesTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
-  const theme = useTheme(), context = ports.context, authority = context.authority();
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
-  const consoleClient = React.useMemo(() => new ConsoleClient(api, {serverId: authority.serverId, viewerId: authority.profileId}), [context]);
+  const theme = useTheme(), context = ports.context;
+  const {api, lifetime, authority} = useSettingsRequestScope(context);
+  const consoleClient = React.useMemo(() => new ConsoleClient(api, {serverId: authority.serverId, viewerId: authority.profileId}), [api, authority.profileId, authority.serverId]);
   useEffect(() => () => consoleClient.dispose(), [consoleClient]);
   const [rule, setRule] = useState<MissingTitlesRule>('never'), [days, setDays] = useState(30), [revision, setRevision] = useState(0);
   const [page, setPage] = useState<MissingTitlesPage>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
@@ -31,12 +32,12 @@ export function MissingTitlesTab({ports, runtime, t}: {ports: NativeSettingsLive
   useEffect(() => {
     let live = true;
     void Promise.all([consoleClient.settings(), listMissingTitles(api)]).then(([settings, list]) => {
-      if (!live) return;
+      if (!live || !lifetime.current()) return;
       setRule(settings.requested['library.missingTitles']); setDays(settings.requested['library.missingTitlesDays']);
       setPage(list); setError(undefined);
-    }, failure => {if (live) setError(failure);});
+    }, failure => {if (live && lifetime.current()) setError(failure);});
     return () => {live = false;};
-  }, [consoleClient, api, revision]);
+  }, [consoleClient, api, lifetime, revision]);
   const apply = (patch: Partial<Record<'library.missingTitles' | 'library.missingTitlesDays', MissingTitlesRule | number>>) => {
     setBusy(true); setProblem(undefined);
     void consoleClient.settings().then(async settings => {

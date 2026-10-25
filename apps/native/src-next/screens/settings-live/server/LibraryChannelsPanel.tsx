@@ -1,4 +1,5 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import {useSettingsRequestScope} from '../use-settings-request-scope';
+import React, {useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 import {readLibraryChannels, readLibraryTemplates, saveLibraryChannel, type LibraryChannel, type LibraryChannelTemplate} from '../../../../../../packages/client-core/src/library-channels';
 import {regenerationBody} from '../../../../../../packages/client-core/src/server-admin/panel-logic';
@@ -19,18 +20,19 @@ type Translate = typeof defaultI18n.t;
 
 /** Settings › Server › Live TV & Channels › Library Channels (owner-server.html frame 41). */
 export function NativeLibraryChannelsPanel({ports, runtime}: {ports: Pick<NativeSettingsLivePorts, 'context' | 'requestId'>; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context, authority = context.authority();
-  const api = useMemo(() => ({request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)}), [context]);
+  const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
+  const {api, lifetime, authority} = useSettingsRequestScope(context);
   const [channels, setChannels] = useState<readonly LibraryChannel[]>([]), [templates, setTemplates] = useState<readonly LibraryChannelTemplate[]>([]);
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
   const [menu, setMenu] = useState<Readonly<{channel: LibraryChannel; index: number}>>(), [creating, setCreating] = useState(false), [template, setTemplate] = useState<LibraryChannelTemplate>();
   const [removing, setRemoving] = useState<LibraryChannel>(), [healthFor, setHealthFor] = useState<LibraryChannel>();
-  const reload = () => {
+  const reload = useCallback(() => {
+    if (!lifetime.current()) return;
     setProblem(undefined);
     void Promise.all([readLibraryChannels(api, authority.serverId), readLibraryTemplates(api, authority.serverId)])
-      .then(([list, choices]) => {setChannels([...list].sort((a, b) => a.config.position - b.config.position)); setTemplates(choices);}, setError);
-  };
-  useEffect(() => {reload();}, [context]);
+      .then(([list, choices]) => {if (lifetime.current()) {setChannels([...list].sort((a, b) => a.config.position - b.config.position)); setTemplates(choices); setError(undefined);}}, failure => {if (lifetime.current()) setError(failure);});
+  }, [api, authority.serverId, lifetime]);
+  useEffect(() => {reload();}, [reload]);
   const run = (work: () => Promise<unknown>) => {
     setBusy(true); setProblem(undefined);
     void work().then(() => {setBusy(false); reload();}, failure => {setBusy(false); setProblem(presentError(failure, 'server-console').body);});

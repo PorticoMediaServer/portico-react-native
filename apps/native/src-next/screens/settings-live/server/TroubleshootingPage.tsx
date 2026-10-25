@@ -1,3 +1,4 @@
+import {useSettingsRequestScope} from '../use-settings-request-scope';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {ConsoleClient, type FeedbackReport, type FeedbackStatus} from '../../../../../../packages/client-core/src/console';
@@ -49,8 +50,8 @@ function useRead<T>(read: () => Promise<T>, deps: readonly unknown[]) {
 
 /** Settings › Server › Troubleshooting on the phone (owner-server.html frame 33). */
 export function NativeServerTroubleshooting({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
-  const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context, authority = context.authority();
-  const api = useMemo(() => ({request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)}), [context]);
+  const theme = useTheme(), t = runtime.text.t as Translate, context = ports.context;
+  const {api, authority} = useSettingsRequestScope(context);
   const consoleClient = useMemo(() => new ConsoleClient(api, {serverId: authority.serverId, viewerId: authority.profileId}), [api, authority]);
   useEffect(() => () => consoleClient.dispose(), [consoleClient]);
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
@@ -71,12 +72,20 @@ export function NativeServerTroubleshooting({ports, runtime, compactHeader = fal
   </View>;
 }
 
-function MessagesTab({api, ports, runtime, t}: {api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
+function MessagesTab({ports, runtime, t}: {api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
+  const {api, lifetime} = useSettingsRequestScope(ports.context);
   const theme = useTheme();
   const [debugUntil, setDebugUntil] = useState<number>(), [debugBusy, setDebugBusy] = useState(false), [debugProblem, setDebugProblem] = useState<string>();
   const [now, setNow] = useState(() => Date.now());
-  const readDebug = () => {void api.request<unknown>(routePath('get_admin_logs_settings')).then(raw => {const settings = parseLogSettings((raw as {result?: unknown}).result ?? raw); setDebugUntil(settings.debugWindowUntil ? Date.parse(settings.debugWindowUntil) : undefined);}, () => {});};
-  useEffect(() => {readDebug(); const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer);}, [api]);
+  const readDebug = useCallback(() => {
+    if (!lifetime.current()) return;
+    void api.request<unknown>(routePath('get_admin_logs_settings')).then(raw => {
+      if (!lifetime.current()) return;
+      const settings = parseLogSettings((raw as {result?: unknown}).result ?? raw);
+      setDebugUntil(settings.debugWindowUntil ? Date.parse(settings.debugWindowUntil) : undefined);
+    }).catch(() => {});
+  }, [api, lifetime]);
+  useEffect(() => {readDebug(); const timer = setInterval(() => {if (lifetime.current()) setNow(Date.now());}, 30_000); return () => clearInterval(timer);}, [readDebug, lifetime]);
   const setDebug = (on: boolean) => {
     setDebugBusy(true); setDebugProblem(undefined);
     void api.request(routePath('post_admin_logs_debug_window'), 'POST', {operationId: ports.requestId(), minutes: on ? 30 : 0})
