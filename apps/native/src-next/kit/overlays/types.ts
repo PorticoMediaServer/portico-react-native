@@ -35,6 +35,12 @@ export type DialogProps = SurfaceProps & {
   dismissOnBack?: boolean;
   dismissOnGesture?: boolean;
   showClose?: boolean;
+  /** Flat face colour; the drawn gradient face is replaced when supplied. */
+  faceColor?: string;
+  /** Complete scrim colour including its alpha; the platform default is used when absent. */
+  scrimColor?: string;
+  /** Space between the description and the footer; the platform default is used when absent. */
+  footerMarginTop?: number;
 };
 export type SidePanelProps = SurfaceProps & {
   topInset?: number;
