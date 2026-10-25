@@ -560,7 +560,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       <Focusable focusId="clear" disabled={!active.visible} onPress={() => destination.setQuery(base as readonly BrowseNode[])} style={{height: theme.isTV ? 52 : tablet ? 44 : 30, justifyContent: 'center', paddingHorizontal: 8}}>
         <Text style={[browseType(theme, theme.isTV ? 20 : tablet ? 14 : 13, tablet ? 700 : 600), {color: theme.colors.textTertiary}]}>{defaultI18n.t('next.browse.native.clearAll')}</Text>
       </Focusable>
-      {count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{count}</Text>}
+      {/* tv4 .active-f .count sits 18 after Clear all; phone and tablet keep the right edge. */}
+      {count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: theme.isTV ? 18 : 'auto'}]}>{count}</Text>}
     </FocusRegion> : count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.isTV ? theme.gutter : rowGutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
     {count && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
