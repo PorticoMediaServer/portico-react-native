@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {settingsRowId, settingsStructure, type SettingsPage, type SettingsStructure} from '../../../packages/client-core/src/presentation/index.ts';
 
-// The phone and television structures are the shared ones, as authored: this app adds nothing to them.
+// The native clients consume the shared structure, including its phone-only source editor.
 const owner = {owner: true, capabilities: {accessTokens: false}};
 const member = {owner: false, capabilities: {accessTokens: true}};
 const administrator = {owner: false, administrator: true, capabilities: {accessTokens: true}};
@@ -17,7 +17,9 @@ test('an owner on a phone or tablet has Integrations and Metadata, where the web
   const phone = on(owner, false);
   const web = settingsStructure({...owner, platform: 'web'});
   const ids = heading(phone, 'server')!.pages.map(p => p.id);
-  assert.deepEqual(ids, heading(web, 'server')!.pages.map(p => p.id));
+  assert.deepEqual(ids.filter(id => id !== 'remote-sources'), heading(web, 'server')!.pages.map(p => p.id));
+  assert.equal(ids[ids.indexOf('remote-sources') + 1], 'storage', 'the native source editor precedes Storage');
+  assert.equal(ids[ids.indexOf('metadata') + 1], 'segments', 'intro/credits review follows Metadata');
   assert.equal(ids[ids.indexOf('libraries') + 1], 'metadata');
   assert.equal(ids[ids.indexOf('people') + 1], 'integrations');
 });
@@ -102,8 +104,14 @@ test('Card size, Show backdrops and the caption style are a phone’s and a tele
 });
 
 test('every panel the phone structure names is one this app draws', () => {
-  const source = readFileSync(new URL('../src/screens/settings/ServerPage.tsx', import.meta.url), 'utf8');
-  const drawn = new Set([...source.matchAll(/case '([^']+)':/g)].map(m => m[1]));
+  const legacy = readFileSync(new URL('../src/screens/settings/ServerPage.tsx', import.meta.url), 'utf8');
+  const current = readFileSync(new URL('../src-next/screens/settings-live/settings-panels.tsx', import.meta.url), 'utf8');
+  const screen = readFileSync(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), 'utf8');
+  const segments = readFileSync(new URL('../src-next/screens/settings-live/server/SegmentsPage.tsx', import.meta.url), 'utf8');
+  assert.match(current, /case 'server\.segments': return <IntroCreditsReview/);
+  assert.match(screen, /segmentsPage \? <NativeServerSegments ports=\{ports\} runtime=\{runtime\}/);
+  assert.match(segments, /ports\.renderSettingsPanel\('server\.segments', runtime\)/);
+  const drawn = new Set([...`${legacy}\n${current}`.matchAll(/case '([^']+)':/g)].map(m => m[1]));
   for (const context of [owner, administrator]) {
     for (const p of heading(on(context, false), 'server')!.pages) for (const id of panels(p)) {
       assert.ok(drawn.has(id), id);

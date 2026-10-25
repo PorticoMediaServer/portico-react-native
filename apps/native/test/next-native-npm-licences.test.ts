@@ -43,7 +43,7 @@ test('generated native licences include required blur, mask and gestures once an
   for (const client of ['android', 'apple'] as const) {
     const graph = readFileSync(new URL(`../licences/js-${client === 'android' ? 'android' : 'ios'}.txt`, import.meta.url), 'utf8');
     const represented = new Set(graph.split('\n').filter(line => line.trim() && !line.startsWith('#')).map(line => line.split('\t')[0]));
-    const data = JSON.parse(readFileSync(new URL(`../src/licences/${client}.json`, import.meta.url), 'utf8')) as LicenceData;
+    const data = JSON.parse(readFileSync(new URL(`../licences/generated/${client}.json`, import.meta.url), 'utf8')) as LicenceData;
     for (const [name, version] of [['@react-native-community/blur', '4.4.1'], ['@react-native-masked-view/masked-view', '0.3.2'], ['react-native-gesture-handler', '2.30.0']]) {
       const entries = data.components.filter(component => component.name === name);
       assert.equal(entries.length, 1); assert.equal(entries[0]!.version, version); assert.equal(entries[0]!.licence, 'MIT');
