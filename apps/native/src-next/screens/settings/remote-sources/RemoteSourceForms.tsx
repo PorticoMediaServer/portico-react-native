@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
-import {sourceReadPreset, sourceReadPresetName, type DAVConnectionResult, type RemoteSource, type SourceReadPreset, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
+import {sourceReadPreset, sourceReadPresetName, type DAVConnectionResult, type RemoteState, type RemoteSource, type SourceReadPreset, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
 import {Button} from '../../../kit/controls/Button';
 import {TextField} from '../../../kit/controls/TextField';
 import {Switch} from '../../../kit/controls/Switch';
@@ -19,6 +19,12 @@ export function remoteSourceError(t: Translate, error: unknown): string {
     idempotency_key_reused: 'next.remoteSources.error.reused', request_in_progress: 'next.remoteSources.error.busy', refresh_failed: 'next.remoteSources.error.refreshFailed',
     remote_invalid_configuration: 'next.remoteSources.error.invalid', invalid_request: 'next.remoteSources.error.invalid'} as const;
   return t(keys[code as keyof typeof keys] ?? 'next.remoteSources.error.generic');
+}
+
+export function receiptCheckRequired(state: RemoteState): boolean {
+  // A confirmed command's follow-up list read can fail after the service cleared its receipt.
+  // Check the original operation; never turn that refresh failure into a new mutation.
+  return state.ambiguous || !!state.operationId && !state.receipt && !!state.error && !state.errorCode;
 }
 
 function useAttempt(parentCurrent: () => boolean) {
@@ -84,7 +90,7 @@ export function ConnectionEditor({controller, t, source, onCancel, onSaved, isCu
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
-  const ambiguous = controller.getSnapshot().sources.ambiguous;
+  const ambiguous = receiptCheckRequired(controller.getSnapshot().sources);
   return <Page title={source?.name ?? t('next.remoteSources.add')} t={t} busy={busy} onCancel={onCancel}
     footer={ambiguous ? <Button onPress={() => {void recover();}} disabled={busy}>{t('next.remoteSources.checkResult')}</Button>
       : <Button onPress={() => {void save();}} loading={busy} disabled={busy || !name.trim() || changedConnection && !tested}>{t('next.remoteSources.saveAndContinue')}</Button>}>
@@ -141,7 +147,7 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurre
     catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
-  const ambiguous = controller.getSnapshot().sources.ambiguous;
+  const ambiguous = receiptCheckRequired(controller.getSnapshot().sources);
   const recover = async () => {
     if (inFlight.current || !current()) return;
     inFlight.current = true; setBusy(true); setError(undefined);
@@ -186,7 +192,7 @@ export function DisconnectEditor({controller, t, source, onCancel, onSaved, isCu
     } catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
-  const ambiguous = controller.getSnapshot().sources.ambiguous;
+  const ambiguous = receiptCheckRequired(controller.getSnapshot().sources);
   const recover = async () => {
     if (inFlight.current || !current()) return;
     inFlight.current = true; setBusy(true); setError(undefined);
