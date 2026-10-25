@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ActivityIndicator, ScrollView, Text, View} from 'react-native';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -8,10 +8,12 @@ import type {NativePlaybackSubtitleControls} from '../../platform/playback/subti
 import {subtitleReason} from '../../../../../packages/client-core/src/subtitles';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
+import {Dialog} from '../../kit/overlays';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
 import {PanelBackground} from '../../kit/overlays/surface';
 import {Icon, type IconName} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
+import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchHostContext} from './WatchHost';
 import type {NativeWatchPanel} from './controls';
 import {nativeWatchTracks} from './track-identity';
@@ -42,6 +44,16 @@ export type NativeWatchPanelsProps = Readonly<{
 export type NativeWatchStyleField = Readonly<{key: string; label: string; current: string | undefined; values: readonly Readonly<{value: string; label: string}>[]}>;
 export type NativeWatchStylePort = Readonly<{fields: readonly NativeWatchStyleField[]; apply: (key: string, value: string) => Promise<void>}>;
 
+/** The exact page a report row was drawn on: the fence it rendered for, and the
+ * shell's route snapshot at that same render. A fence alone does not prove the
+ * page — the same expanded output can survive away→Back — so identity of the
+ * route snapshot is part of the proof. */
+type NativeReportOpening = Readonly<{
+  fence: PlaybackFence;
+  navigation: ReturnType<NonNullable<NativeShellRuntime['navigation']>['getSnapshot']>;
+}>;
+type NativeReportAsk = NativeReportOpening & Readonly<{controller: AbortController; ticket: number}>;
+
 /** The real Options/Audio/Subtitles/Quality/Speed/Chapters renderer. The host
  * positions it inside its accepted pane/canvas. It owns no Surface or engine. */
 export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes, subtitleControls, sleep, style}: NativeWatchPanelsProps) {
@@ -50,9 +62,84 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   // and its Timing buttons at 44 pt; the phone keeps 52 pt rows.
   const tablet = !theme.isTV && Math.min(context.renderer.width, context.renderer.height) >= 600;
   const choices = useSyncExternalStore(options.subscribe, options.getSnapshot);
-  const first = useRef<View>(null), scroll = useRef<ScrollView>(null), busy = useRef(false), commandEpoch = useRef(0);
+  const first = useRef<View>(null), scroll = useRef<ScrollView>(null), busy = useRef(false), commandEpoch = useRef(0), reportCancel = useRef<View>(null);
   const [pending, setPending] = useState(false), [subtitleSearching, setSubtitleSearching] = useState(false), [subtitleReasonText, setSubtitleReasonText] = useState<string>();
   const latest = useRef(context); latest.current = context;
+  // The report consent belongs to the exact page it was drawn on: that row's fence
+  // and the shell route snapshot from the same render, one controller, one ticket.
+  const [reportAsk, setReportAsk] = useState<NativeReportAsk>();
+  const [reportBusy, setReportBusy] = useState(false), [reportFailure, setReportFailure] = useState<unknown>(), [reportSent, setReportSent] = useState(false);
+  const reportTicket = useRef(0), reportActive = useRef<NativeReportAsk | undefined>(undefined),
+    reportPending = useRef<NativeReportAsk | undefined>(undefined), reportAlive = useRef(true);
+  const reportOff = useRef<readonly (() => void)[]>([]);
+  // Neither the page nor the route may have moved; never re-anchor to what is latest.
+  const reportOnPage = (opening: NativeReportOpening): boolean => {
+    const snapshot = playback.getSnapshot(), shell = latest.current.runtime.navigation;
+    return !snapshot.retired && sameFence(snapshot.fence, opening.fence)
+      && sameFence(latest.current.fence, opening.fence) && sameFence(latest.current.state.fence, opening.fence)
+      && latest.current.state.panel === 'options' && !!shell && shell.getSnapshot() === opening.navigation;
+  };
+  const reportHeld = (asked: NativeReportAsk | undefined): asked is NativeReportAsk => !!asked && reportAlive.current
+    && reportActive.current === asked && !asked.controller.signal.aborted;
+  const reportCurrent = (asked: NativeReportAsk | undefined): asked is NativeReportAsk => reportHeld(asked) && reportOnPage(asked);
+  const reportDetach = useCallback(() => {
+    const stops = reportOff.current; reportOff.current = [];
+    stops.forEach(stop => stop());
+  }, []);
+  // Only the exact opening still held may be retired, so a retained control from an
+  // older sheet is refused and a successor's state is never touched. While mounted
+  // the retirement also clears its own rendered UI; the unmount cleanup passes
+  // notify=false and writes no state at all.
+  const reportDrop = useCallback((asked: NativeReportAsk, notify: boolean) => {
+    if (reportActive.current !== asked) return false;
+    reportActive.current = undefined;
+    asked.controller.abort();
+    reportDetach();
+    // Clear only what this opening rendered, and only while mounted; the unmount
+    // cleanup passes notify=false and writes no state at all.
+    if (notify && reportAlive.current) {
+      setReportAsk(shown => shown === asked ? undefined : shown);
+      setReportBusy(false); setReportFailure(undefined);
+    }
+    return true;
+  }, [reportDetach]);
+  const reportAttach = useCallback((asked: NativeReportAsk) => {
+    reportDetach();
+    const shell = latest.current.runtime.navigation;
+    if (!shell) return;
+    const check = () => {if (reportActive.current === asked && !reportCurrent(asked)) reportDrop(asked, true);};
+    reportOff.current = [shell.subscribe(check), playback.subscribe(check)];
+  }, [playback, reportDetach, reportDrop]);
+  // Dismiss and Cancel are bound to the object that sheet rendered, never to
+  // whatever happens to be active when the handler runs.
+  const closeReport = useCallback((asked: NativeReportAsk) => {reportDrop(asked, true);}, [reportDrop]);
+  const openReport = useCallback((opening: NativeReportOpening) => {
+    // A retained row whose own page or route moved before the press opens nothing.
+    if (!context.runtime.reportPlaybackProblem || !reportOnPage(opening)) return;
+    reportDetach();
+    const held = reportActive.current;
+    reportActive.current = undefined;
+    held?.controller.abort();
+    const asked: NativeReportAsk = {...opening, controller: new AbortController(), ticket: ++reportTicket.current};
+    reportActive.current = asked;
+    setReportAsk(asked); setReportBusy(false); setReportFailure(undefined); setReportSent(false);
+    reportAttach(asked);
+  }, [context.runtime.reportPlaybackProblem, reportAttach, reportDetach]);
+  const sendReport = useCallback(() => {
+    const port = context.runtime.reportPlaybackProblem, asked = reportAsk;
+    // The same ticket cannot send twice; a later opening has its own ticket.
+    if (!port || !reportCurrent(asked) || reportPending.current === asked) return;
+    reportPending.current = asked;
+    setReportBusy(true); setReportFailure(undefined);
+    void port({signal: asked.controller.signal, current: () => reportCurrent(asked)}).then(() => {
+      if (!reportCurrent(asked)) return;
+      reportActive.current = undefined; reportPending.current = undefined; reportDetach();
+      setReportAsk(undefined); setReportBusy(false); setReportSent(true);
+    }, failure => {if (reportCurrent(asked)) setReportFailure(failure);}).finally(() => {
+      if (reportPending.current === asked) reportPending.current = undefined;
+      if (reportCurrent(asked)) setReportBusy(false);
+    });
+  }, [context.runtime.reportPlaybackProblem, reportAsk, reportDetach]);
   const fenceKey = JSON.stringify(fence);
   const current = useCallback(() => !playback.getSnapshot().retired && sameFence(playback.getSnapshot().fence, fence)
     && sameFence(latest.current.fence, fence) && sameFence(latest.current.state.fence, fence)
@@ -64,6 +151,26 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     return () => {commandEpoch.current = epoch + 1;};}, [fenceKey, state.panel]);
   useEffect(() => {scroll.current?.scrollTo({y: state.panelOffset, animated: false});}, [state.panel, state.panelOffset]);
   useEffect(() => {first.current?.requestTVFocus?.();}, [state.panel, state.panelFocus, choices.phase]);
+  useEffect(() => {setReportSent(false);}, [fenceKey]);
+  // Unmount retirement writes no state at all, and the setup restores the mounted
+  // witness if the effect replays; a passive cleanup would leave a window in which a
+  // send could still reach a page that is already gone.
+  useLayoutEffect(() => {
+    reportAlive.current = true;
+    return () => {
+      reportAlive.current = false;
+      const held = reportActive.current;
+      if (held) reportDrop(held, false); else reportDetach();
+    };
+  }, []);
+  // A panel or source change retires the exact opening, with its own rendered UI
+  // state, before paint; navigation and playback publishes do the same from their own
+  // subscriptions. Nothing else about the panel's commands is widened.
+  useLayoutEffect(() => {
+    const asked = reportActive.current;
+    if (!asked || reportCurrent(asked)) return;
+    reportDrop(asked, true);
+  }, [state.panel, fenceKey]);
   const run = async (command: () => Promise<void>) => {
     if (busy.current || !current()) return;
     const epoch = commandEpoch.current;
@@ -215,6 +322,10 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     ? <View style={{backgroundColor: 'rgba(237,245,250,.05)', borderBottomLeftRadius: 14, borderBottomRightRadius: 14, paddingTop: 4, paddingHorizontal: 10, paddingBottom: 14}}>{content}</View>
     : content;
   const expandedBody = body;
+  // Read in the same render as the row: a retained copy of it opens for its own page
+  // or for nothing, never for whatever page happens to follow.
+  const reportOpening = context.runtime.reportPlaybackProblem && context.runtime.navigation
+    ? Object.freeze({fence, navigation: context.runtime.navigation.getSnapshot()}) : undefined;
   if (state.panel !== 'style' && (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info')) body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
     {option('subtitles', 'i-cc', selected.subtitlesOff ? t('player.opt.off') : rows?.subtitles.find(row => row.selected)?.primary)}
     {state.panel === 'subtitles' && well('subtitles', expandedBody)}
@@ -227,7 +338,10 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {state.panel === 'speed' && well('speed', expandedBody)}
     {sleep && option('sleep', 'i-moon', sleep.minutes == null ? t('player.opt.off') : t('player.opt.minutes', {count: sleep.minutes}))}
     {state.panel === 'sleep' && well('sleep', expandedBody)}
-    {(!!ready?.chapters.length || playbackInfo) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 22 : 10, marginBottom: theme.isTV ? 8 : 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('player.more')}</Text>}
+    {(!!ready?.chapters.length || playbackInfo || state.panel === 'options' && !!reportOpening) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 22 : 10, marginBottom: theme.isTV ? 8 : 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('next.player.thisTitle')}</Text>}
+    {state.panel === 'options' && reportOpening && actionRow('report-problem', t('next.states.reportProblem'), undefined, () => {if (current()) openReport(reportOpening);})}
+    {state.panel === 'options' && reportSent && <Text testID="watch-report-sent" accessibilityLiveRegion="polite" style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale),
+      {marginTop: 6, marginHorizontal: theme.isTV ? 14 : 18, color: theme.colors.textSecondary}]}>{t('about.report.sent', {server: context.runtime.getSnapshot().serverName ?? ''})}</Text>}
     {!!ready?.chapters.length && option('chapters', 'i-queue', chapterInForce)}
     {state.panel === 'chapters' && well('chapters', expandedBody)}
     {playbackInfo && option('playback-info', 'i-pulse')}
@@ -253,5 +367,14 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
         : <ScrollView ref={scroll} contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0, paddingBottom: theme.isTV ? 72 : 12}} onScroll={event => {if (current()) context.rememberPanel(event.nativeEvent.contentOffset.y);}} scrollEventThrottle={32}>{body}</ScrollView>}
       {theme.isTV && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 14}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary, borderWidth: 1, borderColor: theme.colors.textTertiary, borderRadius: 6, padding: 4}]}>{t('action.back')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>}
     </FocusRegion>
+    <Dialog testID="watch-report-consent" open={reportCurrent(reportAsk)} initialFocusRef={reportCancel}
+      onOpenChange={next => {if (!next && reportAsk) closeReport(reportAsk);}}
+      title={t('about.report.confirmTitle', {server: context.runtime.getSnapshot().serverName ?? ''})} description={t('about.report.confirmBody')}
+      footer={<View style={{flexDirection: 'row', gap: 16}}>
+        <Button ref={reportCancel} testID="watch-report-cancel" variant="glass" onPress={() => {if (reportAsk) closeReport(reportAsk);}}>{t('action.cancel')}</Button>
+        <Button testID="watch-report-send" variant="glass" loading={reportBusy} onPress={sendReport}>{t('about.report.send')}</Button>
+      </View>}>
+      {reportFailure !== undefined ? renderError(reportFailure, sendReport) : <View/>}
+    </Dialog>
   </View>;
 }
