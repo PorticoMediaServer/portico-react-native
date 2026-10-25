@@ -70,11 +70,15 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
       };
       try {
         const items: SelectionItem[] = new Array(entries.length); let cursor = 0;
+        // The same real ports the selection bar may offer: leaf Play plus the
+        // Detail actions an item actually enables. Absent executors (queue when
+        // there is no catalogue player) leave that capability false and hidden.
+        const queue = !!context.playback.cataloguePlayback?.();
         await Promise.all(Array.from({length: Math.min(4, entries.length)}, async () => {
           while (cursor < entries.length) {
             const index = cursor++;
             items[index] = await readCatalogueSelectionItem({api: context.api, scope: lifetime.scope, requestId: common.requestId,
-              signal: controller.signal, isCurrent: live}, entries[index], {play: true});
+              signal: controller.signal, isCurrent: live}, entries[index], {play: true, queue, myList: true, favorite: true, watched: true});
           }
         }));
         if (!live()) throw cancelled();
@@ -90,6 +94,9 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
         windows.set(id, cleanup);
         const keys = new Map(entries.map((entry, index) => [entry, browseSelectionKey(captured.scope, items[index])]));
         return Object.freeze({
+          /** The model key each registered entry was given, so a caller can ask the
+           * real model whether that exact entry is selected. */
+          keys: keys as ReadonlyMap<ContentEntry, string>,
           toggle: (entry: ContentEntry, range = false) => {
             const key = keys.get(entry);
             if (!current() || !activation.getSnapshot().visible || !member() || !key || windows.get(id) !== cleanup) throw cancelled();
