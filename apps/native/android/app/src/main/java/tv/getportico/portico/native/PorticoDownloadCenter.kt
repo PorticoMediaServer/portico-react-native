@@ -372,7 +372,9 @@ internal object PorticoDownloadCenter {
   // --- what travels with a download: its description, artwork and subtitles -------------------
 
   private fun extra(id: String?, name: String?): File? {
-    if (!safeIdentifier(id) || entries[id] == null || name == null || name.startsWith("reader-state-") || !EXTRA.matches(name)) return null
+    if (!safeIdentifier(id) || entries[id] == null || name == null || !EXTRA.matches(name)) return null
+    // All generic read/write/fetch paths reject reserved aliases even on case-insensitive storage.
+    if (name.startsWith("reader-state-", ignoreCase = true) || (name.equals("publication.json", ignoreCase = true) && name != "publication.json")) return null
     return File(File(directory(id!!), "extras"), name)
   }
 
