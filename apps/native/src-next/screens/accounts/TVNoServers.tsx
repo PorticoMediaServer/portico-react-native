@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {BackHandler, ScrollView, Text, View} from 'react-native';
+import {BackHandler, ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {FocusProvider, FocusRegion} from '../../kit/focus';
@@ -9,6 +9,7 @@ import {Button, Focusable, TextField} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
+import {shellLayout} from '../../shell/model';
 import {useTVBusyEntryRevision} from '../../tv/auth/entry-revision';
 
 type Props = {busy: boolean; error?: React.ReactNode; isCurrent: () => boolean; onBack: () => void;
@@ -66,22 +67,24 @@ export function TVNoServers(props: Props) {
   const back = useCallback(() => {if (!current()) return; if (joining) {setInvitation(''); setJoining(false);} else onBack();}, [current, joining, onBack]);
   useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!joining || !current()) return false; back(); return true;});
     return () => subscription.remove();}, [joining, current, back]);
+  const window = useWindowDimensions(), canvas = shellLayout(window.width, window.height, true);
+  const noticeView = props.notice && <View accessibilityRole="alert" style={{gap: 12, padding: 20, borderRadius: 16, backgroundColor: theme.colors.raised}}>
+    <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{props.notice.title}</Text>
+    <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{props.notice.body}</Text>
+    {props.notice.onRetry && <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.notice?.onRetry?.();}}>{t('web.chooser.tryAgain')}</Button>}
+  </View>;
   return <FocusProvider><View testID="tv-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingTop: 64, paddingLeft: 200, paddingRight: 96, paddingBottom: 64, gap: 28}}>
+    {joining ? <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingTop: 64, paddingLeft: 200, paddingRight: 96, paddingBottom: 64, gap: 28}}>
       <Button variant="text" disabled={props.busy} onPress={back} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>
       <View style={{gap: 12}}>
         <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('services.start.ready')}</Text>
-        <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t(joining ? 'services.start.join' : 'services.start.welcome')}</Text>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(joining ? 'web.directJoin.entryBody' : 'services.start.body')}</Text>
-        {props.notice && <View accessibilityRole="alert" style={{gap: 12, padding: 20, borderRadius: 16, backgroundColor: theme.colors.raised}}>
-          <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{props.notice.title}</Text>
-          <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{props.notice.body}</Text>
-          {props.notice.onRetry && <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.notice?.onRetry?.();}}>{t('web.chooser.tryAgain')}</Button>}
-        </View>}
+        <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t('services.start.join')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.directJoin.entryBody')}</Text>
+        {noticeView}
         {props.error}
       </View>
-      {joining ? <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join']} style={{maxWidth: 1100, gap: 20}}>
+      <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join']} style={{maxWidth: 1100, gap: 20}}>
         <TextField focusId="address" label={t('accounts.signIn.address')} value={address} onFocus={() => {if (current()) setField('address');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false}
           onChangeText={value => {if (owns()) setAddress(value);}}/>
         <TextField focusId="invitation" label={t('services.start.invitation')} value={invitation} onFocus={() => {if (current()) setField('invitation');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false} autoComplete="off"
@@ -93,12 +96,31 @@ export function TVNoServers(props: Props) {
           onChangeText={value => {if (owns()) {if (field === 'address') setAddress(value); else setInvitation(value);}}}/>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.whereBody')}</Text>
         <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}}>{t('services.start.joinAction')}</Button>
-      </FocusRegion> : <DoorTiles busy={props.busy} revision={entryRevision}
-        onJoin={() => {if (owns()) setJoining(true);}}/>}
+      </FocusRegion>
       <View style={{flexDirection: 'row', gap: 24}}>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
       </View>
-    </ScrollView>
+    </ScrollView> : <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
+      transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
+      {/* Frame 35 puts the header at 96 in the gutter's 1300 column and the tiles at 400;
+        frame 38 keeps the same tiles at 460 under its notice at 330. */}
+      <View style={{position: 'absolute', left: 200, top: 96, width: 1300}}>
+        <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong, marginBottom: 12}]}>{t('services.start.ready')}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 72, lineHeight: 72, weight: 800, tracking: -.045}, theme.textScale), {color: theme.colors.text, marginBottom: 16}]}>{t('services.start.welcome')}</Text>
+        <Text style={[nativeType({size: 26, lineHeight: 37.7, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, maxWidth: 1000}]}>{t('services.start.body')}</Text>
+      </View>
+      {(props.notice || props.error) && <View style={{position: 'absolute', left: 200, right: 96, top: 330, gap: 16}}>
+        {noticeView}
+        {props.error}
+      </View>}
+      <View style={{position: 'absolute', left: 200, right: 96, top: props.notice || props.error ? 460 : 400}}>
+        <DoorTiles busy={props.busy} revision={entryRevision} onJoin={() => {if (owns()) setJoining(true);}}/>
+      </View>
+      <View style={{position: 'absolute', left: 200, bottom: 64, flexDirection: 'row', gap: 36}}>
+        <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
+        <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
+      </View>
+    </View>}
   </View></FocusProvider>;
 }
