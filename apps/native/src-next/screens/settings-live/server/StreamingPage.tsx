@@ -20,7 +20,7 @@ import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 
 /** Phone Streaming borrows checked revisioned runtime/connectivity documents, never delivery policy state. */
-export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeServerStreaming({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
   const theme = useTheme(), t = runtime.text.t, context = ports.context;
   const owned = useMemo(() => {
     const lifetime = new NativeScreenLifetime(context);
@@ -68,7 +68,7 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
   };
   return <View style={{flex: 1}}><ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40, gap: 18}}>
     <ServerHeader serverName={context.serverName} viewerRole="owner" audience="owner" variant="phone"/>
-    <Text accessibilityRole="header" style={[theme.type.title, {color: theme.colors.text}]}>{section ? t(section.title) : t('settings.server.playback')}</Text>
+    {!compactHeader && <Text accessibilityRole="header" style={[theme.type.title, {color: theme.colors.text}]}>{section ? t(section.title) : t('settings.server.playback')}</Text>}
     {configurationError !== undefined && <StateView variant="inline" {...runtime.error(configurationError, () => {void owned.api.request(routePath('get_settings_configuration')).then(parseSettingsConfiguration).then(value => {setConfiguration(value); setConfigurationError(undefined);}, setConfigurationError);})}/>}
     {[runtimeState, connectivityState].map((form, index) => form.loadError !== undefined ? <StateView key={index} variant="inline" {...runtime.error(form.loadError, () => {void Object.values(owned.forms)[index]!.load();})}/> : null)}
     {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void owned.set.save();})}/>}
