@@ -37,11 +37,14 @@ export function ReadPeriodicalScreen({controller, route, runtime, onBack}: {
   const dayIssues = state.selectedDate === undefined ? [] : monthIssues.filter(entry => entry.issueDate === state.selectedDate);
   const columns = theme.platform === 'phone' ? 3 : 5, gap = 16;
   const width = Math.max(96, Math.min(150, (dimensions.width - theme.gutter * 2 - gap * (columns - 1)) / columns));
-  const open = (issue: ReadingPeriodicalIssue) => {void controller.open(issue.item).catch(runtime.reportError);};
+  const open = (issue: ReadingPeriodicalIssue) => {void controller.open(state, issue).catch(runtime.reportError);};
   return <View testID={`native-read-periodical-${route.groupId}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>
-    <ScrollView contentContainerStyle={{paddingTop: Math.max(96, insets.top + 56), paddingBottom: insets.bottom + 48}} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={{paddingTop: Math.max(96, insets.top + 56), paddingBottom: insets.bottom + 48}} showsVerticalScrollIndicator={false}
+      onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+        if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.next(state).catch(runtime.reportError);}}
+      scrollEventThrottle={64}>
       {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/> : null}
       {state.phase !== 'ready' && state.phase !== 'error' ? <SkeletonBlock width="100%" height={360}/> : null}
       {state.phase === 'ready' ? <View style={{width: '100%', maxWidth: 900, alignSelf: 'center'}}>
@@ -66,7 +69,7 @@ export function ReadPeriodicalScreen({controller, route, runtime, onBack}: {
         {route.publicationType === 'magazine' ? <View style={{marginTop: 20}}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, paddingHorizontal: 20}}>
             {state.years.map(year => <Focusable key={year.value} accessibilityRole="button" accessibilityLabel={year.value}
-              accessibilityState={{selected: year.value === state.selectedYear}} onPress={() => {void controller.selectYear(year.value).catch(runtime.reportError);}}
+              accessibilityState={{selected: year.value === state.selectedYear}} onPress={() => {void controller.selectYear(state, year).catch(runtime.reportError);}}
               style={{height: 34, paddingHorizontal: 12, borderRadius: 17, justifyContent: 'center', backgroundColor: year.value === state.selectedYear ? theme.colors.text : alpha(theme.colors.text, .08)}}>
               <Text style={[browseType(theme, 13, 700), {color: year.value === state.selectedYear ? theme.colors.ink : theme.colors.textSecondary}]}>{year.value}</Text>
             </Focusable>)}
@@ -78,14 +81,14 @@ export function ReadPeriodicalScreen({controller, route, runtime, onBack}: {
         </View> : <View style={{marginTop: 20}}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, paddingHorizontal: 20}}>
             {state.months.map(month => <Focusable key={month} accessibilityRole="button" accessibilityLabel={month}
-              accessibilityState={{selected: month === state.selectedMonth}} onPress={() => {void controller.selectMonth(month).catch(runtime.reportError);}}
+              accessibilityState={{selected: month === state.selectedMonth}} onPress={() => {void controller.selectMonth(state, month).catch(runtime.reportError);}}
               style={{height: 34, paddingHorizontal: 12, borderRadius: 17, justifyContent: 'center', backgroundColor: month === state.selectedMonth ? theme.colors.text : alpha(theme.colors.text, .08)}}>
               <Text style={[browseType(theme, 13, 700), {color: month === state.selectedMonth ? theme.colors.ink : theme.colors.textSecondary}]}>{month}</Text>
             </Focusable>)}
           </ScrollView>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, marginTop: 16}}>
             {state.days.map(day => <Focusable key={day.value} accessibilityRole="button" accessibilityLabel={day.value}
-              accessibilityState={{selected: day.value === state.selectedDate}} onPress={() => controller.selectDate(day.value)}
+              accessibilityState={{selected: day.value === state.selectedDate}} onPress={() => controller.selectDate(state, day.value)}
               style={{width: 56, height: 56, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
                 backgroundColor: day.value === state.selectedDate ? theme.colors.text : alpha(theme.colors.text, .08)}}>
               <Text style={[browseType(theme, 15, 700), {color: day.value === state.selectedDate ? theme.colors.ink : theme.colors.text}]}>{day.value.slice(8, 10)}</Text>
