@@ -230,6 +230,49 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
     snapshot.songTotal ? t('title.songCount', {count: snapshot.songTotal}) : undefined,
     entry.genres?.[0],
   ].filter((value): value is string => !!value);
+  if (theme.platform !== 'phone') {
+    const round = {height: phoneMusicGeometry.actionHeight, width: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius};
+    const years = entry.activeBeginYear || entry.activeEndYear ? `${entry.activeBeginYear ?? ''}–${entry.activeEndYear ?? ''}` : undefined;
+    const details = [[t('title.genres'), entry.genres?.join(', ')], [t('title.country'), entry.country], [t('title.year'), years]].filter(([, value]) => !!value) as [string, string][];
+    return <View testID="native-tablet-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+      <Wash runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
+      <ScrollView contentContainerStyle={{paddingTop: 56, paddingBottom: 100}} showsVerticalScrollIndicator={false}>
+        <View style={{alignItems: 'center', paddingHorizontal: 32}}>
+          <ArtistCircle covers={covers} rings={[3]} initials={[...entry.title.trim()][0] ?? ''} alt={entry.title} size={220} visible/>
+          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 58, 800, -.04, 61), {color: theme.colors.text, textAlign: 'center', marginTop: 20}]}>{entry.title}</Text>
+          {facts.length ? <Facts facts={facts} strongFirst={false}/> : null}
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20}}>
+            <Button style={{height: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius, paddingHorizontal: 24}} icon="i-play" textStyle={browseType(theme, 15, 700)} onPress={() => {void controller.play().catch(runtime.reportError);}}>{t('entry.play')}</Button>
+            <Button variant="glass" style={{height: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius, paddingHorizontal: 24}} icon="i-shuffle" textStyle={browseType(theme, 15, 700)} onPress={() => {void controller.play(undefined, true).catch(runtime.reportError);}}>{t('title.shuffle')}</Button>
+            <Button variant="glass" iconOnly icon={snapshot.favorite ? 'i-heart-f' : 'i-heart'} style={round} accessibilityLabel={t(snapshot.favorite ? 'next.browse.native.unfavorite' : 'next.browse.native.favorite')} onPress={() => {void controller.toggleFavorite().catch(runtime.reportError);}}/>
+            <Button ref={more} variant="glass" iconOnly icon="i-more" style={round} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, more)}/>
+          </View>
+        </View>
+        {snapshot.songs.length ? <View style={{marginTop: 32, paddingHorizontal: 32}}>
+          <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 8}]}>{t('music.topSongs')}</Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', height: 30, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
+            <Text style={[browseType(theme, 11, 700), {width: 36, color: theme.colors.textTertiary}]}>#</Text>
+            <Text style={[browseType(theme, 11, 700), {flex: 1, color: theme.colors.textTertiary}]}>{t('next.browse.native.title')}</Text>
+            <Text style={[browseType(theme, 11, 700), {width: 62, textAlign: 'right', color: theme.colors.textTertiary}]}>{t('next.browse.native.plays')}</Text>
+            <Text style={[browseType(theme, 11, 700), {width: 70, textAlign: 'right', color: theme.colors.textTertiary}]}>{t('next.browse.duration')}</Text>
+            <View style={{width: 44}}/>
+          </View>
+          {snapshot.songs.map((song, index) => <TabletSongLine key={song.id} song={song} index={index} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/>)}
+        </View> : null}
+        {snapshot.albums.length ? <View style={{marginTop: 28, paddingHorizontal: 32}}>
+          <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 10}]}>{t('music.albums')}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 14}}>
+            {snapshot.albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry}/>)}
+          </ScrollView>
+        </View> : null}
+        {details.length ? <View style={{paddingHorizontal: 32, marginTop: 28, width: 340}}>
+          <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 8}]}>{t('title.details')}</Text>
+          {details.map(([label, value]) => <View key={label} style={{flexDirection: 'row', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
+            <Text style={[browseType(theme, 13, 400), {width: 96, color: theme.colors.textTertiary}]}>{label}</Text><Text style={[browseType(theme, 13, 500), {flex: 1, color: theme.colors.text}]}>{value}</Text></View>)}
+        </View> : null}
+      </ScrollView>
+    </View>;
+  }
   return <View testID="native-phone-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Wash runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
     <ScrollView contentContainerStyle={{paddingTop: Math.max(phoneMusicGeometry.artistTop, insets.top + 56), paddingBottom: 40}} showsVerticalScrollIndicator={false}>
