@@ -35,7 +35,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {hostedUrl: 'https://web.example'},
     '../../tv/auth': {TVCredentialForm: 'TVCredentials', TVCodePresenter: 'TVCode', TVVerificationForm: 'TVFactor', TVRequiredSetupHandoff: 'TVRequired',
       TVFrontDoor: 'TVFrontDoor', TVProfilePINForm: 'TVPIN', TVForgotPINHandoff: 'TVForgot'},
-    './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
+    './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
   });
   let tree: any;
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {}});});
