@@ -3,6 +3,7 @@ import {Text, View, useWindowDimensions} from 'react-native';
 import type {BrowseNode, BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {Library} from '../../../../../packages/client-core/src';
+import type {LibraryTab} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {BrowseLabels} from '../../kit/browse';
@@ -28,12 +29,13 @@ const noopSubscribe = () => () => {};
  * Browse toolbar over real capabilities and quick filters — with the real
  * Filters panel docked beside it in landscape. Cards open the book's own
  * destination (VideoTV); this surface never opens the reader itself. */
-export function NativeReadingBooks({context, runtime, library, owner, labels, filterWidth = 360}: {
-  context: NativeShellBootstrapContext; runtime: NativeShellRuntime; library: Library; owner: boolean; labels: BrowseLabels; filterWidth?: number;
+export function NativeReadingBooks({context, runtime, library, tab, owner, labels, filterWidth = 360}: {
+  context: NativeShellBootstrapContext; runtime: NativeShellRuntime; library: Library; /** The browsable tab the server's own reading pivots published. */ tab: LibraryTab;
+  owner: boolean; labels: BrowseLabels; filterWidth?: number;
 }) {
   const theme = useTheme(), dimensions = useWindowDimensions(), lifetime = useMemo(() => nativeDestinationLifetime(context), [context]);
   const current = () => lifetime.current() && context.libraries().some(value => value.id === library.id && value.kind === library.kind);
-  const destination = useMemo(() => new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, current}), [context, lifetime, library]);
+  const destination = useMemo(() => new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, current, tab}), [context, lifetime, library, tab]);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>();
   useEffect(() => {void destination.load(); return () => destination.dispose();}, [destination]);

@@ -35,8 +35,8 @@ const collections: LibraryTab = {id: 'collections', label: 'library.tab.collecti
  * library opens its own base grid as Volumes and issues. Series, Authors, Magazines and Newspapers
  * appear only where their accepted classification, facet route and producer exist, so they are not
  * offered here as empty destinations. */
-const books: readonly LibraryTab[] = [discover, {id: 'browse', label: 'library.tab.books', pivot: 'books', shows: 'titles'}];
-const volumes: readonly LibraryTab[] = [discover, {id: 'browse', label: 'library.tab.volumesAndIssues', pivot: 'comics', shows: 'titles'}];
+const books: readonly LibraryTab[] = [discover, {id: 'browse', label: 'library.tab.books', shows: 'titles'}];
+const volumes: readonly LibraryTab[] = [discover, {id: 'browse', label: 'library.tab.volumesAndIssues', shows: 'titles'}];
 
 const TABS: Readonly<Record<string, readonly LibraryTab[]>> = {
   movie: [discover, {id: 'browse', label: 'library.tab.movies', pivot: 'movies', shows: 'titles'}, collections],

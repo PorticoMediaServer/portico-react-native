@@ -43,7 +43,7 @@ export function nativeLibraryCanSave(source: NativeLibrarySnapshot, draft: Nativ
 /** One authorized library in one actual session. This holds sparse native pages,
  * never an array sized by the library's count or a client-filtered catalogue. */
 export class NativeLibraryDestination {
-  private readonly options: Readonly<{api: LibraryContentApi; scope: ContentScope; library: Library; current: () => boolean}>;
+  private readonly options: Readonly<{api: LibraryContentApi; scope: ContentScope; library: Library; current: () => boolean; /** An explicit opening tab, for a surface whose pivot came from the server's own reading pivots. */ tab?: LibraryTab}>;
   private readonly discover: LibraryContentService;
   private readonly unsubscribe: () => void;
   private state: NativeLibrarySnapshot;
@@ -61,7 +61,7 @@ export class NativeLibraryDestination {
   constructor(options: NativeLibraryDestination['options']) {
     this.options = options;
     this.discover = new LibraryContentService({api: {request: this.request}, scope: options.scope});
-    const tab = libraryTabs(options.library.kind).find(value => value.id === 'browse') ?? libraryTabs(options.library.kind)[0]!;
+    const tab = options.tab ?? libraryTabs(options.library.kind).find(value => value.id === 'browse') ?? libraryTabs(options.library.kind)[0]!;
     this.state = Object.freeze({library: options.library, tab, phase: 'idle', predicates: [], queryRevision: 0, discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}});
     this.unsubscribe = this.discover.subscribe(() => this.publish({discover: this.discover.getSnapshot()}));
   }
@@ -109,7 +109,7 @@ export class NativeLibraryDestination {
   };
   private async loadTab(tabId: LibraryTabId): Promise<void> {
     if (!this.current()) return;
-    const tab = libraryTabs(this.options.library.kind).find(value => value.id === tabId);
+    const tab = this.options.tab && this.options.tab.id === tabId ? this.options.tab : libraryTabs(this.options.library.kind).find(value => value.id === tabId);
     if (!tab) throw new Error('native_library_tab_not_offered');
     if (tab.id === this.state.tab.id && this.state.phase === 'ready') return;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();

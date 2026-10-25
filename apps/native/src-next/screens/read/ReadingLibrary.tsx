@@ -4,9 +4,10 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingItem} from '../../../../../packages/client-core/src';
+import {browseCapabilitiesPath, parseBrowseCapabilities, type BrowseCapabilities} from '../../../../../packages/client-core/src/browse';
 import {readLibrarySummaries, type LibrarySummary} from '../../../../../packages/client-core/src/library-summary';
 import {formatDuration} from '../../../../../packages/client-core/src/presentation/content';
-import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
+import {libraryTabs, readingTabModel, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {GeneratedCover} from '../../kit/artwork';
 import {ReadResumeCard} from '../../kit/cards';
 import {Focusable} from '../../kit/controls';
@@ -48,10 +49,25 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const {context, runtime, libraryId, title, labels, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const library = context.libraries().find(value => value.id === libraryId);
   const kind = library?.kind === 'comic' ? 'comic' : 'book';
-  const name = library?.name ?? title, tabs = libraryTabs(kind);
+  const name = library?.name ?? title, authoredTabs = useMemo(() => libraryTabs(kind), [kind]);
   const [tab, setTab] = useState<LibraryTabId>('discover'), [switcherOpen, setSwitcherOpen] = useState(false), fellBack = useRef(false);
   const tablet = !theme.isTV && theme.platform !== 'phone'; // Medium, tablet and native web windows share the wide surface.
   const [summary, setSummary] = useState<LibrarySummary>();
+  const libraryKind = library?.kind, wideId = library?.id;
+  /** Root §3: the server's own reading pivots decide the Books grid; undefined means this server
+   * publishes none, and the authored pair keeps the bounded Reading list on every width. */
+  const [reading, setReading] = useState<Readonly<{id: string; kind: string; phase: 'ready' | 'error'; data?: BrowseCapabilities}>>();
+  useEffect(() => {
+    if (!tablet || !wideId || !libraryKind) return;
+    const ab = new AbortController();
+    void context.api.request<unknown>(browseCapabilitiesPath(wideId, libraryKind === 'comic' ? 'comics' : 'books'), 'GET', undefined, ab.signal)
+      .then(raw => {const data = parseBrowseCapabilities(raw); if (!ab.signal.aborted) setReading({id: wideId, kind: libraryKind, phase: 'ready', data});},
+        () => {if (!ab.signal.aborted) setReading({id: wideId, kind: libraryKind, phase: 'error'});});
+    return () => ab.abort();
+  }, [context, libraryKind, tablet, wideId]);
+  const capability = reading && reading.id === libraryId && reading.kind === libraryKind ? reading : undefined;
+  const gridTab = useMemo(() => reading?.phase === 'ready' && reading.data ? readingTabModel(reading.data)?.find(value => value.id === 'browse') : undefined, [reading]);
+  const tabs = useMemo(() => gridTab ? [authoredTabs[0]!, gridTab] : authoredTabs, [authoredTabs, gridTab]);
   useEffect(() => {
     const ab = new AbortController();
     void readLibrarySummaries(context.api, ab.signal).then(rows => {const row = rows.find(value => value.id === libraryId); if (!ab.signal.aborted) setSummary(row?.summary);}, () => {});
@@ -64,8 +80,8 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const booksState = useSyncExternalStore(books.subscribe, books.getSnapshot);
   useEffect(() => {
     if (tab === 'discover') void discovery.load().catch(runtime.reportError);
-    else if (!tablet) void books.load().catch(runtime.reportError); // Tablet Books owns its own browse destination.
-  }, [tab, discovery, books, runtime, tablet]);
+    else if (!tablet || (capability && !gridTab)) void books.load().catch(runtime.reportError); // Tablet Books owns its own browse destination when the server publishes the pivot.
+  }, [tab, discovery, books, runtime, tablet, capability, gridTab]);
   // A ready Discover with neither real row has nothing to show; the library's
   // own Books/Volumes grid is the honest destination, never a false empty copy.
   useEffect(() => {
@@ -141,8 +157,11 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
       <LibraryTabs items={tabs} selected={tab} enabled phone={theme.platform === 'phone'} regionId={`reading-tabs-${libraryId}`}
         leftEdge="reading-tabs-edge" onSelect={id => setTab(id)}/>
     </LibraryCompactHeader>}
-    {tab === 'discover' ? discover : tablet && library ? <NativeReadingBooks context={context} runtime={runtime} library={library} labels={labels}
-      owner={context.session()?.viewer.role === 'owner'}/> : booksGrid}
+    {tab === 'discover' ? discover
+      : tablet && gridTab && library ? <NativeReadingBooks context={context} runtime={runtime} library={library} tab={gridTab} labels={labels}
+        owner={context.session()?.viewer.role === 'owner'}/>
+      : tablet && !capability ? <View style={{flex: 1}}>{loading}</View>
+      : booksGrid}
     <Menu open={switcherOpen} onOpenChange={setSwitcherOpen} title={defaultI18n.t('next.browse.native.switchLibrary')} items={switcherItems}/>
   </View>;
 }
