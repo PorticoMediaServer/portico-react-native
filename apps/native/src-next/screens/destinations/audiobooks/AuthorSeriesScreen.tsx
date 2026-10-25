@@ -72,7 +72,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   const coverPath = series ? books[0]?.posterUrl ?? entity.posterUrl : entity.posterUrl;
   const title = entity.displayTitle ?? entity.title;
   const resumeLabel = resume?.bookProgress?.chapter && series
-    ? t('title.resumeChapter', {chapter: t('next.kit.chapter', {number: resume.bookProgress.chapter.index})})
+    ? t('title.resumeChapterNumber', {number: resume.bookProgress.chapter.index})
     : resume ? t('next.browse.resume', {title: resume.title}) : t('entry.play');
   const open = (book: ContentEntry) => openEntry(book);
   const start = () => {if (resume) void controller.resumeBook(resume).catch(error => runtime.reportError(error)); else if (books[0]) open(books[0]);};
@@ -108,21 +108,24 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
           </View>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 18 : 10, marginTop: tv ? 22 : 18, alignSelf: tv ? 'flex-start' : 'stretch'}}>
             <Button icon="i-play" onPress={start} accessibilityLabel={resumeLabel} hasTVPreferredFocus={tv} style={{flex: tv ? undefined : 1, minWidth: tv ? 320 : undefined}}>{resumeLabel}</Button>
-            {series && books[0] ? <Button variant="glass" icon="i-restart" iconOnly={!tv} onPress={() => open(books[0]!)} accessibilityLabel={t('action.startOver')}>{tv ? t('action.startOver') : undefined}</Button> : null}
+            {series && books[0] ? <Button variant="glass" icon="i-restart" iconOnly={!tv} onPress={() => open(books[0]!)} accessibilityLabel={t(tv ? 'action.startSeriesOver' : 'action.startOver')}>{tv ? t('action.startSeriesOver') : undefined}</Button> : null}
             {tv ? <Button variant="glass" iconOnly icon="i-more" accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entity)}/> : null}
           </View>
         </View>
         <View style={tv ? {position: 'absolute', left: 760, top: 560, width: 1000} : {width: '100%', marginTop: 22}}>
           {/* collections 44/45 draw the rows without a section heading; 41b/41c
               keep the heading above the list on the phone. */}
-          {!tv ? <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.kit.books', {count: entity.count ?? books.length})}</Text> : null}
+          {!tv ? <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 6}}>
+            <Text style={[browseType(theme, 20, 700), {color: theme.colors.text}]}>{t(series ? 'next.kit.booksInSeries' : 'next.kit.booksHeading')}</Text>
+            <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{entity.count ?? books.length}</Text>
+          </View> : null}
           {/* collections 41c/45: the books are in series order, and each row is
               labelled by that order; the author page has no numbers. */}
           {books.map((book, index) => <BookRow key={book.id} entry={book} runtime={runtime} tv={tv} position={series ? book.series?.[0]?.position ?? String(index + 1) : undefined} onOpen={() => open(book)} onMore={() => actions.menu(book)}/>)}
           {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
             <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
             {narrators.length ? <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
-              <Text style={[browseType(theme, 14, 600), {color: theme.colors.text}]}>{t('web.metadata.field.narrator')}</Text>
+              <Text style={[browseType(theme, 14, 600), {color: theme.colors.text}]}>{t('next.kit.narrators')}</Text>
               <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{defaultI18n.list(narrators)}</Text>
             </View> : null}
             {entity.duration === undefined ? null : <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
