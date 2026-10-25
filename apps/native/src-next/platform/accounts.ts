@@ -133,11 +133,13 @@ export class NativeAccounts {
   /** Explicit user-selected Portico action only. Constructing this owner does no account IO. */
   accountCredentials() {this.assertCurrent(); return this.credentials ??= createCredentials(hostedUrl);}
   accountClient(binding: string, isCurrent?: () => boolean, ownsResult?: () => boolean) {this.assertCurrent(); return createNativeAccountClient(hostedUrl, binding, isCurrent, ownsResult);}
-  async authenticatePorticoAccount(callback: (signal: AbortSignal) => Promise<HostedSession>) {
+  async authenticatePorticoAccount(callback: (signal: AbortSignal) => Promise<HostedSession>, callerCurrent?: () => boolean) {
     const credentials = this.accountCredentials();
     if (this.accountAttempt) throw Object.assign(new Error('native_account_attempt_active'), {code: 'account_changed'});
     this.accountAttempt = credentials;
-    try {return await credentials.authenticateIfSignedOut(callback);}
+    // The owning form's lifetime travels to the credential coordinator so a retired
+    // caller can be refused while a known late family is still compensated.
+    try {return await credentials.authenticateIfSignedOut(callback, {}, callerCurrent);}
     finally {if (this.accountAttempt === credentials) this.accountAttempt = undefined;}
   }
   signInPorticoAccount(binding: string, username: string, password: string) {
