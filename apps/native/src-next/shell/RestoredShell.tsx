@@ -140,7 +140,8 @@ export function RestoredShell() {
     if (!renderedCurrent() || viewOwner.current !== opened || !opened.source.current()) return; viewOwner.current = undefined;
     setDownloadView(previous => renderedCurrent() && previous === opened ? undefined : previous);
   }}/>;
-  const withDownloads = (content: React.ReactNode, shortcut = true) => <View style={{flex: 1}}>{content}{shortcut && remembered && <RememberedDownloadsShortcut source={remembered}/>}</View>;
+  const withDownloads = (content: React.ReactNode, shortcut = true) => shortcut && remembered
+    ? <View style={{flex: 1}}>{content}<RememberedDownloadsShortcut source={remembered}/></View> : content;
   if (state.runtime && state.phase === 'ready') return <NativeSettingsAppearance source={state.runtime}><>{firstLibrary && state.runtime.firstLibraryContext?.current() && state.runtime.firstLibraryContext.authority().serverId === firstLibrary && state.runtime.firstLibraryContext.account.account.role === 'owner' && state.runtime.firstLibraryContext.account.account.primaryProfileId === state.runtime.firstLibraryContext.authority().profileId ? <PhoneFirstLibrary context={state.runtime.firstLibraryContext} onDone={() => {if (!renderedCurrent()) return; const runtime = state.runtime;
     setFirstLibrary(previous => renderedCurrent() ? undefined : previous); if (renderedCurrent()) void runtime?.refresh();}}/> : <NativeShell runtime={state.runtime}/>}</></NativeSettingsAppearance>;
   if (state.phase === 'loading') return <HomeSkeleton elapsedMs={elapsed} visible/>;

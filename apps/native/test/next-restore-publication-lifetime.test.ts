@@ -12,6 +12,13 @@ function modules(state: {
 }) {
   return {
     react: {...React, default: React},
+    'react-native': {View: 'View'},
+    '../platform/installation': {beginNativeInstallation: (signal?: AbortSignal) => {
+      let disposed = false;
+      return {current: () => !disposed && !signal?.aborted, dispose: () => {disposed = true;}};
+    }},
+    './remembered-downloads-opening': {createRememberedDownloadsOpening: async () => undefined},
+    '../screens/downloads/RememberedDownloadsScreen': {RememberedDownloadsScreen: 'RememberedDownloadsScreen', RememberedDownloadsShortcut: 'RememberedDownloadsShortcut'},
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView'},
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({title: 'failed', body: 'failed'})},
     './assembly': {createNativeShellBindings: () => ({})},
