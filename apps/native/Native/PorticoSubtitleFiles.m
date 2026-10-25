@@ -188,23 +188,25 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:
  PorticoDocumentPickRequest *request=_request;
  if(request&&controller==request.picker)[self finish:request result:nil code:@"cancelled"];
 }
-- (NSData *)readDocument:(NSURL *)url limit:(NSUInteger)limit request:(PorticoDocumentPickRequest *)request {
+- (NSData *)readDocument:(NSURL *)url limit:(NSUInteger)limit request:(PorticoDocumentPickRequest *)request error:(NSError **)error {
  if(!request||request.progress.cancelled)return nil;
  BOOL scoped=[url startAccessingSecurityScopedResource];
  NSMutableData *bounded=[NSMutableData new];
+ NSError *readError=nil;
  @try {
-  NSFileHandle *file=[NSFileHandle fileHandleForReadingFromURL:url error:NULL];
-  if(file){
-   @try {
-    while(!request.progress.cancelled&&bounded.length<=limit){
-     NSData *chunk=[file readDataUpToLength:MIN((NSUInteger)65536,limit+1-bounded.length) error:NULL];
-     if(!chunk.length)break;
-     [bounded appendData:chunk];
-    }
-   } @finally {[file closeAndReturnError:nil];}
-  }
+  NSFileHandle *file=[NSFileHandle fileHandleForReadingFromURL:url error:&readError];
+  if(!file){if(error)*error=readError?:[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil];return nil;}
+  @try {
+   while(!request.progress.cancelled&&bounded.length<=limit){
+    NSData *chunk=[file readDataUpToLength:MIN((NSUInteger)65536,limit+1-bounded.length) error:&readError];
+    if(!chunk){if(error)*error=readError?:[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil];return nil;}
+    if(!chunk.length)break;
+    [bounded appendData:chunk];
+   }
+  } @finally {[file closeAndReturnError:nil];}
  } @finally {if(scoped)[url stopAccessingSecurityScopedResource];}
- return !request.progress.cancelled&&bounded.length>0&&bounded.length<=limit?bounded:nil;
+ if(error)*error=readError;
+ return !request.progress.cancelled&&!readError&&bounded.length>0&&bounded.length<=limit?bounded:nil;
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
  PorticoDocumentPickRequest *request=_request;
@@ -216,10 +218,12 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:
  BOOL allowed=url.isFileURL&&([kind isEqualToString:@"playlist"]?[extension isEqualToString:@"m3u"]||[extension isEqualToString:@"m3u8"]:[extension isEqualToString:@"xml"]);
  if(!allowed){[self finish:request result:nil code:@"document_format"];return;}
  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-  NSData *data=[self readDocument:url limit:16*1024*1024 request:request];
+  NSError *readError=nil;
+  NSData *data=[self readDocument:url limit:16*1024*1024 request:request error:&readError];
   NSString *text=data?[[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding]:nil;
   NSDictionary *result=text.length?@{@"data":text,@"title":[url.lastPathComponent substringToIndex:MIN((NSUInteger)160,url.lastPathComponent.length)],@"bytes":@(data.length)}:nil;
-  dispatch_async(dispatch_get_main_queue(),^{[self finish:request result:result code:@"document_file"];});
+  NSString *code=readError?@"document_file":(data&&!text?@"document_encoding":@"document_file");
+  dispatch_async(dispatch_get_main_queue(),^{[self finish:request result:result code:code];});
  });
 }
 #endif

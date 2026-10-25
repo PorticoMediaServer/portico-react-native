@@ -22,6 +22,7 @@ type Opening = {
   preview?: Readonly<{revision: number; value: UploadPreview}>;
   files: Readonly<{playlist?: Picked; guide?: Picked}>;
   reading?: 'playlist' | 'guide';
+  pick?: AbortController;
   error?: unknown;
 };
 
@@ -47,25 +48,31 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
 }) {
   const theme = useTheme(), t = runtime.text.t;
   const [opening, setOpening] = useState<Opening>();
-  const active = useRef<Opening>(), sequence = useRef(0), picker = useRef<AbortController>();
+  const active = useRef<Opening>(), sequence = useRef(0);
   const retire = (target: Opening) => {
     if (target.phase === 'closed') return;
-    target.phase = 'closed';target.abort.abort();picker.current?.abort();
+    target.phase = 'closed';target.abort.abort();target.pick?.abort();
     // Uploaded text does not outlive the opening that collected it.
     target.draft = emptyInput();target.preview = undefined;target.files = {};target.reading = undefined;target.error = undefined;
   };
   useLayoutEffect(() => {
+    let owned: Opening | undefined;
     if (open) {
-      const next: Opening = {id: ++sequence.current, abort: new AbortController(), phase: 'open', draft: emptyInput(), revision: 0, files: {}};
-      active.current = next;setOpening(next);
+      owned = {id: ++sequence.current, abort: new AbortController(), phase: 'open', draft: emptyInput(), revision: 0, files: {}};
+      active.current = owned;setOpening(owned);
     }
     return () => {
-      const target = active.current;
-      if (!target) return;
-      active.current = undefined;
-      retire(target);
+      if (!owned) return;
+      if (active.current === owned) active.current = undefined;
+      retire(owned);
     };
   }, [open, controller]);
+  const close = (target: Opening) => {
+    if (active.current !== target) return;
+    active.current = undefined;
+    retire(target);
+    onOpenChange(false);
+  };
   const current = opening && active.current === opening && opening.phase !== 'closed' ? opening : undefined;
   const input = current?.draft ?? blank, files = current?.files ?? {}, preview = current?.preview, busy = current?.phase === 'checking' || current?.phase === 'saving', reading = current?.reading;
   const edit = (target: Opening, patch: Pick<Partial<UploadInput>, 'name' | 'tunerCount'>) => {
@@ -75,9 +82,9 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
   };
   const choose = async (target: Opening, field: 'playlist' | 'guide') => {
     if (!liveDocumentPicker || active.current !== target || target.phase !== 'open' || target.reading || target.abort.signal.aborted) return;
-    picker.current?.abort();
-    const pickController = new AbortController();picker.current = pickController;
-    const picking: Opening = {...target, reading: field, preview: undefined, error: undefined};
+    target.pick?.abort();
+    const pickController = new AbortController();
+    const picking: Opening = {...target, reading: field, preview: undefined, error: undefined, pick: pickController};
     active.current = picking;setOpening(picking);
     try {
       const picked = await liveDocumentPicker.pick(field, pickController.signal);
@@ -85,16 +92,15 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
       const other = field === 'playlist' ? picking.draft.guide : picking.draft.playlist;
       if (byteLength(picked.data) + byteLength(other) > limit) throw new Error('The playlist and guide together must be no larger than 16 MB.');
       const draft = Object.freeze({...picking.draft, [field]: picked.data, requestId: makeId()});
-      const next: Opening = {...picking, draft, revision: picking.revision + 1, reading: undefined, files: {...picking.files, [field]: {title: picked.title, bytes: picked.bytes}}};
+      const next: Opening = {...picking, draft, revision: picking.revision + 1, reading: undefined, pick: undefined, files: {...picking.files, [field]: {title: picked.title, bytes: picked.bytes}}};
       active.current = next;setOpening(next);
     } catch (failure) {
       if (active.current === picking && !pickController.signal.aborted) {
-        const next: Opening = {...picking, reading: undefined, error: failure};active.current = next;setOpening(next);
+        const next: Opening = {...picking, reading: undefined, pick: undefined, error: failure};active.current = next;setOpening(next);
       }
     } finally {
-      if (picker.current === pickController) picker.current = undefined;
       if (active.current === picking) {
-        const next: Opening = {...picking, reading: undefined};active.current = next;setOpening(next);
+        const next: Opening = {...picking, reading: undefined, pick: undefined};active.current = next;setOpening(next);
       }
     }
   };
@@ -122,7 +128,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
     try {
       const saved = await controller.saveFiles(saving.draft, caller);
       if (active.current !== saving || saving.phase !== 'saving' || saving.abort.signal.aborted) return;
-      if (saved) {onSaved();onOpenChange(false);}
+      if (saved) {onSaved();close(saving);}
       else {
         const next: Opening = {...saving, phase: 'open', error: controller.getSnapshot().error ?? new Error('save_live_source')};
         active.current = next;setOpening(next);
@@ -139,9 +145,9 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
       onPress={() => {if (current) void choose(current, field);}}>{files[field]?.title ?? t('web.metadata.chooseImageFile')}</Button>
     {files[field] && <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{sizeLabel(files[field]!.bytes)}</Text>}
   </View>;
-  return <Dialog open={open && !!current} onOpenChange={value => {if (!busy && !value) onOpenChange(false);}} title={t('web.liveTv.upload')} description={t('web.liveTv.uploadLede')}
+  return <Dialog open={open && !!current} onOpenChange={value => {if (!busy && !value && current) close(current);}} title={t('web.liveTv.upload')} description={t('web.liveTv.uploadLede')} dismissOnBack={!busy} dismissOnOutsidePress={!busy} showCloseButton={!busy}
     footer={<View style={{flexDirection: 'row', gap: 10}}>
-      <Button variant="glass" disabled={busy} onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button>
+      <Button variant="glass" disabled={busy} onPress={() => {if (current) close(current);}}>{t('action.cancel')}</Button>
       <Button variant="primary" loading={busy} disabled={busy || !!reading || !input.name.trim() || !input.playlist}
         onPress={() => {if (current) {if (preview) void save(current, current.revision);else void check(current, current.revision);}}}>{t(preview ? 'web.liveTv.addSource' : 'web.liveTv.checkFiles')}</Button>
     </View>} testID="live-owner-upload">

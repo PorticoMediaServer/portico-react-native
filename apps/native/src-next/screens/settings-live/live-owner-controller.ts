@@ -147,7 +147,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
   };
   saveRemote = (previewId: string) => this.act(async () => parseSourceDocument(await this.request<unknown>('/v1/admin/live-sources/remote/save', 'POST', {previewId, requestId: this.operationId()}), this.lifetime.authority.serverId), () => undefined);
   private uploadRequest = <T,>(path: string, draft: LiveSourceInput, caller?: Readonly<{isCurrent: () => boolean; signal?: AbortSignal}>) =>
-    this.lifetime.request(signal => this.api.request<T>(path, 'POST', draft, caller?.signal ?? signal));
+    this.lifetime.request(signal => this.api.request<T>(path, 'POST', draft, signal), caller?.signal);
   previewFiles = async (draft: LiveSourceInput, caller?: Readonly<{isCurrent: () => boolean; signal?: AbortSignal}>): Promise<UploadPreview> => {
     this.lifetime.assert();
     if (caller && (!caller.isCurrent() || caller.signal?.aborted === true)) throw new Error('cancelled');
