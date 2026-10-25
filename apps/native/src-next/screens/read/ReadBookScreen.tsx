@@ -3,10 +3,10 @@ import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {ReadingManifest} from '../../../../../packages/client-core/src';
+import type {ReadingListMembership, ReadingManifest, ReadingReadMark} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable, Tabs} from '../../kit/controls';
-import {Icon} from '../../kit/Icon';
+import {Icon, type IconName} from '../../kit/Icon';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -51,11 +51,19 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   const currentSection = savedProgress && !savedProgress.stale ? savedProgress.location.section : undefined;
   const contents = manifest?.format === 'epub' ? manifest.contents ?? [] : [];
   const menu: readonly MenuEntry[] = [
+    ...(state.read ? [{id: 'read-mark', label: t(state.read.read ? 'next.reader.markUnread' : 'next.reader.markRead'), icon: 'i-check' as IconName,
+      onSelect: () => {setMore(false); toggleRead(state.read!);}}] : []),
     ...(contents.length ? [{id: 'details', label: t('next.reader.details'), selected: tab === 'details', onSelect: () => {setTab('details'); setMore(false);}}] : []),
     {id: 'settings', label: t('next.reader.openSettings'), onSelect: () => {setMore(false); onOpenSettings();}},
   ];
   const read = (target: ReadingManifest, index?: number) => {
     void controller.read(target, index).then(ok => {if (!ok) return;}).catch(runtime.reportError);
+  };
+  const toggleList = (membership: ReadingListMembership) => {
+    void controller.toggleList(membership).then(ok => {if (!ok) return;}).catch(runtime.reportError);
+  };
+  const toggleRead = (mark: ReadingReadMark) => {
+    void controller.toggleRead(mark).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
   const openSeries = (target: SeriesLink, manifest: ReadingManifest) => {
     void controller.openSeries(target, manifest).then(ok => {if (!ok) return;}).catch(runtime.reportError);
@@ -69,7 +77,8 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
       ? <SkeletonBlock width="100%" height={520}/>
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
-        versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}/>;
+        versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
+        listed={state.listed} onList={toggleList}/>;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
@@ -86,12 +95,13 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
+  listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
 }) {
   const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
@@ -140,9 +150,14 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved
       </View> : null}
     </View>
     <View style={{paddingHorizontal: 20, marginTop: 18}}>
-      <Button icon="i-book" progress={saved} onPress={() => onRead(manifest)} style={{alignSelf: 'stretch'}}>
-        {t(saved !== undefined ? 'next.cards.read' : 'next.reader.read')}
-      </Button>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+        <Button icon="i-book" progress={saved} onPress={() => onRead(manifest)} style={{flex: 1}}>
+          {t(saved !== undefined ? 'next.cards.read' : 'next.reader.read')}
+        </Button>
+        <Button variant="icon" icon={listed?.listed ? 'i-check' : 'i-plus'} iconOnly disabled={!listed}
+          accessibilityLabel={t(listed?.listed ? 'next.home.removeMyList' : 'next.home.addMyList')}
+          onPress={() => {if (listed) onList(listed);}} style={{height: 48, width: 48}}/>
+      </View>
       {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
         onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: wide ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
         <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
