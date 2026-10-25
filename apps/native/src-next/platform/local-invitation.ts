@@ -48,7 +48,7 @@ export class NativeLocalInvitation<T> {
       if (preview.signInMethod !== 'local') throw cancelled();
       if (Date.parse(preview.expiresAt) <= Date.now()) throw new InvitationExpired();
       this.invitation = {capability, preview}; return preview;
-    } finally {this.busy = false;}
+    } catch (error) {this.assertCurrent(); throw error;} finally {this.busy = false;}
   }
   async join(preview: PublicInvitation, username: string, password: string, name: string): Promise<T> {
     this.assertCurrent(); const invitation = this.invitation;
