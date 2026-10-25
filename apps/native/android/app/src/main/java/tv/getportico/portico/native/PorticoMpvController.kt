@@ -1720,8 +1720,19 @@ internal class PorticoMpvController(private val context: Context) {
   }
 
   /** Tells the system the title's frame rate for this surface. False when the surface would not take it. */
+  private fun clearDisabledFrameRate(target: Surface?) {
+    if (command?.get("matchFrameRate") != "off" || !frameRateVoted || target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return
+    frameRateClear?.let { main.removeCallbacks(it) }
+    frameRateClear = null
+    try {
+      target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+      frameRateVoted = false
+    } catch (_: Exception) {}
+  }
+
   private fun voteFrameRate(target: Surface, fps: Float): Boolean {
-    if (Build.VERSION.SDK_INT < 30) return false
+    clearDisabledFrameRate(target)
+    if (Build.VERSION.SDK_INT < 30 || command?.get("matchFrameRate") == "off") return false
     return try {
       if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
       else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
@@ -1747,7 +1758,8 @@ internal class PorticoMpvController(private val context: Context) {
    */
   private fun matchDisplay(deadline: Long = SystemClock.elapsedRealtime() + 10_000, done: () -> Unit) {
     val target = surface
-    val fps = frameRate()
+    clearDisabledFrameRate(target)
+    val fps = if (command?.get("matchFrameRate") == "off") null else frameRate()
     if (((Build.VERSION.SDK_INT >= 30 && fps != null) || directOutput) && PorticoMpvDevice.isTelevision && (target == null || !target.isValid) && !backgroundHold) {
       // Even a very fast load waits for its view before the television is asked to switch, so
       // the title never starts and then loses its opening seconds to the switch.
@@ -1771,7 +1783,7 @@ internal class PorticoMpvController(private val context: Context) {
     // The viewer's setting, where the system has one (Android 12): never, only when the picture
     // does not break, or always.
     val preference = if (Build.VERSION.SDK_INT >= 31) displays?.matchContentFrameRateUserPreference else null
-    val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
+    val never = command?.get("matchFrameRate") == "off" || preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
     if (never && !directOutput) { done(); return }
     val display = displays?.getDisplay(Display.DEFAULT_DISPLAY)
     val before = display?.mode

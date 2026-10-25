@@ -642,8 +642,19 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   // --- matching the display (television) ---------------------------------------------------
 
+  private fun clearDisabledFrameRate(target: Surface?) {
+    if (command?.get("matchFrameRate") != "off" || !frameRateVoted || target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return
+    frameRateClear?.let { main.removeCallbacks(it) }
+    frameRateClear = null
+    try {
+      target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+      frameRateVoted = false
+    } catch (_: Exception) {}
+  }
+
   private fun voteFrameRate(target: Surface, fps: Float): Boolean {
-    if (Build.VERSION.SDK_INT < 30) return false
+    clearDisabledFrameRate(target)
+    if (Build.VERSION.SDK_INT < 30 || command?.get("matchFrameRate") == "off") return false
     return try {
       if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
       else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
@@ -693,9 +704,10 @@ internal class PorticoPlaybackController(private val context: Context) {
     // The viewer's setting, where the system has one (Android 12): never, only when the picture
     // does not break, or always.
     val preference = if (Build.VERSION.SDK_INT >= 31) displays.matchContentFrameRateUserPreference else null
-    val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
+    val never = command?.get("matchFrameRate") == "off" || preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
     val fps = format.frameRate.takeIf { it.isFinite() && it >= 1f && it <= 240f }
     val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+    clearDisabledFrameRate(target)
     if (Build.VERSION.SDK_INT >= 30 && !never && fps != null && (target == null || !target.isValid) && !backgroundHold) {
       // READY can arrive before React has mounted the surface. Keep the opening frame until
       // there is somewhere to make the rate request, within the same bounded startup wait.
