@@ -57,7 +57,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
-    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations'));
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments'));
     // settings.html wins over the group's old order: General comes first.
     const general = pages.find(value => value.id === 'general');
     return general ? [general, ...pages.filter(value => value.id !== 'general')] : pages;
