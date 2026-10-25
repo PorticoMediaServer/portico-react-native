@@ -23,6 +23,8 @@ export class NativeSearchDestination {
   private readonly options: Readonly<{
     api: LibraryContentApi; scope: ContentScope; current: () => boolean;
     rememberHistory: () => boolean; reportError: (error: unknown) => void;
+    /** One route-owned seed from the captured title; copied once, then the draft is the user's. */
+    initialQuery?: string;
   }>;
   private state: NativeSearchSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -39,7 +41,8 @@ export class NativeSearchDestination {
   constructor(options: NativeSearchDestination['options']) {
     this.options = options;
     this.service = new SearchService({api: options.api, scope: options.scope});
-    this.state = Object.freeze({text: '', group: 'all', search: this.service.getSnapshot(), groups: [], recent: [], clearing: false});
+    const text = options.initialQuery ?? '';
+    this.state = Object.freeze({text, group: 'all', ...(text.trim() ? {problem: searchQueryProblem(text)} : {}), search: this.service.getSnapshot(), groups: [], recent: [], clearing: false});
     this.unsubscribe = this.service.subscribe(this.changed);
   }
   getSnapshot = (): NativeSearchSnapshot => {this.current(); return this.state;};
