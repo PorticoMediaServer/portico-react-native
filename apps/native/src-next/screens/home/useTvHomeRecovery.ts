@@ -37,9 +37,10 @@ export function useTvHomeRecovery({runtime, authority, error, active, resolved, 
   const [session, setSession] = useState<TvHomeRecoverySession>();
   const [pass, setPass] = useState(0), [reopen, setReopen] = useState(0);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
-  const alive = useRef(true), flight = useRef<Readonly<{ticket: TvHomeRecoveryTicket; promise: Promise<void>}>>(), waits = useRef(new Set<() => void>());
+  const alive = useRef(true), flight = useRef<Readonly<{ticket: TvHomeRecoveryTicket; promise: Promise<void>}> | undefined>(undefined), waits = useRef(new Set<() => void>());
   const appState = useRef(AppState.currentState), wake = useRef(false), immediate = useRef(false), step = useRef(0);
-  const opening = useRef<TvHomeRecoveryTicket>(), presented = useRef<PresentedError>(), sessionRef = useRef<TvHomeRecoverySession>();
+  const opening = useRef<TvHomeRecoveryTicket | undefined>(undefined), presented = useRef<PresentedError | undefined>(undefined),
+    sessionRef = useRef<TvHomeRecoverySession | undefined>(undefined);
   const activeRef = useRef(active);
   activeRef.current = active;
   sessionRef.current = session;
