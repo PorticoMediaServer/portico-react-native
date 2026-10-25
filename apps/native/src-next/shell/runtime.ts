@@ -15,6 +15,7 @@ import type {ErrorContext} from '../../../../packages/client-core/src/presentati
 import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
+import type {LyricsService, LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import type {NativeWatchOutletPort} from './watch-outlet';
 import type {NativePlayOn} from '../platform/play-on/controller';
 
@@ -101,6 +102,12 @@ export interface NativeShellRuntime {
   playOn?: NativePlayOn;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
+  /** Synced lyrics for one current song, with the viewer's own preference.
+   * Absent when this build has no lyric source; the caller owns the service. */
+  lyrics?: (target: LyricsTarget) => Readonly<{enabled: boolean; service: LyricsService}>;
+  /** The viewer's own "Synced lyrics" choice, read live so a changed setting
+   * removes the control without reopening the surface. */
+  lyricsEnabled?: () => boolean;
   /** Direction-specific audiobook step; absent callers retain their old step. */
   skipForwardSeconds?: number;
   /** Only installed when a real device destination control exists. */

@@ -29,6 +29,7 @@ import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
 import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
+import {LyricsService} from '../../../../packages/client-core/src/lyrics';
 import {NativePlayOn} from '../platform/play-on/controller';
 import {installationIdentity} from '../../../../packages/client-core/src/installation';
 import {authorityKey, type ShellAuthority} from './model';
@@ -335,6 +336,14 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
+      lyrics: target => {
+        if (!current() || !local) return undefined;
+        try {
+          return Object.freeze({enabled: currentPreferences().effective['playback.showSyncedLyrics'] !== false,
+            service: new LyricsService(local, {serverId: authority.serverId, viewerId: JSON.stringify([authority.serverId, authority.accountId, authority.profileId])}, target)});
+        } catch {return undefined;}
+      },
+      lyricsEnabled: () => current() && currentPreferences().effective['playback.showSyncedLyrics'] !== false,
       artwork: path => {
         if (!path || !current()) return undefined;
         const uri = resolve(path);

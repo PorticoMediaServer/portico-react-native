@@ -7,9 +7,11 @@ import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation} from '../kit/dock';
-import {currentOccupant} from '../kit/dock/model';
+import {currentOccupant, playbackPosition} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
+import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
+import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
 import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
 import {nativeEqualizer} from '../platform/playback/equalizer';
@@ -17,7 +19,7 @@ import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-eff
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
 import type {NativeShellRuntime} from './runtime';
 import {sameAuthority, type ShellAuthority} from './model';
-import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlaybackAdapter, type NativeShellVideoSnapshot} from './playback';
+import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlaybackAdapter, type NativeShellPlaybackSnapshot, type NativeShellVideoSnapshot} from './playback';
 import {NativeVideoSnapshotCapture} from './video-snapshot';
 import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
@@ -157,6 +159,16 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   // music-plus (MC-8): the line is the committed plan plus the engine's own facts, or nothing.
   const signal = useMemo(() => {const input = nativeMusicSignal(snapshot, equalizer.value); return input ? musicSignalView(input) : undefined;}, [snapshot, equalizer.value]);
+  // The song's own lyrics need the session-bound target the server validates: the queue
+  // fence's session and source, and the entry's library. Keys, not objects, so a position
+  // update cannot rebuild the reader; the reader itself is owned by the lyric panel.
+  const lyricsKeys = nativeLyricsTargetKey(snapshot);
+  const lyricsTarget = useMemo<LyricsTarget | undefined>(() => {
+    if (!lyricsKeys) return undefined;
+    const [sessionId, sessionGeneration, itemId, sourceId, libraryId] = JSON.parse(lyricsKeys) as [string, number, string, string, string];
+    return {itemId, libraryId, sessionId, sessionGeneration, ...(sourceId ? {sourceId} : {})};
+  }, [lyricsKeys]);
+  const lyricsOffered = !!lyricsTarget && !!runtime.lyrics && runtime.lyricsEnabled?.() === true;
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
@@ -192,8 +204,19 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
           signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
+          lyrics={lyricsOffered && lyricsTarget && runtime.lyrics && nowPlaying ? <NowPlayingLyrics read={runtime.lyrics} target={lyricsTarget}
+            positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}
+            onSeek={seconds => {const current = adapter.getSnapshot(); if (current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.seek(current.fence, seconds).catch(runtime.reportError);}}/> : undefined}
           onClose={() => {const current = adapter.getSnapshot(); if (current.dock.local?.expanded && current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.onTransition(adapter.dock.collapse(current.fence)).catch(runtime.reportError);}}/>}
       </View>
     </Animated.View>
   </View>;
+}
+
+/** The current song's lyric target, as a stable key string: the queue fence's session
+ * and source plus the entry's library. Empty when no song is playing on a queue. */
+function nativeLyricsTargetKey(snapshot: NativeShellPlaybackSnapshot): string {
+  const dock = snapshot.dock.local, fence = snapshot.fence, entry = snapshot.entry;
+  if (!dock || dock.expanded !== true || dock.kind !== 'music' || !fence || fence.kind !== 'queue' || !sameFence(dock.fence, fence) || !entry?.libraryId) return '';
+  return JSON.stringify([fence.sessionId, fence.generation, fence.itemId, fence.sourceId ?? '', entry.libraryId]);
 }
