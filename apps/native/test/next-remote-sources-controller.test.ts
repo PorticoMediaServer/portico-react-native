@@ -69,3 +69,40 @@ test('permission withdrawal during a read discards its response even before an a
   assert.equal(controller.getSnapshot().allowed, false);
   assert.deepEqual(controller.getSnapshot().sources.sources, []);
 });
+
+const connection = {name: 'Archive', root: 'https://storage.example/Media', username: 'review',
+  password: 'test-only-secret', insecureLocal: false};
+
+test('connection testing returns only checked results and never retains credential fields', async () => {
+  const f = fixture();
+  f.setRead(async () => ({scope: {serverId: 'server', viewerFence: 'wire'},
+    result: {origin: 'https://storage.example', rangeSupport: 'conditional'}}));
+  const controller = new NativeRemoteSourcesController(f.ports);
+  const result = await controller.testConnection(connection);
+  assert.deepEqual(result, {origin: 'https://storage.example', rangeSupport: 'conditional'});
+  assert.equal(JSON.stringify(controller.getSnapshot()).includes(connection.password), false);
+  controller.dispose();
+});
+
+test('all command entry points refuse a retired viewer without sending a request', async () => {
+  const f = fixture(), controller = new NativeRemoteSourcesController(f.ports);
+  f.switchViewer();
+  await assert.rejects(controller.testConnection(connection), {name: 'AbortError'});
+  await assert.rejects(controller.configure(null, {...connection, keepPassword: false, keepConnection: false}), {name: 'AbortError'});
+  await assert.rejects(controller.remove({...source, kind: 'webdav', rangeSupport: 'conditional'}), {name: 'AbortError'});
+  await assert.rejects(controller.recover(), {name: 'AbortError'});
+  assert.deepEqual(f.calls, []);
+});
+
+test('connection test completion after permission withdrawal returns no result or retained credentials', async () => {
+  const f = fixture(); let finish: (value: unknown) => void = () => {};
+  f.setRead(() => new Promise(resolve => {finish = resolve;}));
+  const controller = new NativeRemoteSourcesController(f.ports);
+  const testing = controller.testConnection(connection);
+  f.account.account.disabled = true;
+  finish({scope: {serverId: 'server', viewerFence: 'wire'},
+    result: {origin: 'https://storage.example', rangeSupport: 'conditional'}});
+  await assert.rejects(testing);
+  assert.equal(controller.getSnapshot().allowed, false);
+  assert.equal(JSON.stringify(controller.getSnapshot()).includes(connection.password), false);
+});

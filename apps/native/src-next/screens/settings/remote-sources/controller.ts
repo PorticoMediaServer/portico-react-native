@@ -1,4 +1,4 @@
-import {RemoteSourceService, type RemoteState} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -61,6 +61,38 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     if (!this.allowed()) {this.dispose(); return;}
     await this.service.load();
     if (!this.allowed()) this.dispose();
+  }
+
+  private assertAllowed(): void {
+    if (!this.allowed()) {this.dispose(); throw screenScopeEnded();}
+  }
+
+  /** Credential fields stay in this call and the service request, never in a snapshot. */
+  async testConnection(input: DAVConnectionInput): Promise<DAVConnectionResult> {
+    this.assertAllowed();
+    try {
+      const result = await this.service.testConnection(input);
+      this.assertAllowed();
+      return result;
+    } finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async configure(id: string | null, input: DAVConfiguration, base?: RemoteSource): Promise<void> {
+    this.assertAllowed();
+    try {await this.service.configure(id, input, base);}
+    finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async remove(source: RemoteSource): Promise<void> {
+    this.assertAllowed();
+    try {await this.service.remove(source);}
+    finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async recover(): Promise<void> {
+    this.assertAllowed();
+    try {await this.service.recover();}
+    finally {if (!this.allowed()) this.dispose();}
   }
 
   dispose(): void {
