@@ -9,7 +9,7 @@ import {nativeRouteCrypto} from '../src-next/platform/server-connections';
 export type PublicationBinding = Readonly<{sourceId: string; revision: string; format: 'epub' | 'pdf' | 'cbz'; documentSha256: string}>;
 export type PublicationResource = Readonly<{path: string; mime: string; size: number; sha256: string; offset: number; compressedSize: number; compression: 0 | 8}>;
 export type OfflinePublication = Readonly<{manifest: ReadingManifest; resources: readonly PublicationResource[]; initialProgress: ReadingProgress}>;
-export type OfflineReadingSession = ReadingHostSession & {offline: NativeOfflinePublicationLease; close(signal?: AbortSignal): Promise<void>};
+export type OfflineReadingSession = ReadingHostSession & {offline?: NativeOfflinePublicationLease; close(signal?: AbortSignal): Promise<void>};
 type NativeReads = {
   publicationOpen(handle: string, id: string, owner: string, digest: string): Promise<number>;
   publicationRead(handle: string, operation: number, offset: number, length: number): Promise<string>;
@@ -83,7 +83,7 @@ function decodeChunk(value: unknown, length: number): Uint8Array {
 export async function openOfflineReadingSession(options: Readonly<{
   authority: NativeOfflinePublicationLease; id: string; owner: string; artifact: {sha256: string; bytes: number}; raw: string; binding: PublicationBinding; itemId: string;
   current: () => boolean; signal: AbortSignal; progress: (initial: ReadingProgress) => ReadingProgress;
-  save: (request: {expectedRevision: number; location: ReadingLocation}, initial: ReadingProgress, startedAt: number) => Promise<ReadingSavedProgress>;
+  save: (request: {expectedRevision: number; location: ReadingLocation}, initial: ReadingProgress, startedAt: number, current: () => boolean) => Promise<ReadingSavedProgress>;
   now: () => number; onClose?: () => void;
 }>): Promise<OfflineReadingSession> {
   if (!nativePublicationReadsAvailable() || !native) return fail();
@@ -109,7 +109,7 @@ export async function openOfflineReadingSession(options: Readonly<{
       for (let offset = 0; offset < value.size; offset += 49152) {check(signal); const length = Math.min(49152, value.size - offset); out.set(decodeChunk(await native.publicationMemberRead(handle, own, offset, length), length), offset); check(signal);}
       return out;
     };
-    const session: OfflineReadingSession = {offline: options.authority, manifest: doc.manifest, signal: life.signal, close,
+    const session: OfflineReadingSession = {manifest: doc.manifest, signal: life.signal, close,
       headPDF: async signal => {check(signal); if (doc.manifest.format !== 'pdf') fail();},
       readRange: (range, signal) => task(signal, async own => {
         if (doc.manifest.format !== 'pdf' || !integer(range.start, 0, bytes - 1) || !integer(range.endExclusive, range.start + 1, bytes) || range.endExclusive - range.start > 65536) fail('invalid_range');
@@ -122,7 +122,7 @@ export async function openOfflineReadingSession(options: Readonly<{
         return Object.freeze({index, name, bytes: await member(value, own, request.signal), mime: value.mime});}),
       progress: async signal => {check(signal); return progress;},
       saveProgress: (request, signal) => task(signal, async () => {if (!integer(request.expectedRevision, 0, Number.MAX_SAFE_INTEGER) || request.expectedRevision !== (progress.progress?.revision ?? 0)) fail('reading_conflict');
-        const location = validateOfflineLocation(request.location, doc.manifest); const saved = await options.save({expectedRevision: request.expectedRevision, location}, progress, startedAt); check(signal); progress = {progress: saved.progress}; return saved;}),
+        const location = validateOfflineLocation(request.location, doc.manifest); const saved = await options.save({expectedRevision: request.expectedRevision, location}, progress, startedAt, () => {try {check(signal); return true;} catch {return false;}}); check(signal); progress = {progress: saved.progress}; return saved;}),
     };
     return Object.freeze(session);
   } catch (error) {await close(); throw error;}
