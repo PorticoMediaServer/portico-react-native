@@ -28,7 +28,7 @@ test('actual playback layer converts measured window slot to its own origin and 
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
     './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture: class {}},
-    './watch-slot-layout': watchSlotLayout,
+    './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
   });
   const runtime = {text: {}, reportError() {}, artwork: () => undefined, ambient: () => undefined};
   const render = () => h.render(() => NativePlaybackLayer({adapter, runtime, authority}));
