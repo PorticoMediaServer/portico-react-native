@@ -26,6 +26,7 @@ import type {NativeProfileRecovery} from '../../platform/profile-recovery';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
 import {PhoneMovePassword} from './PhoneMovePassword';
+import {PhoneMoveCode} from './PhoneMoveCode';
 import {DirectoryAccessRefused} from './DirectoryAccessRefused';
 import {directoryAccessRefused, directoryClockSkew, directoryIdentityUnconfirmed} from './directory-refusal';
 import {PhonePINEntry} from './PhonePINEntry';
@@ -119,7 +120,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const back = () => {
-    if (stage === 'member-move') {stopMemberMove(); setStage('uses-portico'); return;}
+    if (stage === 'member-move') {stopMemberMove(); setStage(server?.signIn === 'local' ? 'local' : 'uses-portico'); return;}
     if (pinRecoveryRef.current) {retireRecovery(); setCode(''); return;}
     if (stage === 'servers' && target) {cancelDirectory(); return;}
     if (stage === 'profile-forgot-pin') {setCode(''); setError(undefined); setStage('profile-pin'); return;}
@@ -254,6 +255,15 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     memberMoveRef.current = move; memberOperation.current = source;
     setMemberMove(move); setMoveSnapshot(move.getSnapshot()); setStage('member-move');
   };
+  const beginMemberCode = async () => {
+    const source = operation.current;
+    if (!source || !server || server.signIn !== 'local' || server.move !== 'to_local' || Platform.isTV) return;
+    stopMemberMove();
+    const move = await source.createMemberMove('code');
+    if (!lifetime.current || operation.current !== source) {move.dispose(); return;}
+    memberMoveRef.current = move; memberOperation.current = source;
+    setMemberMove(move); setMoveSnapshot(move.getSnapshot()); setStage('member-move');
+  };
   const createMoveAccount = async () => {
     const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
     if (!lifetime.current || !memberMoveRef.current) return;
@@ -373,6 +383,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'uses-portico') return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico),
     !Platform.isTV && server?.move === 'to_portico' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberMove);}}>{t('accounts.move.oldPasswordAction')}</Button>);
   if (stage === 'member-move' && memberMove && moveSnapshot && memberOperation.current === operation.current) {
+    if (moveSnapshot.phase === 'code' || moveSnapshot.phase === 'local') return <PhoneMoveCode controller={memberMove} onBack={back}/>;
     if (moveSnapshot.phase === 'password') return <PhoneMovePassword controller={memberMove} serverName={server!.name} onBack={back}/>;
     if (moveSnapshot.phase === 'portico') return <PhoneAccountMoveNotice busy={busy || moveSnapshot.busy} state={{kind: 'to-portico', serverName: server!.name,
       onContinue: () => {void run(portico);}, onCreateAccount: () => {void run(createMoveAccount);}}}/>;
@@ -395,7 +406,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
   if (stage === 'local') return layout(server!.name, t('accounts.signIn.localBody'), fields(field(t('auth.username'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')),
     action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
-    <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>);
+    <View style={{alignSelf: 'stretch', gap: 8}}>
+      <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>
+      {!Platform.isTV && server?.move === 'to_local' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberCode);}}>{t('accounts.move.haveCode')}</Button>}
+    </View>);
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
       const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);

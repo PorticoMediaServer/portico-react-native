@@ -129,28 +129,21 @@ export class AppSessionStore {
       },
     };
   }
-  /** A captured failure may additionally bind the exact record revision and
-   * mounted lifetime, including inside the encrypted storage commit lock. */
-  async signOutServer(serverId: string, familyId: string, isCurrent: () => boolean = () => true, expectedRevision?: number): Promise<readonly AppServerSession[]> {
+  async signOutServer(serverId: string, familyId: string): Promise<readonly AppServerSession[]> {
     if (!id(serverId) || !id(familyId)) invalid();
-    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) invalid();
-    return this.remove(value => value.connection.pin.serverId === serverId && value.connection.session.sessionFamilyId === familyId, isCurrent, expectedRevision);
+    return this.remove(value => value.connection.pin.serverId === serverId && value.connection.session.sessionFamilyId === familyId);
   }
   async signOutPorticoAccount(account: PorticoAccountScope): Promise<readonly AppServerSession[]> {
     const checked = scope(account);
     return this.remove(value => value.signIn === 'portico' && value.connection.hosted?.origin === checked.origin && value.connection.hosted.accountId === checked.accountId);
   }
-  private async remove(matches: (value: AppServerSession) => boolean, isCurrent: () => boolean = () => true, expectedRevision?: number): Promise<readonly AppServerSession[]> {
+  private async remove(matches: (value: AppServerSession) => boolean): Promise<readonly AppServerSession[]> {
     let removed: readonly AppServerSession[] = [];
-    const beforeCommit = () => { if (!isCurrent()) cancelled(); };
     await this.storage.change(raw => {
-      beforeCommit();
-      const old = parseAppSessionRecord(raw);
-      if (expectedRevision !== undefined && old.revision !== expectedRevision) cancelled();
-      removed = old.servers.filter(matches);
+      const old = parseAppSessionRecord(raw); removed = old.servers.filter(matches);
       // Advance the fence even when already absent: a sign-in started before sign-out stays dead.
       return next(old, old.servers.filter(value => !matches(value)));
-    }, beforeCommit);
+    });
     return removed;
   }
 }
