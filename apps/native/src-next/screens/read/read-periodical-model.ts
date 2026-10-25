@@ -175,7 +175,7 @@ export class NativeReadPeriodical {
   };
   /** Choose a day the server actually listed for this month. */
   selectDate = (rendered: NativeReadPeriodicalState, date: string): void => {
-    if (!this.current() || this.state !== rendered || rendered.phase !== 'ready' || !rendered.days.some(day => day.value === date)) return;
+    if (this.command || !this.current() || this.state !== rendered || rendered.phase !== 'ready' || !rendered.days.some(day => day.value === date)) return;
     this.publish({...rendered, selectedDate: date});
   };
   /** The selected query's real next page; only the exact rendered state and its
@@ -219,11 +219,16 @@ export class NativeReadPeriodical {
   /** Only an issue this page actually listed, from the exact rendered state. */
   open = async (rendered: NativeReadPeriodicalState, issue: ReadingPeriodicalIssue): Promise<boolean> => {
     const origin = this.origin, life = this.life;
+    // The hero opens the group's canonical latest issue even after an older year
+    // is selected; every other issue must be one this page actually listed.
     if (this.command || !origin || !life || !this.current() || this.state !== rendered || rendered.phase !== 'ready'
-      || issue.item.inventoryAvailable !== true || !rendered.items.includes(issue)) return false;
+      || issue.item.inventoryAvailable !== true || !rendered.items.includes(issue) && rendered.latest !== issue) return false;
     const ticket = {};
     this.command = ticket;
-    try {return await openNativeReadBook(this.context, {libraryId: this.libraryId, item: issue.item}, origin, life.signal);}
+    try {
+      return await openNativeReadBook(this.context, {libraryId: this.libraryId, item: issue.item,
+        stillCurrent: () => this.life === life && this.command === ticket && this.state === rendered && this.current()}, origin, life.signal);
+    }
     finally {if (this.command === ticket) this.command = undefined;}
   };
   dispose = (): void => {
