@@ -11,7 +11,7 @@ import {SessionsClient} from '../../../../../packages/client-core/src/playback-v
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {call, type V1Request, type V1Response} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
-import {V1QueuePlayer, serverSupportsQueueTransitions, type V1QueueEditIntent, type V1QueuePolicyIntent} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import {V1QueuePlayer, serverSupportsQueueTransitions, queueVideoKind, type V1QueuedEntrySelection, type V1QueueEditIntent, type V1QueuePolicyIntent} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {V1ChannelControl, serverSupportsV1Channels} from '../../../../../packages/client-core/src/playback-v1/channel-control';
 import {channelSeconds, type ChannelReference} from '../../../../../packages/client-core/src/playback/linear-protocol';
@@ -199,6 +199,7 @@ export class NativePlaybackRuntime {
     this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
     this.queue = new V1QueuePlayer({http: startHttp, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
       transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
+      retireQueuedSelection: session => {if (this.playback.getSnapshot().session?.id !== session.id) this.stopOwnedSession(session.id);},
       audiobookPreferences: () => this.o.settings().audiobook ?? {skipBackMs:15000,skipForwardMs:30000,resumeRewindMs:0},
       retainQueueIds: () => this.retainedQueueIds()});
     // Video completion remains held for the later player. Music follows the server's real policy.
@@ -240,6 +241,16 @@ export class NativePlaybackRuntime {
       const body = request.body as {itemId?: unknown; queue?: {queueId?: unknown; entryId?: unknown}} | undefined;
       if (!body || !body.queue && typeof body.itemId !== 'string') return;
       if (body.queue ? session.queue?.queueId !== body.queue.queueId || session.queue?.entryId !== body.queue.entryId : session.itemId !== body.itemId) return;
+    } else if (obj(request.body) && request.body.reason === 'entry' && typeof request.body.entryId === 'string' && obj(response.body)) {
+      // Scope HTTP owns a late advance response before core can observe its admitted session.
+      try {
+        const queue = parseQueue(response.body.queue);
+        session = parseSession(response.body.session);
+        const revision = Object.entries(request.headers ?? {}).find(([key]) => key.toLowerCase() === 'if-match')?.[1];
+        if (!revision || queue.revision === revision || request.path !== encodedRoutePath('advance_queue', {id: encodeURIComponent(queue.id)})
+          || session.role !== 'local' || session.queue?.queueId !== queue.id || session.queue.entryId !== request.body.entryId
+          || queue.current?.entryId !== request.body.entryId) return;
+      } catch {return;}
     } else return;
     if (this.playback.getSnapshot().session?.id === session.id) return;
     this.stopOwnedSession(session.id);
@@ -1140,6 +1151,12 @@ export class NativePlaybackRuntime {
       && session?.queue?.queueId === view.queue.id && session.queue.entryId === fence.entryId && view.queue.currentEntryId === fence.entryId
       && !view.queue.entries[editIndex]!.hidden && !view.queue.entries[editIndex]!.removed
       && view.queue.entries.some((entry, index) => index > editIndex && !entry.hidden && !entry.removed);
+    const videoRows = new Set((view?.items ?? []).filter(item => queueVideoKind(item.kind)).map(item => item.entryId));
+    const queueSelectionReady = ready && !this.preparing && fence?.kind === 'queue' && !playback.nativeListening
+      && !this.playback.hasNativeOwner() && session?.kind === 'vod' && session.role === 'local' && !!view && editIndex >= 0
+      && session.queue?.queueId === view.queue.id && session.queue.entryId === fence.entryId && view.queue.currentEntryId === fence.entryId
+      && !view.queue.entries[editIndex]!.hidden && !view.queue.entries[editIndex]!.removed
+      && view.queue.entries.some(entry => entry.id !== fence.entryId && !entry.hidden && !entry.removed && videoRows.has(entry.id));
     const nativeBinding = this.coordinator.getBinding(), acknowledgement = this.externalPresentationBinding;
     const externalPresentationBinding = acknowledgement === undefined ? undefined : acknowledgement && fence && !this.retired
       && !playback.pendingSeek && !playback.failedSeek && playback.phase !== 'error' && nativeBinding
@@ -1153,7 +1170,7 @@ export class NativePlaybackRuntime {
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
         ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
-      capabilities: Object.freeze({queueEdit: queueEditReady, queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
+      capabilities: Object.freeze({queueSelection: queueSelectionReady, queueEdit: queueEditReady, queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
         audioTrack: ready && !playback.nativeListening && !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length,
@@ -1248,6 +1265,28 @@ export class NativePlaybackRuntime {
   }
 
   toggle = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) { const state = this.playback.getSnapshot(); if (state.intent === 'playing') this.playback.pause(); else this.playback.resume(); } };
+  selectQueuedEntry = async (fence: PlaybackFence, request: V1QueuedEntrySelection, lifetime: NativePlaybackReadLifetime): Promise<void> => {
+    if (!this.matches(fence) || fence.kind !== 'queue' || !this.snapshot.capabilities.queueSelection
+      || lifetime.signal.aborted || !lifetime.isCurrent()) return;
+    const session = this.currentSession(), view = this.queue.getSnapshot().view;
+    if (!session?.queue || session.queue.queueId !== request.queueId || session.queue.entryId !== fence.entryId
+      || view?.queue.id !== request.queueId || view.queue.revision !== request.expectedRevision || request.entryId === fence.entryId
+      || !view.queue.entries.some(entry => entry.id === request.entryId && !entry.hidden && !entry.removed)
+      || !queueVideoKind(view.items.find(item => item.entryId === request.entryId)?.kind ?? '')) return;
+    const epoch = this.beginOperation();
+    // The route/authority survive this intentional source change; core retains the old output binding.
+    const current = () => this.currentAuthority() && this.startOperationCurrent(epoch) && !lifetime.signal.aborted && lifetime.isCurrent();
+    const scoped = this.selectionScope(lifetime.signal, current);
+    this.preparing = true; this.publish();
+    try {
+      await this.queue.selectQueuedEntry({sessionId: fence.sessionId, generation: fence.generation, playbackRun: fence.playback.run,
+        itemId: fence.itemId, versionId: fence.sourceId, queueId: request.queueId, entryId: fence.entryId}, request,
+        {signal: scoped.signal, isCurrent: current});
+    } finally {
+      scoped.close();
+      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+    }
+  };
   editQueue = async (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueueEditIntent}>, lifetime: NativePlaybackReadLifetime): Promise<void> => {
     if (!this.matches(fence) || fence.kind !== 'queue' || !this.snapshot.capabilities.queueEdit
       || lifetime.signal.aborted || !lifetime.isCurrent()) return;
