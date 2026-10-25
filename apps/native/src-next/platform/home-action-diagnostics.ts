@@ -97,8 +97,9 @@ const origins = new Set([
   'home-registration',
   'artwork-error',
   'native-http',
+  'app-render',
 ]);
-type ErrorOrigin = 'assembly-error' | 'home-registration' | 'artwork-error';
+type ErrorOrigin = 'assembly-error' | 'home-registration' | 'artwork-error' | 'app-render';
 type ActionOrigin = 'home-card' | 'home-assembly';
 type Operation = 'primary-play' | 'menu';
 type Stage = 'enter' | 'guard-refused' | 'unoffered' | 'dispatch';
