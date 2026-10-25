@@ -173,8 +173,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     onLayout={event => {offsets.current.cards.set(entry.id, {section, y: event.nativeEvent.layout.y});}}>{child}</View>;
   const card = (entry: ContentEntry) => measured('posters', entry, <PosterCard testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
+  // tv-more3: on a saved album or audiobook, OK plays it; hold OK still opens its menu. A square
+  // that has nothing to play keeps opening its own page.
   const square = (entry: ContentEntry) => measured('squares', entry, <SquareCard testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
-    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
+    {...(entry.playback ? {primaryAction: 'play' as const, onPlay: () => actions.play(entry)} : {onNavigate: () => openEntry(entry)})}
+    onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
   const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry).onEnter();} : undefined;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
