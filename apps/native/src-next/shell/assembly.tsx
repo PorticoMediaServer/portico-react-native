@@ -22,13 +22,14 @@ import {NativeDownloadSheet} from '../screens/downloads/DownloadSheet';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
+import {sameAuthority} from './model';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import {isReadingLibraryKind} from '../screens/read/platform';
 import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
-import {createNativeMusicMixes} from '../screens/destinations/music/mixes';
+import {createNativeMusicMixes, type NativeMusicMixesCaller} from '../screens/destinations/music/mixes';
 
 const t = defaultI18n.t;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -243,6 +244,26 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   const render = (route: NativeShellRoute) => runtime && context.current() ? routes.render(route, runtime) : null;
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
+  // music-plus 16/18: the Mixes row belongs to the shell session that made it. The principal
+  // and lease are captured once; a later authority or route never supplies either.
+  const musicScope = context.authority(), viewerAuthority = session.viewer.authority;
+  if (viewerAuthority !== 'local' && viewerAuthority !== 'hosted') throw failure('native_music_authority_required');
+  const musicPrincipal = Object.freeze({serverId: musicScope.serverId, authority: viewerAuthority, accountId: musicScope.accountId, profileId: musicScope.profileId});
+  const mixesLife = new AbortController();
+  const mixesRoute = (route: NativeShellRoute) => route.kind === 'music-discover' || route.kind === 'shell' && route.destination.kind === 'home';
+  const captureMixesCaller = (): NativeMusicMixesCaller | undefined => {
+    const navigation = context.navigation.getSnapshot(), authority = navigation.authority, revision = navigation.revision;
+    if (!mixesRoute(navigation.route)) return undefined;
+    const lease = new AbortController();
+    return Object.freeze({lifetime: Object.freeze({signal: lease.signal,
+      isCurrent: () => {
+        const now = context.navigation.getSnapshot();
+        return alive && context.current() && now.revision === revision && mixesRoute(now.route) && sameAuthority(now.authority, authority);
+      }}), dispose: () => lease.abort()});
+  };
+  const mixes = createNativeMusicMixes({api: context.api, principal: musicPrincipal, requestId: feedback.requestId, signal: mixesLife.signal,
+    isCurrent: () => alive && context.current(), captureCaller: captureMixesCaller, subscribeRevision: context.navigation.subscribe,
+    revision: () => context.navigation.getSnapshot().revision, playback: () => runtime?.playback, t: defaultI18n.t});
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
       railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
@@ -348,10 +369,9 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       const key = JSON.stringify(destination); tvPageBack.set(key, handler);
       return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
     },
-    mixes: createNativeMusicMixes({request: (path, method, body, signal) => context.api.request(path, method, body, signal),
-      authority: () => context.authority(), viewerAuthority: () => {const value = context.session()?.viewer.authority; return value === 'local' || value === 'hosted' ? value : undefined;}, playback: () => runtime?.playback, t: runtime?.text.t ?? defaultI18n.t, isCurrent: () => alive && context.current()}),
+    mixes,
     musicDiscover: () => {if (context.current()) open({kind: 'music-discover'});},
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };
 }
