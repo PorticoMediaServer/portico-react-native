@@ -46,6 +46,9 @@ export type NativeWatchStylePort = Readonly<{fields: readonly NativeWatchStyleFi
  * positions it inside its accepted pane/canvas. It owns no Surface or engine. */
 export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes, subtitleControls, sleep, style}: NativeWatchPanelsProps) {
   const {source, fence, state} = context, theme = useTheme(), t = defaultI18n.t;
+  // tablet-play2b: an expanded-size-class device draws its choice rows at 48 pt
+  // and its Timing buttons at 44 pt; the phone keeps 52 pt rows.
+  const tablet = !theme.isTV && Math.min(context.renderer.width, context.renderer.height) >= 600;
   const choices = useSyncExternalStore(options.subscribe, options.getSnapshot);
   const first = useRef<View>(null), scroll = useRef<ScrollView>(null), busy = useRef(false), commandEpoch = useRef(0);
   const [pending, setPending] = useState(false), [subtitleSearching, setSubtitleSearching] = useState(false), [subtitleReasonText, setSubtitleReasonText] = useState<string>();
@@ -84,7 +87,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     accessibilityRole="button" accessibilityLabel={[row.primary, row.secondary, row.unavailable ? t('player.opt.unavailable') : undefined].filter(Boolean).join(', ')}
     accessibilityState={{selected: row.selected, busy: pending}} disabled={!current() || pending || row.unavailable === true}
     onPress={() => {if (!row.selected) void run(() => action(row.value));}}
-    style={({focused}) => ({minHeight: theme.isTV ? 54 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12,
+    style={({focused}) => ({minHeight: theme.isTV ? 54 : tablet ? 48 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12,
       flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 14 : 12, borderRadius: theme.isTV ? 12 : 0,
       backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent', opacity: row.unavailable ? .5 : 1,
       borderBottomWidth: theme.isTV ? 0 : 1, borderBottomColor: '#3b566873'})}>
@@ -101,7 +104,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const actionRow = (id: string, primary: string, secondary: string | undefined, onPress: () => void, disabled = false) => <Focusable key={id} focusId={`watch-action-${id}`} testID={`watch-action-${id}`}
     focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" accessibilityLabel={[primary, secondary].filter(Boolean).join(', ')}
     disabled={!current() || pending || disabled} onPress={onPress}
-    style={({focused}) => ({minHeight: theme.isTV ? 54 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
+    style={({focused}) => ({minHeight: theme.isTV ? 54 : tablet ? 48 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
       borderRadius: theme.isTV ? 12 : 0, backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent', opacity: disabled ? .5 : 1,
       borderBottomWidth: theme.isTV ? 0 : 1, borderBottomColor: '#3b566873'})}>
     <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 22 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{primary}</Text>
@@ -125,7 +128,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {source.forcedOnly && playback.setForcedOnly && <Focusable focusId="watch-subtitle-forced" testID="watch-subtitle-forced" focusKind="row" accessibilityRole="switch"
       accessibilityLabel={t('player.opt.forced')} accessibilityState={{checked: source.forcedOnly.on}} disabled={!current() || pending}
       onPress={() => {if (!current()) return; playback.setForcedOnly?.(fence, !source.forcedOnly!.on);}}
-      style={({focused}) => ({minHeight: theme.isTV ? 54 : 52, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
+      style={({focused}) => ({minHeight: theme.isTV ? 54 : tablet ? 48 : 52, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
         borderRadius: theme.isTV ? 12 : 0, backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'})}>
       <Text style={[nativeType({size: theme.isTV ? 22 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flex: 1}]}>{t('player.opt.forced')}</Text>
       <View style={{width: 64, height: 36, borderRadius: 18, backgroundColor: source.forcedOnly.on ? theme.colors.accent : '#1d3848'}}>
@@ -157,7 +160,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {selected.resource && source.subtitles?.plan && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text, flex: 1}]}>{t('player.opt.timing')}</Text>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('player.opt.offsetSeconds', {seconds: new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(Number(source.subtitles.plan.offsetUs) / 1_000_000)})}</Text>
-      {[-500, 500].map(delta => <Button key={delta} focusId={`watch-subtitle-offset-${delta}`} variant="glass" size="small" disabled={pending || !nativeWatchSubtitleTiming(source, delta)}
+      {[-500, 500].map(delta => <Button key={delta} focusId={`watch-subtitle-offset-${delta}`} variant="glass" size="small" style={tablet ? {height: 44, minWidth: 44} : undefined} disabled={pending || !nativeWatchSubtitleTiming(source, delta)}
         accessibilityLabel={t(delta < 0 ? 'player.opt.earlier' : 'player.opt.later')} onPress={() => {const choice = nativeWatchSubtitleTiming(playback.getSnapshot(), delta); if (choice) void run(() => playback.change(fence, choice));}}>
         {`${delta < 0 ? '−' : '+'}${new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(.5)}`}
       </Button>)}
