@@ -272,7 +272,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     isCurrent: () => alive && context.current(), captureCaller: captureMixesCaller, subscribeRevision: context.navigation.subscribe,
     revision: () => context.navigation.getSnapshot().revision, playback: () => runtime?.playback, t: defaultI18n.t});
   const musicNavigation = createNativeMusicDiscoverNavigation(context, () => runtime);
-  const listeningPlaylist = createNativeListeningPlaylist(context);
+  const listeningPlaylist = Platform.isTV ? createNativeListeningPlaylist(context) : undefined;
   const listeningQueuePolicy = createNativeListeningQueuePolicy(context);
   const listeningSongDetail = createNativeListeningSongDetail(context);
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
