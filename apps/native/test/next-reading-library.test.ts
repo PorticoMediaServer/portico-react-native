@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {NativeReadingDiscovery} from '../src-next/screens/read/reading-discovery.ts';
 import {NativeReadingLibrary} from '../src-next/screens/read/reading-library.ts';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
@@ -75,6 +76,77 @@ test('a failed read is a real error state and retry reads again', async () => {
     await controller.retry();
     assert.equal(controller.getSnapshot().phase, 'ready');
     assert.deepEqual(controller.getSnapshot().items.map(item => item.id), ['b1']);
+  } finally {controller.dispose();}
+  assert.equal(disposed, 1);
+});
+
+function discoveryFixture(answers: {continue?: unknown; discover?: unknown}) {
+  let disposed = 0;
+  const calls: {method: string; libraryId?: string}[] = [];
+  const client = {
+    continue: async (options: {libraryId?: string}) => {calls.push({method: 'continue', libraryId: options.libraryId});
+      if (answers.continue instanceof Error) throw answers.continue; return answers.continue ?? {items: []};},
+    discover: async (options: {libraryId?: string}) => {calls.push({method: 'discover', libraryId: options.libraryId});
+      if (answers.discover instanceof Error) throw answers.discover; return answers.discover ?? {rows: []};},
+    dispose: () => {disposed++;},
+  };
+  const context: any = {
+    api: {reading: () => client}, session: () => ({sessionFamilyId: 'family', viewer: {...authority, authority: 'local'}}),
+    current: () => true, authority: () => authority,
+    navigation: {open: () => true, back: () => true, getSnapshot: () => ({authority, revision: 1, route: {kind: 'shell', destination: {kind: 'library', libraryId: 'books'}}}), subscribe: () => () => {}},
+  };
+  return {context, calls, disposed: () => disposed};
+}
+
+test('Discover reads only the two real producers, scoped to this library', async () => {
+  const d = discoveryFixture({
+    continue: {items: [{item: {id: 'b1', title: 'One'}, progress: {location: {progression: 0.25, section: 'Chapter 2'}}}]},
+    discover: {rows: [{key: 'recent', items: [{id: 'b1', title: 'One'}]}]},
+  });
+  const controller = new NativeReadingDiscovery(d.context, 'books');
+  try {
+    await controller.load();
+    const state = controller.getSnapshot();
+    assert.equal(state.phase, 'ready');
+    assert.equal(state.continueItems.length, 1);
+    assert.deepEqual(state.recent.map(item => item.id), ['b1']);
+    assert.deepEqual(d.calls.map(call => [call.method, call.libraryId]), [['continue', 'books'], ['discover', 'books']]);
+    assert.equal(await controller.open({id: 'elsewhere', inventoryAvailable: true} as never), false, 'a non-resident item never opens');
+  } finally {controller.dispose();}
+  assert.equal(d.disposed(), 1);
+});
+
+test('a failed producer does not hide the row that succeeded', async () => {
+  const d = discoveryFixture({continue: new Error('unreadable'), discover: {rows: [{key: 'recent', items: [{id: 'b2', title: 'Two'}]}]}});
+  const controller = new NativeReadingDiscovery(d.context, 'books');
+  try {
+    await controller.load();
+    const state = controller.getSnapshot();
+    assert.equal(state.phase, 'ready');
+    assert.deepEqual(state.continueItems, []);
+    assert.deepEqual(state.recent.map(item => item.id), ['b2']);
+  } finally {controller.dispose();}
+});
+
+test('both failed producers are an error state and retry reads again', async () => {
+  let fails = true, disposed = 0;
+  const context: any = {
+    api: {reading: () => ({
+      continue: async () => {if (fails) throw new Error('continue down'); return {items: [{item: {id: 'b1', title: 'One'}, progress: {location: {progression: 0.5}}}]};},
+      discover: async () => {if (fails) throw new Error('discover down'); return {rows: [{key: 'recent', items: []}]};},
+      dispose: () => {disposed++;},
+    })},
+    session: () => ({sessionFamilyId: 'family', viewer: {...authority, authority: 'local'}}),
+    current: () => true, authority: () => authority, navigation: {open: () => true, back: () => true, getSnapshot: () => ({authority, revision: 1}), subscribe: () => () => {}},
+  };
+  const controller = new NativeReadingDiscovery(context, 'books');
+  try {
+    await controller.load();
+    assert.equal(controller.getSnapshot().phase, 'error');
+    fails = false;
+    await controller.retry();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.equal(controller.getSnapshot().continueItems.length, 1);
   } finally {controller.dispose();}
   assert.equal(disposed, 1);
 });
