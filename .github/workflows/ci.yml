@@ -1,5 +1,7 @@
 name: CI
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -21,6 +23,9 @@ on:
         default: false
 permissions:
   contents: read
+concurrency:
+  group: ci-main
+  cancel-in-progress: true
 env:
   CI_BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
 jobs:
@@ -28,9 +33,6 @@ jobs:
     if: ${{ !inputs.apple_reading_commit }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    concurrency:
-      group: native-merge-${{ github.ref }}
-      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {path: portico-react-native, fetch-depth: 0}
@@ -49,6 +51,17 @@ jobs:
         working-directory: portico-react-native/apps/native
       - name: Mounted source and test types
         run: npm run typecheck && npm run typecheck:next-test
+        working-directory: portico-react-native/apps/native
+      - if: ${{ !cancelled() }}
+        name: Mounted application lint (informational)
+        run: |
+          status=0
+          npm run lint:boundary || status=1
+          npx --no-install eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src-next App.tsx || status=1
+          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict || status=1
+          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict || status=1
+          node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
+          exit "$status"
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() }}
         name: Affected tests plus mandatory sign-in/session/account/profile guards
