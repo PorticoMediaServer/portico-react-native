@@ -9,6 +9,7 @@ import {BottomSheet} from '../../../../kit/overlays';
 import {shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
 import {createNativeChannels,type NativeChannelsGroup} from './model';
+import {NativeBlockPresets} from './BlockPresets';
 import {NativeChannelEditor} from './ChannelEditor';
 
 type Confirmation=Readonly<{channel:LibraryChannel}>;
@@ -22,19 +23,21 @@ export function NativeLibraryChannelsPage({ports,runtime}:{ports:Pick<NativeSett
 function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:NativeShellRuntime}) {
   const {reader,editor,actions}=group,theme=useTheme(),t=runtime.text.t as typeof defaultI18n.t,state=useSyncExternalStore(reader.subscribe,reader.getSnapshot,reader.getSnapshot),editing=useSyncExternalStore(editor.subscribe,editor.getSnapshot,editor.getSnapshot),action=useSyncExternalStore(actions.subscribe,actions.getSnapshot,actions.getSnapshot);
   const [confirmation,setConfirmation]=useState<Confirmation>(),[attempt,setAttempt]=useState<EditorAttempt>(),[health,setHealth]=useState<Readonly<{channel:LibraryChannel}>>();
-  const view=useMemo(()=>({reader,active:true,confirmation:undefined as Confirmation|undefined,editor:undefined as EditorAttempt|undefined,health:undefined as Readonly<{channel:LibraryChannel}>|undefined}),[reader]);
-  useLayoutEffect(()=>{view.active=true;return()=>{view.active=false;view.confirmation=undefined;view.editor=undefined;view.health=undefined;};},[view]);
+  const view=useMemo(()=>({reader,active:true,confirmation:undefined as Confirmation|undefined,editor:undefined as EditorAttempt|undefined,health:undefined as Readonly<{channel:LibraryChannel}>|undefined,presetsEditing:false}),[reader]);
+  useLayoutEffect(()=>{view.active=true;return()=>{view.active=false;view.confirmation=undefined;view.editor=undefined;view.health=undefined;view.presetsEditing=false;};},[view]);
   useEffect(()=>{void reader.load();void reader.templates();},[reader]);
   const current=useCallback(()=>view.active&&view.reader===reader&&group.current(),[view,reader,group]);
   const editorCurrent=useCallback(()=>current()&&!!attempt&&view.editor===attempt,[current,attempt,view]);
-  const commands=()=>current()&&editor.getSnapshot().phase==='closed'&&!editor.getSnapshot().pending&&!editor.getSnapshot().busy&&!actions.getSnapshot().busy&&!actions.getSnapshot().pending;
+  const presetsCurrent=useCallback(()=>current()&&editor.getSnapshot().phase==='closed'&&!editor.getSnapshot().pending&&!editor.getSnapshot().busy&&!actions.getSnapshot().busy&&!actions.getSnapshot().pending,[current,editor,actions]);
+  const presetEditing=useCallback((value:boolean)=>{view.presetsEditing=value;},[view]);
+  const commands=()=>current()&&!view.presetsEditing&&!group.presets.getSnapshot().busy&&!group.presets.getSnapshot().pending&&!group.presets.getSnapshot().reconcile&&editor.getSnapshot().phase==='closed'&&!editor.getSnapshot().pending&&!editor.getSnapshot().busy&&!actions.getSnapshot().busy&&!actions.getSnapshot().pending;
   const listed=(channel:LibraryChannel)=>!!reader.getSnapshot().channels?.includes(channel);
   const open=(channel?:LibraryChannel,template?:LibraryChannelTemplate)=>{
     if(!commands()||channel&&!listed(channel)||!channel&&!group.timezone)return;
     const next={id:++nextEditorAttempt};view.editor=next;setAttempt(next);view.confirmation=undefined;setConfirmation(undefined);
     if(channel)editor.edit(channel);else if(template)editor.template(template,group.timezone!);else void editor.blank(group.timezone!);
   };
-  const resume=()=>{if(!current()||editor.getSnapshot().phase!=='closed'||!editor.getSnapshot().pending||editor.getSnapshot().busy||actions.getSnapshot().busy||actions.getSnapshot().pending)return;const next={id:++nextEditorAttempt};view.editor=next;setAttempt(next);editor.resume();};
+  const resume=()=>{if(!current()||view.presetsEditing||group.presets.getSnapshot().busy||group.presets.getSnapshot().pending||group.presets.getSnapshot().reconcile||editor.getSnapshot().phase!=='closed'||!editor.getSnapshot().pending||editor.getSnapshot().busy||actions.getSnapshot().busy||actions.getSnapshot().pending)return;const next={id:++nextEditorAttempt};view.editor=next;setAttempt(next);editor.resume();};
   const held=confirmation&&view.confirmation===confirmation&&current()&&listed(confirmation.channel)?confirmation:undefined;
   const close=()=>{if(!held||!current()||view.confirmation!==held)return;view.confirmation=undefined;setConfirmation(undefined);};
   const confirm=async()=>{const captured=held;if(!captured||!current()||view.confirmation!==captured||!listed(captured.channel))return;const done=await actions.perform(captured.channel,'delete');if(done&&current()&&view.confirmation===captured){view.confirmation=undefined;setConfirmation(undefined);}};
@@ -52,6 +55,7 @@ function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:NativeShell
     {state.templates?.map(template=><Button key={template.id} size="compact" variant="glass" disabled={!template.applicable||busy||editing.pending||!group.timezone} onPress={()=>{if(current()&&reader.getSnapshot().templates?.includes(template))open(undefined,template);}}>{template.name}</Button>)}
     <BottomSheet open={!!held} onOpenChange={value=>{if(!value)close();}} title={held?.channel.config.name} description={t('web.libraryChannels.deleteBody')} footer={<View style={{flexDirection:'row',gap:8}}><Button variant="glass" onPress={close}>{t('action.cancel')}</Button><Button disabled={action.busy} loading={action.busy} onPress={()=>{void confirm();}}>{t('action.delete')}</Button></View>}><View/></BottomSheet>
     <BottomSheet open={!!heldHealth} onOpenChange={value=>{if(!value)closeHealth();}} title={heldHealth?.channel.config.name} description={t('web.libraryChannels.healthLede')} footer={<Button onPress={closeHealth}>{t('action.done')}</Button>}><View style={{gap:8}}>{state.healthLoading&&<Text style={{color:theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}{state.healthError&&<Text style={{color:theme.colors.record}}>{t('error.unavailable')}</Text>}{state.health&&<><Text style={{color:state.health.healthy?theme.colors.accentStrong:theme.colors.record}}>{state.health.message||t(state.health.healthy?'web.libraryChannels.onAir':'web.libraryChannels.offAir')}</Text><Text style={{color:theme.colors.textSecondary}}>{t('web.libraryChannels.healthPrograms')}: {defaultI18n.number(state.health.scheduledEntries)}</Text>{state.health.generatedThrough&&<Text style={{color:theme.colors.textSecondary}}>{t('web.libraryChannels.healthSchedule')}: {defaultI18n.date(state.health.generatedThrough)}</Text>}</>}</View></BottomSheet>
+    <NativeBlockPresets group={group} isCurrent={presetsCurrent} onEditing={presetEditing}/>
     {attempt&&view.editor===attempt&&<NativeChannelEditor key={attempt.id} group={group} runtime={runtime} isCurrent={editorCurrent}/>}
   </View>;
 }
