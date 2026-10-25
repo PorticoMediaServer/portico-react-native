@@ -21,7 +21,7 @@ import type {NowPlayingScreenProps} from './NowPlayingScreen';
 
 /** tv7: one authored 1920×1080 canvas, including the queue. The window never
  * switches this television to the tablet composition at a lower render size. */
-export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onAction, onQueuePlay, onClose, signal, notice,
+export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, onClose, signal, notice,
   reportError = () => {}, testID = 'now-playing', lyrics, equalizerCopy}: NowPlayingScreenProps & {equalizerCopy: NativeEqualizerCopy}) {
   const theme = useTheme(), t = defaultI18n.t, id = useId(), canvas = shellLayout(width, height, true);
   const [panel, setPanel] = useState<'signal' | 'eq' | 'lyrics' | null>(null), [more, setMore] = useState(false);
@@ -52,7 +52,7 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
   const artist = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
   const queueRegion = queue ? `${id}.queue` : undefined;
-  const actionsRegion = lyrics || equalizer.supported ? `${id}.actions` : undefined;
+  const actionsRegion = lyrics || onAddToPlaylist || equalizer.supported ? `${id}.actions` : undefined;
   const currentEntry = queue?.queue.entries.find(entry => entry.id === queue.queue.currentEntryId);
   const currentItem = queue?.items.find(item => item.entryId === queue.queue.currentEntryId);
   // An album in the metadata alone does not say where this queue came from.
@@ -103,10 +103,12 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
           <Button testID={`${testID}-next`} variant="glass" iconOnly icon="i-next" iconSize={34} style={{height: 72, width: 72, borderRadius: 36}}
             accessibilityLabel={t('player.next')} disabled={!p.capabilities.next} onPress={() => act('next')}/>
         </MusicFocusRegion>
-        {actionsRegion && <MusicFocusRegion id={actionsRegion} entry={lyrics ? 'lyrics' : 'more'} orientation="horizontal" edges={{up: `${id}.transport`, right: queueRegion}}
-          style={{marginTop: 38, flexDirection: 'row', gap: 16}}>
+        {actionsRegion && <MusicFocusRegion id={actionsRegion} entry={lyrics ? 'lyrics' : onAddToPlaylist ? 'playlist' : 'more'} orientation="horizontal" edges={{up: `${id}.transport`, right: queueRegion}}
+          style={{marginTop: 38, flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>
           {lyrics && <Button ref={lyricsRef} focusId="lyrics" testID={`${testID}-lyrics`} variant="glass" size="small" icon="i-lyrics" iconSize={28} style={{height: 64, paddingHorizontal: 26}} textStyle={{fontSize: 22 * theme.textScale}}
             onPress={() => setPanel('lyrics')}>{t('player.lyrics')}</Button>}
+          {onAddToPlaylist && <Button focusId="playlist" testID={`${testID}-playlist`} variant="glass" size="small" icon="i-listplus" iconSize={28}
+            style={{height: 64, paddingHorizontal: 26}} textStyle={{fontSize: 22 * theme.textScale}} onPress={onAddToPlaylist}>{t('entry.addToPlaylist')}</Button>}
           {equalizer.supported && <Button ref={moreRef} focusId="more" testID={`${testID}-more`} variant="glass" iconOnly icon="i-more" iconSize={28} style={{height: 64, width: 64, borderRadius: 32}}
             accessibilityLabel={t('next.controls.more')} onPress={() => setMore(true)}/>}
         </MusicFocusRegion>}

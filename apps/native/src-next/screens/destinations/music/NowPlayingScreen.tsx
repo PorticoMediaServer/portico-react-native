@@ -48,6 +48,7 @@ export type NowPlayingScreenProps = Readonly<{
   bottomInset?: number;
   onAction: (command: DockCommand) => void;
   onQueuePlay?: (queueId: string, entryId: string, revision: string) => void;
+  onAddToPlaylist?: () => void;
   onClose: () => void;
   /** music-plus (MC-8): the committed plan plus the engine's own current-song facts. */
   signal?: MusicSignalView;

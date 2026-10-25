@@ -18,6 +18,7 @@ import type {NativeShellPlaybackAdapter} from './playback';
 import type {LyricsService, LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import type {NativeWatchOutletPort} from './watch-outlet';
 import type {NativePlayOn} from '../platform/play-on/controller';
+import type {NativeListeningPlaylist} from './listening-playlist';
 
 type LibraryMenuWithoutSave<T> = T extends unknown ? Omit<T, 'onSaveView' | 'canSaveView'> : never;
 
@@ -109,6 +110,8 @@ export interface NativeShellRuntime {
    * until the shell binds a real API and authority. */
   mixes?: import('../screens/destinations/music/mixes').NativeMusicMixesPort;
   playback?: NativeShellPlaybackAdapter;
+  /** The real playlist picker for the current listening song and its playback fence. */
+  listeningPlaylist?: NativeListeningPlaylist;
   /** Present in the real bootstrap. Missing measurement withholds expanded
    * bounds; it does not retire the persistent player owner. */
   watch?: NativeWatchOutletPort;
