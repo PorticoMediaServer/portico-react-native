@@ -12,7 +12,6 @@ import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import {shellLayout} from '../../shell/model';
-import {askNativeDownload} from '../downloads/request';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -69,7 +68,7 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   };
   const downloadAnchor = useRef<View | null>(null);
   const canDownload = nativePublicationReadsAvailable();
-  const download = () => {askNativeDownload({title: controller.item.title, itemId: controller.item.id, reading: true, anchorRef: downloadAnchor});};
+  const download = (manifest: ReadingManifest) => {controller.download(manifest, downloadAnchor);};
   const openSeries = (target: SeriesLink, manifest: ReadingManifest) => {
     void controller.openSeries(target, manifest).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
@@ -107,7 +106,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
   listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
-  canDownload: boolean; onDownload: () => void; downloadRef: React.RefObject<View | null>;
+  canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>;
 }) {
   const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
@@ -164,7 +163,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved
           accessibilityLabel={t(listed?.listed ? 'next.home.removeMyList' : 'next.home.addMyList')}
           onPress={() => {if (listed) onList(listed);}} style={{height: 48, width: 48}}/>
         <Button ref={downloadRef} variant="icon" icon="i-dl" iconOnly disabled={!canDownload}
-          accessibilityLabel={t('action.download')} onPress={onDownload} style={{height: 48, width: 48}}/>
+          accessibilityLabel={t('action.download')} onPress={() => onDownload(manifest)} style={{height: 48, width: 48}}/>
       </View>
       {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
         onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: wide ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
