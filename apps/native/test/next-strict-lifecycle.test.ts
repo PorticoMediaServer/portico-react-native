@@ -22,6 +22,7 @@ import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-prese
 // and animation delivery are controlled here; this does not prove device motion.
 function lifecycle() {
   const effects: {setup: () => void | (() => void); cleanup: void | (() => void)}[] = [];
+  let currentEffect: (typeof effects)[number] | undefined;
   const timings: {value: number; duration?: number; complete?: (finished: boolean) => void}[] = [];
   const cancelled: object[] = [], delays: number[] = [];
   let writes = 0;
@@ -32,7 +33,10 @@ function lifecycle() {
       return [value, (next: any) => {writes++; set(next);}];
     },
     useEffect: (setup: () => void | (() => void), deps?: readonly unknown[]) => React.useEffect(() => {
-      const cleanup = setup(); effects.push({setup, cleanup}); return cleanup;
+      const effect: (typeof effects)[number] = {setup, cleanup: undefined}, previous = currentEffect;
+      currentEffect = effect;
+      try {effect.cleanup = setup(); effects.push(effect); return effect.cleanup;}
+      finally {currentEffect = previous;}
     // This harness forwards the component's exact effect dependencies to React.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, deps),
@@ -49,7 +53,7 @@ function lifecycle() {
     AppState: {currentState: 'active', addEventListener: () => ({remove() {}})},
     useWindowDimensions: () => ({width: 390, height: 844}),
   };
-  return {react, animated, native, motion, effects, timings, cancelled, delays, get writes() {return writes;}};
+  return {react, animated, native, motion, effects, timings, cancelled, delays, get currentEffect() {return currentEffect;}, get writes() {return writes;}};
 }
 
 function mount(component: any, initial: any) {
@@ -239,11 +243,11 @@ test('a new hero source at the same index owns a fresh clock and unmount fences 
 });
 
 const authority: shellModel.ShellAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: '1', viewerFence: 'viewer'};
-function shellRuntime() {
+function shellRuntime(onMemoryRead?: () => void) {
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [{id: 'movies', kind: 'movie'}], hasLiveTV: false, profile: {}, account: {}};
   const reads: ReturnType<typeof deferred<string | undefined>>[] = [], destinations: unknown[] = [];
   const runtime = {subscribe: () => () => {}, getSnapshot: () => snapshot,
-    memory: {read: () => {const read = deferred<string | undefined>(); reads.push(read); return read.promise;}, remember: async () => {}},
+    memory: {read: () => {onMemoryRead?.(); const read = deferred<string | undefined>(); reads.push(read); return read.promise;}, remember: async () => {}},
     onDestination: (destination: unknown) => {destinations.push(destination); snapshot = {...snapshot, destination};},
     renderRoutes: () => null, renderSelection: () => null, renderDestination: () => null, reportError: (error: unknown) => {throw error;},
   } as unknown as NativeShellRuntime;
@@ -284,8 +288,13 @@ test('shell library-opening epochs reject navigation interrupted by a later dest
 });
 
 test('shell lifetime replay keeps the newer opening alive while retiring its previous memory read', async () => {
-  const state = lifecycle(), port = shellRuntime(), session = await shellSession(state, port.runtime);
-  const lifetime = state.effects[2]!, memory = state.effects[3]!; // Registry subscription and retained-opener cleanup precede the session lifetime.
+  const state = lifecycle(), memoryOwner: {current?: (typeof state.effects)[number]} = {};
+  const port = shellRuntime(() => {memoryOwner.current ??= state.currentEffect;}), session = await shellSession(state, port.runtime);
+  const lifetime = state.effects[2]!, memory = memoryOwner.current;
+  // Select the actual read owner, not the sidebar effect now preceding it.
+  assert.ok(memory, 'the memory read must belong to a mounted effect');
+  assert.equal(typeof lifetime.cleanup, 'function');
+  assert.equal(typeof memory.cleanup, 'function');
   let newLifetime: void | (() => void) = undefined, newMemory: void | (() => void) = undefined;
   try {
     lifetime.cleanup!(); memory.cleanup!();

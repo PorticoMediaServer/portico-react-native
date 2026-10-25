@@ -16,7 +16,9 @@ function fixtureContext(current = () => true, admission?: NativeRouteAdmission):
   return {
     current, authority: () => authority, navigation: new NativeShellNavigation(authority, () => authority, admission),
     get api() {return unavailable();}, get home() {return unavailable();}, get events() {return unavailable();},
-    session: unavailable, subscribeAuthority: unavailable, preferences: unavailable, subscribePreferences: unavailable,
+    // This route-only fixture has no active session.
+    // Cold overlay admission may read this port; unrelated ports still throw.
+    session: () => undefined, subscribeAuthority: unavailable, preferences: unavailable, subscribePreferences: unavailable,
     get appVersion() {return unavailable();}, get serverName() {return unavailable();},
     get playback() {return unavailable();}, get watch() {return unavailable();}, get account() {return unavailable();}, libraries: unavailable,
   };
