@@ -18,7 +18,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-main
+  group: ci-main-${{ github.run_id }}
   cancel-in-progress: false
 env:
   CI_FULL_TREE: '1'
@@ -88,7 +88,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 40
     concurrency:
-      group: apple-contracts-${{ github.workflow }}-${{ inputs.apple_reading_commit || github.ref }}
+      group: apple-contracts-${{ github.workflow }}-${{ github.run_id }}
       cancel-in-progress: false
     steps:
       - name: Validate requested public test source
