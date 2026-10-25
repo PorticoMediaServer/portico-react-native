@@ -1,7 +1,6 @@
 import React from 'react';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import type {NativeShellRuntime} from '../../shell/runtime';
 import {nativeScreenError, nativeScreenServices} from '../native-screen-services';
 import {NativeWatchPresenters} from './presenters';
 import {NativeWatchOverlays} from './WatchOverlays';
@@ -10,8 +9,6 @@ import {NativeWatchExternalRequests} from './external-requests';
 import {askNativeDownload} from '../downloads/request';
 import {createMusicPlaylistPicker} from '../destinations/music/MusicPlaylistPicker';
 import {nativeDownloadRequest} from './download-request';
-import {NativePlayOnSheets} from './PlayOnSheets';
-const playOnClose = (runtime: NativeShellRuntime) => runtime.playOn?.close();
 
 /** One real authority-local composition, borrowed by handheld and TV entry.
  * It owns Title/File info overlays; shared feedback is mounted by assembly. */
@@ -36,9 +33,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
     playlistPicker: playlist,
     manageFile: presenters.manageFile, openFileInfo: presenters.openFileInfo, openMenu: presenters.openMenu,
     openVersions: presenters.openVersions, startVersion: context.playback.startVersion,
-    renderOverlays: runtime => <><NativeWatchOverlays presenters={presenters} runtime={runtime} common={common}/>{playlist.render(runtime)}
-      <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} posterUrl={context.playback.getSnapshot().entry?.posterUrl}
-        onLinkTV={() => {const authority = context.authority(); if (context.current() && context.navigation.open({kind: 'servers'}, authority)) playOnClose(runtime);}}/></>,
+    renderOverlays: runtime => <><NativeWatchOverlays presenters={presenters} runtime={runtime} common={common}/>{playlist.render(runtime)}</>,
     ...(external ? {onPictureInPicture: (fence: Parameters<NativeWatchExternalRequests['request']>[0]) => {void external.request(fence);}} : {}),
     dispose: () => {external?.dispose(); presenters.dispose(); playlist.dispose();},
   });
