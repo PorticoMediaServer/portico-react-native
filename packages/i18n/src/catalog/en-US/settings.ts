@@ -136,6 +136,7 @@ export const settingsMessages = {
   'settings.libraryView.list': 'List',
   'settings.row.unreadBadge': 'Show a dot for new notifications',
   'settings.help.unreadBadge': 'On the bell.',
+  'settings.help.unreadBadgeTV': 'On the profile item in the rail.',
 
   'settings.row.language': 'Language',
   'settings.row.showActivity': 'Show my activity',
@@ -290,6 +291,7 @@ export const settingsMessages = {
   'settings.server.jobs.never': 'Not scheduled: no enabled window includes it',
   'settings.server.jobs.in': 'Runs in {windows}',
   'settings.server.troubleshooting': 'Troubleshooting',
+  'settings.server.detailWindow.forMinutes': 'Record more detail for {minutes} minutes',
   'settings.server.detailWindow': 'Record more detail for 30 minutes',
   'settings.server.detailWindow.help': 'Turns on detailed messages, then turns itself off.',
   'settings.server.detailWindow.until': 'Recording more detail until {time}.',
