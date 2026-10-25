@@ -7,7 +7,7 @@ import {ModuleEvents, failure, withEvents} from './events';
 import {HlsSource, type SourceError} from './hls';
 import {uuid} from './random';
 import {applySubtitles, clearSubtitles, subtitleDisplay, tickSubtitles, type SubtitleCommand} from './subtitles';
-import {TransportKeys} from './system-media';
+import {registerSystemMediaSource, TransportKeys, type SystemMediaRegistration} from './system-media';
 
 /**
  * `NativeModules.PorticoPlaybackModule` and the `PorticoPlayer` view, over the SDK's W3C media
@@ -120,6 +120,7 @@ class Engine {
   private readonly listeners: [string, () => void][] = [];
   private hls?: HlsSource;
   private keyed = false;
+  private transportKeys?: SystemMediaRegistration;
   private described = false;
   private filled = false;
   /** A picture was shown or time advanced: a failure after that is not an incompatibility. */
@@ -226,7 +227,9 @@ class Engine {
   private takeKeys(): void {
     if (this.keyed || !component || !this.opened || this.closed) return;
     this.keyed = true;
-    void this.player.setMediaControlFocus(component as never, new TransportKeys()).catch(error => trace(`media control focus: ${String((error as Error)?.message ?? error)}`, true));
+    this.transportKeys = registerSystemMediaSource({instanceId, itemInstanceId: this.id, binding: this.binding},
+      () => !this.closed && engine === this && lease === this.binding.lease && !!accepted && same(accepted.binding, this.binding));
+    void this.player.setMediaControlFocus(component as never, new TransportKeys(this.transportKeys)).catch(error => trace(`media control focus: ${String((error as Error)?.message ?? error)}`, true));
   }
 
   /** Gives the element the view's surface, or takes it away. */
@@ -462,6 +465,7 @@ class Engine {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.transportKeys?.retire(); this.transportKeys = undefined;
     if (this.ticker) clearInterval(this.ticker);
     if (this.captions) clearInterval(this.captions);
     clearSubtitles();
