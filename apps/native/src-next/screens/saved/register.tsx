@@ -1,6 +1,6 @@
-import React, {useMemo, useSyncExternalStore} from 'react';
+import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {Platform, View, useWindowDimensions} from 'react-native';
-import type {MessageId} from '../../../../../packages/i18n/src';
+import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src/index';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {shellLayout} from '../../shell/model';
@@ -19,6 +19,7 @@ import type {NativeSavedDownloadsCopy} from './SavedDownloadCard';
 import {nativeScreenServices} from '../native-screen-services';
 import {createNativeSavedSelection} from './selection';
 import {createNativeDownloadsView} from '../downloads/view';
+import {NativeHomeSavedViewSummaries} from '../home/saved-view-summaries';
 
 const savedDownloadsCopy: NativeSavedDownloadsCopy = Object.freeze({downloading: 'next.saved.phone.downloading'});
 const onThisPhone: MessageId = 'next.saved.phone.onThisPhone';
@@ -72,7 +73,7 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
       if (!current()) return null;
       reconcile();
       const hosts = <>{[...views.values()].map(entry => <SavedRouteHost key={entry.key} entry={entry} runtime={runtime} libraries={context.libraries()}
-        open={open} back={back} changed={changed} showOnHome={state.actions.showOnHome} openInLibrary={state.actions.openInLibrary}/>)}</>;
+        open={open} back={back} changed={changed} showOnHome={state.actions.showOnHome} openInLibrary={state.actions.openInLibrary} context={context}/>)}</>;
       return <SavedRoutesCanvas>{hosts}</SavedRoutesCanvas>;
     },
     dispose: () => {
@@ -85,6 +86,33 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
   };
 }
 
+function SavedResourceHost({context, entry, route, runtime, libraries, back, changed, showOnHome, openInLibrary}: {
+  context: NativeShellBootstrapContext; entry: Entry; route: ReturnType<typeof nativeSavedRouteTarget>; runtime: NativeShellRuntime;
+  libraries: readonly Library[]; back: () => void; changed: () => void;
+  showOnHome?: (resource: import('../../../../../packages/client-core/src/personal-saved').PersonalResource) => void;
+  openInLibrary?: (resource: import('../../../../../packages/client-core/src/personal-saved').PersonalResource) => void;
+}) {
+  const active = useSyncExternalStore(entry.view.activation.subscribe, entry.view.activation.getSnapshot);
+  const source = useSyncExternalStore(entry.view.source.subscribe, entry.view.source.getSnapshot);
+  const resource = source.personal?.resource;
+  const {revision: activationRevision, intent: activationIntent, visible: activationVisible} = active;
+  // The reader belongs to the exact rendered activation. Away-to-Back retires and
+  // aborts the old capability read; the fresh activation gets its own reader and read.
+  const reader = useMemo(() => new NativeHomeSavedViewSummaries({api: context.api, serverId: context.authority().serverId,
+    current: () => {
+      if (!context.current() || !activationVisible) return false;
+      const now = entry.view.activation.getSnapshot();
+      return now.visible && now.revision === activationRevision && now.intent === activationIntent;
+    }, libraryIds: () => context.libraries().map(value => value.id)}), [activationIntent, activationRevision, activationVisible, context, entry]);
+  useSyncExternalStore(reader.subscribe, reader.getSnapshot);
+  useEffect(() => {if (activationVisible && resource) void reader.load([resource]);}, [activationIntent, activationRevision, activationVisible, reader, resource]);
+  useEffect(() => () => reader.dispose(), [reader]);
+  const labels = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale};
+  const condition = activationVisible && resource ? reader.line(resource, labels) : undefined;
+  return <SavedResourceScreen destination={entry.view.source} activation={entry.view.activation} runtime={runtime} actions={entry.view.actions}
+    route={route} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary} condition={condition}/>;
+}
+
 function SavedRoutesCanvas({children}: {children: React.ReactNode}) {
   const theme = useTheme(), window = useWindowDimensions(), layout = shellLayout(window.width, window.height, theme.isTV);
   return <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
@@ -93,11 +121,12 @@ function SavedRoutesCanvas({children}: {children: React.ReactNode}) {
   </View>;
 }
 
-function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnHome, openInLibrary}: {
+function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnHome, openInLibrary, context}: {
   entry: Entry; runtime: NativeShellRuntime; libraries: readonly Library[];
   open: (route: Parameters<typeof openNativeSavedView>[1]) => void; back: () => void; changed: () => void;
   showOnHome?: (resource: import('../../../../../packages/client-core/src/personal-saved').PersonalResource) => void;
   openInLibrary?: (resource: import('../../../../../packages/client-core/src/personal-saved').PersonalResource) => void;
+  context: NativeShellBootstrapContext;
 }) {
   const active = useSyncExternalStore(entry.view.activation.subscribe, entry.view.activation.getSnapshot);
   const route = useMemo(() => nativeSavedRouteTarget(entry.route), [entry.route]);
@@ -107,7 +136,7 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnH
         summaries={'summaries' in entry.view ? entry.view.summaries : undefined}/>
     : route.view === 'watchlist' || route.view === 'favorites' || route.view === 'history'
       ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed}/>
-      : <SavedResourceScreen {...common} route={route} actions={entry.view.actions} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary}/>;
+      : <SavedResourceHost context={context} entry={entry} route={route} runtime={runtime} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary}/>;
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: 'transparent'}}>{body}</View>;
 }

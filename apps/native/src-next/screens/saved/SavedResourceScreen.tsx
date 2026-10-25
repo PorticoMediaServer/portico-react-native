@@ -53,6 +53,8 @@ export type NativeSavedResourceProps = Readonly<{
   showOnHome?: (resource: PersonalResource) => void;
   /** Exact saved definition opened in its real library. */
   openInLibrary?: (resource: PersonalResource) => void;
+  /** Read-only canonical plain-words conditions for a saved view. */
+  condition?: string;
 }>;
 
 type Row = Readonly<{id: string; media: ContentEntry}>;
@@ -73,7 +75,7 @@ function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnaps
 
 /** collections.html 11a–13c and 18–20. The page reads the actual Saved route
  * through its canonical service; commands go back through the same service. */
-export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed, showOnHome, openInLibrary}: NativeSavedResourceProps) {
+export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed, showOnHome, openInLibrary, condition}: NativeSavedResourceProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -345,6 +347,11 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               </View>
               {!!(isPlaylist ? playlist?.summary : resource?.summary) && <Text numberOfLines={theme.isTV ? 2 : 1} style={[browseType(theme, theme.isTV ? 22 : 13.5, 400, 0, theme.isTV ? 30 : 19.6),
                 {color: theme.colors.textSecondary, textAlign: theme.isTV ? 'left' : 'center', marginTop: theme.isTV ? 10 : 6}]}>{isPlaylist ? playlist?.summary : resource?.summary}</Text>}
+              {!!condition && <View style={{marginTop: theme.isTV ? 12 : 10, alignSelf: theme.isTV ? 'flex-start' : 'center', maxWidth: '100%'}}>
+                <View style={{borderRadius: 999, borderWidth: 1, borderColor: theme.colors.line, backgroundColor: theme.colors.raised, paddingHorizontal: 12, paddingVertical: 6}}>
+                  <Text numberOfLines={2} style={[browseType(theme, theme.isTV ? 20 : 12.5), {color: theme.colors.textSecondary, textAlign: theme.isTV ? 'left' : 'center'}]}>{condition}</Text>
+                </View>
+              </View>}
             </View>
           </View>
           {resource?.kind === 'collection' && resource.role === 'owner' && resource.actions.includes('update') && !theme.isTV && <View style={{paddingHorizontal: theme.gutter, paddingTop: 16, gap: 4}}>
