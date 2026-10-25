@@ -71,6 +71,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   };
   const targetRef = useRef(target), activeRef = useRef(appActive), retryEpoch = useRef(0), remainingRetry = useRef(20);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const directoryConnectRef = useRef<(value: HostedServer, automatic?: boolean) => void>(() => {});
   const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
@@ -224,6 +225,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       }
     })();
   };
+  directoryConnectRef.current = connectDirectory;
   const chooseAnother = () => cancelDirectory();
   const startTV = async (kind: 'local' | 'portico') => {
     setTVKind(kind); setTVState({phase: 'idle'});
@@ -352,11 +354,12 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       if (!current()) return;
       const seconds = remainingRetry.current;
       setRetryIn(seconds);
-      if (seconds <= 0) {retryDelay.current = nextRetryDelay(retryDelay.current); connectDirectory(capturedTarget, true); return;}
+      if (seconds <= 0) {retryDelay.current = nextRetryDelay(retryDelay.current); directoryConnectRef.current(capturedTarget, true); return;}
       retryTimer.current = setTimeout(() => {if (!current()) return; remainingRetry.current -= 1; tick();}, 1000);
     };
     tick();
-    return () => {if (retryEpoch.current === epoch) stopRetry();};
+    const stopOwnedRetry = () => {if (retryEpoch.current === epoch) stopRetry();};
+    return stopOwnedRetry;
   }, [stage, target, directoryView, hostedWaiting, busy, appActive]);
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
