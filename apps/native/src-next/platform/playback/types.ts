@@ -41,6 +41,8 @@ export type NativePlaybackChannelStart = Readonly<{sourceId: string; channelId: 
 }>;
 export type NativePlaybackVersionSelection = Readonly<{
   authority: PlaybackAuthority; options: PlaybackOptions; versionId: string;
+  /** Exact ready title from this physical version's measured preview. */
+  discTitle?: import('../../../../../packages/client-core/src/playback-v1/types').DiscTitleRef;
   /** The real chooser/route/entry lifetime. Output-fence checks remain runtime-owned. */
   lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
   /** Exact source when the menu opened, including an explicitly absent source. */

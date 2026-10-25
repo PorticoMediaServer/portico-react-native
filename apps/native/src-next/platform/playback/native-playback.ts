@@ -35,7 +35,7 @@ import {parseObservedPlayback, type ObservedPlayback} from '../../../../../packa
 import {PlaybackSessionController, SessionsClient, type SessionChange, type SessionChangeContext, type StartOptions, type StartTarget, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import {requireSessionChangeCurrent} from '../../../../../packages/client-core/src/playback-v1/change-context';
 import {toPlaybackSession} from '../../../../../packages/client-core/src/playback-v1/session-shape';
-import type {Session} from '../../../../../packages/client-core/src/playback-v1/types';
+import type {DiscTitleRef, Session} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {QueueSessionTransport} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 
 /** What the binding tells the player screen in words (the screen owns the wording). */
@@ -411,17 +411,19 @@ export class NativePlayback {
 
   private makeTransport(): NativePlayback['transport'] {
     const self = this;
-    const duration = async (itemId: string, versionId?: string, signal?: AbortSignal): Promise<number> => {
+    const duration = async (itemId: string, versionId?: string, signal?: AbortSignal, discTitle?: DiscTitleRef): Promise<number> => {
       if (!itemId) return 0;
       try {
-        const o = await self.options.options(itemId, {}, signal);
-        const v = o.versions.find(x => x.id === (versionId ?? o.preferred?.versionId)) ?? o.versions[0];
+        const o = await self.options.options(itemId, discTitle ? {versionId, discTitle} : {}, signal);
+        const v = o.versions.find(x => x.id === (versionId ?? o.preferred?.versionId)) ?? (discTitle ? undefined : o.versions[0]);
         return v ? v.durationMs / 1000 : 0;
       } catch { return 0; } // The engine reports the duration once it has the media.
     };
     const start = async (target: StartTarget, options: StartOptions, key: string = (self.host.key ?? idempotencyKey)(), durationSeconds?: number, signal?: AbortSignal) => {
       const session = self.keep(await self.client.start(target, options, key, {signal}));
-      return {session, playback: toPlaybackSession(session, durationSeconds ?? await duration(session.itemId ?? '', session.versionId, signal))};
+      return {session, playback: toPlaybackSession(session, session.discTitle
+        ? await duration(session.itemId ?? '', session.versionId, signal, session.discTitle)
+        : durationSeconds ?? await duration(session.itemId ?? '', session.versionId, signal))};
     };
     return {
       start,

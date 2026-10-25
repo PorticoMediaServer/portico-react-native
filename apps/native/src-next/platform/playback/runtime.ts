@@ -19,7 +19,7 @@ import {fetchGuideSourceSummaries} from '../../../../../packages/client-core/src
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
-import {obj, parseQueue, parseSession, type Session, type PlaybackOptions, type QueueHeader} from '../../../../../packages/client-core/src/playback-v1/types';
+import {obj, parseDiscTitleRef, parseQueue, parseSession, type DiscTitleRef, type Session, type PlaybackOptions, type QueueHeader} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {qualityOptionRequest, type QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
@@ -742,7 +742,7 @@ export class NativePlaybackRuntime {
     let epoch = this.startEpoch;
     const menu = ++this.versionMenuEpoch, lifetime = selection.lifetime;
     const authority = authorityKey(selection.authority), expected = selection.expectedFence ? playbackFence(selection.expectedFence) : undefined;
-    const versionId = selection.versionId, principal = startupPrincipal(this.o.session());
+    const versionId = selection.versionId, discTitle = parseDiscTitleRef(selection.discTitle), principal = startupPrincipal(this.o.session());
     const sameSource = () => expected ? sameFence(this.snapshot.fence, expected) : this.snapshot.fence === undefined;
     // A captured output belongs to preflight. Once this command owns the queue intent,
     // the core's generation/adoption guard must allow its own newly accepted output.
@@ -750,30 +750,32 @@ export class NativePlaybackRuntime {
     const current = () => !lifetime.signal.aborted && lifetime.isCurrent() && this.currentAuthority() && principal !== undefined && startupPrincipal(this.o.session()) === principal && epoch === this.startEpoch && menu === this.versionMenuEpoch && authority === authorityKey(this.bound) && (!dispatching || this.startOperationCurrent(epoch)) && (dispatching || sameSource());
     if (!current()) return;
     if (!wireId(input.target.itemId) || !wireId(versionId) || selection.options.itemId !== input.target.itemId || selection.options.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
+    if (discTitle && !selection.options.versions.some(value => value.id === versionId
+      && value.discTitle?.id === discTitle.id && value.discTitle.revision === discTitle.revision)) throw new Error(serviceText('queuePlayer.unsupported'));
     const scoped = this.selectionScope(lifetime.signal, current);
     try {
       await this.o.capabilitiesReady();
       if (!current()) return;
       const [offered, capabilities] = await Promise.all([
-        this.optionsClient.options(input.target.itemId, {}, scoped.signal),
+        this.optionsClient.options(input.target.itemId, discTitle ? {versionId, discTitle} : {}, scoped.signal),
         this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
       ]);
       if (!current()) return;
       if (offered.itemId !== input.target.itemId || offered.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
       // This final read owns resume. An earlier card/menu position has no authority here.
-      const positionMs = offered.resume?.positionMs ?? 0;
+      const positionMs = discTitle ? 0 : offered.resume?.positionMs ?? 0;
       if (!Number.isFinite(positionMs) || positionMs < 0) throw new Error(serviceText('queuePlayer.unsupported'));
       const fresh = {...input, target: {...input.target, startSeconds: positionMs / 1000}};
       epoch = this.beginOperation(scoped.signal);
       await this.queue.cancel();
       if (!current()) return;
       dispatching = true;
-      await this.startOffered(fresh, offered, capabilities, epoch, versionId, {signal: scoped.signal, isCurrent: current});
+      await this.startOffered(fresh, offered, capabilities, epoch, versionId, {signal: scoped.signal, isCurrent: current}, discTitle);
     } catch (error) { if (!current() || scoped.signal.aborted) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'}); throw error; }
     finally { scoped.close(); }
   };
 
-  private async startOffered(input: NativePlaybackStart, offered: PlaybackOptions, capabilities: unknown, epoch: number, versionId?: string, lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> {
+  private async startOffered(input: NativePlaybackStart, offered: PlaybackOptions, capabilities: unknown, epoch: number, versionId?: string, lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>, discTitle?: DiscTitleRef): Promise<void> {
     const current = () => this.active() && this.startOperationCurrent(epoch) && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false;
     if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
     if (offered.itemId !== input.target.itemId || !offered.versions.length) throw new Error(serviceText('queuePlayer.unsupported'));
@@ -792,7 +794,7 @@ export class NativePlaybackRuntime {
     this.expanded = !audioKind(offered.kind);
     try {
       if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
-      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined,
+      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId, ...(discTitle ? {discTitle} : {})} : undefined,
         {...lifetime, state: input.state ?? 'playing', isCurrent: current, propagateError: true});
     } catch (error) {
       // Keep the original typed admission refusal, including its closed reason,
@@ -958,7 +960,10 @@ export class NativePlaybackRuntime {
     const subtitles = this.subtitleService; this.subtitleService = undefined; subtitles?.stop();
     this.detailOff?.(); this.detailOff = undefined;
     this.detail?.service.dispose(); this.detail = undefined; this.fonts = undefined; this.fontsKey = undefined;
-    this.options = this.options?.itemId === this.playback.getSnapshot().itemId ? this.options : undefined;
+    const sourceSession = this.currentSession(), selected = this.options?.versions.find(value => value.id === sourceSession?.versionId);
+    this.options = this.options?.itemId === this.playback.getSnapshot().itemId
+      && (!sourceSession?.versionId || !!selected && selected.discTitle?.id === sourceSession.discTitle?.id
+        && selected.discTitle?.revision === sourceSession.discTitle?.revision) ? this.options : undefined;
     this.effectiveRate = 0; this.supportedRates = [];
     if (!key) { if (!this.preparing && this.playback.getSnapshot().phase === 'idle') { this.entry = undefined; this.subject = undefined; } return; }
     const controller = new AbortController(); this.sourceController = controller;
@@ -973,7 +978,7 @@ export class NativePlaybackRuntime {
         && !current.channel && current.intentId === state.intentId && current.itemId === itemId
         && current.session?.id === state.session?.id && current.session?.generation === state.session?.generation;
     };
-    void this.optionsClient.options(itemId, session?.versionId ? {versionId: session.versionId} : {}, controller.signal).then(value => {
+    void this.optionsClient.options(itemId, session?.versionId ? {versionId: session.versionId, ...(session.discTitle ? {discTitle: session.discTitle} : {})} : {}, controller.signal).then(value => {
       if (!valid() || value.itemId !== itemId) return; this.options = value; this.applyOptions(); this.publish();
     }).catch(() => {});
     void this.request<unknown>(encodedRoutePath('get_items_id', {id: encodeURIComponent(itemId)}), 'GET', undefined, controller.signal).then(raw => {
@@ -1305,9 +1310,11 @@ export class NativePlaybackRuntime {
     const session = this.currentSession(), listening = this.playback.getSnapshot().nativeListening;
     // The listening bridge retries only the audio session it actually owns.
     // Ordinary native video always restarts the current queue entry from zero.
-    if (session?.kind === 'audio' && session.id === fence.sessionId && listening?.session.id === session.id
+    if (session?.kind === 'audio' && session.id === fence.sessionId && listening?.binding?.sessionId === session.id
+      && listening.binding.generation === session.presentation.generation
       && this.playback.hasNativeOwner() && this.o.nativeListening) await this.o.nativeListening.action('retry', 0);
-    else await this.queue.playItem(fence.itemId, 0);
+    else await this.queue.playItem(fence.itemId, 0, undefined, undefined, undefined,
+      session?.discTitle ? {versionId: session.versionId, discTitle: session.discTitle} : undefined);
   };
   seek = async (fence: PlaybackFence, seconds: number): Promise<void> => {
     if (!this.matches(fence) || !Number.isFinite(seconds) || seconds < 0 || !this.snapshot.capabilities.seek) return;
