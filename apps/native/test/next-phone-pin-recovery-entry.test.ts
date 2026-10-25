@@ -18,7 +18,8 @@ function backOwner() {
 test('the phone sign-in picker offers the account recovery, keeps its own operation and shows profile PIN copy', async () => {
   const back = backOwner(), calls: string[] = [], contexts: string[] = [];
   let disposed = 0, complete = 0;
-  const controller = {getSnapshot: () => ({phase: 'pin'}), subscribe: () => () => {}, dispose: () => {if (disposed) return; disposed++; calls.push('dispose-recovery');}};
+  const controllers: any[] = [];
+  const controller = () => {const value = {phase: 'pin', disposed: false, getSnapshot: () => ({phase: value.phase}), subscribe: () => () => {}, dispose: () => {if (value.disposed) return; value.disposed = true; disposed++; calls.push('dispose-recovery');}}; controllers.push(value); return value;};
   class SignIn {
     constructor() {calls.push('create');}
     async inspect() {return {id: 'server', name: 'Verified server', signIn: 'local'};}
@@ -28,7 +29,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     serverDescriptor() {return {id: 'server', name: 'Verified server', signIn: 'local'};}
     async signInLocal() {calls.push('credentials'); return {kind: 'profiles', profiles: [profile]};}
     async chooseProfile(id: string, pin?: string) {calls.push(`select:${id}:${pin}`); if (pin !== '1234') throw new Error('profile_pin_invalid');}
-    profileRecovery(id: string) {calls.push(`recovery:${id}`); return controller;}
+    profileRecovery(id: string) {calls.push(`recovery:${id}`); return controller();}
     dispose() {calls.push('dispose');}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
@@ -74,7 +75,10 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     assert.equal(tree.type, 'Recovery');
     assert.equal(tree.props.profileName, profile.name);
     assert.equal(tree.props.username, 'person');
-    assert.equal(tree.props.controller, controller);
+    assert.equal(tree.props.controller, controllers[0]);
+    const stale = tree.props;
+    await act(() => stale.onOpen('1234'));
+    assert.equal(complete, 0, 'a presenter cannot open before the live controller is done');
     assert.ok(calls.includes('recovery:locked'));
     assert.equal(calls.filter(call => call === 'dispose').length, 0, 'opening recovery keeps the sign-in operation');
     assert.equal(disposed, 0);
@@ -85,10 +89,43 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     assert.equal(disposed, 1, 'closing recovery retires its controller');
 
     await act(() => forgot().props.onPress());
-    await act(() => tree.props.onOpen('1234'));
+    const successor = tree.props;
+    controllers[0].phase = 'done';
+    await act(() => {stale.onOpen('1234'); stale.onClose();});
+    assert.equal(tree.props.controller, controllers[1], 'stale callbacks preserve the successor');
+    assert.equal(controllers[1].disposed, false);
+    assert.equal(complete, 0);
+    controllers[1].phase = 'done';
+    await act(() => successor.onOpen('1234'));
+    const selected = calls.filter(call => call.startsWith('select:')).length;
+    await act(() => {successor.onOpen('1234'); successor.onClose(); stale.onOpen('1234');});
+    assert.equal(calls.filter(call => call.startsWith('select:')).length, selected, 'retired callbacks cannot select again');
     assert.ok(calls.includes('select:locked:1234'), 'the chosen new PIN opens the profile through the same operation');
     assert.equal(complete, 1);
 
+    await act(() => forgot().props.onPress());
+    const replaced = tree.props;
+    controllers.at(-1).phase = 'done';
+    await act(() => [...back.listeners][0]!()); // synchronously retire recovery
+    await act(() => [...back.listeners][0]!()); // reset the sign-in operation
+    await act(() => tree.props.onLocal());
+    await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Field').props.onChangeText('https://successor.example'));
+    await act(() => tree.props.primaryAction.onPress());
+    const nextCredentials = nodes(tree.props.beforeActions).filter(n => n.type === 'Field');
+    await act(() => {nextCredentials[0].props.onChangeText('person'); nextCredentials[1].props.onChangeText('test password');});
+    await act(() => tree.props.primaryAction.onPress());
+    await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Picker').props.onSelect(profile.id));
+    await act(() => forgot().props.onPress());
+    const newController = tree.props.controller;
+    await act(() => {replaced.onOpen('1234'); replaced.onClose();});
+    assert.equal(tree.props.controller, newController, 'callbacks from the replaced operation cannot clear its successor');
+    assert.equal(newController.disposed, false);
+    assert.equal(complete, 1);
+    const unmounted = tree.props;
+    controllers.at(-1).phase = 'done';
+    host.unmount();
+    await act(() => {unmounted.onOpen('1234'); unmounted.onClose();});
+    assert.equal(complete, 1, 'unmounted recovery cannot select');
   } finally {host.unmount();}
 });
 

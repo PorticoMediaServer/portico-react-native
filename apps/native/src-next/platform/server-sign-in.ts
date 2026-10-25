@@ -1,4 +1,4 @@
-import {HttpHostedApi, HttpLocalApi, assertFirstContactIdentity, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
+import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
@@ -16,7 +16,7 @@ import {nativeAppSessions} from './app-session-storage';
 import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
-import {NativeProfileRecovery, temporaryRecoveryApi} from './profile-recovery';
+import {NativeProfileRecovery} from './profile-recovery';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -191,12 +191,14 @@ export class NativeServerSignIn {
     });
   }
   /** Auth18 on the sign-in picker. The same account-scoped sign-in that opened the
-   * picker supplies the management snapshot; the selected app family is never
-   * revoked, and disposal of this operation closes the recovery fence. */
+   * picker supplies a proven management snapshot. This seam never opens the
+   * temporary-proof path, and disposal closes the recovery fence. */
   profileRecovery(profileId: string) {
     this.assertCurrent();
     const api = this.api, snapshot = this.snapshot, account = this.account, server = this.server;
-    if (!api || !snapshot || !account || !server) throw mismatch();
+    if (!api || !snapshot || !account || !server || !snapshot.canManage || !snapshot.capabilities.manageAccount
+      || account.viewer.role !== 'account' || account.viewer.authority !== snapshot.authority
+      || account.viewer.serverId !== snapshot.serverId || account.viewer.accountId !== snapshot.account.id) throw mismatch();
     const pin = api.getRouteConnection()?.pin;
     if (!pin) throw mismatch();
     const authorityCurrent = () => {
@@ -205,14 +207,12 @@ export class NativeServerSignIn {
       return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;
     };
     return new NativeProfileRecovery({api, snapshot, profileId, selectedFamilyId: account.sessionFamilyId, kind: server.signIn,
-      authorityCurrent, temporary: grant => temporaryRecoveryApi(api, grant),
-      portico: async () => {
-        const credentials = this.owner.accountCredentials(); await credentials.synchronize();
-        const hosted = await credentials.accessSession();
-        if (!hosted) throw new Error('Sign in to your Portico Account first.');
-        return {hosted: new HttpHostedApi(hostedUrl, hosted.accessToken, nativeNetworkFetch), origin: hostedUrl,
-          accountCurrent: () => {const live = credentials.getSnapshot().session; return !!live && live.account.id === hosted.account.id && live.familyId === hosted.familyId;}};
-      }});
+      authorityCurrent,
+      // This seam already has an authenticated management grant. Never mint or
+      // clean up a proof family here: both the account grant and any installed
+      // viewer family remain retained until normal sign-in publication/cancel.
+      temporary: () => {throw mismatch();}});
+
   }
   private async persist(session: LocalSession) {
     this.assertCurrent();
