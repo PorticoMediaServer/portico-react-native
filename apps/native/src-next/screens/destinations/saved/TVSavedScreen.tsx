@@ -21,7 +21,7 @@ import type {NativeEntryActions} from '../entry-actions';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
 import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
 import {useDestinationEntryFocus} from '../useEntryFocus';
-import {sameAuthority, type ShellAuthority} from '../../shell/model';
+import {sameAuthority, type ShellAuthority} from '../../../shell/model';
 import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
