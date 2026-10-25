@@ -21,6 +21,10 @@ export type NativeTVKeyboardProps = Readonly<{
   width?: number;
   /** Explicit caller character inventory; Search retains its authored default. */
   rows?: readonly (readonly string[])[];
+  /** Keys across a row; Search is authored six wide, the TV screens are nine. */
+  columns?: number;
+  /** A key the frame draws ahead of Space, such as the last digit of its row. */
+  lead?: string;
   testID?: string;
   /** The row region holding focus, so a screen can point Left/Back at its remembered key. */
   onRowFocus?: (rowId: string) => void;
@@ -32,11 +36,14 @@ export type NativeTVKeyboardProps = Readonly<{
 /** Shared actual native keyboard for Search, Settings search and typing sheets.
  * Native focus guides choose directional traversal. No remote-key listener or
  * synthetic first child is installed; entry waits for the real key-a host. */
-export function NativeTVKeyboard({id, value, onChangeText, activation, leftRegionId, rightRegionId, width = 500, rows = nativeTVKeyboardRows, testID = 'native-tv-keyboard', onRowFocus, onVoice, voiceBusy}: NativeTVKeyboardProps) {
-  const theme = useTheme(), keyWidth = (width - 50) / 6;
+export function NativeTVKeyboard({id, value, onChangeText, activation, leftRegionId, rightRegionId, width = 500, rows = nativeTVKeyboardRows, columns = 6, lead, testID = 'native-tv-keyboard', onRowFocus, onVoice, voiceBusy}: NativeTVKeyboardProps) {
+  const theme = useTheme(), keyWidth = (width - 10 * (columns - 1)) / columns;
   const first = {regionId: `${id}.row.0`, childId: rows[0]?.[0] ?? 'a'};
+  /** The lead key is drawn on the action row, so the inventory that types it is the rows plus that key. */
+  const inventory = lead ? [...rows, [lead]] : rows;
+  const actions = lead ? [lead, 'space', 'delete', 'clear'] : ['space', 'delete', 'clear'];
   useDestinationEntryFocus(activation, first);
-  const choose = (key: string) => onChangeText(applyNativeTVKeyboardKey(value, key, rows));
+  const choose = (key: string) => onChangeText(applyNativeTVKeyboardKey(value, key, inventory));
   const keyStyle = (span = 1) => ({width: keyWidth * span + 10 * (span - 1), height: 72, borderRadius: 14,
     backgroundColor: alpha(theme.colors.text, .05), justifyContent: 'center' as const, alignItems: 'center' as const});
   const edges = {left: leftRegionId, ...(rightRegionId ? {right: rightRegionId} : {})};
@@ -49,8 +56,12 @@ export function NativeTVKeyboard({id, value, onChangeText, activation, leftRegio
         <Text style={[browseType(theme, 28, 700), {color: /\d/.test(key) ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{key}</Text>
       </Focusable>)}
     </FocusRegion>)}
-    <FocusRegion id={`${id}.row.${rows.length}`} entry="space" order={['space', 'delete', 'clear']} orientation="horizontal" enabled={activation.visible}
+    <FocusRegion id={`${id}.row.${rows.length}`} entry={lead ?? 'space'} order={actions} orientation="horizontal" enabled={activation.visible}
       screenStart={first} edges={edges} onFocusChange={rowFocus(`${id}.row.${rows.length}`)} style={{flexDirection: 'row', gap: 10}}>
+      {lead && <Focusable focusId={lead} testID={`${testID}-key-${lead}`} disabled={!activation.visible} accessibilityLabel={lead}
+        onPress={() => choose(lead)} focusRadius={14} style={keyStyle()}>
+        <Text style={[browseType(theme, 28, 700), {color: /\d/.test(lead) ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{lead}</Text>
+      </Focusable>}
       <Focusable focusId="space" testID={`${testID}-key-space`} disabled={!activation.visible} accessibilityLabel={defaultI18n.t('next.states.key.Space')} onPress={() => choose('space')} focusRadius={14} style={keyStyle(3)}>
         <Text style={[browseType(theme, 22, 700), {color: theme.colors.textSecondary}]}>{defaultI18n.t('next.states.key.Space')}</Text>
       </Focusable>

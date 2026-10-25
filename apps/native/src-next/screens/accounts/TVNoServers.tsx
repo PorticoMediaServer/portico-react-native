@@ -14,8 +14,10 @@ import {useTVBusyEntryRevision} from '../../tv/auth/entry-revision';
 
 type Props = {busy: boolean; error?: React.ReactNode; isCurrent: () => boolean; onBack: () => void;
   onJoin: (invitation: string, address: string) => void; onFind: () => void; onRefresh: () => void; onSignOut: () => void; notice?: {title: string; body: string; onRetry?: () => void}};
-const addressKeys = ['abcdef', 'ghijkl', 'mnopqr', 'stuvwx', 'yz1234', '567890', '.:/-_@'].map(row => [...row]);
-const invitationKeys = ['ABCDEF', 'GHIJKL', 'MNOPQR', 'STUVWX', 'YZ1234', '567890', '-_'].map(row => [...row]);
+// Frame 36 draws the Portico keyboard nine across at the connect screen, wider than
+// Search's six; the code's last digit sits on the action row ahead of Space.
+const addressKeys = ['abcdefghi', 'jklmnopqr', 'stuvwxyz.', '012345678', '9:/@-_'].map(row => [...row]);
+const invitationKeys = ['ABCDEFGHI', 'JKLMNOPQR', 'STUVWXYZ-', '123456789'].map(row => [...row]);
 type Ticket = {live: boolean; scope: object};
 
 /** Frames 35 and 38 draw two tiles. The Join tile is the focus and OK target;
@@ -90,7 +92,7 @@ export function TVNoServers(props: Props) {
         <TextField focusId="invitation" label={t('services.start.invitation')} value={invitation} onFocus={() => {if (current()) setField('invitation');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false} autoComplete="off"
           onChangeText={value => {if (owns()) setInvitation(value);}}/>
         <NativeTVKeyboard id={`accounts.empty.keyboard.${field}`} value={field === 'address' ? address : invitation}
-          rows={field === 'address' ? addressKeys : invitationKeys} width={500} leftRegionId="accounts.empty.fields"
+          rows={field === 'address' ? addressKeys : invitationKeys} columns={9} width={860} lead={field === 'invitation' ? '0' : undefined} leftRegionId="accounts.empty.fields"
           // The typed field owns the odd ticket; a completed pending run moves both kinds on.
           activation={{visible: current() && !props.busy, intent: 'enter', revision: entryRevision * 2 + (field === 'address' ? 0 : 1)}}
           onChangeText={value => {if (owns()) {if (field === 'address') setAddress(value); else setInvitation(value);}}}/>
