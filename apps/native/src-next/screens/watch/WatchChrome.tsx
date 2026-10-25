@@ -122,6 +122,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     .onEnd(event => {const live = swipeLive.current;
       if (event.translationY > 64 && Math.abs(event.translationX) < 64 && live.fence && !live.panel && live.current()) live.minimize(live.fence);}), [theme.isTV]);
   const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-controls' && focus.childId === 'watch-seek';
+  const [groupPillHost, setGroupPillHost] = useState<number | undefined>(undefined);
   // tv-player 3: the prompt offers the segment the viewer is in, and an unattended
   // skip leaves a six-second note whose Undo goes back to where the skip happened.
   const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
@@ -308,7 +309,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>
       {theme.isTV && !compact && <View pointerEvents="box-none" style={{position: 'absolute', top: 80, left: 96, right: 96, alignItems: 'flex-end'}}>
         <FocusRegion id="watch-group" entry="player-group-pill" orientation="horizontal" edges={{down: 'watch-controls'}}>
-          <NativeTVGroupPill/>
+          <NativeTVGroupPill onHost={setGroupPillHost}/>
         </FocusRegion>
       </View>}
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
@@ -359,7 +360,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
         {theme.isTV && <View style={{position: 'absolute', left: 96 + (props.edgeInsets?.left ?? 0), right: 96 + (props.edgeInsets?.right ?? 0), bottom: 80}}>
-          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} tv focused={seekFocused} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} tv focused={seekFocused} nextFocusUp={groupPillHost} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
           {landing === undefined && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 30, marginTop: 10}}>
             <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
             {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 22, marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}

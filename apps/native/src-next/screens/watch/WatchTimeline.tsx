@@ -25,6 +25,8 @@ type Props = Readonly<{
    * the recap, intro and credit bands are named under the bar. */
   tv?: boolean;
   focused?: boolean;
+  /** The live group pill's native host while one is drawn, so TV Up from the seek reaches it. */
+  nextFocusUp?: number;
   /** The landing time while the bar is being moved, for the TV key hints. */
   onPreview?: (seconds: number | undefined) => void;
   /** Live: the retained window's live edge. The stretch behind it is what the
@@ -33,7 +35,7 @@ type Props = Readonly<{
 }>;
 
 /** Actual time/window only. Scrub commits on lift; absent trickplay never becomes invented imagery. */
-export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge}: Props) {
+export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge, nextFocusUp}: Props) {
   const theme = useTheme(), fence = source.fence, width = useRef(0), dragging = useRef(false);
   const [preview, setPreview] = useState<number>();
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
@@ -57,7 +59,7 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const track = tv ? focused ? 12 : 8 : compact ? 3 : 4, knob = tv ? focused ? 30 : 22 : 14;
   const label = (marker: typeof marks[number]) => marker.type === 'intro' ? defaultI18n.t('player.marker.intro') : marker.type === 'recap' ? defaultI18n.t('player.marker.recap') : defaultI18n.t('player.marker.credits');
   const seek = (size: number) => <Focusable accessibilityRole="adjustable" accessibilityLabel={defaultI18n.t('player.position')} accessibilityValue={{min: start, max: Math.max(start, end), now: Math.max(start, Math.min(end, position))}}
-    focusId="watch-seek" testID="watch-seek" focusable={enabled} disabled={!enabled || !source.capabilities.seek}
+    focusId="watch-seek" testID="watch-seek" focusable={enabled} disabled={!enabled || !source.capabilities.seek} {...(nextFocusUp ? {nextFocusUp} : {})}
     accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'increment') adjust(skipForwardSeconds); else if (event.nativeEvent.actionName === 'decrement') adjust(-skipBackSeconds);}}
     onPress={() => {if (!fence || !current()) return; const landing = position;
       void playback.seek(fence, landing).then(() => {if (playback.getSnapshot().playback.intent !== 'playing') return playback.toggle(fence);}).catch(reportError);}}

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {Text, View} from 'react-native';
+import {Text, View, findNodeHandle} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {GroupSessionSnapshot} from '../../../../../packages/client-core/src/group-session';
 import {Button, Focusable} from '../../kit/controls';
@@ -11,7 +11,7 @@ import {groupPort, subscribeGroupPort} from './group-port';
 /** tv-more18: the player's top-row group pill. It draws only what the live owner reports —
  * the group's own name, its joined members and the service's permissions — and its people
  * sheet sends host actions through that owner's existing command. No membership copy. */
-export function NativeTVGroupPill() {
+export function NativeTVGroupPill({onHost}: {onHost?: (host: number | undefined) => void} = {}) {
   const theme = useTheme(), t = defaultI18n.t;
   // The registration slot changes when an owner appears, retires or is replaced…
   const owner = useSyncExternalStore(subscribeGroupPort, groupPort, () => undefined);
@@ -33,6 +33,12 @@ export function NativeTVGroupPill() {
   useEffect(() => {if (!live) closeSheet();}, [live]);
   // Unmount or a new layout retires this opening; its handlers are no longer authorized.
   useEffect(() => () => {sheetRef.current = undefined;}, []);
+  // Report the real native host only while this pill is drawn; the seek bar uses it as nextFocusUp.
+  useEffect(() => {
+    if (!onHost) return;
+    onHost(group ? findNodeHandle(pill.current) ?? undefined : undefined);
+    return () => onHost(undefined);
+  }, [group, onHost]);
   if (!group || !owner || !rendered) return null;
   const joined = group.members.filter(member => member.state === 'joined');
   // Drawn states come only from the service's own readiness, presence and room phase.
