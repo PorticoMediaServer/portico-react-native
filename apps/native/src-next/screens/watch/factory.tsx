@@ -314,7 +314,22 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
             ports.title.search!(query);
           }
         : undefined;
-      return <NativeTitleScreen {...ports.title} search={search} removeContinue={removeContinue} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
+      // Play on is the shell's real play-on controller: it exists only while this
+      // title route is current and this device holds a playback the shell can hand
+      // off. A retained page never carries the live control, and no target list or
+      // availability is invented here; the controller reads the server's receivers.
+      // Rendering the control is only the first fence. The press itself rechecks the
+      // captured route, revision, authority and lifetime, plus the live controller
+      // and the playback's own cast capability, exactly as the search action does:
+      // a retained handler can never open a chooser under a later route.
+      const onPlayOn = navigation.route === route && runtime.playOn && ports.playback.getSnapshot().capabilities.cast
+        ? () => {
+            const now = ports.navigation.getSnapshot();
+            if (!alive() || !sameAuthority(now.authority, ports.authority) || now.route !== route || now.revision !== navigation.revision) return;
+            if (!runtime.playOn || !ports.playback.getSnapshot().capabilities.cast) return;
+            runtime.playOn.open();
+          } : undefined;
+      return <NativeTitleScreen {...ports.title} search={search} removeContinue={removeContinue} onPlayOn={onPlayOn} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
         back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {
           const owner = controller!;
           void menu(entry, () => {

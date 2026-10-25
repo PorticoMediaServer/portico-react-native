@@ -45,6 +45,9 @@ export type NativeTitleScreenProps = Readonly<{
   removeContinue?: (signal: AbortSignal) => Promise<boolean>;
   /** A real native download action, absent on a server/device where it is not offered. */
   download?: (entry: ContentEntry) => void;
+  /** tablet6/8: the real Play on control. Present only while this device has a
+   * local playback the shell can hand off; the screen never invents one. */
+  onPlayOn?: () => void;
   /** A registered person route, where the shell has one. */
   person?: (personId: string) => void;
   /** The signed-in viewer owns this server; Show settings is drawn for owners. */
@@ -156,6 +159,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const headerFor = (showTitle: boolean) => !theme.isTV && !props.watch && <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: 50, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, zIndex: 10, backgroundColor: collapsed ? theme.colors.ink : 'transparent'}}>
     <Button testID="watch-title-back" variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={props.back}/>
     {collapsed && showTitle && <Text numberOfLines={1} style={[theme.type.bodyStrong, {flex: 1, textAlign: 'center', color: theme.colors.text}]}>{title}</Text>}
+    {props.onPlayOn ? <View style={{marginLeft: 'auto'}}><Button testID="watch-title-play-on" variant="glass" icon="i-cast" iconOnly
+      accessibilityLabel={t('next.dock.native.playOnMenu')} onPress={props.onPlayOn}/></View> : null}
   </View>;
   const header = headerFor(true);
   const removeContinue = () => {
