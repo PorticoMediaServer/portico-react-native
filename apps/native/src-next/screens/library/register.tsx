@@ -1,4 +1,5 @@
 import React, {useSyncExternalStore} from 'react';
+import {Platform} from 'react-native';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {browseNameId} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -9,6 +10,7 @@ import {createNativeEntryActions} from '../destinations/entry-actions';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeLibraryRenderer} from './index';
 import {nativeLibraryCanSave, type NativeLibraryDestination, type NativeLibraryViewDraft} from './model';
+import {createNativeTVLibrarySelection} from './tv-library/selection';
 import {NativeLibrarySaveView} from './save-view';
 import {NativeLibraryMarkAll, type NativeMarkAllRequest} from './mark-all';
 import {NativeLibraryMarkAllDialog} from './MarkAllDialog';
@@ -75,6 +77,9 @@ export function createNativeHandheldLibraryModule(context: NativeShellBootstrapC
         emit();
       }};
     },
+    // TV multi-select (tv select 23–26). Phone and tablet keep their own
+    // geometry and wiring; nothing here runs unless the platform is TV.
+    selection: Platform.isTV ? destination => createNativeTVLibrarySelection(context, destination) : undefined,
   });
   const offRoute = context.navigation.subscribe(() => {
     if (naming && !naming.getSnapshot().open) closeNaming();
