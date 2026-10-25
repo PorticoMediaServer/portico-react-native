@@ -25,7 +25,7 @@ const unavailable = () => Object.assign(new Error('catalogue-selection-unavailab
 export function createNativeSearchSelection(context: NativeShellBootstrapContext, source: NativeSearchDestination,
   activation: NativeDestinationActivationPort) {
   const authority = nativeDestinationLifetime(context), feedback = nativeScreenServices(context);
-  const listeners = new Set<() => void>(), windows = new Map<string, {key: string; item: SelectionItem; entry: SearchEntry; group: SearchGroup}>();
+  const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: SearchEntry; group: SearchGroup}>();
   let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false;
   let pending: AbortController | undefined;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
@@ -47,8 +47,10 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     if (!next || !snapshot.data) return;
     const viewer = context.session()?.viewer;
     if (!viewer || viewer.authority !== 'local' && viewer.authority !== 'hosted') return;
+    const viewId = JSON.stringify(['native-search', snapshot.generation, snapshot.data.query]);
+    if (viewId.length > 4096) return;
     const captured: SelectionContext = {scope: {serverId: viewer.serverId, authority: viewer.authority,
-      accountId: viewer.accountId, profileId: viewer.profileId, viewId: JSON.stringify(['native-search', snapshot.generation, snapshot.data.query]),
+      accountId: viewer.accountId, profileId: viewer.profileId, viewId,
       privacyFence: snapshot.data.scope.viewerFence}, revision: {catalogRevision: String(snapshot.data.revision.catalog), viewerRevision: String(snapshot.data.revision.viewer)}};
     model = new SelectionModel(captured, {maxWindows: 256, maxRegisteredItems: 256}); token = next;
     stopModel = model.subscribe(emit); emit();
@@ -60,7 +62,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     const currentModel = model;
     if (!currentModel || pending || !leaf(entry) || !contains(group, entry)) return;
     const id = nativeSearchEntryKey(group, entry), registered = windows.get(id);
-    if (registered) {currentModel.toggle(id, registered.key); return;}
+    if (registered) {currentModel.toggle(registered.windowId, registered.key); return;}
     if (windows.size >= 256) {feedback.reportError(unavailable(), 'search'); return;}
     const controller = new AbortController(), captured = token, route = context.navigation.getSnapshot().revision;
     pending = controller; emit();
@@ -73,12 +75,13 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
       if (!current()) throw cancelled();
       const groups = source.getSnapshot().groups, sectionOrder = groups.findIndex(result => result.id === group);
       const start = groups[sectionOrder].items.indexOf(entry);
-      const registration = currentModel.registerWindow(currentModel.captureContext(), {id, sectionId: group, sectionOrder,
+      const windowId = `search-${windows.size}`;
+      const registration = currentModel.registerWindow(currentModel.captureContext(), {id: windowId, sectionId: group, sectionOrder,
         start, items: [item]});
       if (!registration.ok) throw unavailable();
       const key = selectionKey(currentModel.getSnapshot().context.scope, item);
-      windows.set(id, {key, item, entry, group});
-      const selected = currentModel.toggle(id, key);
+      windows.set(id, {key, windowId, item, entry, group});
+      const selected = currentModel.toggle(windowId, key);
       if (!selected.ok) throw unavailable();
     } catch (error) {if (current()) feedback.reportError(error, 'search');}
     finally {if (pending === controller) {pending = undefined; emit();}}
