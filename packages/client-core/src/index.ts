@@ -28,6 +28,7 @@ export * from './audio-effects.ts';
 export * from './music-preferences.ts';
 export * from './music-signal.ts';
 export * from './music-mixes.ts';
+export * from './music-mixes-controller.ts';
 import {sessionEndMessage} from './session-end.ts';
 import {serviceText} from './presentation/service-text.ts';
 import {TUNER_RESERVED, tunerHandedOver} from './live-handover.ts';
@@ -2270,3 +2271,5 @@ export type {PlaybackInfo, PlaybackRoute, PlaybackPictureFacts, PlaybackSoundFac
 export {playbackInfoProjection} from './playback-info-projection.ts';
 export type {PlaybackInfoWords, PlaybackComparisonProjection, PlaybackInfoRow, PlaybackInfoField} from './playback-info-projection.ts';
 export {videoAudioChannelName} from './video-track-labels.ts';
+
+export type {ReadingSavedGroupTarget, ReadingSavedGroupKind, ReadingSavedGroupMembership, ReadingSavedGroupCommand, SavedReadingGroupCard} from './reading-saved-group.ts';
