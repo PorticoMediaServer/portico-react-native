@@ -76,7 +76,7 @@ export function dispatchOverlayKey(key: 'escape' | 'tab' | 'menu', _shift = fals
   // Native windows own Tab and Shift-Tab traversal, including modal containment.
   return false;
 }
-export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (reason: OverlayReason) => void, initialFocusRef?: FocusRef, returnFocusRef?: FocusRef, focusDelay = 0, regionId?: string) {
+export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (reason: OverlayReason) => void, initialFocusRef?: FocusRef, returnFocusRef?: FocusRef, focusDelay = 0, regionId?: string, restoreFocus = true) {
   const registry = useOptionalFocusRegistry();
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
@@ -84,6 +84,9 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
   initial.current = initialFocusRef;
   const restore = useRef(returnFocusRef);
   restore.current = returnFocusRef;
+  // A caller with a source-bound opener can own restoration after its own proof.
+  const restoring = useRef(restoreFocus);
+  restoring.current = restoreFocus;
   const delay = useRef(focusDelay);
   delay.current = focusDelay;
   useLayoutEffect(() => {
@@ -107,7 +110,7 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
       releaseKeys();
       releaseReturn?.();
       releaseOpener?.();
-      if (wasTop) {
+      if (wasTop && restoring.current) {
         if (restore.current?.current) focusTarget(restore.current.current);
         else registry?.restore(opener);
       }
