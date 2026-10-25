@@ -243,11 +243,14 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   };
   const menuItems: readonly MenuEntry[] = (() => {
     const items: MenuEntry[] = [], pinned = playlist?.pinned === true || resource?.pinned === true;
+    // collections.html 20 and 21: a personal collection or saved view is renamed and deleted
+    // on a phone, tablet or browser, so the TV page menu keeps Pin alone.
+    const changeableHere = !(theme.isTV && resource);
     if (isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin')) items.push({id: 'pin', label: t(pinned ? 'pins.unpin' : 'pins.pin'),
       icon: pinned ? 'i-bookmark-f' : 'i-bookmark', onSelect: () => {setPageMenu(false); pin();}});
-    if (!(theme.isTV && resource?.kind === 'view') && (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update'))) items.push({id: 'rename', label: t('web.saved.rename'),
+    if (changeableHere && (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update'))) items.push({id: 'rename', label: t('web.saved.rename'),
       icon: 'i-edit', onSelect: () => {setPageMenu(false); setRenaming(true);}});
-    if (!(theme.isTV && resource?.kind === 'view') && (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete'))) items.push({id: 'delete',
+    if (changeableHere && (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete'))) items.push({id: 'delete',
       label: t(isPlaylist ? 'web.saved.deletePlaylist' : resource?.kind === 'view' ? 'web.saved.deleteView' : 'web.saved.deleteCollection'),
       icon: 'i-trash', destructive: true, onSelect: () => {setPageMenu(false); setDeleting(true);}});
     return items;
@@ -263,19 +266,18 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
       {!!artwork[0] && <AmbientArt source={runtime.ambient(artwork[0])} treatment="library"/>}
     </View>}
     <FocusRegion id={region} entry="saved-play" orientation="vertical" enabled={active.visible} edges={{left: focusIds.rail}} style={{flex: 1}}>
-      <View pointerEvents="box-none" style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingTop: insets.top, height: insets.top + (theme.isTV ? 96 : 52),
-        paddingHorizontal: theme.isTV ? theme.gutter : 12, flexDirection: 'row', alignItems: 'center'}}>
+      {theme.isTV ? null : <View pointerEvents="box-none" style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingTop: insets.top, height: insets.top + 52,
+        paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center'}}>
         <Focusable focusId="saved-back" testID="saved-resource-back" accessibilityRole="button" accessibilityLabel={t('saved.title')} onPress={back}
-          style={{width: theme.isTV ? 64 : 38, height: theme.isTV ? 64 : 38, borderRadius: theme.isTV ? 32 : 19, alignItems: 'center', justifyContent: 'center',
-            backgroundColor: theme.isTV ? 'transparent' : alpha(theme.colors.ink, .45)}}>
-          <Icon name="i-left" size={theme.isTV ? 30 : 22} color={theme.colors.text}/>
+          style={{width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.ink, .45)}}>
+          <Icon name="i-left" size={22} color={theme.colors.text}/>
         </Focusable>
         <View style={{marginLeft: 'auto'}}>
-          <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size={theme.isTV ? 'compact' : 'small'}
+          <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size="small"
             accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}} onPress={() => setPageMenu(true)}
-            style={{width: theme.isTV ? 72 : 38, height: theme.isTV ? 72 : 38, borderRadius: theme.isTV ? 36 : 19}}/>
+            style={{width: 38, height: 38, borderRadius: 19}}/>
         </View>
-      </View>
+      </View>}
       <ScrollView contentContainerStyle={{paddingTop: insets.top + (theme.isTV ? 96 : 52), paddingBottom: 32 + insets.bottom}}>
         {stateError ? applyError(stateError) : !name ? <View style={{paddingVertical: 40}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View> : <>
           <View style={theme.isTV ? {flexDirection: 'row', alignItems: 'flex-end', gap: 48, paddingHorizontal: theme.gutter, paddingTop: 16}
@@ -291,7 +293,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.isTV ? 20 : 12, marginTop: theme.isTV ? 12 : 6, justifyContent: theme.isTV ? 'flex-start' : 'center'}}>
                 {countText && <Text style={[browseType(theme, theme.isTV ? 24 : 13, 600), {color: theme.colors.textSecondary}]}>{countText}</Text>}
                 {!!duration && <Text style={[browseType(theme, theme.isTV ? 24 : 13), {color: theme.colors.textSecondary}]}>{savedDuration(duration)}</Text>}
-                {!isPlaylist && visibility && resource?.role !== 'owner' && <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                {!isPlaylist && visibility && (theme.isTV || resource?.role !== 'owner') && <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
                   <Icon name={visibility.icon} size={theme.isTV ? 22 : 13} color={visibility.strong ? theme.colors.accentStrong : theme.colors.textTertiary}/>
                   <Text style={[browseType(theme, theme.isTV ? 24 : 13, visibility.strong ? 700 : 500), {color: visibility.strong ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{visibility.text}</Text>
                 </View>}
@@ -314,6 +316,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             <Button testID="saved-pin" focusId="saved-pin" variant="glass" icon={playlist?.pinned || resource?.pinned ? 'i-bookmark-f' : 'i-bookmark'} iconOnly disabled={busy || !(isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin'))}
               onPress={pin} accessibilityLabel={t(playlist?.pinned || resource?.pinned ? 'pins.unpin' : 'pins.pin')}
               style={theme.isTV ? {width: 72, height: 72, borderRadius: 36} : {width: 48, height: 48, borderRadius: 24}}/>
+            {theme.isTV && <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size="compact"
+              accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}}
+              onPress={() => setPageMenu(true)} style={{width: 72, height: 72, borderRadius: 36}}/>}
             {canReorder && !theme.isTV && <Button testID="saved-reorder" focusId="saved-reorder" variant={reordering ? 'primary' : 'glass'} icon={reordering ? 'i-check' : 'i-updown'}
               onPress={() => setReordering(value => !value)}>{t(reordering ? 'order.done' : 'order.reorder')}</Button>}
           </View>
