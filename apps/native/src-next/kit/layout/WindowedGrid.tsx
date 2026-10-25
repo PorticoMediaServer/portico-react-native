@@ -84,7 +84,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
     const index = collection.indexOfLetter(key);
     if (index !== undefined) moveToIndex(index);
   }}), [collection, moveToIndex, moveToOffset]);
-  const initialOffset = useMemo(() => ({x: 0, y: initialIndex === 0 ? 0 : Math.max(0, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset)}), [columns, initialIndex, paddingTop, stickyOffset, stride]);
+  const initialOffset = useMemo(() => ({x: 0, y: initialIndex === 0 && leadingHeight > 0 ? 0 : Math.max(0, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset)}), [columns, initialIndex, leadingHeight, paddingTop, stickyOffset, stride]);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
