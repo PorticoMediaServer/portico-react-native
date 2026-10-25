@@ -233,7 +233,11 @@ export class NativePlaybackRuntime {
     this.offs.push(this.queue.connect());
     this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.publish(); }));
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
-    this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { this.queue.listening.refreshAudiobookPreferences(); this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
+    // X-02: the profile's Sound settings are what the listening engine renders with, so the
+    // same adopt path the web player uses runs here on start and on every settings change.
+    const adoptAudioEffects = () => {const effects = this.o.settings().audioEffects; if (effects) this.playback.adoptAudioEffectsPreference(effects);};
+    adoptAudioEffects();
+    this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { adoptAudioEffects(); this.queue.listening.refreshAudiobookPreferences(); this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
     this.offs.push(this.choices.subscribe(() => {
       // Source binding resets these choices while changed() is still selecting
       // the next source. That path applies once after the new source is ready.

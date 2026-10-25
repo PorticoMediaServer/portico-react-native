@@ -30,6 +30,7 @@ import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
 import {LyricsService} from '../../../../packages/client-core/src/lyrics';
+import {musicAudioEffects} from '../../../../packages/client-core/src/music-preferences';
 import {NativePlayOn} from '../platform/play-on/controller';
 import {installationIdentity} from '../../../../packages/client-core/src/installation';
 import {authorityKey, type ShellAuthority} from './model';
@@ -199,7 +200,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),
-      settings: () => ({...nativePlaybackSettings(currentPreferences().effective, installationSettings), audiobook: audiobookPreferences(currentPreferences())}), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
+      settings: () => ({...nativePlaybackSettings(currentPreferences().effective, installationSettings), audiobook: audiobookPreferences(currentPreferences()),
+        audioEffects: musicAudioEffects(currentPreferences())}), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
     playOn = new NativePlayOn({api: local, session: () => current() ? session : undefined,
       deviceName: () => installationIdentity()?.name ?? (Platform.OS === 'ios' ? 'iPhone' : 'Android phone'),
       playback: () => playback, current, reportError: error => {if (current()) console.warn('[playOn]', error);}});

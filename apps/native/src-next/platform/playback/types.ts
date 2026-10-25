@@ -53,6 +53,8 @@ export type NativePlaybackSurfaceProps = Readonly<{
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
 export type NativePlaybackSettings = Readonly<{
   audiobook?: import('../../../../../packages/client-core/src/audiobook-preferences').AudiobookPreferences;
+  /** The profile's Music > Sound settings, as the listening engine renders them. */
+  audioEffects?: import('../../../../../packages/client-core/src/audio-effects').AudioEffectsSettings;
   engine: EngineSetting; overrides?: CapabilityOverrides;
   videoRate: number; audiobookRate: number;
   skips: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
