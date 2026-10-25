@@ -28,6 +28,7 @@ import {readNativePlaybackInfo} from './playback-info';
 import {nativeWatchTracks} from './track-identity';
 import {nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeVersionChooserController} from './version-destination';
+import {NativeDiscTitlesController} from './disc-titles-controller';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
@@ -58,7 +59,9 @@ export type NativeWatchMenuEntry = Readonly<{
   details?: () => void;
   dispose: () => void;
 }>;
-export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry}>;
+export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry;
+  /** Owner only, and only for a physical disc version the server measured. */
+  discTitles?: () => void}>;
 export type NativeVersionDestination = NativeVersionChooserController;
 export type NativeWatchFactoryPorts = Readonly<{
   api: HttpLocalApi;
@@ -83,6 +86,7 @@ export type NativeWatchFactoryPorts = Readonly<{
   openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode, owner: Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination) => void;
+  openDiscTitles?: (capture: NativeWatchCapture, dispatch: () => void, create: (opening: () => boolean) => NativeDiscTitlesController) => void;
   openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
   title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate' | 'person' | 'owner' | 'openCollection' | 'serverName' | 'search'> & Readonly<{
     myList?: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
@@ -92,6 +96,9 @@ export type NativeWatchFactoryPorts = Readonly<{
   }>;
 }>;
 const titleKey = (entry: ContentEntry) => JSON.stringify([entry.libraryId, entry.kind, entry.id]);
+/** The session names this item, so its version is the one on screen. */
+const discsMatch = (session: {itemId?: string; versionId?: string} | undefined, itemId: string): session is {itemId: string; versionId: string} =>
+  !!session?.itemId && session.itemId === itemId && !!session.versionId;
 const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | undefined) => b ? sameFence(a, b) : !a;
 
 
@@ -260,7 +267,21 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       dispose: () => {detail?.dispose(); detail = undefined;},
     }) : undefined;
     if (detail && !current(captured)) {detail.dispose(); return;}
-    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {})}, anchorRef);
+    // The owner's Titles row on TV only, for the physical version this playback is
+    // actually on, or the one sole measured version when that is unambiguous. A first
+    // measured disc is never assumed.
+    const discSession = ports.playback.getSnapshot().session;
+    const measured = (offered?.versions ?? []).filter(version => version.disc !== undefined);
+    const discVersion = !ports.isTV || !ports.title.owner || !ports.openDiscTitles ? undefined
+      : discsMatch(discSession, entry.id) ? measured.find(version => version.id === discSession!.versionId)
+        : measured.length === 1 ? measured[0] : undefined;
+    const discTitles: (() => void) | undefined = discVersion ? () => {
+      if (!current(captured)) return;
+      ports.openDiscTitles!(captured, discTitles!, opening => new NativeDiscTitlesController(ports.api,
+        {itemId: entry.id, versionId: discVersion.id},
+        {opening, owner: () => ports.title.owner === true, version: () => opening() ? discVersion.id : undefined}));
+    } : undefined;
+    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(discTitles ? {discTitles} : {}), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {

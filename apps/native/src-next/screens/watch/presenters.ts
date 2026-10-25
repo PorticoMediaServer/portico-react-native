@@ -11,13 +11,16 @@ import {sameAuthority} from '../../shell/model';
 import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchCapture, NativeWatchMenuActions, NativeWatchMenuEntry, NativeVersionDestination} from './factory';
 import {nativeFileInfoMergeGroups, type NativeFileInfo} from './file-info';
+import type {NativeDiscTitlesController} from './disc-titles-controller';
 
 type FileOwner = Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>;
 export type NativeWatchOverlay = Readonly<{
   capture: NativeWatchCapture;
-  phase: 'menu' | 'file-pending' | 'file-info' | 'split-pick' | 'split' | 'delete' | 'merge' | 'versions-pending' | 'versions';
+  phase: 'menu' | 'file-pending' | 'file-info' | 'split-pick' | 'split' | 'delete' | 'merge' | 'versions-pending' | 'versions' | 'disc-titles';
   actions?: NativeWatchMenuActions;
   destination?: NativeVersionDestination;
+  /** The disc's own titles, opened by the owner's menu row. */
+  disc?: NativeDiscTitlesController;
   anchorRef?: RefObject<View | null>;
   /** The captured title's own live detail projection: real personal actions. */
   detail?: DetailProjection;
@@ -76,6 +79,7 @@ export class NativeWatchPresenters {
     this.replace({...value, detail: data});
   };
   close = () => {
+    this.value?.disc?.dispose();
     this.value?.destination?.dispose();
     this.releaseMenuEntry();
     for (const request of this.requests) request.abort(); this.requests.clear();
@@ -150,6 +154,21 @@ export class NativeWatchPresenters {
     catch (error) {if (this.value?.capture === value.capture && this.current(value.capture)) this.common.reportError(error, 'detail');}
     finally {if (this.value?.capture === value.capture && this.value.phase === 'versions-pending') this.close();}
   };
+  /** The owner's Titles row: one physical version's own titles, never a synthetic
+   * alternate version of the film. It refuses unless the menu that drew the row is
+   * still the current one, owns the controller's identity, and disposes any
+   * predecessor it replaces. */
+  openDiscTitles = (capture: NativeWatchCapture, dispatch: () => void, create: (opening: () => boolean) => NativeDiscTitlesController) => {
+    const value = this.value;
+    if (!this.current(capture) || !value || value.phase !== 'menu' || value.capture !== capture || value.actions?.discTitles !== dispatch) return;
+    let controller: NativeDiscTitlesController | undefined;
+    const opening = () => this.current(capture) && this.value?.disc === controller;
+    controller = create(opening);
+    this.value?.disc?.dispose();
+    this.replace({...value, confirmation: '', candidates: [], phase: 'disc-titles', disc: controller, busy: false});
+  };
+  /** A delayed close from a sheet that is no longer the presented one does nothing. */
+  closeDisc = (value: NativeWatchOverlay) => {if (this.value === value) this.close();};
   openVersions = (capture: NativeWatchCapture, destination: NativeVersionDestination) => {
     if (!this.current(capture) || !destination.isCurrent() || this.value && (this.value.capture !== capture || this.value.phase !== 'versions-pending')) {destination.dispose(); return;}
     // A genuine playback-failure action can enter without a More menu. Its

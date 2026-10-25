@@ -17,6 +17,7 @@ import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchOverlay, NativeWatchPresenters} from './presenters';
 import {NativeVersionChooser} from './VersionChooser';
+import {NativeDiscTitlesSheet} from './DiscTitlesSheet';
 
 const named = (entry: NativeWatchOverlay['capture']['entry']) => entry.displayTitle ?? entry.title;
 
@@ -88,6 +89,8 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
 export function NativeWatchOverlays({presenters, runtime, common}: {presenters: NativeWatchPresenters; runtime: NativeShellRuntime; common: NativeScreenServices}) {
   const value = useSyncExternalStore(presenters.subscribe, presenters.getSnapshot), t = defaultI18n.t, theme = useTheme();
   if (!value || !presenters.overlayCurrent(value)) return null;
+  if (value.phase === 'disc-titles' && value.disc) return <NativeDiscTitlesSheet controller={value.disc} subject={named(value.capture.entry)} close={() => presenters.closeDisc(value)}
+    renderError={(error, retry) => <StateView variant="inline" {...common.error(error, retry, 'detail')}/>}/>;
   if (value.phase === 'versions') return <NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(id);}} close={presenters.close}/>;
   if (value.phase === 'file-info') return <FileInfoSurface value={value} presenters={presenters}/>;
   if (value.phase !== 'menu' && value.phase !== 'file-pending' && value.phase !== 'versions-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
@@ -121,6 +124,7 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   items.push({id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}});
   if (tv && value.actions?.entry?.goToArtist) items.push({id: 'go-to-artist', label: t('next.watch.goToArtist'), icon: 'i-person', onSelect: () => presenters.goToArtist(value)});
   if (value.actions?.select) items.push({id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => presenters.selectEntry(value)});
+  if (value.actions?.discTitles) items.push({id: 'disc-titles', label: t('next.overlays.discTitles'), icon: 'i-layers', onSelect: () => {value.actions!.discTitles!();}});
   if (value.actions?.entry?.details) items.push({id: 'details', label: t('title.details'), icon: 'i-page', onSelect: () => presenters.showDetails(value)});
   // tv-detail.html frame 7 and playback-info.html frame 17 draw the side sheet's
   // small context line above the title, from the entry's own facts only.

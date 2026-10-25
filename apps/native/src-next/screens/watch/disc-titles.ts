@@ -4,7 +4,7 @@ import type {DetailApi} from '../../../../../packages/client-core/src/detail';
  * Only public facts: the asset's own version id and opaque selection ids. */
 export type DiscTitleKind = 'bluray' | 'dvd';
 export type DiscPackaging = 'iso' | 'folder';
-export type DiscTitleOption = Readonly<{id: string; number: number; durationMs: number; chapterCount: number; main: boolean}>;
+export type DiscTitleOption = Readonly<{id: string; number: number; durationMs: number; chapterCount: number; main: boolean; ready: boolean; revision?: string}>;
 export type DiscTitles = Readonly<{versionId: string; revision: string; kind: DiscTitleKind; packaging: DiscPackaging; ready: boolean; titles: readonly DiscTitleOption[]}>;
 export type DiscTitleWrite = Readonly<{itemId: string; versionId: string; revision: string; titleId: string}>;
 export type DiscTitleLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
@@ -22,33 +22,38 @@ const record = (value: unknown): value is Record<string, unknown> => typeof valu
 const closed = (value: unknown): Record<string, unknown> => record(value) ? value : fail();
 const text = (value: unknown, max: number): string => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/u.test(value) ? value : fail();
 const integer = (value: unknown, min: number, max: number): number => typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max ? value : fail();
+const asString = (value: unknown, max = 256): string => text(value, max);
+const asHex = (value: unknown): string => typeof value === 'string' && HEX64.test(value) ? value : fail();
+const asBoolean = (value: unknown): boolean => typeof value === 'boolean' ? value : fail();
+const asList = (value: unknown): readonly unknown[] => Array.isArray(value) ? value : fail();
 
 /** The GET /v1/items/{id}/disc-titles body, projected onto the server's public
  * facts. Unknown extension fields are ignored, not rejected. */
 export function parseDiscTitles(raw: unknown, expectedVersionId: string): DiscTitles {
   const body = closed(raw);
-  const versionId = text(body.versionId, 256);
-  if (typeof body.revision !== 'string' || !HEX64.test(body.revision)) fail();
-  const revision = body.revision;
+  const versionId = asString(body.versionId), revision = asHex(body.revision);
   if (versionId !== expectedVersionId) fail();
-  const kind = body.kind === 'bluray' || body.kind === 'dvd' ? body.kind : fail();
-  const packaging = body.packaging === 'iso' || body.packaging === 'folder' ? body.packaging : fail();
-  if (typeof body.ready !== 'boolean' || !Array.isArray(body.titles) || body.titles.length > MAX_DISC_TITLES) fail();
+  const kind: DiscTitleKind = body.kind === 'bluray' || body.kind === 'dvd' ? body.kind : fail();
+  const packaging: DiscPackaging = body.packaging === 'iso' || body.packaging === 'folder' ? body.packaging : fail();
+  const ready = asBoolean(body.ready), rawTitles = asList(body.titles);
+  if (rawTitles.length > MAX_DISC_TITLES) fail();
   const seen = new Set<string>(), seenNumber = new Set<number>();
-  const titles = body.titles.map((value): DiscTitleOption => {
+  const titles = rawTitles.map((value): DiscTitleOption => {
     const title = closed(value);
-    const id = typeof title.id === 'string' && HEX64.test(title.id) ? title.id : fail();
+    const id = asHex(title.id);
     // The published number is the inventory ordinal, never a playlist number.
     const number = integer(title.number, 1, MAX_DISC_TITLES);
     if (seen.has(id) || seenNumber.has(number)) fail();
     seen.add(id); seenNumber.add(number);
-    if (typeof title.main !== 'boolean') fail();
+    const main = asBoolean(title.main), rowReady = asBoolean(title.ready);
+    const rowRevision = title.revision === undefined ? undefined : asHex(title.revision);
     return Object.freeze({id, number, durationMs: integer(title.durationMs, MIN_TITLE_MS, MAX_TITLE_MS),
-      chapterCount: integer(title.chapterCount, 0, 65535), main: title.main});
+      chapterCount: integer(title.chapterCount, 0, 65535), main, ready: rowReady,
+      ...(rowRevision === undefined ? {} : {revision: rowRevision})});
   });
   // The server publishes exactly one chosen title; known zero chapters stay zero.
   if (titles.filter(title => title.main).length > 1) fail();
-  return Object.freeze({versionId, revision, kind, packaging, ready: body.ready, titles: Object.freeze(titles)});
+  return Object.freeze({versionId, revision, kind, packaging, ready, titles: Object.freeze(titles)});
 }
 
 const code = (error: unknown): string | undefined => {
