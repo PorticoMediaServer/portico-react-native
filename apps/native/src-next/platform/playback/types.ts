@@ -66,6 +66,8 @@ export type NativePlaybackSettings = Readonly<{
   subtitles: SubtitlePreferences;
 }>;
 export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queuePolicy?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
+export type NativePictureInPictureState = 'idle' | 'started' | 'restore' | 'stopped' | 'unavailable';
+
 export type NativePlaybackRuntimeSnapshot = Readonly<{
   authority: PlaybackAuthority; sequence: number; dock: DockState; playback: PlaybackSnapshot;
   fence?: PlaybackFence; subject?: PlaybackSubject; entry?: ContentEntry;
@@ -77,8 +79,9 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   forcedOnly?: Readonly<{on: boolean}>;
   /** Actual native external source readiness. Absent=unknown; null=unready. Not PiP support. */
   externalPresentationBinding?: NativeBinding | null;
-  /** Installed retained-view request port, not a claim of support or a started PiP session. */
-  pictureInPicture?: Readonly<{request: number; binding?: NativeBinding}>;
+  /** Installed retained-view request port, and the admitted native state of that
+   * same view: only the view's own fenced report sets `active` or `state`. */
+  pictureInPicture?: Readonly<{request: number; binding?: NativeBinding; active: boolean; state: NativePictureInPictureState}>;
   retired: boolean;
 }>;
 

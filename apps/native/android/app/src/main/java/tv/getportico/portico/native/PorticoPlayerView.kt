@@ -18,6 +18,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.media3.exoplayer.ExoPlayer
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
@@ -148,6 +149,9 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
   private var lease = ""
   private var surfaceActive = true
   private var request = 0
+  /** The retained presentation binding this view was handed for its request. */
+  private var pictureBinding: Map<String, Any?>? = null
+  private var pictureServed = 0
   private var listening = false
   private var announced = ""
   private val refresh: () -> Unit = { attach() }
@@ -175,16 +179,43 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
     return if (current()) PorticoSnapshotTarget(picture, ::current) else null
   }
 
+  /** A new retained presentation means any earlier request no longer speaks for the picture. */
+  fun setPictureInPictureBinding(value: Map<String, Any?>?) {
+    if (value == pictureBinding) return
+    pictureBinding = value
+    PorticoPictureInPicture.retire(lease, this, stale = true)
+    flushPictureInPicture()
+  }
+
   /** A change of this number is the viewer asking for Picture in Picture (or to leave it). */
   fun setPictureInPictureRequest(value: Int) {
     if (value == request) return
     request = value
-    val controller = PorticoPlaybackController.shared
-    if (controller == null || !owns(controller)) {
-      controller?.onPictureInPicture?.invoke(Arguments.createMap().apply { putString("lease", lease); putString("state", "unavailable") })
-      return
+    flushPictureInPicture()
+  }
+
+  /**
+   * Props arrive as one batch, in no guaranteed order: the request is served on the
+   * next turn, when it holds the binding the batch actually delivered, and only
+   * when that binding is the controller's own live binding. Never enters the OS
+   * unbound, and never twice for one request.
+   */
+  private fun flushPictureInPicture() {
+    post {
+      val value = request
+      if (value == pictureServed || !isAttachedToWindow) return@post
+      val controller = PorticoPlaybackController.shared
+      val attempt = PorticoPictureInPicture.Attempt(lease, pictureBinding, value, this)
+      if (controller == null || !owns(controller)) { pictureServed = value; PorticoPictureInPicture.answer(controller, attempt, "unavailable"); return@post }
+      val binding = pictureBinding, live = controller.binding
+      if (binding == null || live == null || !PorticoSnapshotBinding.matches(binding, live)) {
+        pictureServed = value
+        PorticoPictureInPicture.answer(controller, attempt, "unavailable")
+        return@post
+      }
+      pictureServed = value
+      PorticoPictureInPicture.toggle(reactContext.currentActivity, controller, attempt)
     }
-    PorticoPictureInPicture.toggle(reactContext.currentActivity, controller)
   }
 
   private fun owns(controller: PorticoPlaybackController) = lease.isNotEmpty() && lease == controller.lease
@@ -228,6 +259,8 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
     }
     stage.show(null)
     keepScreenOn = false
+    // This view no longer speaks for any request it made.
+    PorticoPictureInPicture.retire(lease, this)
     PorticoPictureInPicture.playerView(reactContext.currentActivity, controller, false)
     super.onDetachedFromWindow()
   }
@@ -251,6 +284,9 @@ class PorticoPlayerManager : SimpleViewManager<FrameLayout>() {
 
   @ReactProp(name = "pictureInPictureRequest", defaultInt = 0)
   fun setPictureInPictureRequest(view: FrameLayout, request: Int) = (view as PorticoPlayerView).setPictureInPictureRequest(request)
+
+  @ReactProp(name = "pictureInPictureBinding")
+  fun setPictureInPictureBinding(view: FrameLayout, binding: ReadableMap?) = (view as PorticoPlayerView).setPictureInPictureBinding(binding?.toHashMap())
 }
 
 /**
@@ -260,10 +296,14 @@ class PorticoPlayerManager : SimpleViewManager<FrameLayout>() {
  * are the Apple ones (`started`, `restore`, `stopped`, `unavailable`).
  */
 internal object PorticoPictureInPicture {
+  /** The request a state belongs to, frozen when it was served: lease, retained
+   * binding, request id and the view that asked. A late answer keeps this one. */
+  data class Attempt(val lease: String, val binding: Map<String, Any?>?, val requestId: Int, val view: View?)
   var active = false
     private set
   private var overlay: PorticoVideoStage? = null
   private var eligible = false
+  private var held: Attempt? = null
   private val refresh: () -> Unit = { overlay?.update(PorticoPlaybackController.shared, true) }
 
   fun supported(activity: Activity?): Boolean =
@@ -271,7 +311,8 @@ internal object PorticoPictureInPicture {
           !activity.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
 
   fun announce(activity: Activity?, controller: PorticoPlaybackController) {
-    if (!supported(activity)) report(controller, "unavailable")
+    // An unsolicited answer still names the lease it speaks for, with request 0.
+    if (!supported(activity)) answer(controller, Attempt(controller.lease ?: "", null, 0, null), "unavailable")
   }
 
   private fun params(controller: PorticoPlaybackController?, auto: Boolean): PictureInPictureParams? {
@@ -300,7 +341,22 @@ internal object PorticoPictureInPicture {
     enter(activity, PorticoPlaybackController.shared ?: return)
   }
 
-  fun toggle(activity: Activity?, controller: PorticoPlaybackController) {
+  fun toggle(activity: Activity?, controller: PorticoPlaybackController, attempt: Attempt) {
+    // A request from another lease, or a stale one, never speaks for this picture.
+    if (attempt.lease.isEmpty() || attempt.lease != controller.lease) { answer(controller, attempt, "unavailable"); return }
+    if (active) {
+      // One window is holding the picture. This press asks to come back; the held
+      // request keeps its identity and reports its own stop.
+      activity?.startActivity(Intent(activity, activity.javaClass).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+      return
+    }
+    if (held != null) {
+      // A request is pending its start or stop. A second one is rejected rather than
+      // replacing it, so the first can never be relabelled as this one.
+      answer(controller, attempt, "unavailable")
+      return
+    }
+    held = attempt
     if (!supported(activity)) { report(controller, "unavailable"); return }
     if (Build.VERSION.SDK_INT >= 26 && activity!!.isInPictureInPictureMode) {
       // Leaving is the system's gesture; asked for from here, bring the app back to full size.
@@ -308,6 +364,29 @@ internal object PorticoPictureInPicture {
       return
     }
     if (!enter(activity!!, controller)) report(controller, "unavailable")
+  }
+
+  /** One answer for a request that was never started, carrying that request's own
+   * lease, binding and id rather than the current one. */
+  fun answer(controller: PorticoPlaybackController?, attempt: Attempt, state: String) {
+    controller?.onPictureInPicture?.invoke(body(attempt, state))
+  }
+
+  /** A view or source retired. Only that view's own attempt is retired, so a
+   * replacement view under the same lease keeps its request; a live window keeps
+   * its attempt until it reports its own end. */
+  fun retire(lease: String, view: View, stale: Boolean = false) {
+    val attempt = held ?: return
+    if (attempt.lease != lease || attempt.view !== view) return
+    if (!stale && active) return
+    held = null
+  }
+
+  private fun body(attempt: Attempt?, state: String): com.facebook.react.bridge.WritableMap = Arguments.createMap().apply {
+    putString("lease", attempt?.lease ?: "")
+    putInt("request", attempt?.requestId ?: 0)
+    attempt?.binding?.let { putMap("binding", Arguments.makeNativeMap(it)) }
+    putString("state", state)
   }
 
   private fun enter(activity: Activity, controller: PorticoPlaybackController): Boolean = try {
@@ -347,11 +426,12 @@ internal object PorticoPictureInPicture {
   }
 
   private fun report(controller: PorticoPlaybackController, state: String) {
-    controller.onPictureInPicture?.invoke(Arguments.createMap().apply {
-      putString("lease", controller.lease ?: "")
-      putString("state", state)
+    val attempt = held
+    controller.onPictureInPicture?.invoke(body(attempt, state).apply {
       // The stage draws the app's subtitles in the small window too.
       if (state == "started") putBoolean("subtitlesCarried", true)
     })
+    // Its own terminal only: a stop for another request never clears this one.
+    if (state == "stopped" || state == "unavailable") held = null
   }
 }

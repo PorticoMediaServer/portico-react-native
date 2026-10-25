@@ -233,6 +233,9 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     </View>
     <View style={{position: 'absolute', inset: 0, backgroundColor: '#04090d80'}}/>
   </View>;
+  // The retained view answers whether it can start PiP; an admitted `unavailable`
+  // (a television, an unsupported engine) hides the tool it cannot honour.
+  const pipOffered = !!props.onPictureInPicture && !!source.pictureInPicture && source.pictureInPicture.state !== 'unavailable';
   const tablet = props.tablet === true, tabletop = props.tabletop, bar = props.bar === true && !tabletop;
   // foldable5: the 508-wide column is the frame's 46/56/84 transport with space
   // between its rows; foldable4 stacks the same rows with the frame's 12/12/9/10
@@ -330,7 +333,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <View style={{flex: 1}}/>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
               {props.onCast && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence), false, false, 48)}
-              {props.onPictureInPicture && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 48)}
+              {pipOffered && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 48)}
               {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'), false, false, 48)}
             </View>
           </View>
@@ -384,7 +387,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             </View>}
             <View style={{flex: 1}}/>
             {props.onCast && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence), false, false, 44)}
-            {props.onPictureInPicture && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 44)}
+            {pipOffered && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 44)}
             {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'), false, false, 44)}
           </View>
           <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: stacked ? 12 : 0}}>
@@ -469,7 +472,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, lineHeight: 26, fontWeight: '600', marginTop: 2, color: theme.colors.textSecondary}}>{t('next.watch.ends', {time: wallClock(now + Math.max(0, source.playback.duration - source.playback.positionSeconds) * 1000)})}</Text>
           </View>}
           {props.onCast && !theme.isTV && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence))}
-          {props.onPictureInPicture && !theme.isTV && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
+          {pipOffered && !theme.isTV && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
           {!theme.isTV && icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
@@ -517,7 +520,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                 {source.capabilities.audioTrack && audioTracks > 1 && option('audio', t('title.audio'), props.audio)}
                 {option('quality', t('player.opt.quality'), props.quality)}
                 {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
-                {props.onPictureInPicture && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
+                {pipOffered && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
               </View>
             </View>}
         </View>}
