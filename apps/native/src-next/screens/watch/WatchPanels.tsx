@@ -223,7 +223,9 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
           : <Button focusId="watch-panel-close" variant="text" iconOnly icon="i-close" accessibilityLabel={t('action.close')} onPress={context.closePanel}/>)}
       </View>
       {(theme.isTV && state.panel !== 'playback-info' || state.panel === 'options') && <Text style={[nativeType({size: theme.isTV ? 22 : 12.5, weight: 400, tracking: 0, lineHeight: theme.isTV ? 31.9 : 18.125}, theme.textScale), {marginTop: theme.isTV ? 10 : 2, marginBottom: theme.isTV ? 20 : 10, marginHorizontal: theme.isTV ? 0 : 18, color: theme.colors.textSecondary}]}><Text style={{fontFamily: theme.type.bodyStrong.fontFamily}}>{copy.sessionLead}</Text>{' '}{copy.sessionDefaults}</Text>}
-      <ScrollView ref={scroll} contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0, paddingBottom: theme.isTV ? 72 : 12}} onScroll={event => {if (current()) context.rememberPanel(event.nativeEvent.contentOffset.y);}} scrollEventThrottle={32}>{body}</ScrollView>
+      {/* playback-info 3: the TV route and column heads stay still while its sections scroll. */}
+      {theme.isTV && state.panel === 'playback-info' ? <View style={{flex: 1, minHeight: 0, paddingTop: 4}}>{body}</View>
+        : <ScrollView ref={scroll} contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0, paddingBottom: theme.isTV ? 72 : 12}} onScroll={event => {if (current()) context.rememberPanel(event.nativeEvent.contentOffset.y);}} scrollEventThrottle={32}>{body}</ScrollView>}
       {theme.isTV && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 14}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary, borderWidth: 1, borderColor: theme.colors.textTertiary, borderRadius: 6, padding: 4}]}>{t('action.back')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>}
     </FocusRegion>
   </View>;
