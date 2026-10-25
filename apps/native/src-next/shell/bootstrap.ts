@@ -29,6 +29,8 @@ import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
 import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
+import {NativePlayOn} from '../platform/play-on/controller';
+import {installationIdentity} from '../../../../packages/client-core/src/installation';
 import {authorityKey, type ShellAuthority} from './model';
 import {nativeReadRouteAllowed} from '../screens/read/platform';
 import {nativeRuntimeRegionText} from '../screens/settings/runtime-region';
@@ -193,8 +195,14 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
       appVersion: installed.appVersion, serverName: server.name, current,
       get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation};
+    let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
+      ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),
       settings: () => ({...nativePlaybackSettings(currentPreferences().effective, installationSettings), audiobook: audiobookPreferences(currentPreferences())}), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
+    playOn = new NativePlayOn({api: local, session: () => current() ? session : undefined,
+      deviceName: () => installationIdentity()?.name ?? (Platform.OS === 'ios' ? 'iPhone' : 'Android phone'),
+      playback: () => playback, current, reportError: error => {if (current()) console.warn('[playOn]', error);}});
+    cleanups.push(() => playOn?.dispose());
     watch = new NativeWatchOutlet(() => current() ? {authority, fence: playback!.getSnapshot().fence, window: Dimensions.get('window')} : undefined);
     cleanups.push(playback.subscribe(watch.invalidate));
     const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
@@ -325,7 +333,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
       return value / 1000;
     };
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;

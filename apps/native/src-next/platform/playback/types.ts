@@ -9,7 +9,7 @@ import type {QueuePlayerState} from '../../../../../packages/client-core/src/que
 import type {PlaybackSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {SubtitleSnapshot} from '../../../../../packages/client-core/src/subtitles';
 import type {CapabilityOverrides} from '../../../../../packages/client-core/src/client-profile';
-import type {DockState, DockTransition, PlaybackDock, PlaybackFence} from '../../../../../packages/player-core/src';
+import type {DockState, DockTransition, PlaybackDock, PlaybackFence, RemoteDock} from '../../../../../packages/player-core/src';
 import type {SkipMode} from '../../../../../packages/player-core/src';
 import type {EngineFeatures, EngineKind, EngineSetting} from './engine-choice';
 import type {EngineSelection, NativeBinding, NativePlaybackTransport} from './NativePlaybackCoordinator';
@@ -138,6 +138,14 @@ export interface NativePlaybackAdapter {
   requestPictureInPicture?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<boolean>;
   /** Channels only: return to the live edge of the retained window. */
   goLive?: (fence: PlaybackFence) => Promise<void>;
+  /** Another device takes the dock: the explicit connection start (Portico play-on handoff). */
+  beginRemote?: (value: RemoteDock) => Promise<void>;
+  /** A later update of that same occupant, in its own sequence. */
+  updateRemote?: (value: RemoteDock) => Promise<void>;
+  /** Dismisses the stopped/ended remote bar; a late update cannot resurrect it. */
+  dismissRemote?: (id: string) => Promise<void>;
+  /** Brings a stopped handoff's title back to this phone at the receiver's position. */
+  continueHere?: (id: string) => Promise<void>;
   /** The viewer's sleep timer for this playback: minutes, or null to clear it. */
   setSleepTimer?: (fence: PlaybackFence, minutes: number | null) => Promise<void>;
   stop: (fence: PlaybackFence) => Promise<void>;

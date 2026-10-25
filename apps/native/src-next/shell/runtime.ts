@@ -16,6 +16,7 @@ import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
 import type {NativeWatchOutletPort} from './watch-outlet';
+import type {NativePlayOn} from '../platform/play-on/controller';
 
 type LibraryMenuWithoutSave<T> = T extends unknown ? Omit<T, 'onSaveView' | 'canSaveView'> : never;
 
@@ -96,6 +97,8 @@ export interface NativeShellRuntime {
   /** Present in the real bootstrap. Missing measurement withholds expanded
    * bounds; it does not retire the persistent player owner. */
   watch?: NativeWatchOutletPort;
+  /** Play on and the Portico remote, when this device can send to another. */
+  playOn?: NativePlayOn;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
   /** Direction-specific audiobook step; absent callers retain their old step. */

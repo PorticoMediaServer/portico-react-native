@@ -7,7 +7,7 @@ import type {SegmentInput} from '../../../../packages/client-core/src/playback-v
 import type {QueueHeader} from '../../../../packages/client-core/src/playback-v1/types';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
-import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence} from '../../../../packages/player-core/src';
+import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence, type RemoteDock} from '../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from './model';
 
 export type NativeShellPlaybackStart = Readonly<{
@@ -80,6 +80,11 @@ export interface NativeShellPlaybackAdapter {
   goLive?: (fence: PlaybackFence) => Promise<void>;
   /** Sleep timer for this playback: minutes, or null to clear. */
   setSleepTimer?: (fence: PlaybackFence, minutes: number | null) => Promise<void>;
+  /** The remote dock (Portico play-on handoff or a cast session). */
+  beginRemote?: (value: RemoteDock) => Promise<void>;
+  updateRemote?: (value: RemoteDock) => Promise<void>;
+  dismissRemote?: (id: string) => Promise<void>;
+  continueHere?: (id: string) => Promise<void>;
   cast?: (fence: PlaybackFence) => Promise<void>;
   stop: (fence: PlaybackFence) => Promise<void>;
   open: (fence: PlaybackFence) => void;

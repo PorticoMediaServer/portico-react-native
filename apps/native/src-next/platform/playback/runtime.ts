@@ -1187,6 +1187,12 @@ export class NativePlaybackRuntime {
   previous = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.snapshot.capabilities.previous) await this.queue.previous(); };
   next = async (fence: PlaybackFence): Promise<void> => { const view = this.queue.getSnapshot().view; if (this.matches(fence) && this.snapshot.capabilities.next && view) await this.queue.next(view.queue.id, view.queue.revision); };
   goLive = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && fence.kind === 'channel') this.channelControl?.goLive(); };
+
+  /** The remote dock's own transitions: this app's player is not the source of any of them. */
+  beginRemote = async (value: RemoteDock): Promise<void> => { if (this.active()) await this.onTransition(this.dock.beginRemote(value, Date.now())); };
+  updateRemote = async (value: RemoteDock): Promise<void> => { if (this.active()) await this.onTransition(this.dock.remote(value, Date.now())); };
+  dismissRemote = async (id: string): Promise<void> => { if (this.active()) await this.onTransition(this.dock.dismissRemote(id)); };
+  continueHere = async (id: string): Promise<void> => { if (this.active()) await this.onTransition(this.dock.continueHere(id)); };
   setSleepTimer = async (fence: PlaybackFence, minutes: number | null): Promise<void> => { if (this.matches(fence)) await this.playback.setListeningDeadline('sleep', minutes); };
   stop = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) await this.onTransition(this.dock.close(fence)); };
   open = (fence: PlaybackFence): void => { if (this.matches(fence)) { this.expanded = true; this.dock.expand(fence); this.applyOptions(); this.publish(); } };

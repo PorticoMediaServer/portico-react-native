@@ -58,7 +58,8 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       setPicture(previous => image ? {owner, authority, image} : previous?.owner === owner ? undefined : previous);
     }},
   }), [adapter, authority, runtime]);
-  const action = useMemo(() => bindNativeDock(adapter), [adapter]);
+  const playOn = runtime.playOn;
+  const action = useMemo(() => bindNativeDock(adapter, playOn ? {remote: async command => {await playOn.command(command.type, command.positionSeconds);}} : {}), [adapter, playOn]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
     const current = adapter.getSnapshot();
     if (!alive.current || !sameAuthority(current.authority, authority) || !sameFence(current.fence, original)
