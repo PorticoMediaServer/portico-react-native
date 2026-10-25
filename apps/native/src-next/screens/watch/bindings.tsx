@@ -32,7 +32,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
     },
     playlistPicker: playlist,
     manageFile: presenters.manageFile, openFileInfo: presenters.openFileInfo, openMenu: presenters.openMenu, openDiscTitles: presenters.openDiscTitles,
-    openVersions: presenters.openVersions, startVersion: context.playback.startVersion,
+    openVersions: presenters.openVersions, beginVersions: presenters.beginVersions, startVersion: context.playback.startVersion,
     renderOverlays: runtime => <><NativeWatchOverlays presenters={presenters} runtime={runtime} common={common}/>{playlist.render(runtime)}</>,
     ...(external ? {onPictureInPicture: (fence: Parameters<NativeWatchExternalRequests['request']>[0]) => {void external.request(fence);}} : {}),
     dispose: () => {external?.dispose(); presenters.dispose(); playlist.dispose();},

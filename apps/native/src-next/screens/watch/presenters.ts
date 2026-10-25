@@ -9,7 +9,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority} from '../../shell/model';
 import type {NativeScreenServices} from '../screen-services';
-import type {NativeWatchCapture, NativeWatchMenuActions, NativeWatchMenuEntry, NativeVersionDestination} from './factory';
+import type {NativeWatchCapture, NativeWatchMenuActions, NativeWatchMenuEntry, NativeVersionDestination, NativeVersionsOpening} from './factory';
 import {nativeFileInfoMergeGroups, type NativeFileInfo} from './file-info';
 import type {NativeDiscTitlesController} from './disc-titles-controller';
 import {nativeTogetherSession} from '../settings-live/together-session';
@@ -82,6 +82,7 @@ export class NativeWatchPresenters {
     this.replace({...value, detail: data});
   };
   close = () => {
+    this.openingEpoch++;
     this.value?.disc?.dispose();
     this.value?.destination?.dispose();
     this.releaseMenuEntry();
@@ -94,7 +95,8 @@ export class NativeWatchPresenters {
     if (this.value !== value || !this.current(value.capture)) return;
     this.value = Object.freeze({...value, ...change}); this.emit(); return this.value;
   }
-  private replace(value: NativeWatchOverlay) {this.value = Object.freeze(value); this.emit();}
+  private openingEpoch = 0;
+  private replace(value: NativeWatchOverlay) {this.openingEpoch++; this.value = Object.freeze(value); this.emit();}
   openMenu = (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: RefObject<View | null>) => {
     this.close();
     if (!this.current(capture)) {actions.entry?.dispose(); return;}
@@ -168,12 +170,27 @@ export class NativeWatchPresenters {
     if (!entry?.details || value.busy || !this.current(value.capture)) return;
     this.close(); entry.details();
   };
+  /** Called where Versions is dispatched, before any inventory is read. The ticket
+   * dies as soon as the presenter presents anything else or closes. */
+  beginVersions = (capture: NativeWatchCapture): NativeVersionsOpening | undefined => {
+    if (!this.current(capture)) return undefined;
+    // A fresh reservation per opening, taken synchronously: two entries never share
+    // an epoch, so an older answer cannot win over a newer opening. An unrelated
+    // overlay already presented refuses instead of being replaced by this ticket.
+    if (this.value && (this.value.capture !== capture || this.value.phase !== 'versions-pending')) return undefined;
+    const epoch = ++this.openingEpoch, owner = this.value;
+    return Object.freeze({capture, live: () => this.openingEpoch === epoch && this.value === owner && this.current(capture)});
+  };
   differentVersion = async (value: NativeWatchOverlay) => {
-    if (!value.actions?.differentVersion || !this.patch(value, {phase: 'versions-pending', busy: true})) return;
+    if (!value.actions?.differentVersion) return;
+    const pending = this.patch(value, {phase: 'versions-pending', busy: true});
+    if (!pending) return;
     this.releaseMenuEntry();
     try {await value.actions.differentVersion();}
-    catch (error) {if (this.value?.capture === value.capture && this.current(value.capture)) this.common.reportError(error, 'detail');}
-    finally {if (this.value?.capture === value.capture && this.value.phase === 'versions-pending') this.close();}
+    catch (error) {if (this.value === pending && this.current(pending.capture)) this.common.reportError(error, 'detail');}
+    // Only this opening's own pending overlay is closed here. An adopted chooser
+    // replaced it, and any newer overlay is not this one to close.
+    finally {if (this.value === pending) this.close();}
   };
   /** The owner's Titles row: one physical version's own titles, never a synthetic
    * alternate version of the film. It refuses unless the menu that drew the row is
@@ -190,18 +207,33 @@ export class NativeWatchPresenters {
   };
   /** A delayed close from a sheet that is no longer the presented one does nothing. */
   closeDisc = (value: NativeWatchOverlay) => {if (this.value === value) this.close();};
-  openVersions = (capture: NativeWatchCapture, destination: NativeVersionDestination) => {
-    if (!this.current(capture) || !destination.isCurrent() || this.value && (this.value.capture !== capture || this.value.phase !== 'versions-pending')) {destination.dispose(); return;}
-    // A genuine playback-failure action can enter without a More menu. Its
-    // descriptor already checked the actual failed session/version identity.
+  openVersions = (capture: NativeWatchCapture, destination: NativeVersionDestination, opening: NativeVersionsOpening) => {
+    // The ticket is the permission, whether a More menu or the failed output's own
+    // entry began it. A closed or replaced sheet retires it, and the route being
+    // current is not enough.
+    if (!opening.live() || opening.capture !== capture || !destination.isCurrent()
+      || this.value && (this.value.capture !== capture || this.value.phase !== 'versions-pending')) {destination.dispose(); return;}
+    // Install the destination's own lifetime before the emitting replace: a listener
+    // that renders the new value must already see a presented chooser, not a spent
+    // ticket with no predicate to fall back on.
+    destination.present(() => this.value?.destination === destination && this.value.phase === 'versions' && this.value.capture === capture);
     this.replace({confirmation: '', candidates: [], ...this.value, capture, phase: 'versions', destination, busy: false});
   };
-  chooseVersion = async (versionId: string) => {
-    const value = this.value, destination = value?.destination;
-    if (value?.phase !== 'versions' || !destination || value.busy || !destination.isCurrent() || !destination.rows.some(row => row.id === versionId)) return;
+  /** The sheet's own row and close: a retained callback from a chooser that is no
+   * longer presented cannot choose or close its successor. */
+  closeVersions = (value: NativeWatchOverlay) => {if (this.value === value) this.close();};
+  chooseVersion = async (value: NativeWatchOverlay, versionId: string) => {
+    if (this.value !== value) return;
+    const destination = value.destination;
+    if (value.phase !== 'versions' || !destination || value.busy || !destination.isCurrent() || !destination.rows.some(row => row.id === versionId)) return;
     this.replace({...value, busy: true});
-    try {await destination.choose(versionId); if (this.value?.destination === destination) this.close();}
-    catch (error) {
+    try {
+      // A disc title that is no longer ready, or whose facts moved, is not played:
+      // the sheet stays open instead of closing on a choice that did nothing.
+      const started = await destination.choose(versionId);
+      if (this.value?.destination !== destination) return;
+      if (started) this.close(); else this.replace({...this.value, busy: false});
+    } catch (error) {
       if (this.value?.destination === destination) {
         if (!destination.isCurrent()) this.close();
         else {this.replace({...this.value, busy: false}); this.common.reportError(error, 'detail');}

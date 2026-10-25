@@ -71,6 +71,18 @@ export async function readDiscTitles(api: DetailApi, itemId: string, versionId: 
   return parseDiscTitles(raw, versionId);
 }
 
+/** Device-scoped preparation of one alternate title. It analyzes that title without
+ * changing the main title, the version's duration or personal state, and answers 202
+ * with the document it re-read. A stale revision answers with the current document
+ * instead, so the caller re-reads rather than writing over someone else's choice. */
+export async function prepareDiscTitle(api: DetailApi, write: DiscTitleWrite, lifetime: DiscTitleLifetime): Promise<DiscTitles | undefined> {
+  if (!current(lifetime)) return;
+  const raw = await api.request<unknown>(`/v1/items/${encodeURIComponent(write.itemId)}/disc-titles/prepare`, 'POST',
+    {versionId: write.versionId, revision: write.revision, titleId: write.titleId}, lifetime.signal);
+  if (!current(lifetime)) return;
+  return parseDiscTitles(raw, write.versionId);
+}
+
 /** Owner write of the main title. It sends the revision it read, so a changed
  * structure refuses instead of moving someone else's choice. The 202 body is the
  * current choices with the choice applied and analysis not yet ready. */

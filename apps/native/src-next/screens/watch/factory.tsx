@@ -26,9 +26,10 @@ import {NativeFileInfoContent} from './FileInfoContent';
 import {readNativeFileInfo, type NativeFileInfo} from './file-info';
 import {readNativePlaybackInfo} from './playback-info';
 import {nativeWatchTracks} from './track-identity';
-import {nativeVersionChoices, nativeVersionNames} from './version-options';
+import {nativeDiscTitleChoices, nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeVersionChooserController} from './version-destination';
 import {NativeDiscTitlesController} from './disc-titles-controller';
+import {prepareDiscTitle, readDiscTitles, type DiscTitles} from './disc-titles';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
@@ -63,6 +64,10 @@ export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; di
   /** Owner only, and only for a physical disc version the server measured. */
   discTitles?: () => void}>;
 export type NativeVersionDestination = NativeVersionChooserController;
+/** One Versions opening, from the menu action or from a failed output's own entry.
+ * Its identity outlives any overlay object, so awaited inventory cannot adopt itself
+ * into a sheet that was closed or replaced while it was reading. */
+export type NativeVersionsOpening = Readonly<{capture: NativeWatchCapture; live: () => boolean}>;
 export type NativeWatchFactoryPorts = Readonly<{
   api: HttpLocalApi;
   scope: DetailScope;
@@ -85,7 +90,9 @@ export type NativeWatchFactoryPorts = Readonly<{
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
   openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode, owner: Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
-  openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination) => void;
+  openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination, opening: NativeVersionsOpening) => void;
+  /** Created where Versions is dispatched, before any inventory is read. */
+  beginVersions?: (capture: NativeWatchCapture) => NativeVersionsOpening | undefined;
   openDiscTitles?: (capture: NativeWatchCapture, dispatch: () => void, create: (opening: () => boolean) => NativeDiscTitlesController) => void;
   openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
   title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate' | 'person' | 'owner' | 'openCollection' | 'serverName' | 'search'> & Readonly<{
@@ -190,25 +197,69 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         if (state.workspace?.data) await controller.workspace.retry();
       }));}});
   };
-  const publishVersions = (captured: NativeWatchCapture, offered: PlaybackOptions, failedVersionId?: string) => {
+  // TV Versions lists a disc's own other titles from the viewer's inventory of that
+  // physical version. Never a synthetic version, never the main title twice, and each
+  // read is one at a time under the opening that asked for it. A refusal is reported
+  // through the captured title presenter, never turned into a quietly empty chooser.
+  const discDocuments = async (captured: NativeWatchCapture, offered: PlaybackOptions, opening: () => boolean): Promise<readonly DiscTitles[]> => {
+    const drawn: DiscTitles[] = [];
+    for (const version of offered.versions.filter(value => value.disc)) {
+      if (!opening()) return drawn;
+      try {
+        const document = await request(captured, signal => readDiscTitles(ports.api, captured.entry.id, version.id, {signal, isCurrent: () => current(captured) && opening()}));
+        if (document) drawn.push(document);
+      } catch (error) {if (opening()) ports.title.reportError(error);}
+    }
+    return drawn;
+  };
+  const publishVersions = (captured: NativeWatchCapture, offered: PlaybackOptions, drawn: readonly DiscTitles[], opening: NativeVersionsOpening, failedVersionId?: string) => {
     const startVersion = ports.startVersion;
-    if (!ports.openVersions || !startVersion || !current(captured) || offered.itemId !== captured.entry.id || (failedVersionId === undefined ? offered.versions.length < 2 : !offered.versions.length) || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
-    const source = ports.playback.getSnapshot();
-    const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
-    const destination = new NativeVersionChooserController({capture: captured, options: offered,
-      rows: nativeVersionChoices(offered, captured.entry.id, nativeVersionNames(defaultI18n.t, defaultI18n.locale), failedVersionId), selectedVersionId,
-      hostCurrent: () => hostCurrent(captured), sourceCurrent: () => current(captured), start: startVersion, onDispose: () => {destinations.delete(destination);}});
-    if (!destination.rows.length) {destination.dispose(); return;}
-    destinations.add(destination); ports.openVersions(captured, destination);
+    if (!ports.openVersions || !startVersion || !opening.live() || offered.itemId !== captured.entry.id || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
+    const documents = new Map(ports.isTV ? drawn.map(document => [document.versionId, document] as const) : []);
+    const rows = nativeVersionChoices(offered, captured.entry.id, nativeVersionNames(defaultI18n.t, defaultI18n.locale), failedVersionId).flatMap(row => {
+      const document = documents.get(row.id);
+      if (!document) return [row];
+      // The disc's own row stays one row, but it names the main title it was drawn
+      // with: choosing it starts that exact title, so an owner's change of main title
+      // while this sheet is open refuses instead of quietly starting another one.
+      const main = document.titles.find(title => title.main);
+      const physical = main ? {...row, disc: Object.freeze({versionId: row.id, revision: document.revision, titleId: main.id,
+        ...(main.revision === undefined ? {} : {titleRevision: main.revision})})} : row;
+      return [physical, ...nativeDiscTitleChoices(document, row.id, defaultI18n.t)];
+    });
+    if (failedVersionId === undefined ? rows.length < 2 : !rows.length) return;
+    const source = ports.playback.getSnapshot(), session = source.session?.itemId === captured.entry.id ? source.session : undefined;
+    // Focus names only what the session actually is: an exact version id plus title
+    // id and revision, or the version row when the session names no title. A title
+    // this chooser has no row for claims nothing; the chooser then focuses a real row
+    // without claiming it is the one playing.
+    const versionId = session?.versionId, discTitle = session?.discTitle;
+    const selected = !versionId ? undefined
+      : discTitle ? rows.find(row => row.disc?.versionId === versionId && row.disc.titleId === discTitle.id
+        && row.disc.titleRevision === discTitle.revision)?.id
+        : rows.find(row => row.id === versionId)?.id;
+    const destination = new NativeVersionChooserController({capture: captured, options: offered, rows, selectedRowId: selected,
+      hostCurrent: () => hostCurrent(captured), sourceCurrent: () => current(captured), start: startVersion, opening: opening.live,
+      prepare: (write, lifetime) => prepareDiscTitle(ports.api, write, lifetime),
+      reread: (id, lifetime) => readDiscTitles(ports.api, captured.entry.id, id, lifetime),
+      preview: (preview, signal) => options.options(captured.entry.id, {versionId: preview.versionId, discTitle: preview.discTitle}, signal),
+      onDispose: () => {destinations.delete(destination);}});
+    destinations.add(destination); ports.openVersions(captured, destination, opening);
   };
   const versions = async (captured: NativeWatchCapture, failedVersionId?: string): Promise<void> => {
-    if (!ports.openVersions || !ports.startVersion || captured.entry.playback?.itemId !== captured.entry.id) return;
+    if (!ports.openVersions || !ports.startVersion || !ports.beginVersions || captured.entry.playback?.itemId !== captured.entry.id) return;
     if (failedVersionId !== undefined) {
       const source = ports.playback.getSnapshot();
       if (!current(captured) || source.playback.phase !== 'error' || source.session?.itemId !== captured.entry.id || source.session.versionId !== failedVersionId) return;
     }
+    // The opening is captured before anything is read: closing the sheet or
+    // presenting anything else while the inventory loads retires this one.
+    const opening = ports.beginVersions(captured);
+    if (!opening) return;
     const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
-    if (fresh) publishVersions(captured, fresh, failedVersionId);
+    if (!fresh || !opening.live()) return;
+    const drawn = ports.isTV ? await discDocuments(captured, fresh, opening.live) : [];
+    if (opening.live()) publishVersions(captured, fresh, drawn, opening, failedVersionId);
   };
 
   const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void): Promise<void> => {
@@ -217,7 +268,16 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     // A failed options read must not replace the independent real File info action.
     const offered = entry.playback?.itemId === entry.id ? await request(captured, signal => options.options(entry.id, {}, signal)).catch(error => {if (current(captured)) ports.title.reportError(error); return undefined;}) : undefined;
     if (!current(captured)) return;
-    const hasVersions = !!ports.openVersions && !!ports.startVersion && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
+    // TV only: a single physical disc version still opens Versions when its own titles
+    // are real choices, because frames 16 and 18 put them there. The touch chooser's
+    // eligibility and rows stay exactly as they were.
+    const versionEligible = !!ports.openVersions && !!ports.startVersion && !!ports.beginVersions && !!offered && offered.itemId === entry.id
+      && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
+    const discChoices = versionEligible && ports.isTV && offered!.versions.some(version => version.disc);
+    const drawn = discChoices ? await discDocuments(captured, offered!, () => current(captured)) : [];
+    if (!current(captured)) return;
+    const hasVersions = versionEligible && (offered!.versions.length >= 2 || discChoices
+      && drawn.some(document => nativeDiscTitleChoices(document, document.versionId, defaultI18n.t).length > 0));
     // The entry's own live detail owns the personal rows, Play/Resume target and
     // Details route. An unreadable detail keeps the independent File info menu.
     let detail: DetailService | undefined;
