@@ -614,6 +614,8 @@ export const enUS = {
   // Music signal path: exact 23 October listening-notices catalogue contract.
   'player.signal.rate': '{khz, number} kHz',
   'player.signal.title': 'Signal path',
+  'player.fromAlbum': 'Playing from album',
+  'player.fromArtist': 'Playing from artist',
   'player.signal.a11y': 'Signal path: {source}. {state}',
   'player.signal.a11ySourceOnly': 'Signal path: {source}',
   'player.signal.pill.bitPerfect': 'Bit-perfect',
