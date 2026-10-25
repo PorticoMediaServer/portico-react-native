@@ -2,6 +2,7 @@ import {ReadingError, type ReadingHostSession} from '../../../../../packages/cli
 import type {ReadingAnnotationContent, ReadingAnnotationMutation, ReadingAnnotationPort} from '../../../../../packages/client-core/src/reading-annotations';
 import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotationSource} from './annotation-journal';
 import {nativeAnnotationLeaseOf} from './annotation-journal';
+import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 import {nativeOfflineAnnotationSession} from './annotation-offline-port';
 
 /** The existing annotation bridge with the offline path this family owns.
@@ -45,6 +46,9 @@ type BridgeOptions = Readonly<{
 /** Choose the port this exact reader session can honestly offer. */
 export function nativeAnnotationBridge(options: BridgeOptions): ReadingHostSession {
   const {session} = options;
+  // Containment: the reader keeps the canonical server annotation port only until the
+  // functional journal/merge corrections are reviewed. No offline synthesis, no fallback.
+  if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return session;
   if (session.manifest.canAnnotate === true && typeof session.annotations === 'function' && typeof session.mutateAnnotation === 'function')
     return nativeOnlineAnnotationSession({...options, session: session as ServerAnnotationSession});
   if (nativeAnnotationLeaseOf(session)) return nativeOfflineAnnotationSession(options);

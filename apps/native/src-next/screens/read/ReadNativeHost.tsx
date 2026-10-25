@@ -15,6 +15,7 @@ import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} fro
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
 import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
+import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 
 type Target = Readonly<{itemId: string; sourceId: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
@@ -50,6 +51,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const livePort = useRef<NativeAnnotationLivePort | undefined>(undefined);
   useEffect(() => () => {clearTimeout(quietRetry.current); annotations.dispose();}, [annotations]);
   useEffect(() => {
+    // Containment: no automatic merge is active before the functional corrections are reviewed.
+    if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
     // Only the active reader, or the app returning to it, attempts a merge; nothing runs in the background.
     if (active) void annotations.flush(livePort.current);
     const subscription = AppState.addEventListener('change', next => {if (next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);});
