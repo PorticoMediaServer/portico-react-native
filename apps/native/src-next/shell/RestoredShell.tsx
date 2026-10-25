@@ -24,6 +24,7 @@ import {RememberedDownloadsScreen, RememberedDownloadsShortcut} from '../screens
 import {downloadEntryIdentity} from '../screens/downloads/presentation';
 import {Platform, Text, View} from 'react-native';
 import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
+import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
 
@@ -145,12 +146,12 @@ export function RestoredShell() {
     if (rootCurrent()) void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, installationOwner: installation, onSessionRenewed: () => {
       if (rootCurrent()) restart();
     }, onAuthorityEnded: error => {
-      if (rootCurrent()) {owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
+      if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
     }}).then(runtime => {
       if (clock) clearInterval(clock);
       if (!rootCurrent()) {runtime?.dispose(); return;}
       restored = true; owned = runtime; publishState({phase: runtime ? 'ready' : 'ended', runtime}); if (rootCurrent() && !runtime) fallback();
-    }, error => {if (clock) clearInterval(clock); if (rootCurrent()) {restored = true; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}});
+    }, error => {if (clock) clearInterval(clock); if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); restored = true; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}});
     return () => {ticket.retire?.(); installation.dispose(); unsubscribe(); unfence(); unsettled(); if (clock) clearInterval(clock);};
   }, [attempt]);
   const renderedRoot = root.current;
