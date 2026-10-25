@@ -2,14 +2,14 @@ import type {CompositeId} from '../../../../packages/client-core/src/presentatio
 import {engineSettings, parseEngineSetting} from './playback/engine-choice';
 import type {NativeQueueStore} from './queue-storage';
 
-export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching' | 'lossNotices' | 'receiveFromDevices';
+export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching' | 'lossNotices' | 'receiveFromDevices' | 'matchFrameRate';
 type Owner = Readonly<{current: () => boolean; subscribePreferences: (listener: () => void) => () => void}>;
 type Ports = Readonly<{storage: Pick<NativeQueueStore, 'change'>; readRecord: () => unknown; acceptRecord: (raw: unknown) => void}>;
 const sources = new WeakMap<Owner, NativeDeviceSettings>();
 const object = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw);
 const ended = () => Object.assign(new Error('native_device_settings_retired'), {name: 'AbortError'});
 export function nativeDeviceSettingSupported(id: string): id is NativePlaybackDeviceSetting {
-  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'tvHdr' || id === 'tvSurround' || id === 'music.sampleRateMatching' || id === 'lossNotices' || id === 'receiveFromDevices';
+  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'tvHdr' || id === 'tvSurround' || id === 'music.sampleRateMatching' || id === 'lossNotices' || id === 'receiveFromDevices' || id === 'matchFrameRate';
 }
 
 /** The installation fields consumed by the actual playback runtime. The
@@ -20,9 +20,10 @@ export class NativeDeviceSettings {
   constructor(owner: Owner, ports: Ports) {this.owner = owner; this.ports = ports;}
   private assert() {if (!this.owner.current()) throw ended();}
   supports = nativeDeviceSettingSupported;
-  read = (id: CompositeId | 'lossNotices'): string | boolean | undefined => {
+  read = (id: CompositeId | 'lossNotices' | 'matchFrameRate'): string | boolean | undefined => {
     this.assert(); if (!nativeDeviceSettingSupported(id)) return;
     const raw = this.ports.readRecord(), record = object(raw) ? raw : {};
+    if (id === 'matchFrameRate') return record[id] === 'off' ? 'off' : 'auto';
     if (id === 'playerEngine') return parseEngineSetting(record.playerEngine);
     if (id === 'music.sampleRateMatching') return record[id] === 'strict' || record[id] === 'off' ? record[id] as string : record[id] === 'smart' ? 'smart' : undefined;
     // The TV output choices are tri-state: an absent key means the viewer has
@@ -33,10 +34,11 @@ export class NativeDeviceSettings {
   subscribe = (listener: () => void): (() => void) => {
     this.assert(); return this.owner.subscribePreferences(() => {if (this.owner.current()) listener();});
   };
-  write = async (id: CompositeId | 'lossNotices', value: string | boolean): Promise<void> => {
+  write = async (id: CompositeId | 'lossNotices' | 'matchFrameRate', value: string | boolean): Promise<void> => {
     this.assert();
     if (!nativeDeviceSettingSupported(id)) throw Object.assign(new Error('native_device_setting_unsupported'), {code: 'unsupported'});
     if (id === 'playerEngine' ? !engineSettings.some(setting => setting === value)
+      : id === 'matchFrameRate' ? value !== 'auto' && value !== 'off'
       : id === 'music.sampleRateMatching' ? typeof value !== 'string' || !['smart', 'strict', 'off'].includes(value)
       : typeof value !== 'boolean') throw new Error('native_device_setting_value_invalid');
     await this.ports.storage.change('preferences:v1', raw => {
