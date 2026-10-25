@@ -74,3 +74,8 @@ test('an episode from a row elsewhere opens its show at that episode, named by t
   assert.deepEqual(routeForEntry(show), {name: 'Show', params: {libraryId: 'tv', showId: 's1', title: 'Breaking Bad'}});
   assert.equal(routeForEntry({...movie, navigation: undefined}), null);
 });
+
+test('a playlist destination opens the saved playlist route rather than a library entity view', () => {
+  const playlist: ContentEntry = {id: 'row-entry', kind: 'playlist', title: 'Evening', navigation: {view: 'playlist', entityId: 'playlist-7'}};
+  assert.deepEqual(routeForEntry(playlist), {name: 'Playlist', params: {playlistId: 'playlist-7', title: 'Evening'}});
+});

@@ -3,7 +3,8 @@ import {Platform, StyleSheet, Text as RNText, useWindowDimensions, type TextProp
 import {useTheme} from './theme';
 import {lineRoom, withLineRoom} from './line-room';
 
-export type TextRole = 'display' | 'title' | 'heading' | 'subheading' | 'body' | 'bodyStrong' | 'caption' | 'captionStrong' | 'micro' | 'label';
+export type {TypeRole as TextRole} from '../../../../packages/design/src/index';
+import type {TypeRole as TextRole} from '../../../../packages/design/src/index';
 export type TextTone = 'primary' | 'secondary' | 'tertiary' | 'accent' | 'danger' | 'inverse' | 'amber' | 'healthy';
 
 export type TextProps = RNTextProps & {

@@ -5,6 +5,7 @@ import {defaultI18n, type I18n} from '../../../packages/i18n/src';
 import {homeRowPresentation, homeSpotlightModels} from '../../../packages/client-core/src/presentation/home-spotlight';
 import {homeRowHasContent} from '../src-next/screens/home/model';
 import {serverTextLabel} from '../../../packages/client-core/src/presentation/server-text';
+import type {HomeRow} from '../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
@@ -105,12 +106,13 @@ test('the confirmed Appearance card size and backdrop switch reach the drawn Hom
 });
 
 test('a row with nothing under its heading is not drawn at all', async () => {
-  const entry = {id: 'new-movie', libraryId: 'movies', kind: 'movie', title: 'Toy Story 5', playback: {itemId: 'new-movie'}};
-  const rows = [
-    {id: 'continue', kind: 'continue', artworkShape: 'landscape', title: 'Continue Watching', entries: [], nextCursor: ''},
-    {id: 'new_movies', kind: 'new', artworkShape: 'poster', title: 'New on your server', entries: [entry], nextCursor: ''},
-    {id: 'live_now', kind: 'live', artworkShape: 'landscape', title: 'On now', entries: [], live: {observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: []}},
-    {id: 'more', kind: 'new', artworkShape: 'poster', title: 'More coming', entries: [], nextCursor: 'page-2'},
+  const entry: ContentEntry = {id: 'new-movie', libraryId: 'movies', kind: 'movie', title: 'Toy Story 5', playback: {itemId: 'new-movie'}};
+  const rowDefaults = {viewerFence: 'viewer', endpoint: '/home', privacySensitivity: 'viewer', policyState: 'allowed', priority: 0, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false, total: 0, start: 0, limit: 20, hasMore: false, revision: {catalog: 1, viewer: 1}, nextCursor: ''};
+  const rows: HomeRow[] = [
+    {...rowDefaults, id: 'continue', kind: 'continue', artworkShape: 'landscape', title: 'Continue Watching', entries: [], nextCursor: ''},
+    {...rowDefaults, id: 'new_movies', kind: 'new', artworkShape: 'poster', title: 'New on your server', entries: [entry], nextCursor: ''},
+    {...rowDefaults, id: 'live_now', kind: 'live', artworkShape: 'landscape', title: 'On now', entries: [], live: {revision: 'live-1', sort: 'favorites', group: '', groups: [], observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: []}},
+    {...rowDefaults, id: 'more', kind: 'new', artworkShape: 'poster', title: 'More coming', entries: [], nextCursor: 'page-2'},
   ];
   assert.equal(homeRowHasContent(rows[0]), false, 'a profile with no history keeps no Continue Watching heading');
   assert.equal(homeRowHasContent(rows[1]), true);
@@ -190,7 +192,7 @@ test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row
   const rows = [
     {id: 'continue', kind: 'continue', artworkShape: 'landscape', title: 'Continue Watching', subtitleText: {fallback: 'In progress'}, entries: [entry], nextCursor: '', total: 1, start: 0, limit: 1},
     {id: 'on_now', kind: 'live', artworkShape: 'landscape', title: 'On now', subtitleText: {fallback: 'Synthetic Live TV'}, entries: [], nextCursor: '', total: 0, start: 0, limit: 0,
-      live: {observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: [
+      live: {revision: 'live-1', sort: 'favorites', group: '', groups: [], observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), channels: [
         {channel: {id: 'channel-1', sourceId: 'source-1', name: 'Channel One', number: 1, mark: {}, programmes: []}, source: {name: 'Synthetic Live TV'}},
       ]}},
   ];

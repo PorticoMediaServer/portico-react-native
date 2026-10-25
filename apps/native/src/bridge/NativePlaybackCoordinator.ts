@@ -376,7 +376,7 @@ export class NativePlaybackCoordinator {
     if(f.type==='audioPrepared'){this.service.audioPrepared(f.token);return;}
     if(f.type==='audioCommit'){this.service.audioCommit(f.token);return;}
     if(f.type==='audioBoundary'){this.service.audioBoundary(f.token,f.position);return;}
-    if(f.type==='audioPreparationFailed'){this.service.audioPreparationFailed('The next item could not be buffered. This edge will use ordinary playback.');return;}
+    if(f.type==='audioPreparationFailed'){this.service.audioPreparationFailed();return;}
     if(f.type==='audioRenderFailed'){this.service.audioRenderFailed('Audio decoding or output failed. Retry playback to reconnect.');return;}
     this.accept(f);
   };

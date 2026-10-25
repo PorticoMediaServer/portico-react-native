@@ -14,7 +14,7 @@ const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : 
 const flat = (node: any) => Array.isArray(node) ? node : nodes(node);
 const texts = (node: any) => flat(node).filter(n => n.type === 'Text');
 const label = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
-const flatten = (style: any) => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
+const flatten = (style: any): Record<string, unknown> => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
 const state = (node: any) => ({focused: false, hovered: false, pressed: false, holding: false});
 // JSX always hands children through the createElement rest argument, so a lone render prop arrives in an array.
 const childFn = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
@@ -87,7 +87,8 @@ test('phone Search draws the frame 7 empty state: 32pt title, bare 44px recent r
   assert.equal(heading.props.accessibilityRole, 'header');
   assert.equal(headingStyle.fontSize, 32);
   assert.equal(headingStyle.lineHeight, 36.8);
-  assert.equal(Number(headingStyle.letterSpacing.toFixed(2)), -1.12);
+  assert.equal(typeof headingStyle.letterSpacing, 'number');
+  assert.equal(Number(Number(headingStyle.letterSpacing).toFixed(2)), -1.12);
   assert.equal(headingStyle.marginBottom, 12);
   assert.equal(headingStyle.marginHorizontal, 20);
 

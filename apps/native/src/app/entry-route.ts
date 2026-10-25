@@ -13,6 +13,7 @@ export function routeForEntry(entry: ContentEntry, libraryId?: string): EntryRou
   // episode brought into view and marked a moment, nothing opened. The show's name stands in
   // for the page's title until it loads.
   if (target.view === 'item' && entry.kind === 'episode') return {name: 'Show', params: {libraryId: library, episodeId: target.entityId ?? entry.id, title: continueTitle(entry)}};
+  if (target.view === 'playlist') return {name: 'Playlist', params: {playlistId: target.entityId ?? entry.id, title: entry.title}};
   if (target.view === 'item') return {name: 'Detail', params: {libraryId: library, itemId: target.entityId ?? entry.id}};
   if (target.view === 'show') return {name: 'Show', params: {libraryId: library, showId: target.entityId ?? entry.id, title: entry.title}};
   if (target.view === 'season') return {name: 'Show', params: {libraryId: library, seasonId: target.entityId ?? entry.id, title: entry.title}};
