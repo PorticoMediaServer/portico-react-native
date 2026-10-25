@@ -14,6 +14,7 @@ import type {NativeSettingsLivePorts} from '../../ports';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
 import {NativeScreenLifetime, screenScopeEnded} from '../../lifetime';
 import {nativeStorageOwner} from './space-source';
+import {NativeBackupProtection} from './BackupProtection';
 
 type Translate = typeof defaultI18n.t;
 function createBackups(context: NativeShellBootstrapContext, operationId: () => string, reportError: NativeShellRuntime['reportError']) {
@@ -91,6 +92,7 @@ function Backups({group, t}: {group: Group; t: Translate}) {
   return <View style={{marginTop:22,gap:12}} testID="server-storage-backups">
     <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
     <Text style={[shellType(13,400,18),{color:theme.colors.textSecondary}]}>{t('web.maintenance.backupsLedePlain')}</Text>
+    {state.settings && <NativeBackupProtection source={source} settings={state.settings} current={group.current} failure={group.failure} t={t}/>}
     {problem && <Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(uncertain ? 'error.unconfirmedChange' : 'error.unavailable')}</Text>}
     {running && <Text style={{color:theme.colors.textSecondary}}>{t('web.maintenance.backingUp')}{fraction === undefined ? '' : ` ${Math.round(fraction * 100)}%`}</Text>}
     {state.restorePhase && <Text style={{color:theme.colors.textSecondary}}>{t(state.restorePhase === 'restarting' ? 'web.maintenance.restartingTitle' : 'web.maintenance.restoreTitle')}</Text>}
