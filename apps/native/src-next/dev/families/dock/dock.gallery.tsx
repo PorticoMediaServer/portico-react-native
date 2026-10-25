@@ -66,6 +66,7 @@ function DockCase({kind}: {kind: Case}) {
   const presentation = injected?.presentation ?? {local: localModel, remote: {...prepared.model, fence: snapshot.remote?.playback.fence ?? prepared.model.fence, artwork}};
   const action = useCallback((command: DockCommand) => {
     if (injected) {injected.onAction(command); return;}
+    if(command.fence.kind==='cast-view')return; // View-only custody cannot enter fixture player-core transitions.
     const state = dock.getSnapshot();
     const commands = globalThis.__porticoNativeDockCommands ??= [];
     commands.push(command);

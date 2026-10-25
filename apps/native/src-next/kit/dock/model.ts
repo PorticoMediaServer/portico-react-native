@@ -6,7 +6,7 @@ import type {CastDockIdentity, DockRenderOccupant, DockAction, DockCommand, Dock
 
 export function sameDockFence(a:DockCommand['fence']|undefined,b:DockCommand['fence']|undefined):boolean{
  if(a?.kind==='cast-view'||b?.kind==='cast-view')return a?.kind==='cast-view'&&b?.kind==='cast-view'&&a.attachmentId===b.attachmentId&&sameCastRemote(a.remote,b.remote);
- return sameFence(a,b);
+ return !!a&&!!b&&sameFence(a,b);
 }
 
 /** Text changes follow the actual media source, including a local play without a queue. */

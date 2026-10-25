@@ -34,7 +34,7 @@ export function NativePlayOnSheets({controller, artwork, posterUrl, onLinkTV}: N
   const castRemoteId=cast?.resumed?.id??cast?.source?.id;
   const isCast=state.castRemoteOpen&&!!castRemoteId;
   const castKnown=!!castReport&&castReport.itemId===castState?.itemId&&!castState?.controlPending;
-  const remote=isCast&&castRemoteId?{id:castRemoteId,device:castState?.deviceName??t('cast.theTV'),title:cast.title,
+  const remote=isCast&&castRemoteId?{id:castRemoteId,device:castState?.deviceName??t('cast.theTV'),title:cast?.title,
     positionSeconds:castReport?.positionSeconds??0,durationSeconds:castReport?.durationSeconds??0,
     playing:castState?.phase==='casting'&&castKnown&&!castReport?.paused,stopped:cast?.stopped===true,
     allows:{pause:castState?.phase==='casting'&&castKnown,resume:castState?.phase==='casting'&&castKnown,seek:castState?.phase==='casting'&&castKnown&&(castReport?.durationSeconds??0)>0,stop:castState?.phase!=='off'&&!castState?.controlPending&&!!cast?.control}}:state.remote;
