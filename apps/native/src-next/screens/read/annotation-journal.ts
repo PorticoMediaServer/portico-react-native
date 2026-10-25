@@ -502,9 +502,12 @@ export class NativeAnnotationJournal {
       // The first queued intent owns the server base, including an UNKNOWN (absent) witness.
       // Later cache evidence must never be grafted onto that older intent.
       // Coalesced attempt evidence is conservative: true if either intent was explicitly
-      // attempted; false only when BOTH explicitly say never sent; otherwise unknown.
-      const attempted = previous.attempted === true || operation.attempted === true ? true
-        : previous.attempted === false && operation.attempted === false ? false : undefined;
+      // attempted; false only when BOTH explicitly say never sent; otherwise unknown. A first
+      // enqueue has no previous intent, so it preserves the incoming state as-is.
+      const attempted = previous
+        ? previous.attempted === true || operation.attempted === true ? true
+          : previous.attempted === false && operation.attempted === false ? false : undefined
+        : operation.attempted;
       const merged: NativeAnnotationOperation = previous
         ? Object.freeze({id: operation.id, delete: operation.delete, ...(operation.content ? {content: operation.content} : {}),
             observedAt: operation.observedAt, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt,
