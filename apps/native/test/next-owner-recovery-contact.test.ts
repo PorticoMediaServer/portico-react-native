@@ -81,3 +81,8 @@ test('cancellation settles even while a protected native read has not returned',
   release(); await Promise.resolve();
   assert.equal(calls, 0); assert.deepEqual(f.opened, []);
 });
+
+test('an internal public-contact deadline remains an honest timeout in a current phone context', async () => {
+  const f = await fixture(), source = f.open(async () => {throw new RouteError('cancelled', 'Canonical deadline');});
+  await assert.rejects(source.open(), {code: 'timeout'}); assert.deepEqual(f.opened, []);
+});

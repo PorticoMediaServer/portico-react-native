@@ -71,7 +71,10 @@ export class NativeOwnerRecoveryContact {
     };
     try {await Promise.race([work(), stopped]);}
     catch (error) {
-      if (timedOut) throw new RouteError('timeout', 'Owner recovery contact timed out.');
+      // Canonical proof/contact deadlines cancel their own signal. While our original
+      // context is still live, that is a failed bounded contact, not a user cancellation.
+      if (timedOut || (error as {code?: unknown} | null)?.code === 'cancelled' && this.current())
+        throw new RouteError('timeout', 'Owner recovery contact timed out.');
       throw error;
     } finally {
       clearTimeout(timer); this.controller.signal.removeEventListener('abort', rejectAbort); this.dispose();
