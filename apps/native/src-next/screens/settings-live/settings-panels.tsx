@@ -33,10 +33,12 @@ export type NativeSettingsPanelDeps = Readonly<{
 const roleWord = (role: 'owner' | 'admin' | 'member'): MessageId => role === 'owner' ? 'next.shell.owner' : role === 'admin' ? 'next.shell.administrator' : 'next.shell.member';
 
 function IdentityPanel({context, t}: NativeSettingsPanelDeps) {
+  const theme = useTheme();
   const account = context.account.account;
   const profile = context.account.profiles.find(value => value.id === context.session()?.viewer.profileId);
-  const description = [profile?.name, t(roleWord(account.role))].filter(Boolean).join(' · ');
-  return <SettingsRow first testID="settings-panel-identity" label={t('settings.row.identity')} value={account.username} description={description}/>;
+  const description = theme.isTV ? profile?.name ? t('account.usingProfile', {name: profile.name}) : undefined
+    : [profile?.name, t(roleWord(account.role))].filter(Boolean).join(' · ');
+  return <SettingsRow first testID="settings-panel-identity" label={t(theme.isTV ? 'account.signedInAs' : 'settings.row.identity')} value={account.username} description={description}/>;
 }
 
 function PorticoAccountPanel({context, t}: NativeSettingsPanelDeps) {
