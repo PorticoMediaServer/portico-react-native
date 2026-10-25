@@ -61,6 +61,8 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
     return () => controller.release();
   }, [controller, route]);
   const manifest = state.manifest, title = manifest?.metadata.title ?? controller.item.title;
+  // The exact selected version from the page's versions producer, never looked up again.
+  const selectedVersion = state.sourceId ? state.versions.find(value => value.sourceId === state.sourceId) : undefined;
   const series = controller.series(), saved = manifest ? controller.savedProgression(manifest) : undefined;
   const savedProgress = state.progress?.progress;
   const currentSection = savedProgress && !savedProgress.stale ? savedProgress.location.section : undefined;
@@ -162,7 +164,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       {body}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
-    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} manifest={manifest}
+    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} manifest={manifest} version={selectedVersion}
       onClose={ticket => setEdit(current => current?.owner === ticket ? undefined : current)}/> : null}
     {collection ? <ReadCollectionSheet key={collection.key} context={context} lease={collection.lease} owner={collection.owner} itemId={controller.item.id} libraryId={route.libraryId} kind={collection.kind} title={title}
       onClose={ticket => setCollection(current => current?.owner === ticket ? undefined : current)}/> : null}
