@@ -15,6 +15,7 @@ import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} fro
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
 import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
+import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 
 type Target = Readonly<{itemId: string; sourceId: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
@@ -45,14 +46,20 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const [state, setState] = useState<Readonly<{url?: string; failed?: boolean}>>({}), [retry, setRetry] = useState(0);
   // Private offline annotation journal and its guarded reconnect merge (offline-annotation-sync).
   const journal = useMemo(() => new NativeAnnotationJournal(), [context]);
-  const annotations = useMemo(() => new NativeAnnotationSync(context, journal), [context, journal]);
+  const annotations = useMemo(() => new NativeAnnotationSync(context, journal, () => callbacks.current.active), [context, journal]);
   const quietRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const livePort = useRef<NativeAnnotationLivePort | undefined>(undefined);
-  useEffect(() => () => {clearTimeout(quietRetry.current); annotations.dispose();}, [annotations]);
+  useEffect(() => () => {clearTimeout(quietRetry.current); annotations.stop();}, [annotations]);
   useEffect(() => {
-    // Only the active reader, or the app returning to it, attempts a merge; nothing runs in the background.
-    if (active) void annotations.flush(livePort.current);
-    const subscription = AppState.addEventListener('change', next => {if (next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);});
+    // Containment: no automatic merge is active before the reviewed corrections land.
+    if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
+    // Only the active reader, or the app returning to it, attempts a merge; leaving the
+    // reader retires the transport synchronously and nothing runs in the background.
+    if (active) void annotations.flush(livePort.current); else annotations.stop();
+    const subscription = AppState.addEventListener('change', next => {
+      if (next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);
+      else if (next !== 'active') annotations.stop();
+    });
     return () => subscription.remove();
   }, [active, annotations]);
   useEffect(() => annotations.subscribe(() => {
@@ -89,13 +96,17 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       session = await client.open(target, life.signal);
       // Only a real server annotation port may be reused for a merge; a downloaded
       // source's local view is never mistaken for one.
-      livePort.current = session.manifest.canAnnotate === true && typeof session.annotations === 'function'
-        && typeof session.mutateAnnotation === 'function' ? session : undefined;
-      // A downloaded publication's queued edits live in that exact download's private
-      // lease state; an ordinary session uses the protected record store. Bind before the
-      // bridge can accept an edit, and only for this captured profile.
-      journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
-      if (current()) void annotations.flush(livePort.current);
+      livePort.current = NATIVE_OFFLINE_ANNOTATION_AUTHORING && session.manifest.canAnnotate === true
+        && typeof session.annotations === 'function' && typeof session.mutateAnnotation === 'function' ? session : undefined;
+      // Containment: no offline journal is bound, no canAnnotate is synthesized and no merge
+      // runs until the reviewed corrections land. Server annotations stay the canonical port.
+      if (NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
+        // A downloaded publication's queued edits live in that exact download's private
+        // lease state; an ordinary session uses the protected record store. Bind before the
+        // bridge can accept an edit, and only for this captured profile.
+        await journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session));
+        if (current()) void annotations.flush(livePort.current);
+      }
       const initialProgress = await session.progress(life.signal);
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;

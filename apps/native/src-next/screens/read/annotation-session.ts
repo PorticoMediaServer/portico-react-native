@@ -1,6 +1,7 @@
 import {ReadingError, type ReadingHostSession} from '../../../../../packages/client-core/src';
 import type {ReadingAnnotationContent, ReadingAnnotationMutation, ReadingAnnotationPort} from '../../../../../packages/client-core/src/reading-annotations';
 import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotationSource} from './annotation-journal';
+import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 import {nativeAnnotationLeaseOf} from './annotation-journal';
 import {nativeOfflineAnnotationSession} from './annotation-offline-port';
 
@@ -14,10 +15,13 @@ import {nativeOfflineAnnotationSession} from './annotation-offline-port';
  * duplicated: the same bridge and guest UI serve both. */
 
 /** Failures worth keeping: transport, offline and server-unavailable. A refusal the server
- * itself explained (invalid, forbidden, conflict, changed source) is never queued. */
-export function nativeAnnotationQueueable(error: unknown): boolean {
-  if (!(error instanceof ReadingError)) return true; // fetch/offline rejection
-  if (error.code === 'cancelled') return false;
+ * itself explained is never queued, and neither is a cancellation/AbortError (finding #1). */
+export function nativeAnnotationQueueable(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return false;
+  if (error instanceof Error && (error.name === 'AbortError' || (error as {code?: unknown}).code === 'ABORT_ERR')) return false;
+  if (!(error instanceof ReadingError)) return true; // A fetch/offline rejection without a server answer.
+  if (error.code === 'cancelled' || error.code === 'invalid_document' || error.code === 'invalid_revision'
+    || error.code === 'invalid_location' || error.code === 'not_permitted' || error.code === 'conflict' || error.code === 'source_changed') return false;
   return error.status === undefined || error.status >= 500;
 }
 
@@ -45,6 +49,9 @@ type BridgeOptions = Readonly<{
 /** Choose the port this exact reader session can honestly offer. */
 export function nativeAnnotationBridge(options: BridgeOptions): ReadingHostSession {
   const {session} = options;
+  // Containment: until the reviewed corrections land, the reader keeps the canonical server
+  // annotation port only. No offline synthesis and no journal mutation fallback.
+  if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return session;
   if (session.manifest.canAnnotate === true && typeof session.annotations === 'function' && typeof session.mutateAnnotation === 'function')
     return nativeOnlineAnnotationSession({...options, session: session as ServerAnnotationSession});
   if (nativeAnnotationLeaseOf(session)) return nativeOfflineAnnotationSession(options);
@@ -70,6 +77,7 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
     return page;
   };
   const mutateAnnotation: ReadingAnnotationPort['mutateAnnotation'] = async (mutation, signal) => {
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
     try {
       const saved = await session.mutateAnnotation(mutation, signal);
       // The server now holds a newer entry than the guest's cached page; a later queued
@@ -78,7 +86,7 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
       return saved;
     } catch (error) {
       const base = observed;
-      if (!nativeAnnotationQueueable(error) || !base || base.revision !== mutation.expectedRevision || !fresh()) throw error;
+      if (!nativeAnnotationQueueable(error, signal) || !base || base.revision !== mutation.expectedRevision || !fresh() || signal?.aborted) throw error;
       await journal.enqueue(identity, source, {
         id: mutation.id,
         delete: mutation.operation === 'delete',
@@ -86,7 +94,8 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
         observedAt: now(),
         baseRevision: mutation.expectedRevision,
         baseUpdatedAt: base.updatedAt.get(mutation.id) ?? 0,
-      }, fresh);
+        attempted: true, // The mutation reached the wire; absence later must not assume "never created".
+      }, () => {if (!fresh()) throw new ReadingError('cancelled');}, signal);
       onQueued?.();
       throw error;
     }

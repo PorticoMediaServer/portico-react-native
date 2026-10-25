@@ -5,18 +5,16 @@ import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotation
 
 /** Offline annotation authoring for one downloaded publication (P1-READ-OFFLINE-ANNOTATION-SYNC).
  *
- * The OfflineCore publication lease is the only source while the device is offline, and its
- * reader session has no network annotation port. This adapter gives the existing annotation
- * bridge exactly that port for that exact source: the last server page this device saw plus
- * every queued local edit, and mutations that freeze the person's original content into the
- * private journal bound to that lease. The reader never gets a fabricated server revision or
- * a claim that the edit reached the server; the queued edit is merged later by the real
- * session and the reader's own state stays honest.
+ * HOLD — only offered through `nativeAnnotationBridge` while the containment gate is on after
+ * review. This port never claims a larger set than it can prove: the local view is served only
+ * when the cached server page is a complete set (`complete: true`); a partial or absent cache
+ * fails instead of presenting/exporting a bounded subset as the whole collection.
  *
- * The offline manifest advertises annotations because this port really accepts them. A source
- * replacement is not re-anchored: the lease's own source/revision binding decides that, and
- * the merge refuses anything that no longer matches the captured revision. */
+ * Review finding #1: every await is bracketed by the caller's signal and the committed
+ * session/lease guard, and the guard throws (a boolean cannot be ignored). Finding #7: no
+ * subset is ever called complete. */
 
+const OFFLINE_INCOMPLETE = 'offline_annotations_incomplete';
 const content = (mutation: Extract<ReadingAnnotationMutation, {operation: 'upsert'}>): ReadingAnnotationContent => {
   const {expectedRevision: _revision, operation: _operation, ...rest} = mutation;
   return rest;
@@ -27,43 +25,53 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
   journal: NativeAnnotationJournal;
   identity: NativeAnnotationIdentity;
   source: NativeAnnotationSource;
-  /** The captured authority/session fence; every write is refused once it ends. */
+  /** The captured authority/session/lease fence; throws are refusals, not booleans. */
   fresh: () => boolean;
   now?: () => number;
   onQueued?: () => void;
 }>): ReadingHostSession {
   const {session, journal, identity, source, fresh, now = Date.now, onQueued} = options;
+  const guard = () => {if (!fresh()) throw new ReadingError('cancelled');};
+  const check = (signal?: AbortSignal) => {
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
+    guard();
+  };
   const manifest = Object.freeze({...session.manifest, canAnnotate: true as const});
   const validate = (location: Parameters<typeof validateReadingLocation>[0]) => validateReadingLocation(location, manifest);
   const annotations: ReadingAnnotationPort['annotations'] = async (cursor = '', revision?: number, signal?: AbortSignal) => {
-    if (signal?.aborted || !fresh()) throw new ReadingError('cancelled');
-    const view = await journal.view(identity, source);
-    if (revision !== undefined && revision !== view.revision) throw new ReadingError('conflict');
-    // The bridge's own page shape: at most 50 ids above the cursor, with the cursor naming the
-    // last id. The local view is bounded, so this is the honest whole set in pages.
+    check(signal);
+    const view = await journal.view(identity, source, signal);
+    check(signal);
+    if (!view.complete) throw new ReadingError(OFFLINE_INCOMPLETE); // Never a false complete set.
+    if (view.entries.length > 256) throw new ReadingError('invalid_document');
     const remaining = view.entries.filter(entry => entry.id > cursor).slice(0, 50);
     const more = remaining.length === 50 && view.entries.some(entry => entry.id > remaining[remaining.length - 1]!.id);
-    return Object.freeze({sourceId: source.sourceId, sourceRevision: source.sourceRevision, revision: view.revision, entries: Object.freeze(remaining),
-      nextCursor: more ? remaining[remaining.length - 1]!.id : ''});
+    if (revision !== undefined && revision !== view.revision) throw new ReadingError('conflict');
+    return Object.freeze({sourceId: source.sourceId, sourceRevision: source.sourceRevision, revision: view.revision,
+      entries: Object.freeze(remaining), nextCursor: more ? remaining[remaining.length - 1]!.id : ''});
   };
   const mutateAnnotation: ReadingAnnotationPort['mutateAnnotation'] = async (request, signal) => {
-    if (signal?.aborted || !fresh()) throw new ReadingError('cancelled');
+    check(signal);
     const captured = captureReadingAnnotationMutation(request, validate);
-    const observed = await journal.snapshot(identity);
+    const view = await journal.view(identity, source, signal);
+    check(signal);
+    if (!view.complete) throw new ReadingError(OFFLINE_INCOMPLETE);
+    if (captured.expectedRevision !== view.revision) throw new ReadingError('conflict');
+    const observed = await journal.snapshot(identity, guard, signal);
+    check(signal);
     const group = observed?.groups.find(value => value.source.itemId === source.itemId && value.source.sourceId === source.sourceId
       && value.source.sourceRevision === source.sourceRevision);
-    const view = await journal.view(identity, source);
-    if (captured.expectedRevision !== view.revision || !fresh()) throw new ReadingError('conflict');
     const revision = await journal.localMutate(identity, source, {
       id: captured.id,
       delete: captured.operation === 'delete',
       ...(captured.operation === 'delete' ? {} : {content: content(captured)}),
       observedAt: now(),
-      // The server base this edit is really based on: the last page this device saw, or 0
-      // when the annotation never came from the server (it only exists locally).
+      // The server base this edit is really based on; 0 means it exists only locally and the
+      // operation has never been attempted, so an absent entry later still proves nothing was sent.
       baseRevision: group?.cache?.revision ?? 0,
       baseUpdatedAt: group?.cache?.entries.find(entry => entry.id === captured.id)?.updatedAt ?? 0,
-    }, captured.expectedRevision, fresh);
+    }, captured.expectedRevision, guard, signal);
+    if (signal?.aborted || !fresh()) throw new ReadingError('cancelled'); // Queued privately, never reported as saved.
     onQueued?.();
     return Object.freeze({revision});
   };

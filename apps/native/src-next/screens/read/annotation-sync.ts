@@ -8,18 +8,14 @@ import {
   type NativeAnnotationUnresolved,
 } from './annotation-journal';
 
-/** The reconnect merge for the private offline annotation journal (P1-READ-OFFLINE-ANNOTATION-SYNC).
+/** The reconnect merge for the private offline annotation journal.
  *
- * Union by annotation id, last edit wins. The server's own `updatedAt` is the only
- * trustworthy clock: a queued edit is applied only while the server entry is still the
- * one it was based on, so an edit made elsewhere always wins and a deletion is never
- * resurrected by older offline work. Each attempt reads the annotation set and uses its
- * fresh revision as the CAS token — a retry never reuses the token of the attempt that
- * was interrupted, and the queued payload is always the original captured one.
- *
- * A replaced source, a profile change, an ended session or a withheld capability keeps
- * the payload locally and reports it as unresolved. Nothing is re-anchored, rebased onto
- * new coordinates or uploaded under another source, library or profile. */
+ * Review findings #1, #3, #4 and #7's merge half are addressed here: every pass is bound to
+ * the committed reader's own life and activity, the deadline and reader life are joined into
+ * the actual transport signal, a stop aborts that transport synchronously and a later replay
+ * starts a fresh committed pass, and absence is no longer treated as evidence of a fresh
+ * create after the server set has advanced. The payload and its id never change; the only CAS
+ * token is the revision read for that attempt. */
 
 export type NativeAnnotationSyncState = Readonly<{
   phase: 'idle' | 'syncing' | 'error';
@@ -28,18 +24,18 @@ export type NativeAnnotationSyncState = Readonly<{
   error?: unknown;
 }>;
 type Identity = Readonly<{sessionFamilyId: string; viewer: LocalSession['viewer']; authority: ShellAuthority}>;
+type Life = AbortController;
 
 const PAGE_LIMIT = 6, SET_LIMIT = 256, GROUP_DEADLINE_MS = 20_000;
 const semantic = new Set(['invalid_document', 'invalid_response', 'invalid_revision', 'invalid_location', 'not_permitted', 'conflict', 'cancelled', 'response_size', 'source_changed']);
+const cancelled = (error: unknown, signal?: AbortSignal): boolean => signal?.aborted === true
+  || (error instanceof Error && (error.name === 'AbortError' || error.code === 'ABORT_ERR'))
+  || (error instanceof ReadingError && error.code === 'cancelled');
 const retryable = (error: unknown): boolean => !(error instanceof ReadingError) || error.status === undefined && !semantic.has(error.code);
 const displaced = (error: unknown): boolean => error instanceof ReadingError && (error.code === 'conflict' || error.code === 'source_changed');
 type Decision = Readonly<{kind: 'apply'}> | Readonly<{kind: 'resolved'}> | Readonly<{kind: 'unresolved'; reason: NativeAnnotationUnresolved}>;
 type PageState = Readonly<{revision: number; entries: readonly ReadingAnnotation[]}>;
-/** The already-open reader's own annotation port. Reused when it is the same source and
- * revision, so a merge never opens a second session beside the person's live one. */
-export type NativeAnnotationLivePort = Pick<ReadingSession, 'manifest' | 'signal' | 'annotations' | 'mutateAnnotation'>;
-/** A retried operation whose first attempt committed but whose answer was lost is not a
- * competing edit: the same id with the same content is this device's own write. */
+
 function sameAnnotation(entry: ReadingAnnotation, content: NativeAnnotationOperation['content']): boolean {
   if (!content || entry.kind !== content.kind || entry.text !== content.text || entry.note !== content.note || entry.colour !== content.colour) return false;
   if (entry.location.format !== content.location.format || entry.location.progression !== content.location.progression
@@ -50,34 +46,49 @@ function sameAnnotation(entry: ReadingAnnotation, content: NativeAnnotationOpera
     && rect.width === wanted[index]!.width && rect.height === wanted[index]!.height);
 }
 
-/** The exact merge rule, kept in one place so the retry path cannot drift from the first read. */
+/** Union by id, last edit wins, with absence treated conservatively:
+ * - a lost-ack create is only re-applied when the server set has not advanced since its base;
+ * - once the set advanced, an absent id could be our committed create that another device
+ *   deleted, so it stays unresolved rather than being reminted under a fresh CAS;
+ * - a delete is satisfied by absence (it cannot resurrect anything);
+ * - a present entry applies only while it is still exactly the base this edit saw. */
 export function nativeAnnotationDecision(state: PageState, operation: NativeAnnotationOperation): Decision {
   const entry = state.entries.find(value => value.id === operation.id);
   if (operation.delete) {
-    if (!entry) return {kind: 'resolved'}; // Already deleted: the tombstone stands, nothing to resurrect.
-    if (entry.updatedAt > operation.baseUpdatedAt) return {kind: 'unresolved', reason: 'server-newer'};
-    return {kind: 'apply'};
+    if (!entry) return {kind: 'resolved'};
+    return entry.updatedAt > operation.baseUpdatedAt ? {kind: 'unresolved', reason: 'server-newer'} : {kind: 'apply'};
   }
   if (!operation.content) return {kind: 'resolved'};
-  if (!entry) return operation.baseUpdatedAt > 0 ? {kind: 'unresolved', reason: 'deleted-elsewhere'} : {kind: 'apply'};
-  if (sameAnnotation(entry, operation.content)) return {kind: 'resolved'}; // Our own committed retry.
-  // Equal timestamps are the untouched base; anything newer is another edit that wins.
+  if (state.revision < operation.baseRevision) return {kind: 'unresolved', reason: 'conflict'};
+  if (!entry) {
+    if (operation.baseUpdatedAt > 0) return {kind: 'unresolved', reason: 'deleted-elsewhere'};
+    // A create that was never put on the wire can only be a fresh, unique id, so absence is
+    // safe. Once attempted, absence after the set advanced may be our own accepted create
+    // that another device deleted; re-creating it would resurrect a real deletion.
+    if (operation.attempted !== true) return {kind: 'apply'};
+    return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
+  }
+  if (sameAnnotation(entry, operation.content)) return {kind: 'resolved'};
   return entry.updatedAt > operation.baseUpdatedAt ? {kind: 'unresolved', reason: 'server-newer'} : {kind: 'apply'};
 }
 
 export class NativeAnnotationSync {
   private readonly context: NativeShellBootstrapContext;
   private readonly journal: NativeAnnotationJournal;
+  private readonly active: () => boolean;
   private readonly listeners = new Set<() => void>();
   private state: NativeAnnotationSyncState = Object.freeze({phase: 'idle', queued: 0, unresolved: 0});
+  private life: Life = new AbortController();
   private running?: Promise<void>;
-  private life = new AbortController();
-  private disposed = false;
-  constructor(context: NativeShellBootstrapContext, journal = new NativeAnnotationJournal()) {this.context = context; this.journal = journal;}
+  constructor(context: NativeShellBootstrapContext, journal = new NativeAnnotationJournal(), active: () => boolean = () => true) {
+    this.context = context; this.journal = journal; this.active = active;
+  }
   getSnapshot = () => this.state;
-  subscribe = (listener: () => void): (() => void) => {if (this.disposed) return () => {}; this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
-  private publish(next: NativeAnnotationSyncState) {
-    if (this.disposed) return;
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener); return () => {this.listeners.delete(listener);};
+  };
+  private publish(next: NativeAnnotationSyncState, life: Life) {
+    if (this.life !== life || life.signal.aborted) return;
     this.state = Object.freeze(next);
     for (const listener of [...this.listeners]) listener();
   }
@@ -86,18 +97,19 @@ export class NativeAnnotationSync {
     if (!session || !this.context.current()) return undefined;
     return Object.freeze({sessionFamilyId: session.sessionFamilyId, viewer: Object.freeze({...session.viewer}), authority: this.context.authority()});
   }
-  /** Fresh authorization for this exact profile and session family, checked before every write. */
-  private fresh(identity: Identity): boolean {
+  /** Fresh authorization for this exact profile, session family and active reader. */
+  private fresh(identity: Identity, life: Life): boolean {
+    if (life.signal.aborted || !this.active()) return false;
     const live = this.context.session();
-    return !this.disposed && !this.life.signal.aborted && this.context.current() && !!live
+    return this.context.current() && !!live
       && live.sessionFamilyId === identity.sessionFamilyId && sameAuthority(identity.authority, this.context.authority())
       && live.viewer.authority === identity.viewer.authority && live.viewer.serverId === identity.viewer.serverId
       && live.viewer.accountId === identity.viewer.accountId && live.viewer.profileId === identity.viewer.profileId;
   }
-  /** Read the whole bounded annotation set for the open source, pinned to its revision. */
   private async pages(session: ReadingSession, signal: AbortSignal): Promise<PageState> {
     let cursor = '', revision: number | undefined, entries: ReadingAnnotation[] = [];
     for (let page = 0; page < PAGE_LIMIT; page++) {
+      if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
       const out = await session.annotations(cursor, cursor ? revision : undefined, signal);
       revision = out.revision;
       entries = [...entries, ...out.entries];
@@ -105,57 +117,62 @@ export class NativeAnnotationSync {
       if (!out.nextCursor) break;
       cursor = out.nextCursor;
     }
+    if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ReadingError('cancelled');
     return {revision: revision ?? 0, entries};
   }
-  /** Returns true when transport failure means the whole pass should stop and wait for a reconnect. */
-  private async syncGroup(identity: Identity, group: NativeAnnotationGroup, live?: NativeAnnotationLivePort): Promise<boolean> {
+  /** The group is bound to the committed reader's life and activity for its whole transport. */
+  private async syncGroup(identity: Identity, group: NativeAnnotationGroup, life: Life, live?: NativeAnnotationLivePort): Promise<boolean> {
     const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(new ReadingError('cancelled')), GROUP_DEADLINE_MS);
-    const signal = deadline.signal;
+    const control = new AbortController();
+    const stop = () => {if (!control.signal.aborted) control.abort(life.signal.reason ?? deadline.signal.reason ?? new ReadingError('cancelled'));};
+    const offLife = () => life.signal.addEventListener('abort', stop, {once: true}), offDeadline = () => deadline.signal.addEventListener('abort', stop, {once: true});
+    offLife(); offDeadline();
+    if (life.signal.aborted || deadline.signal.aborted) stop();
+    const signal = control.signal;
     let client: ReadingClient | undefined, session: NativeAnnotationLivePort | undefined, owned: ReadingSession | undefined;
     const reuse = !!live && !live.signal.aborted && live.manifest.canAnnotate === true
       && typeof live.annotations === 'function' && typeof live.mutateAnnotation === 'function'
       && live.manifest.sourceId === group.source.sourceId && live.manifest.revision === group.source.sourceRevision;
     const mark = async (reason: NativeAnnotationUnresolved) => {
       const resolutions: NativeAnnotationResolution[] = group.operations.map(operation => ({id: operation.id, observedAt: operation.observedAt, outcome: 'unresolved', reason}));
-      if (this.fresh(identity)) await this.journal.resolve(identity, group.source, resolutions, () => this.fresh(identity));
+      if (this.fresh(identity, life)) await this.journal.resolve(identity, group.source, resolutions, () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
     };
     try {
       if (reuse) session = live;
       else {
-        client = this.context.api.reading({viewer: identity.viewer, isCurrent: () => this.fresh(identity), signal});
+        client = this.context.api.reading({viewer: identity.viewer, isCurrent: () => this.fresh(identity, life), signal});
         const versions = await client.versions(group.source.itemId, signal);
-        if (!this.fresh(identity)) return true;
-        if (!versions.versions.some(value => value.sourceId === group.source.sourceId)) {
-          await mark('stale-source'); // No such downloadable/current source for this item.
-          return false;
-        }
+        if (!this.fresh(identity, life)) return true;
+        if (!versions.versions.some(value => value.sourceId === group.source.sourceId)) {await mark('stale-source'); return false;}
         session = owned = await client.open({itemId: group.source.itemId, sourceId: group.source.sourceId}, signal);
       }
       const manifest = session.manifest;
       if (manifest.itemId !== group.source.itemId || manifest.sourceId !== group.source.sourceId) {await mark('source-changed'); return false;}
-      if (manifest.revision !== group.source.sourceRevision) {await mark('source-changed'); return false;} // Replaced source: keep the captured quote, never re-anchor.
+      if (manifest.revision !== group.source.sourceRevision) {await mark('source-changed'); return false;}
       if (manifest.canAnnotate !== true) {await mark('refused'); return false;}
       let state = await this.pages(session, signal);
-      // Keep the last server page this device saw so an offline open of the same source can
-      // show it beside queued edits; the cache is a convenience, never a record of truth.
-      await this.journal.cache(identity, group.source, state.revision, state.entries).catch(() => {}); // A cache is never worth failing a merge.
+      // Cache only the whole set; the journal stores it only when it fits without trimming.
+      await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
       for (const operation of group.operations) {
-        if (!this.fresh(identity) || signal.aborted) return true;
+        if (!this.fresh(identity, life) || signal.aborted) return true;
         let decision = nativeAnnotationDecision(state, operation);
         if (decision.kind === 'apply') {
           const mutation = operation.delete
             ? {operation: 'delete' as const, id: operation.id, expectedRevision: state.revision}
             : {...operation.content!, operation: 'upsert' as const, expectedRevision: state.revision};
           try {
+            // Evidence first: if the answer is lost, the next pass must not assume the
+            // entry was never created.
+            await this.journal.markAttempted(identity, group.source, [operation.id],
+              () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal).catch(() => {});
             const saved = await session.mutateAnnotation(mutation, signal);
             if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
             state = await this.pages(session, signal);
-            await this.journal.cache(identity, group.source, state.revision, state.entries).catch(() => {});
+            await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
             decision = {kind: 'resolved'};
           } catch (error) {
-            if (signal.aborted || !this.fresh(identity) || (error instanceof ReadingError && error.code === 'cancelled')) return true;
+            if (cancelled(error, signal) || !this.fresh(identity, life)) return true;
             if (displaced(error)) {
-              // One fresh read may explain the displacement; the payload is unchanged.
               state = await this.pages(session, signal);
               const again = nativeAnnotationDecision(state, operation);
               if (again.kind !== 'apply') decision = again;
@@ -166,32 +183,33 @@ export class NativeAnnotationSync {
                 try {
                   await session.mutateAnnotation(retry, signal);
                   state = await this.pages(session, signal);
+                  await this.journal.cache(identity, group.source, state.revision, state.entries, signal).catch(() => {});
                   decision = {kind: 'resolved'};
                 } catch (second) {
-                  if (signal.aborted || !this.fresh(identity) || (second instanceof ReadingError && second.code === 'cancelled')) return true;
+                  if (cancelled(second, signal) || !this.fresh(identity, life)) return true;
                   if (retryable(second)) throw second;
                   decision = {kind: 'unresolved', reason: displaced(second) ? 'conflict' : 'refused'};
                 }
               }
-            } else if (retryable(error)) {
-              throw error; // Offline or transport: keep every remaining operation queued for the next reconnect.
-            } else {
-              decision = {kind: 'unresolved', reason: 'refused'};
-            }
+            } else if (retryable(error)) throw error;
+            else decision = {kind: 'unresolved', reason: 'refused'};
           }
         }
-        if (decision.kind !== 'apply' && this.fresh(identity)) {
-          await this.journal.resolve(identity, group.source, [{id: operation.id, observedAt: operation.observedAt, ...decision}], () => this.fresh(identity));
+        if (decision.kind !== 'apply' && this.fresh(identity, life)) {
+          await this.journal.resolve(identity, group.source, [{id: operation.id, observedAt: operation.observedAt, ...decision}],
+            () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
         }
       }
     } catch (error) {
-      if (this.fresh(identity) && !signal.aborted && error instanceof ReadingError && (error.code === 'not_permitted' || error.code === 'invalid_document')) {
+      if (this.fresh(identity, life) && !signal.aborted && error instanceof ReadingError && (error.code === 'not_permitted' || error.code === 'invalid_document')) {
         await mark('refused'); return false;
       }
-      if (this.fresh(identity) && !signal.aborted) this.publish({...this.state, phase: 'error', error});
-      return !signal.aborted && this.fresh(identity); // Transport/offline: stop the pass and keep every remaining operation.
+      if (this.fresh(identity, life) && !signal.aborted) this.publish({...this.state, phase: 'error', error}, life);
+      return !signal.aborted && this.fresh(identity, life);
     } finally {
       clearTimeout(timer);
+      life.signal.removeEventListener('abort', stop);
+      deadline.signal.removeEventListener('abort', stop);
       if (owned && !signal.aborted) await owned.close().catch(() => {});
       client?.dispose();
     }
@@ -199,34 +217,39 @@ export class NativeAnnotationSync {
   }
   /** Retry every queued source for the current profile. Never reports success for a queued op. */
   flush = (live?: NativeAnnotationLivePort): Promise<void> => {
-    if (this.disposed || this.life.signal.aborted) return Promise.resolve();
+    if (this.life.signal.aborted) this.life = new AbortController(); // A committed replay starts its own life.
+    const life = this.life;
     if (this.running) return this.running;
     const identity = this.capture();
-    if (!identity) return Promise.resolve();
+    if (!identity || !this.active()) return Promise.resolve();
     const run = (async () => {
-      this.publish({...this.state, phase: 'syncing'});
+      this.publish({...this.state, phase: 'syncing'}, life);
       try {
-        const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer));
+        const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer), life.signal);
         for (const group of groups) {
-          if (!this.fresh(identity)) break;
-          if (await this.syncGroup(identity, group, live)) break;
+          if (!this.fresh(identity, life)) break;
+          if (await this.syncGroup(identity, group, life, live)) break;
         }
-        if (!this.fresh(identity)) {this.publish({phase: 'idle', queued: 0, unresolved: 0}); return;}
-        const remaining = await this.journal.list(nativeAnnotationIdentity(identity.viewer));
-        const counts = nativeAnnotationJournalCounts(remaining);
-        this.publish({phase: 'idle', ...counts});
+        if (!this.fresh(identity, life)) {this.publish({phase: 'idle', queued: 0, unresolved: 0}, life); return;}
+        const remaining = await this.journal.list(nativeAnnotationIdentity(identity.viewer), life.signal);
+        this.publish({phase: 'idle', ...nativeAnnotationJournalCounts(remaining)}, life);
       } catch (error) {
         const groups = await this.journal.list(nativeAnnotationIdentity(identity.viewer)).catch(() => []);
-        const counts = nativeAnnotationJournalCounts(groups);
-        this.publish({phase: 'error', ...counts, error});
+        this.publish({phase: 'error', ...nativeAnnotationJournalCounts(groups), error}, life);
       }
     })().finally(() => {if (this.running === run) this.running = undefined;});
     this.running = run;
     return run;
   };
-  dispose() {
-    if (this.disposed) return;
-    this.disposed = true; this.life.abort(new ReadingError('cancelled')); this.listeners.clear();
-    this.state = Object.freeze({phase: 'idle', queued: 0, unresolved: 0});
+  /** Synchronous retirement: aborts the transport the current pass is actually using and lets
+   * a later committed replay start again with a new life. Queued records are untouched. */
+  stop(): void {
+    if (!this.life.signal.aborted) this.life.abort(new ReadingError('cancelled'));
+    this.running = undefined;
   }
+  dispose(): void {this.stop(); this.listeners.clear();}
 }
+
+/** The already-open reader's own annotation port, reused only for a merge when it is the same
+ * source/revision and is a real server port. */
+export type NativeAnnotationLivePort = Pick<ReadingSession, 'manifest' | 'signal' | 'annotations' | 'mutateAnnotation'>;

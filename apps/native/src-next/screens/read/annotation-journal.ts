@@ -4,30 +4,37 @@ import {NativeQueueStore} from '../../platform/queue-storage';
 
 /** The private, bounded offline annotation journal (P1-READ-OFFLINE-ANNOTATION-SYNC).
  *
+ * HOLD: `NATIVE_OFFLINE_ANNOTATION_AUTHORING` is false. This module and its callers are
+ * withheld from the reader until the seven post-merge findings are reviewed; no canAnnotate
+ * synthesis, journal mutation fallback or automatic flush is active. Queued private records
+ * are never erased by this hold.
+ *
  * The server's per-source annotation set stays the only record of truth. This journal holds
- * the edits this device could not deliver and the last server page it saw, so a downloaded
- * publication can be annotated with the existing reader UI while its lease is the only
- * source, and merged by the real session on reconnect. It is never a second annotations
- * store of record and never serves the reader in place of a reachable server.
+ * edits this device could not deliver and the last *complete* server page it saw, so a
+ * downloaded publication can be annotated with the existing reader UI while its lease is
+ * the only source, and merged by the real session on reconnect. It is never a second
+ * annotations store of record and never serves the reader in place of a reachable server.
  *
- * Storage is one protected record per server account profile: the OfflineCore publication
- * lease's own private state namespace for a downloaded source (`reader-state-annotations.json`,
- * bound by that lease to its exact entry/profile/server/receipt/document), or the native
- * protected record store for an ordinary session. Neither place is a general file, logged,
- * or addressable by URL.
+ * Storage is one protected record per profile: the OfflineCore publication lease's own
+ * private state namespace for a downloaded source (`reader-state-annotations.json`, bound by
+ * that lease to its exact entry/profile/server/receipt/document), or the native protected
+ * record store for an ordinary session. Neither place is a general file, logged, or
+ * addressable by URL.
  *
- * Identity is captured at queue time and re-checked before every write, so a profile switch,
- * sign-out or re-authentication cannot submit another context's edits. Device time orders
- * local edits only; merge decisions use the server's own `updatedAt` and set revision. */
+ * Review findings #1, #2, #4-#7 are addressed here: assertions throw and carry the caller's
+ * cancellation, every record mutation is an immutable ticket (no unbind fallback), a foreign
+ * identity is refused instead of overwritten, the key is collision-resistant and the legacy
+ * key is migrated without deleting the source, and no path ever writes `null`/an emptied
+ * record except the explicit `discard`. #3 and #7's merge/completeness halves live in
+ * `annotation-sync.ts`/`annotation-offline-port.ts`. */
 
 export const ANNOTATION_JOURNAL_VERSION = 1 as const;
 export const ANNOTATION_LEASE_STATE = 'reader-state-annotations.json';
-/** The record store refuses records over 256 KiB; keep a margin under it. */
 const MAX_RECORD_BYTES = 180_000;
 export const MAX_JOURNAL_OPERATIONS = 256;
 export const MAX_JOURNAL_GROUPS = 16;
-/** The cached server page is a convenience, never the record of truth: bound it well below
- * the journal so a person's own queued edits always win the space. */
+/** A cached page is a convenience, never the record of truth. It is stored only when the
+ * *whole* server set was read and fits; a partial cache is never presented as complete. */
 export const MAX_CACHE_ENTRIES = 50;
 const MAX_CACHE_BYTES = 64_000;
 
@@ -36,26 +43,24 @@ export type NativeAnnotationFormat = 'epub' | 'pdf' | 'cbz';
 export type NativeAnnotationSource = Readonly<{itemId: string; sourceId: string; sourceRevision: string; format: NativeAnnotationFormat}>;
 export type NativeAnnotationUnresolved = 'stale-source' | 'source-changed' | 'server-newer' | 'deleted-elsewhere' | 'conflict' | 'refused';
 export type NativeAnnotationOperation = Readonly<{
-  /** The annotation's own id: one operation identity for this entry across every retry. */
   id: string;
-  /** A tombstone: the person deleted the entry; older queued work must never resurrect it. */
   delete: boolean;
-  /** The complete, original content frozen when the person made the edit. */
   content?: ReadingAnnotationContent;
-  /** Device time, used for local ordering and tie-breaking only. Never trusted as server time. */
   observedAt: number;
-  /** The server annotation-set revision this edit was made against (0 when never seen). */
+  /** The server annotation-set revision this edit was made against. */
   baseRevision: number;
-  /** The server's `updatedAt` for this id at that base; 0 when the entry did not exist. */
+  /** The server's `updatedAt` for this id at that base; 0 when it did not exist. */
   baseUpdatedAt: number;
-  /** Why the current server refused or displaced it; absent while it is still ordinary offline work. */
+  /** A mutation for this operation was actually put on the wire at least once. After an
+   * attempt, an absent entry no longer proves the operation was never created. */
+  attempted?: boolean;
   unresolved?: NativeAnnotationUnresolved;
 }>;
-export type NativeAnnotationCache = Readonly<{revision: number; entries: readonly ReadingAnnotation[]}>;
+/** `complete: true` means this is the whole server set at `revision`, in one bounded page. */
+export type NativeAnnotationCache = Readonly<{revision: number; entries: readonly ReadingAnnotation[]; complete: true}>;
 export type NativeAnnotationGroup = Readonly<{
   source: NativeAnnotationSource;
   operations: readonly NativeAnnotationOperation[];
-  /** The local view's revision: the server's last observed revision plus this device's edits. */
   localRevision: number;
   cache?: NativeAnnotationCache;
 }>;
@@ -64,36 +69,49 @@ export type NativeAnnotationOperationRef = Readonly<{id: string; observedAt: num
 export type NativeAnnotationResolution = NativeAnnotationOperationRef & (
   | Readonly<{outcome: 'applied' | 'resolved'}>
   | Readonly<{outcome: 'unresolved'; reason: NativeAnnotationUnresolved}>);
-export type NativeAnnotationView = Readonly<{revision: number; entries: readonly ReadingAnnotation[]}>;
+export type NativeAnnotationView = Readonly<{revision: number; entries: readonly ReadingAnnotation[]; complete: boolean}>;
 
-/** The OfflineCore publication lease's private state namespace, structurally. The lease,
- * not this module, owns the file, the exact download binding and its lifetime. */
+/** The OfflineCore publication lease's private state namespace, structurally. */
 export type NativeAnnotationLeaseState = Readonly<{
   current: () => boolean;
   readState: (name: string) => Promise<string>;
   writeState: (name: string, json: string) => Promise<void>;
 }>;
 
-type Change = (update: (current: NativeAnnotationRecord | undefined) => NativeAnnotationRecord | null, assert?: () => void) => Promise<void>;
-type Backend = Readonly<{read: (assert?: () => void) => Promise<NativeAnnotationRecord | undefined>; change: Change}>;
+type Update = (current: NativeAnnotationRecord | undefined) => NativeAnnotationRecord;
+type Change = (update: Update, assert?: () => void, signal?: AbortSignal) => Promise<void>;
+type Backend = Readonly<{read: (assert?: () => void, signal?: AbortSignal) => Promise<NativeAnnotationRecord | undefined>; change: Change}>;
 
-const groupKey = (source: NativeAnnotationSource) => JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
-const sameIdentity = (a: NativeAnnotationIdentity, b: NativeAnnotationIdentity) => a.serverId === b.serverId && a.accountId === b.accountId && a.profileId === b.profileId;
+const RETIRED = 'native_annotation_journal_retired';
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const sameIdentity = (a: NativeAnnotationIdentity, b: NativeAnnotationIdentity) => a.serverId === b.serverId && a.accountId === b.accountId && a.profileId === b.profileId;
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && new TextEncoder().encode(value).length <= max;
 const integer = (value: unknown, max = Number.MAX_SAFE_INTEGER): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= max;
 const format = (value: unknown): value is NativeAnnotationFormat => value === 'epub' || value === 'pdf' || value === 'cbz';
 const reason = (value: unknown): value is NativeAnnotationUnresolved => value === 'stale-source' || value === 'source-changed' || value === 'server-newer'
   || value === 'deleted-elsewhere' || value === 'conflict' || value === 'refused';
+const aborted = (signal?: AbortSignal) => {if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : Object.assign(new Error('native_annotation_journal_retired'), {name: 'AbortError'});};
 
-/** FNV-1a over the profile tuple names the protected record. A collision is detected by
- * reading the stored identity back; a mismatch is treated as another profile's record. */
+/** Two independent 32-bit hashes make the profile key collision-resistant; the stored
+ * identity is still checked and a mismatch refuses the operation (never treated as absent). */
 export function nativeAnnotationJournalKey(identity: NativeAnnotationIdentity): string {
+  const input = `${identity.serverId}\u0000${identity.accountId}\u0000${identity.profileId}`;
+  let a = 0x811c9dc5, b = 0x85ebca6b;
+  for (let index = 0; index < input.length; index++) {
+    const code = input.charCodeAt(index);
+    a = Math.imul(a ^ code, 0x01000193) >>> 0;
+    b = Math.imul(b ^ (code + 0x9e3779b9), 0x01000193) >>> 0;
+  }
+  return `reading-annotations:v1:${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
+}
+/** The pre-fix 32-bit key. Its records are migrated once, then removed only after the new
+ * record is written, so nothing queued is ever lost by the naming correction. */
+const legacyJournalKey = (identity: NativeAnnotationIdentity): string => {
   let hash = 0x811c9dc5;
   const input = `${identity.serverId}\u0000${identity.accountId}\u0000${identity.profileId}`;
   for (let index = 0; index < input.length; index++) {hash ^= input.charCodeAt(index); hash = Math.imul(hash, 0x01000193) >>> 0;}
   return `reading-annotations:v1:${hash.toString(16).padStart(8, '0')}`;
-}
+};
 
 export const nativeAnnotationIdentity = (viewer: LocalSession['viewer']): NativeAnnotationIdentity =>
   Object.freeze({serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId});
@@ -111,23 +129,25 @@ function annotationEntry(raw: unknown): ReadingAnnotation {
 function operation(raw: unknown): NativeAnnotationOperation {
   if (!object(raw) || typeof raw.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.id) || typeof raw.delete !== 'boolean'
     || !integer(raw.observedAt) || !integer(raw.baseRevision) || !integer(raw.baseUpdatedAt)
+    || raw.attempted !== undefined && typeof raw.attempted !== 'boolean'
     || raw.unresolved !== undefined && !reason(raw.unresolved)) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({id: raw.id, delete: raw.delete, observedAt: raw.observedAt, baseRevision: raw.baseRevision, baseUpdatedAt: raw.baseUpdatedAt,
-    ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}),
+    ...(raw.attempted === true ? {attempted: true} : {}), ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}),
     ...(raw.delete ? {} : {content: annotationContent(raw.content)})});
 }
 function cacheValue(raw: unknown): NativeAnnotationCache {
-  if (!object(raw) || !integer(raw.revision) || !Array.isArray(raw.entries) || raw.entries.length > MAX_CACHE_ENTRIES) throw new Error('native_annotation_journal_invalid');
+  if (!object(raw) || raw.complete !== true || !integer(raw.revision) || !Array.isArray(raw.entries) || raw.entries.length > MAX_CACHE_ENTRIES) throw new Error('native_annotation_journal_invalid');
   const entries = raw.entries.map(annotationEntry);
   if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new Error('native_annotation_journal_invalid');
-  return Object.freeze({revision: raw.revision, entries: Object.freeze(entries)});
+  return Object.freeze({revision: raw.revision, entries: Object.freeze(entries), complete: true});
 }
+/** A record that belongs to another identity is a refusal, not an absent record. */
 function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotationRecord | undefined {
   if (raw == null || raw === '') return undefined;
   if (typeof raw === 'string') {try {raw = JSON.parse(raw);} catch {throw new Error('native_annotation_journal_invalid');}}
   if (!object(raw) || raw.version !== ANNOTATION_JOURNAL_VERSION || !object(raw.identity) || !Array.isArray(raw.groups)
     || typeof raw.identity.serverId !== 'string' || typeof raw.identity.accountId !== 'string' || typeof raw.identity.profileId !== 'string') throw new Error('native_annotation_journal_invalid');
-  if (!sameIdentity(raw.identity as NativeAnnotationIdentity, identity)) return undefined; // another profile's record: never read or overwrite
+  if (!sameIdentity(raw.identity as NativeAnnotationIdentity, identity)) throw new Error('native_annotation_journal_foreign_profile');
   const groups = raw.groups.map(group => {
     if (!object(group) || !object(group.source) || !Array.isArray(group.operations) || typeof group.source.itemId !== 'string'
       || typeof group.source.sourceId !== 'string' || typeof group.source.sourceRevision !== 'string' || !format(group.source.format)
@@ -145,117 +165,164 @@ function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotat
 }
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 const empty = (identity: NativeAnnotationIdentity): NativeAnnotationRecord => Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze([])});
+const fit = (record: NativeAnnotationRecord): NativeAnnotationRecord | undefined =>
+  record.groups.length > MAX_JOURNAL_GROUPS || bytes(record) > MAX_RECORD_BYTES ? undefined : record;
 
-/** The ordinary online session's protected record store. */
-function nativeQueueBackend(identity: NativeAnnotationIdentity, storage: Pick<NativeQueueStore, 'change'>): Backend {
+/** A throwing guard: the caller's `fresh` is a predicate, and returning false must abort. */
+const guardOf = (assert?: () => void, signal?: AbortSignal, live?: () => boolean) => () => {
+  if (live && !live()) throw new Error(RETIRED);
+  if (signal) aborted(signal);
+  if (assert) assert();
+};
+
+function nativeQueueBackend(identity: NativeAnnotationIdentity, storage: Pick<NativeQueueStore, 'change'>, live: () => boolean): Backend {
   const key = nativeAnnotationJournalKey(identity);
-  const turn = <T,>(update: (current: NativeAnnotationRecord | undefined) => {record: unknown; value: T}, assert?: () => void) =>
-    storage.change<T>(key, raw => {assert?.(); return update(record(raw, identity));}, undefined, assert);
-  return {
-    read: (assert) => turn(current => ({record: current ?? null, value: current}), assert),
-    change: (update, assert) => turn(current => {
-      const next = update(current);
-      if (next && bytes(next) > MAX_RECORD_BYTES) throw new Error('native_annotation_journal_full');
+  const change: Change = (update, assert, signal) => {
+    const guard = guardOf(assert, signal, live);
+    guard();
+    return storage.change(key, raw => {
+      guard();
+      const next = update(record(raw, identity));
+      guard(); // The last point before the durable write.
       return {record: next, value: undefined};
-    }, assert).then(() => undefined),
+    }, undefined, guard);
   };
+  return {read: (assert, signal) => {
+    const guard = guardOf(assert, signal, live);
+    guard();
+    let value: NativeAnnotationRecord | undefined;
+    return storage.change(key, raw => {guard(); value = record(raw, identity); return {record: raw ?? null, value};}, undefined, guard)
+      .then(() => {guard(); return value;});
+  }, change};
 }
-/** A downloaded publication's journal, in the OfflineCore lease's own state namespace. The
- * lease serializes its reads and writes; this adapter adds one read-modify-write turn and
- * re-checks the lease's liveness before writing. */
-function leaseBackend(state: NativeAnnotationLeaseState, identity: NativeAnnotationIdentity): Backend {
+
+function leaseBackend(state: NativeAnnotationLeaseState, identity: NativeAnnotationIdentity, live: () => boolean): Backend {
   let tail: Promise<unknown> = Promise.resolve();
-  const live = () => {if (!state.current()) throw new Error('native_annotation_journal_retired');};
+  const leaseLive = () => {if (!live() || !state.current()) throw new Error(RETIRED);};
   const turn = <T,>(work: () => Promise<T>): Promise<T> => {
-    const run = tail.then(async () => {live(); const value = await work(); live(); return value;});
+    const run = tail.then(async () => {leaseLive(); const value = await work(); leaseLive(); return value;});
     tail = run.catch(() => {});
     return run;
   };
   return {
-    read: () => turn(async () => record(await state.readState(ANNOTATION_LEASE_STATE), identity)),
-    change: (update, assert) => turn(async () => {
+    read: (assert, signal) => turn(async () => {
+      guardOf(assert, signal, leaseLive)();
+      return record(await state.readState(ANNOTATION_LEASE_STATE), identity);
+    }),
+    change: (update, assert, signal) => turn(async () => {
+      const guard = guardOf(assert, signal, leaseLive);
+      guard();
       const current = record(await state.readState(ANNOTATION_LEASE_STATE), identity);
-      assert?.(); live();
+      guard();
       const next = update(current);
-      if (next && bytes(next) > MAX_RECORD_BYTES) throw new Error('native_annotation_journal_full');
-      // The lease has no delete: an emptied journal is an empty record with this identity.
-      const written = next ?? (current ? empty(identity) : undefined);
-      if (!written) return;
-      assert?.(); live();
-      await state.writeState(ANNOTATION_LEASE_STATE, JSON.stringify(written));
+      guard(); // The last point before the durable write.
+      await state.writeState(ANNOTATION_LEASE_STATE, JSON.stringify(next));
     }),
   };
 }
 
-/** The journal keeps one record per profile, in whichever protected store this reader
- * actually has: the downloaded publication's lease state, or the native record store.
- * Every mutation is a serialized read-modify-write; network work never happens inside it. */
+/** One protected record per profile, in whichever store this reader actually has. A bind
+ * creates an immutable ticket; operations capture it and can never fall back to another
+ * store after `unbind` retires it. */
 export class NativeAnnotationJournal {
   private readonly local: Pick<NativeQueueStore, 'change'>;
-  private identity?: NativeAnnotationIdentity;
-  private backend?: Backend;
+  private ticket?: Readonly<{identity: NativeAnnotationIdentity; backend: Backend; live: () => boolean}>;
+  private life?: {alive: boolean};
   constructor(storage: Pick<NativeQueueStore, 'change'> = new NativeQueueStore()) {this.local = storage;}
-  /** Bind this journal to the captured profile, optionally to a downloaded source's lease
-   * namespace. Called when the reader's real session opens; identity never changes silently. */
-  bind(identity: NativeAnnotationIdentity, lease?: NativeAnnotationLeaseState): void {
-    this.identity = Object.freeze({...identity});
-    this.backend = lease ? leaseBackend(lease, identity) : nativeQueueBackend(identity, this.local);
-  }
-  unbind(): void {this.backend = undefined;}
-  private store(identity: NativeAnnotationIdentity): Backend {
-    if (this.identity && !sameIdentity(this.identity, identity)) throw new Error('native_annotation_journal_foreign_profile');
-    this.identity ??= Object.freeze({...identity});
-    return this.backend ?? (this.backend = nativeQueueBackend(identity, this.local));
-  }
-  snapshot = async (identity: NativeAnnotationIdentity): Promise<NativeAnnotationRecord | undefined> => this.store(identity).read();
-  list = async (identity: NativeAnnotationIdentity): Promise<readonly NativeAnnotationGroup[]> => (await this.snapshot(identity))?.groups ?? [];
-  /** The local annotation view for this source: the last server page, plus every queued edit. */
-  view = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource): Promise<NativeAnnotationView> =>
-    nativeAnnotationView(await this.snapshot(identity), source);
-
-  /** The newest edit for an id wins locally; the server base and the id stay those of the
-   * first queued operation, so a later local edit cannot pretend to be based on newer server data. */
-  enqueue = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>, assert?: () => void): Promise<void> => {
-    await this.add(identity, source, next, assert, false);
-  };
-  /** One edit made against the local view. Refused when the guest's revision is not the
-   * current local one; returns the new local revision the reader can use for its next write. */
-  localMutate = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource,
-    next: Omit<NativeAnnotationOperation, 'unresolved'>, expectedLocalRevision: number, assert?: () => void): Promise<number> =>
-    this.add(identity, source, next, assert, true, expectedLocalRevision);
-  /** Remember the last server page this device saw, so a later offline open can show it. */
-  cache = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, revision: number, entries: readonly ReadingAnnotation[]): Promise<void> => {
-    if (!integer(revision)) return;
-    let kept: ReadingAnnotation[] = [];
-    let size = 0;
-    for (const entry of entries.slice(0, MAX_CACHE_ENTRIES)) {
-      const entryBytes = bytes(entry);
-      if (size + entryBytes > MAX_CACHE_BYTES) break;
-      kept.push(entry); size += entryBytes;
+  /** Bind before any operation. Migration of the legacy key happens before the ticket
+   * becomes visible, and the legacy record is removed only after the new one is durable. */
+  bind = async (identity: NativeAnnotationIdentity, lease?: NativeAnnotationLeaseState): Promise<void> => {
+    const life = {alive: true};
+    if (lease) {
+      this.ticket = Object.freeze({identity: Object.freeze({...identity}), backend: leaseBackend(lease, identity, () => life.alive), live: () => life.alive});
+    } else {
+      await this.migrate(identity);
+      this.ticket = Object.freeze({identity: Object.freeze({...identity}), backend: nativeQueueBackend(identity, this.local, () => life.alive), live: () => life.alive});
     }
-    const wanted = groupKey(source);
-    await this.store(identity).change(current => {
-      const base = current ?? empty(identity);
-      const at = base.groups.findIndex(group => groupKey(group.source) === wanted);
-      const existing = at < 0 ? undefined : base.groups[at];
-      const group: NativeAnnotationGroup = Object.freeze({source: Object.freeze({...source}), operations: existing?.operations ?? Object.freeze([]),
-        localRevision: Math.max(existing?.localRevision ?? 0, revision), cache: Object.freeze({revision, entries: Object.freeze(kept)})});
-      const groups = [...base.groups];
-      if (at < 0 && groups.length >= MAX_JOURNAL_GROUPS) return null; // Space is for queued edits.
-      if (at < 0) groups.push(group); else groups[at] = group;
-      const next: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
-      return bytes(next) > MAX_RECORD_BYTES ? null : next;
-    });
+    this.life = life;
   };
-  /** Retire only operations that still are the exact ones the pass examined. A newer local
-   * edit made during the pass keeps its place, and an unresolved operation keeps its payload. */
-  resolve = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, resolutions: readonly NativeAnnotationResolution[], assert?: () => void): Promise<void> => {
+  /** Retire the current ticket synchronously; old operations then fail their own guard and
+   * never choose a successor backend. */
+  unbind(): void {
+    if (this.life) this.life.alive = false;
+    this.life = undefined; this.ticket = undefined;
+  }
+  private store(identity: NativeAnnotationIdentity): Readonly<{backend: Backend; live: () => boolean}> {
+    const ticket = this.ticket;
+    if (!ticket) throw new Error('native_annotation_journal_unbound');
+    if (!sameIdentity(ticket.identity, identity)) throw new Error('native_annotation_journal_foreign_profile');
+    if (!ticket.live()) throw new Error(RETIRED);
+    return ticket;
+  }
+  private async migrate(identity: NativeAnnotationIdentity): Promise<void> {
+    const legacy = legacyJournalKey(identity), key = nativeAnnotationJournalKey(identity);
+    if (legacy === key) return;
+    let carried: NativeAnnotationRecord | undefined;
+    await this.local.change(legacy, raw => {carried = record(raw, identity); return {record: raw ?? null, value: undefined};});
+    if (!carried) return;
+    await this.local.change(key, raw => {
+      const existing = record(raw, identity);
+      if (!existing) return {record: carried!, value: undefined};
+      const groups = [...existing.groups];
+      for (const group of carried!.groups) {
+        const at = groups.findIndex(value => JSON.stringify([value.source.itemId, value.source.sourceId, value.source.sourceRevision, value.source.format])
+          === JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]));
+        if (at < 0) {groups.push(group); continue;}
+        const operations = [...groups[at]!.operations];
+        for (const operation of group.operations) if (!operations.some(value => value.id === operation.id)) operations.push(operation);
+        groups[at] = {...groups[at]!, operations: Object.freeze(operations), cache: groups[at]!.cache ?? group.cache} as NativeAnnotationGroup;
+      }
+      return {record: Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)}), value: undefined};
+    });
+    // Only after the new record is durable does the legacy key go away.
+    await this.local.change(legacy, () => ({record: null, value: undefined}));
+  }
+  snapshot = async (identity: NativeAnnotationIdentity, assert?: () => void, signal?: AbortSignal): Promise<NativeAnnotationRecord | undefined> => {
+    const ticket = this.store(identity);
+    return ticket.backend.read(assert, signal);
+  };
+  list = async (identity: NativeAnnotationIdentity, signal?: AbortSignal): Promise<readonly NativeAnnotationGroup[]> =>
+    (await this.snapshot(identity, undefined, signal))?.groups ?? [];
+  view = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, signal?: AbortSignal): Promise<NativeAnnotationView> =>
+    nativeAnnotationView(await this.snapshot(identity, undefined, signal), source);
+
+  enqueue = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>, assert?: () => void, signal?: AbortSignal): Promise<void> => {
+    await this.add(identity, source, next, assert, signal, false);
+  };
+  localMutate = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource,
+    next: Omit<NativeAnnotationOperation, 'unresolved'>, expectedLocalRevision: number, assert?: () => void, signal?: AbortSignal): Promise<number> =>
+    this.add(identity, source, next, assert, signal, true, expectedLocalRevision);
+  /** Store the whole server set only when it is complete and fits; otherwise leave any
+   * existing cache untouched. Never trims a server set into a false complete one. */
+  cache = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, revision: number, entries: readonly ReadingAnnotation[], signal?: AbortSignal): Promise<void> => {
+    if (!integer(revision) || entries.length > MAX_CACHE_ENTRIES || new Set(entries.map(entry => entry.id)).size !== entries.length) return;
+    const cache: NativeAnnotationCache = Object.freeze({revision, entries: Object.freeze([...entries]), complete: true});
+    if (bytes(cache) > MAX_CACHE_BYTES) return;
+    const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
+    const ticket = this.store(identity);
+    await ticket.backend.change((current) => {
+      const base = current ?? empty(identity);
+      const at = base.groups.findIndex(group => JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) === wanted);
+      if (at < 0) {
+        if (base.groups.length >= MAX_JOURNAL_GROUPS) return base; // Refuse only this cache, never a queued group.
+        const next = Object.freeze({...base, groups: Object.freeze([...base.groups, Object.freeze({source: Object.freeze({...source}), operations: Object.freeze([]), localRevision: revision, cache})])}) as NativeAnnotationRecord;
+        return fit(next) ?? base;
+      }
+      const groups = [...base.groups];
+      const group = groups[at]!;
+      groups[at] = Object.freeze({...group, localRevision: Math.max(group.localRevision, revision), cache});
+      const next = Object.freeze({...base, groups: Object.freeze(groups)}) as NativeAnnotationRecord;
+      return fit(next) ?? base; // Too big: keep the previous record untouched.
+    }, undefined, signal);
+  };
+  resolve = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, resolutions: readonly NativeAnnotationResolution[], assert?: () => void, signal?: AbortSignal): Promise<void> => {
     if (!resolutions.length) return;
-    const wanted = groupKey(source);
-    await this.store(identity).change(current => {
-      if (!current) return null;
+    const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
+    const ticket = this.store(identity);
+    await ticket.backend.change((current) => {
+      if (!current) return empty(identity);
       const groups = current.groups.map(group => {
-        if (groupKey(group.source) !== wanted) return group;
+        if (JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) !== wanted) return group;
         const operations = group.operations.flatMap(operation => {
           const resolution = resolutions.find(value => value.id === operation.id && value.observedAt === operation.observedAt);
           if (!resolution) return [operation];
@@ -264,32 +331,50 @@ export class NativeAnnotationJournal {
         });
         return {...group, operations} as NativeAnnotationGroup;
       }).filter(group => group.operations.length > 0 || group.cache !== undefined);
-      if (!groups.length) return null;
       return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
-    }, assert);
+    }, assert, signal);
   };
-  /** Discards this profile's pending work (explicit erasure of the device's queued edits). */
-  discard = async (identity: NativeAnnotationIdentity): Promise<void> => {
-    await this.store(identity).change(() => null);
+  /** Persist that these operations were actually put on the wire. A transport failure after
+   * this leaves the evidence that an absent entry may be a committed-then-deleted create. */
+  markAttempted = async (identity: NativeAnnotationIdentity, source: NativeAnnotationSource, ids: readonly string[], assert?: () => void, signal?: AbortSignal): Promise<void> => {
+    if (!ids.length) return;
+    const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
+    const ticket = this.store(identity);
+    await ticket.backend.change((current) => {
+      if (!current) return empty(identity);
+      const groups = current.groups.map(group => {
+        if (JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) !== wanted) return group;
+        const operations = group.operations.map(operation => ids.includes(operation.id) ? {...operation, attempted: true} as NativeAnnotationOperation : operation);
+        return {...group, operations} as NativeAnnotationGroup;
+      });
+      return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
+    }, assert, signal);
+  };
+  /** The only operation that removes queued private records: an explicit discard. */
+  discard = async (identity: NativeAnnotationIdentity, signal?: AbortSignal): Promise<void> => {
+    const ticket = this.store(identity);
+    await ticket.backend.change(() => empty(identity), undefined, signal); // Explicit erasure of this profile's queued work only.
   };
 
   private async add(identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>,
-    assert: (() => void) | undefined, bump: boolean, expectLocal?: number): Promise<number> {
+    assert: (() => void) | undefined, signal: AbortSignal | undefined, bump: boolean, expectLocal?: number): Promise<number> {
     if (!integer(next.observedAt) || !integer(next.baseRevision) || !integer(next.baseUpdatedAt)) throw new Error('native_annotation_journal_invalid');
     const operation: NativeAnnotationOperation = next.delete
       ? Object.freeze({id: next.id, delete: true, observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt})
       : Object.freeze({id: next.id, delete: false, content: annotationContent(next.content), observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt});
-    const wanted = groupKey(source);
+    const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
+    const ticket = this.store(identity);
     let revision = 0;
-    await this.store(identity).change(current => {
+    await ticket.backend.change((current) => {
       const base = current ?? empty(identity);
       const groups = base.groups.map(group => group);
-      const at = groups.findIndex(group => groupKey(group.source) === wanted);
+      const at = groups.findIndex(group => JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]) === wanted);
       const existing = at < 0 ? undefined : groups[at];
       if (expectLocal !== undefined && (existing?.localRevision ?? 0) !== expectLocal) throw new Error('native_annotation_local_conflict');
       const previous = existing?.operations.find(value => value.id === operation.id);
       const merged: NativeAnnotationOperation = previous
-        ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt})
+        ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt,
+            ...(previous.attempted === true ? {attempted: true} : {})})
         : operation;
       if (at < 0 && groups.length >= MAX_JOURNAL_GROUPS) {
         const spare = groups.findIndex(value => value.operations.length === 0 && value.cache !== undefined);
@@ -305,30 +390,33 @@ export class NativeAnnotationJournal {
       const total = groups.reduce((sum, value) => sum + value.operations.length, 0);
       if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS) throw new Error('native_annotation_journal_full');
       let built: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
-      // Space belongs to the person's own edits: drop the cached server page before refusing.
+      // Space belongs to the person's own edits: drop the cached page, never an operation.
       if (bytes(built) > MAX_RECORD_BYTES) {
         const trimmed = groups.map(value => value.cache === undefined ? value : {...value, cache: undefined} as NativeAnnotationGroup);
         built = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(trimmed)});
       }
       if (bytes(built) > MAX_RECORD_BYTES) throw new Error('native_annotation_journal_full');
       return built;
-    }, assert);
+    }, assert, signal);
     return revision;
   }
 }
 
-/** The local view: cached server entries overlaid with this device's queued edits, ordered by
- * id like the server's pages. The revision is local and monotonic; it is never sent as a
- * server base — queued operations keep the server revision they were actually based on. */
+/** The local view: the complete cached server set overlaid with this device's queued edits.
+ * `complete` is false unless the cache is a proven complete set; a partial cache is never
+ * presented or exported as the whole collection. */
 export function nativeAnnotationView(record: NativeAnnotationRecord | undefined, source: NativeAnnotationSource): NativeAnnotationView {
-  const group = record?.groups.find(value => groupKey(value.source) === groupKey(source));
-  const map = new Map<string, ReadingAnnotation>((group?.cache?.entries ?? []).map(entry => [entry.id, entry]));
+  const wanted = JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
+  const group = record?.groups.find(value => JSON.stringify([value.source.itemId, value.source.sourceId, value.source.sourceRevision, value.source.format]) === wanted);
+  const cache = group?.cache;
+  const map = new Map<string, ReadingAnnotation>((cache?.entries ?? []).map(entry => [entry.id, entry]));
   for (const op of group?.operations ?? []) {
     if (op.delete) {map.delete(op.id); continue;}
     if (op.content) map.set(op.id, Object.freeze({...op.content, createdAt: op.observedAt, updatedAt: op.observedAt}));
   }
-  const entries = [...map.values()].sort((a, b) => a.id.localeCompare(b.id)).slice(0, 256);
-  return Object.freeze({revision: Math.max(group?.localRevision ?? 0, group?.cache?.revision ?? 0), entries: Object.freeze(entries)});
+  const entries = [...map.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const complete = cache?.complete === true;
+  return Object.freeze({revision: Math.max(group?.localRevision ?? 0, cache?.revision ?? 0), entries: Object.freeze(entries), complete});
 }
 
 /** The OfflineCore publication lease a session exposes, when this reader is reading the
@@ -342,7 +430,6 @@ export function nativeAnnotationLeaseOf(session: unknown): NativeAnnotationLease
     ? value as NativeAnnotationLeaseState : undefined;
 }
 
-/** Counts for the honest status surface: queued operations and those the server displaced. */
 export function nativeAnnotationJournalCounts(groups: readonly NativeAnnotationGroup[]) {
   let queued = 0, unresolved = 0;
   for (const group of groups) for (const operation of group.operations) {queued++; if (operation.unresolved) unresolved++;}
