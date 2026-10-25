@@ -19,6 +19,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
 
+  /// The player's one orientation request, or the app's own set when none is active. The module
+  /// and this answer must agree, because `requestGeometryUpdate` is only admitted when they do.
+  func application(_ application: UIApplication,
+                   supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+    PorticoFullWindowSupportedOrientations()
+  }
+
   func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -89,6 +96,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   func connect(_ scene: UIWindowScene, options: UIScene.ConnectionOptions) -> UIWindow {
     let window = UIWindow(windowScene: scene)
     self.window = window
+    // The one host the player may turn; a request for any other window is refused.
+    PorticoFullWindowAdoptHostWindow(window)
     var launch: [UIApplication.LaunchOptionsKey: Any] = [:]
     if let url = options.urlContexts.first?.url, let route = PorticoURLRoutes.forwarded(url) {
       launch[.url] = route

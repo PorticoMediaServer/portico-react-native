@@ -36,6 +36,10 @@ export type NativeWatchChromeProps = Readonly<{
   width: number;
   height: number;
   compact: boolean;
+  /** Live, committed eligibility: the watch page only, never the book or tabletop pages that
+   * `compact` also covers. A function so a retained chip handler re-checks the host at dispatch
+   * instead of trusting this render's snapshot. */
+  fullWindowRequest?: () => boolean;
   /** An expanded-size-class device (iPad): tablet-play3 draws an 84 pt centre button. */
   tablet?: boolean;
   /** foldable4/5: the controls column under a horizontal hinge's top surface. */
@@ -61,7 +65,6 @@ export type NativeWatchChromeProps = Readonly<{
   reportError: (error: unknown) => void;
   onPictureInPicture?: (fence: PlaybackFence) => void;
   onCast?: (fence: PlaybackFence) => void;
-  onFullWindow?: (fence: PlaybackFence) => void;
   /** states 11: the failure block drew a real action region this render, so Up can reach it. */
   failureAction?: boolean;
   /** tv-player/phone-player 5 and 13: the committed plan's one loss note, once per playback. */
@@ -549,7 +552,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                   <Text style={{fontFamily: 'Manrope-Bold', fontSize: 12.5, fontWeight: '700', color: theme.colors.text}}>{t('player.live.goLive')}</Text>
                 </Focusable>
               : <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>)}
-            {compact && <>{qualityChip(true)}{props.onFullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => props.onFullWindow!(fence))}</>}
+            {compact && <>{qualityChip(true)}{props.fullWindowRequest?.() && controls.canFullWindow() && !controls.getSnapshot().fullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => {if (current() && props.fullWindowRequest?.()) controls.setFullWindow(fence, true);})}</>}
           </View>
           {!compact && <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8}}>
             {linear

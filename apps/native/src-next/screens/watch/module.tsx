@@ -45,7 +45,6 @@ export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
   episodes?: NativeWatchPanelsProps['episodes'];
   presentation?: NativeWatchHostBindings['presentation'];
   onPictureInPicture?: ReturnType<NativeWatchHostBindings['chrome']>['onPictureInPicture'];
-  onFullWindow?: ReturnType<NativeWatchHostBindings['chrome']>['onFullWindow'];
   renderOverlays?: (runtime: NativeShellRuntime) => React.ReactNode;
   dispose?: () => void;
 }>;
@@ -186,7 +185,6 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       // and on a tablet, where the mini guide docks beside the picture; a phone has none.
       ...(Platform.isTV || isTablet ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),
-      ...(bindings.onFullWindow ? {onFullWindow: bindings.onFullWindow} : {}),
     }),
     panel: host => <NativeWatchPanels context={host} options={options} playback={context.playback} names={bindings.names ?? createNativeWatchPanelNames(host.runtime.text)} copy={copy}
       subtitleControls={fence => context.playback.subtitleControls?.(fence)} sleep={context.playback.setSleepTimer ? sleepPort() : undefined} style={stylePort()}
