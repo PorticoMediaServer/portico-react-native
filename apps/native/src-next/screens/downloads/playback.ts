@@ -1,3 +1,4 @@
+import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeOfflineDownloadsDevice, OfflineEntry, OfflineGroup} from '../../platform/offline-downloads';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
@@ -8,13 +9,13 @@ const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError
 /** One borrowed document/row gesture, never a connection, player or store. */
 export function createNativeOfflineEntryPlayback(context: NativeShellBootstrapContext, device: NativeOfflineDownloadsDevice, ownerCurrent: () => boolean): Readonly<{openOffline?: (entry: OfflineEntry) => Promise<void>; dispose: () => void}> {
   const start = context.playback?.startOffline;
-  if (!start) return Object.freeze({dispose: () => {}});
+  if (!start && !nativePublicationReadsAvailable()) return Object.freeze({dispose: () => {}});
   const lifetime = nativeDestinationLifetime(context);
   type Operation = {entry: OfflineEntry; identity: string; route: ReturnType<typeof context.navigation.getSnapshot>['route']; revision: number; abort: AbortController};
   const pending = new Set<Operation>();
   let disposed = false;
   const current = (operation: Operation) => {
-    if (disposed || !ownerCurrent() || !lifetime.current() || operation.abort.signal.aborted || context.playback.startOffline !== start) return false;
+    if (disposed || !ownerCurrent() || !lifetime.current() || operation.abort.signal.aborted || ((operation.entry.kind !== 'ebook' && operation.entry.kind !== 'comic') && context.playback.startOffline !== start)) return false;
     const nav = context.navigation.getSnapshot();
     if (nav.route !== operation.route || nav.revision !== operation.revision) return false;
     try {
@@ -36,6 +37,12 @@ export function createNativeOfflineEntryPlayback(context: NativeShellBootstrapCo
       pending.add(operation);
       try {
         if (!current(operation)) throw cancelled();
+        if (entry.kind === 'ebook' || entry.kind === 'comic') {
+          const source = device.publicationSource?.(entry); if (!source || !current(operation)) throw cancelled();
+          context.navigation.open({kind: 'read', itemId: entry.itemId, sourceId: source.sourceId, downloadId: entry.id}, context.authority());
+          return;
+        }
+        if (!start) throw cancelled();
         await start(entry, {signal: operation.abort.signal, isCurrent: () => current(operation)});
         if (!current(operation)) throw cancelled();
       } finally {pending.delete(operation);}

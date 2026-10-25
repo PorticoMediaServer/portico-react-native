@@ -1,9 +1,13 @@
+import type {NativeOfflinePublicationLease} from './offline-reading-authority';
+import {publicationUTF8, openOfflineReadingSession, publicationBinding, nativePublicationReadsAvailable, type OfflineReadingSession, type PublicationBinding} from './offline-reading';
+import {decodeGetReadingSessionsSessionIdProgressResponse, decodePutReadingSessionsSessionIdProgressResponse} from '../../../packages/contracts/src';
+import type {ReadingLocation, ReadingProgress, ReadingSavedProgress} from '../../../packages/client-core/src/reading';
 import {storedSubtitle, subtitleExtraFiles, type StoredSubtitle} from './offline-subtitle-files';
 import {receiptTime, serverReceiptFloor} from './receipt-clock';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {nativeRouteCrypto} from '../src-next/platform/server-connections';
 import {
-  DownloadsService, decodeDownloadReceipt, downloadTitleLines, getDownloadRequest, parseDeferredProgressReceipt, parseDownloadTitle, parseReceiptKeys, parseReceiptOutcomes, receiptUsable,
+  DownloadsService, parseDownloadBundle, decodeDownloadReceipt, downloadTitleLines, getDownloadRequest, parseDeferredProgressReceipt, parseDownloadTitle, parseReceiptKeys, parseReceiptOutcomes, receiptUsable,
   type DeferredProgressEntry, type DownloadBundle, type DownloadPreparation, type DownloadReceipt, type DownloadTitle, type ReceiptOutcome,
 } from '../../../packages/client-core/src/index';
 import {serviceText} from '../../../packages/client-core/src/presentation/service-text';
@@ -117,13 +121,17 @@ const trickplayTileName = (tile: number) => `trickplay-${tile}`;
 const chapterImageName = (index: number) => `chapter-${index}`;
 type Meta = {
   libraryId?: string; kind?: string; owner?: string; receipt?: DownloadReceipt; title?: DownloadTitle;
-  onServer?: boolean; changed?: boolean; claim?: string; token?: string; extras?: string[]; bundle?: number;
+  onServer?: boolean; changed?: boolean; claim?: string; token?: string; extras?: string[]; bundle?: number; publication?: boolean;
 };
 
 /** Deferred work is filed under the viewer that produced it, never under whoever is signed in
  * when it is finally sent. */
 type Owned<T> = Record<string, Record<string, T>>;
+type ReadingPending = Readonly<{id: string; observedAt: number; startedAt: number; location: ReadingLocation}>;
+type ReadingRecord = Readonly<{itemId: string; sourceId: string; revision: string; documentSha256: string; artifactSha256: string; artifactBytes: number;
+  receipt: DownloadReceipt; serverRevision: number; progress: ReadingProgress; pending?: ReadingPending; blockedStartedAt?: number}>;
 type Stored = {
+  reading: Owned<ReadingRecord>;
   version: 3;
   settings: OfflineSettings;
   /** Plays made offline and not yet accepted by the server, by play id. */
@@ -131,6 +139,7 @@ type Stored = {
   resume: Owned<number>;
   keys: Record<string, string>;
   wanted: Owned<OfflineDisplay>;
+  wantedPublications: Owned<OfflineDisplay>;
   nextAfter: Owned<{quality: string; libraryId?: string; kind?: string}>;
   /** When each viewer's receipts were last renewed. */
   renewed: Record<string, number>;
@@ -148,6 +157,7 @@ const native = NativeModules.PorticoDownloads as undefined | {
   /** 'saved', 'missing' (the server has none for this title), 'later' or 'invalid'. */
   fetchExtra(id: string, name: string, url: string): Promise<string>;
 };
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const defaults: OfflineSettings = Object.freeze({wifiOnly: true, deleteWatched: false, autoNext: false, limitBytes: 0});
 const random = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 const operationId = () => 'op_' + random();
@@ -158,7 +168,39 @@ const operationId = () => 'op_' + random();
 export const offlineOwnerKey = (viewer: Viewer) =>
   JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId, viewer.serverId]);
 
-const emptyStored = (): Stored => ({version: 3, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, nextAfter: {}, renewed: {}, clockFloor: 0});
+const safeInteger = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
+function signedPublication(receipt: DownloadReceipt): PublicationBinding {
+  const signed = decodeDownloadReceipt(receipt).signedBytes;
+  if (signed.length > 32768) throw new Error('reading_unavailable');
+  const raw: unknown = JSON.parse(decodeURIComponent(Array.from(signed, byte => '%' + byte.toString(16).padStart(2, '0')).join('')));
+  if (!object(raw)) throw new Error('reading_unavailable'); return publicationBinding(raw.publication);
+}
+function storedReading(raw: unknown): Owned<ReadingRecord> {
+  const out: Owned<ReadingRecord> = {}; if (!object(raw)) return out;
+  for (const [owner, values] of Object.entries(raw)) {
+    if (!object(values)) continue;
+    for (const [id, value] of Object.entries(values).slice(0, 2048)) try {
+      if (!object(value) || typeof value.itemId !== 'string' || typeof value.sourceId !== 'string' || typeof value.revision !== 'string' || typeof value.documentSha256 !== 'string' || typeof value.artifactSha256 !== 'string' || !safeInteger(value.artifactBytes, 1) || value.artifactBytes > 2 ** 31 || !safeInteger(value.serverRevision)) continue;
+      const receipt = decodeDownloadReceipt(value.receipt).receipt, binding = signedPublication(receipt);
+      if (offlineOwnerKey(receipt.claims.viewer) !== owner || receipt.claims.itemId !== value.itemId || receipt.claims.artifact.sha256 !== value.artifactSha256 || receipt.claims.artifact.bytes !== value.artifactBytes || binding.sourceId !== value.sourceId || binding.revision !== value.revision || binding.documentSha256 !== value.documentSha256) continue;
+      const progress = decodeGetReadingSessionsSessionIdProgressResponse(value.progress), p = progress.progress;
+      if (p && (p.sourceId !== value.sourceId || !safeInteger(p.revision, 1) || !safeInteger(p.observedAt, 1))) continue;
+      let pending: ReadingPending | undefined;
+      if (value.pending !== undefined) {
+        const offered = value.pending;
+        if (!object(offered) || typeof offered.id !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(offered.id) || !safeInteger(offered.observedAt, 1) || !safeInteger(offered.startedAt, 1) || offered.startedAt > offered.observedAt || !p || !object(offered.location)) continue;
+        const location = offered.location, actual = p.location;
+        if (location.format !== actual.format || location.cfi !== actual.cfi || location.section !== actual.section || location.pageIndex !== actual.pageIndex || location.progression !== actual.progression) continue;
+        pending = Object.freeze({id: offered.id, observedAt: offered.observedAt, startedAt: offered.startedAt, location: actual});
+      }
+      if (value.blockedStartedAt !== undefined && !safeInteger(value.blockedStartedAt, 1)) continue;
+      bucket(out, owner)[id] = Object.freeze({itemId: value.itemId, sourceId: value.sourceId, revision: value.revision, documentSha256: value.documentSha256, artifactSha256: value.artifactSha256, artifactBytes: value.artifactBytes,
+        receipt, serverRevision: value.serverRevision, progress, ...(pending ? {pending} : {}), ...(typeof value.blockedStartedAt === 'number' ? {blockedStartedAt: value.blockedStartedAt} : {})});
+    } catch { /* A corrupt record is not a location or a queued observation. */ }
+  }
+  return out;
+}
+const emptyStored = (): Stored => ({version: 3, reading: {}, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, wantedPublications: {}, nextAfter: {}, renewed: {}, clockFloor: 0});
 
 /** Reads the bookkeeping document. One written by an earlier layout keeps its settings and the
  * server's keys; the rest of it was shaped for a different contract and is not carried over. */
@@ -169,8 +211,12 @@ function readStored(parsed: any): Stored {
   out.keys = parsed.keys ?? {};
   if (parsed.version !== 3) return out;
   out.plays = parsed.plays ?? {};
+  out.reading = storedReading(parsed.reading);
   out.resume = parsed.resume ?? {};
   out.wanted = parsed.wanted ?? {};
+  out.wantedPublications = {};
+  if (object(parsed.wantedPublications)) for (const [owner, values] of Object.entries(parsed.wantedPublications)) {if (!object(values)) continue; const target = bucket(out.wantedPublications, owner);
+    for (const [id, value] of Object.entries(values)) {if (object(value) && typeof value.title === 'string' && (value.kind === 'ebook' || value.kind === 'comic')) target[id] = {title: value.title, kind: value.kind, ...(typeof value.subtitle === 'string' ? {subtitle: value.subtitle} : {}), ...(typeof value.libraryId === 'string' ? {libraryId: value.libraryId} : {})};}}
   out.nextAfter = parsed.nextAfter ?? {};
   out.renewed = parsed.renewed ?? {};
   out.clockFloor = typeof parsed.clockFloor === 'number' && Number.isFinite(parsed.clockFloor) ? parsed.clockFloor : 0;
@@ -323,6 +369,7 @@ export class OfflineDownloads {
       this.publish({pendingProgress: this.pendingCount()});
       void this.renewReceipts(generation, api, owner, false);
       void this.syncProgress(generation);
+      void this.syncReadingProgress(generation);
       void this.collect();
       void this.continueNext(generation);
       void this.tend(generation);
@@ -388,7 +435,7 @@ export class OfflineDownloads {
    * this viewer's business and is not counted into their badge. */
   private pendingCount() {
     const owner = this.ownerKey();
-    return owner ? Object.keys(this.stored.plays[owner] ?? {}).length : 0;
+    return owner ? Object.keys(this.stored.plays[owner] ?? {}).length + Object.values(this.stored.reading[owner] ?? {}).filter(value => !!value?.pending).length : 0;
   }
   /** Writes the bookkeeping document. A failed write is reported rather than published as
    * saved: the Downloads screen shows it until a later write succeeds. */
@@ -418,6 +465,13 @@ export class OfflineDownloads {
     await this.persist();
     if (this.generation === generation) void this.collect(generation);
   }
+  async wantPublication(preparation: DownloadPreparation, originatingService: DownloadsService) {
+    const owner = this.ownerKey(), generation = this.generation;
+    if (!owner || !this.state.supported || originatingService !== this.service || !preparation.versionId || (preparation.title.kind !== 'ebook' && preparation.title.kind !== 'comic')) throw new Error('reading_unavailable');
+    bucket(this.stored.wantedPublications, owner)[preparation.id] = this.display(preparation);
+    if (!await this.persist()) throw new Error('reading_progress_not_saved');
+    if (generation === this.generation) void this.collect(generation);
+  }
   /** How a claim on the server is named: the claim carries its own title. */
   display(preparation: DownloadPreparation): OfflineDisplay {
     const lines = downloadTitleLines(preparation.title);
@@ -431,16 +485,18 @@ export class OfflineDownloads {
     if (generation !== this.generation || !service || !this.state.ready || !owner) return;
     await this.enrollRequests(owner, service, generation).catch(() => {});
     if (generation !== this.generation) return;
-    const mine = this.stored.wanted[owner]; if (!mine) return;
+    const mine = this.stored.wanted[owner] ?? {}, publications = this.stored.wantedPublications[owner] ?? {};
+    if (!Object.keys(mine).length && !Object.keys(publications).length) return;
     let collected = false;
     for (const p of service.getSnapshot().items) {
       if (this.generation !== generation) return;
-      if (!mine[p.itemId] || p.state !== 'ready' || this.collecting.has(p.id) || this.all.some(e => e.id === p.id) || this.blocked(p)) continue;
+      if ((!mine[p.itemId] && !publications[p.id]) || p.state !== 'ready' || this.collecting.has(p.id) || this.all.some(e => e.id === p.id) || this.blocked(p)) continue;
       this.collecting.add(p.id);
       try {
         await this.fetch(p);
         if (this.generation !== generation) return;
         delete this.stored.wanted[owner]?.[p.itemId];
+        delete this.stored.wantedPublications[owner]?.[p.id];
         await this.persist();
         collected = true;
       } catch { /* offered by hand on the Downloads page */ } finally { this.collecting.delete(p.id); }
@@ -613,14 +669,19 @@ export class OfflineDownloads {
    * subtitles — and keeps it beside the file. What the server has none of is simply absent;
    * what could not be had yet is fetched on a later pass. */
   private async bundle(id: string, api: Api, service: DownloadsService, generation: number, address?: string) {
-    if (!native || this.bundling.has(id) || (this.metas.get(id)?.bundle ?? 0) >= BUNDLE_COMPLETE) return;
+    const before = this.metas.get(id), reading = before?.kind === 'ebook' || before?.kind === 'comic';
+    if (!native || this.bundling.has(id) || (before?.bundle ?? 0) >= BUNDLE_COMPLETE && (!reading || before?.publication === true)) return;
     this.bundling.add(id);
     try {
       const claim = this.metas.get(id)?.claim ?? id;
-      const described = await service.bundle({id: claim});
+      const raw = await api.request<unknown>(`/v1/downloads/preparations/${encodeURIComponent(claim)}/bundle`);
+      const described = parseDownloadBundle(raw, claim);
+      const publication = object(raw) && typeof raw.publication === 'string' ? raw.publication : undefined;
       const base = address ?? (await service.grant({id: claim}, this.metas.get(id)?.token)).url;
       if (this.generation !== generation || !this.all.some(e => e.id === id)) return;
       await native.writeExtra(id, 'bundle.json', JSON.stringify(described));
+      if (reading) {if (publication === undefined || publication.length > 2 << 20) throw new Error('reading_unavailable'); await native.writeExtra(id, 'publication.json', publication);
+        if (generation !== this.generation) return; await this.patch(id, {publication: true});}
       const saved = new Set(this.metas.get(id)?.extras ?? []);
       let complete = true;
       const files: [string, string][] = [
@@ -648,6 +709,7 @@ export class OfflineDownloads {
     if (generation !== this.generation || !owner || !api || !service || !this.state.ready) return;
     void this.collect(generation);
     void this.syncProgress(generation);
+    void this.syncReadingProgress(generation);
     void this.continueNext(generation);
     void this.renewReceipts(generation, api, owner, false);
     const now = Date.now();
@@ -679,7 +741,7 @@ export class OfflineDownloads {
           if (artifact && (artifact.sha256 !== grant.artifact.sha256 || artifact.bytes !== grant.artifact.bytes)) return;
           await this.startTransfer(current, {...latest, token: grant.token}, grant, api);
         }).catch(() => {});
-      } else if (entry.state === 'ready' && (meta.bundle ?? 0) < BUNDLE_COMPLETE && entry.onServer) {
+      } else if (entry.state === 'ready' && ((meta.bundle ?? 0) < BUNDLE_COMPLETE || (entry.kind === 'ebook' || entry.kind === 'comic') && meta.publication !== true) && entry.onServer) {
         if (now - (this.retried.get('bundle:' + entry.id) ?? 0) < 10 * 60 * 1000) continue;
         this.retried.set('bundle:' + entry.id, now);
         await this.bundle(entry.id, api, service, generation);
@@ -702,7 +764,7 @@ export class OfflineDownloads {
     const receipt = entry.receipt, owner = this.entryOwner(entry);
     await native?.remove(entry.id);
     this.retried.delete(entry.id);
-    if (owner) delete this.stored.resume[owner]?.[entry.itemId];
+    if (owner) {delete this.stored.resume[owner]?.[entry.itemId]; delete this.stored.reading[owner]?.[entry.id]; delete this.stored.wantedPublications[owner]?.[entry.id];}
     await this.persist();
     if (!withdrawn && receipt && this.api && owner === this.ownerKey()) void this.api.request<unknown>('/v1/downloads/receipts/revoke', 'POST', {operationId: operationId(), receiptIds: [receipt.receiptId], reason: 'removed'}).catch(() => {});
   }
@@ -711,7 +773,13 @@ export class OfflineDownloads {
   async removeOthers() {
     const owner = this.ownerKey();
     if (!owner || !native) return;
-    for (const entry of this.all.filter(e => this.entryOwner(e) !== owner)) await native.remove(entry.id).catch(() => {});
+    const generation = this.generation;
+    for (const entry of this.all.filter(e => this.entryOwner(e) !== owner)) {
+      if (generation !== this.generation || this.ownerKey() !== owner) return;
+      await native.remove(entry.id); if (generation !== this.generation || this.ownerKey() !== owner) return;
+      const erasedOwner = this.entryOwner(entry); if (erasedOwner) {delete this.stored.reading[erasedOwner]?.[entry.id]; delete this.stored.wantedPublications[erasedOwner]?.[entry.id];}
+    }
+    await this.persist();
     void this.measure();
   }
 
@@ -821,7 +889,8 @@ export class OfflineDownloads {
       let claim = meta.claim ?? entry.id;
       let receipt = await this.issueReceipt(api, claim);
       if (!receipt) {
-        const batch = await service.request({mediaId: entry.itemId}, entry.quality);
+        const publication = entry.kind === 'ebook' || entry.kind === 'comic' ? this.publicationBinding(entry.receipt) : undefined;
+        const batch = await service.request({mediaId: entry.itemId, ...(publication ? {versionId: publication.sourceId} : {})}, entry.quality);
         const fresh = batch.items.find(p => p.itemId === entry.itemId);
         if (!fresh || this.generation !== generation) return;
         if (fresh.state !== 'ready') return; // looked at again at the next renewal
@@ -831,7 +900,9 @@ export class OfflineDownloads {
       }
       if (!receipt || this.generation !== generation) return;
       if (mine && (receipt.claims.artifact.sha256 !== mine.sha256 || receipt.claims.artifact.bytes !== mine.bytes)) { await this.patch(entry.id, {changed: true}); return; }
-      await this.patch(entry.id, {receipt, owner: offlineOwnerKey(receipt.claims.viewer), claim: claim === entry.id ? undefined : claim, changed: false});
+      const publication = entry.kind === 'ebook' || entry.kind === 'comic';
+      await this.patch(entry.id, {receipt, owner: offlineOwnerKey(receipt.claims.viewer), claim: claim === entry.id ? undefined : claim, changed: false, ...(publication ? {publication: false} : {})});
+      if (publication && generation === this.generation) await this.bundle(entry.id, api, service, generation);
       await this.verifyAll();
     } catch { /* tried again at the next renewal */ } finally { this.receiving.delete(entry.id); }
   }
@@ -925,6 +996,106 @@ export class OfflineDownloads {
   }
   /** The downloaded file, this viewer's resume point and everything that came with the download,
    * for Portico's own player (the only offline player). No connection needed. */
+  private publicationBinding(receipt: DownloadReceipt | undefined): PublicationBinding {
+    if (!receipt) throw new Error('reading_unavailable'); return signedPublication(receipt);
+  }
+  publicationSource(entry: OfflineEntry): Readonly<{sourceId: string; revision: string}> {
+    const current = this.localRead(entry), live = current();
+    if (!nativePublicationReadsAvailable() || this.playabilityReason(live)) throw new Error('reading_unavailable');
+    return this.publicationBinding(live.receipt);
+  }
+  publicationLease(entry: OfflineEntry, scope: Readonly<{signal: AbortSignal; current: () => boolean}>): NativeOfflinePublicationLease {
+    const read = this.localRead(entry), owner = this.ownerKey(), initial = read();
+    if (!native || !owner || !nativePublicationReadsAvailable() || this.playabilityReason(initial)) throw new Error('reading_unavailable');
+    const binding = this.publicationBinding(initial.receipt), abort = new AbortController(); let disposed = false;
+    const current = () => {try {const live = read(); return !disposed && !abort.signal.aborted && !scope.signal.aborted && scope.current() && !this.playabilityReason(live) && this.publicationBinding(live.receipt).documentSha256 === binding.documentSha256;} catch {return false;}};
+    const retire = () => {if (disposed) return; disposed = true; abort.abort(); off(); clearTimeout(timer); scope.signal.removeEventListener('abort', retire);};
+    const off = this.subscribe(() => {if (!current()) retire();});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = () => {if (!current()) {retire(); return;} timer = setTimeout(expiry, Math.max(1, Math.min(2147483647, Date.parse(read().receipt!.claims.expiresAt) - this.receiptNow())));};
+    scope.signal.addEventListener('abort', retire, {once: true}); expiry();
+    const assert = () => {if (!current()) throw new Error('reading_retired');};
+    const journalName = (name: string) => {if (!/^reader-state-[A-Za-z0-9_-]{1,64}\.json$/.test(name)) throw new Error('reading_invalid_state');};
+    let serial: Promise<unknown> = Promise.resolve();
+    const state = <T,>(work: () => Promise<T>) => {const result = serial.then(async () => {assert(); const value = await work(); assert(); return value;}); serial = result.catch(() => {}); return result;};
+    const lease: NativeOfflinePublicationLease = {entryId: entry.id, itemId: entry.itemId, owner, binding, signal: abort.signal, current,
+      receipt: () => {assert(); return read().receipt!;},
+      descriptor: () => state(() => native.readExtra(entry.id, 'publication.json')),
+      readState: name => {journalName(name); return state(async () => {const value = await native.readExtra(entry.id, name); if (publicationUTF8(value).length > 1 << 20) throw new Error('reading_state_limit'); return value;});},
+      writeState: (name, json) => {journalName(name); if (typeof json !== 'string' || publicationUTF8(json).length > 1 << 20) throw new Error('reading_state_limit'); JSON.parse(json); return state(() => native.writeExtra(entry.id, name, json));},
+      dispose: retire,
+    };
+    if (!current()) {retire(); throw new Error('reading_retired');}
+    return Object.freeze(lease);
+  }
+  async readingSession(entry: OfflineEntry, scope: Readonly<{signal: AbortSignal; current: () => boolean; paused: () => boolean}>): Promise<OfflineReadingSession> {
+    const authority = this.publicationLease(entry, scope), owner = authority.owner, binding = authority.binding, receipt = authority.receipt(), current = authority.current;
+    let raw: string; try {raw = await authority.descriptor();} catch (error) {authority.dispose(); throw error;}
+    const records = bucket(this.stored.reading, owner);
+    const matches = (record: ReadingRecord | undefined): record is ReadingRecord => !!record && record.itemId === entry.itemId && record.sourceId === binding.sourceId && record.revision === binding.revision && record.documentSha256 === binding.documentSha256 && record.artifactSha256 === receipt.claims.artifact.sha256 && record.artifactBytes === receipt.claims.artifact.bytes;
+    try {return await openOfflineReadingSession({id: entry.id, owner, itemId: entry.itemId, raw, binding, artifact: receipt.claims.artifact, authority, current, signal: authority.signal, onClose: authority.dispose, now: () => this.receiptNow(),
+      progress: initial => {const record = records[entry.id]; return matches(record) ? decodeGetReadingSessionsSessionIdProgressResponse(record.progress) : initial;},
+      save: async (request, initialProgress, startedAt, callerCurrent): Promise<ReadingSavedProgress> => {
+        if (!current() || !callerCurrent()) throw new Error('reading_retired');
+        const previous = records[entry.id], existing = matches(previous) ? previous : undefined;
+        if (scope.paused() || existing?.blockedStartedAt === startedAt) return {progress: existing?.progress.progress ?? initialProgress.progress, saved: false};
+        const observedAt = Math.max(startedAt, this.receiptNow(), (existing?.pending?.observedAt ?? 0) + 1);
+        if (!Number.isSafeInteger(observedAt) || request.expectedRevision >= Number.MAX_SAFE_INTEGER) throw new Error('invalid_location');
+        const progress = decodeGetReadingSessionsSessionIdProgressResponse({progress: {sourceId: binding.sourceId, sourceRevision: binding.revision, location: request.location, revision: request.expectedRevision + 1, observedAt, stale: false}});
+        const record: ReadingRecord = Object.freeze({itemId: entry.itemId, sourceId: binding.sourceId, revision: binding.revision, documentSha256: binding.documentSha256, artifactSha256: receipt.claims.artifact.sha256, artifactBytes: receipt.claims.artifact.bytes,
+          receipt, serverRevision: existing?.serverRevision ?? initialProgress.progress?.revision ?? 0, progress,
+          pending: Object.freeze({id: operationId(), observedAt, startedAt, location: request.location})});
+        records[entry.id] = record;
+        if (!await this.persist()) {if (records[entry.id] === record) {if (previous) records[entry.id] = previous; else delete records[entry.id];} throw new Error('reading_progress_not_saved');}
+        if (!current() || !callerCurrent()) throw new Error('reading_retired');
+        void this.syncReadingProgress(); return {progress: progress.progress, saved: true};
+      },
+    });} catch (error) {authority.dispose(); throw error;}
+  }
+  private readingSync?: {generation: number; task: Promise<void>};
+  private syncReadingProgress(generation = this.generation): Promise<void> {
+    if (this.readingSync?.generation === generation) return this.readingSync.task;
+    const task = this.drainReadingProgress(generation); this.readingSync = {generation, task};
+    void task.finally(() => {if (this.readingSync?.task === task) this.readingSync = undefined;}).catch(() => {}); return task;
+  }
+  private async drainReadingProgress(generation: number) {
+    const api = this.api, owner = this.ownerKey(); if (!api || !owner || generation !== this.generation) return;
+    const current = () => this.generation === generation && this.api === api && this.ownerKey() === owner;
+    const records = this.stored.reading[owner]; if (!records) return;
+    for (const [id, sent] of Object.entries(records).slice(0, 100)) {
+      if (!current()) return;
+      if (!sent || !sent.pending) continue;
+      try {
+        const original = decodeDownloadReceipt(sent.receipt);
+        const originalClaims = original.receipt.claims;
+        if (Date.parse(originalClaims.expiresAt) <= this.receiptNow()) {await this.renewReceipts(generation, api, owner, true); if (!current() || !records[id]) return;}
+        const live = this.all.find(value => value.id === id && this.entryOwner(value) === owner && value.receipt);
+        const decoded = decodeDownloadReceipt(live?.receipt ?? original.receipt), claims = decoded.receipt.claims;
+        if (offlineOwnerKey(claims.viewer) !== owner || claims.itemId !== sent.itemId || claims.artifact.sha256 !== sent.artifactSha256 || claims.artifact.bytes !== sent.artifactBytes || !Number.isSafeInteger(sent.serverRevision) || sent.serverRevision < 0) continue;
+        const binding = this.publicationBinding(decoded.receipt);
+        if (binding.sourceId !== sent.sourceId || binding.revision !== sent.revision || binding.documentSha256 !== sent.documentSha256) continue;
+        const key = this.stored.keys[decoded.receipt.keyId], originalKey = this.stored.keys[original.receipt.keyId];
+        if (!key || !originalKey || !await nativeRouteCrypto.verify(base64url(key), decoded.signatureBytes, decoded.signedBytes) || !await nativeRouteCrypto.verify(base64url(originalKey), original.signatureBytes, original.signedBytes) || !current()) continue;
+        const raw = await api.request<unknown>('/v1/reading/offline/progress', 'POST', {receipt: decoded.receipt, observationReceipt: original.receipt, expectedRevision: sent.serverRevision, observedAt: sent.pending.observedAt, startedAt: sent.pending.startedAt, location: sent.pending.location});
+        if (!current() || !object(raw) || (raw.outcome !== 'applied' && raw.outcome !== 'history_paused' && raw.outcome !== 'stale_observation' && raw.outcome !== 'superseded_online')) return;
+        if (Object.keys(raw).some(key => key !== 'progress' && key !== 'saved' && key !== 'outcome') || !Object.prototype.hasOwnProperty.call(raw, 'progress') || typeof raw.saved !== 'boolean') return;
+        const result = decodePutReadingSessionsSessionIdProgressResponse({progress: raw.progress, saved: raw.saved});
+        if (result.saved !== (raw.outcome === 'applied') || result.progress && (result.progress.sourceId !== sent.sourceId || !/^[0-9a-f]{64}$/.test(result.progress.sourceRevision) || !safeInteger(result.progress.revision, 1) || !safeInteger(result.progress.observedAt, 1))) return;
+        const latest = records[id]; if (!latest || latest.sourceId !== sent.sourceId || latest.documentSha256 !== sent.documentSha256 || latest.artifactSha256 !== sent.artifactSha256) continue;
+        const duplicate = raw.outcome === 'stale_observation' && result.progress?.observedAt === sent.pending.observedAt && JSON.stringify(result.progress.location) === JSON.stringify(sent.pending.location);
+        const applied = raw.outcome === 'applied' || duplicate;
+        const ownPending = latest.pending?.id === sent.pending.id;
+        if (applied) records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: ownPending ? undefined : latest.pending});
+        else if (ownPending) records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: undefined, progress: {progress: result.progress}, blockedStartedAt: sent.pending.startedAt});
+        else {
+          // A's refusal never acknowledges B, overwrites B's visible location,
+          // or silently rebases B into a new intent. Keep B's original base.
+          records[id] = Object.freeze({...latest, blockedStartedAt: sent.pending.startedAt});
+        }
+        await this.persist(); if (!current()) return;
+      } catch {return;} // Network/authority failures never move another viewer's queue.
+    }
+  }
   async localMedia(entry: OfflineEntry): Promise<LocalMedia> {
     const reason = this.playable(entry); if (reason) throw new Error(reason);
     const current=this.localRead(entry);

@@ -1,3 +1,4 @@
+#import "PorticoPublicationReads.h"
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 #import <React/RCTUtils.h>
@@ -88,6 +89,7 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 - (void)readState:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)publicationOpen:(NSString *)handle identifier:(NSString *)identifier owner:(NSString *)owner digest:(NSString *)digest reads:(PorticoPublicationReads *)reads resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 @end
 
 @implementation PorticoDownloadOwner {
@@ -842,6 +844,20 @@ static NSString *PorticoSafeFileName(NSString *value) {
 
 // OS-07: the file of a finished download, for Portico's own player (PorticoPlaybackController
 // accepts a file source only inside this module's root).
+- (void)publicationOpen:(NSString *)handle identifier:(NSString *)identifier owner:(NSString *)owner digest:(NSString *)digest reads:(PorticoPublicationReads *)reads resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+ dispatch_async(_queue,^{
+  NSDictionary *entry=self->_entries[identifier];
+  BOOL(^current)(void)=^BOOL{
+   NSString *raw=entry[@"meta"];NSDictionary *meta=[raw isKindOfClass:NSString.class]?[NSJSONSerialization JSONObjectWithData:[raw dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil]:nil;
+   return self->_entries[identifier]==entry&&[entry[@"state"] isEqual:@"ready"]&&[entry[@"sha256"] isEqual:digest]&&[meta isKindOfClass:NSDictionary.class]&&[meta[@"owner"] isEqual:owner];
+  };
+  if(!current()){reject(@"reading_unavailable",@"reading_unavailable",nil);return;}
+  NSString *name=entry[@"file"];if(![name isKindOfClass:NSString.class]){reject(@"reading_unavailable",@"reading_unavailable",nil);return;}
+  NSURL *file=[[self directoryFor:identifier] URLByAppendingPathComponent:PorticoSafeFileName(name)];
+  [reads open:handle file:file bytes:[entry[@"bytes"] longLongValue] digest:digest queue:self->_queue current:current resolve:resolve reject:reject];
+ });
+}
+
 - (void)localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSDictionary *entry = self->_entries[identifier];
@@ -874,6 +890,7 @@ static void PorticoRefuseUnreadable(RCTPromiseRejectBlock reject) {
 
 @implementation PorticoDownloads {
   PorticoDownloadOwner *_owner;
+  PorticoPublicationReads *_publicationReads;
 }
 
 RCT_EXPORT_MODULE()
@@ -881,12 +898,14 @@ RCT_EXPORT_MODULE()
 - (instancetype)init {
   if ((self = [super init])) {
     _owner = [PorticoDownloadOwner shared];
+    _publicationReads=[PorticoPublicationReads new];
     _owner.emitter = self;
     // Another wake: the owner reads whether the device is unlocked on the main queue.
     dispatch_async(dispatch_get_main_queue(), ^{ [PorticoDownloadOwner start]; });
   }
   return self;
 }
+- (void)invalidate {[_publicationReads invalidate];[super invalidate];}
 - (dispatch_queue_t)methodQueue { return _owner.queue; }
 - (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
 - (void)startObserving { _porticoObserving = YES; }
@@ -935,4 +954,12 @@ RCT_EXPORT_METHOD(localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlo
   [_owner whenLoaded:^{ [self->_owner localFile:identifier resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
 }
 
+RCT_EXPORT_METHOD(publicationOpen:(NSString *)handle identifier:(NSString *)identifier owner:(NSString *)owner digest:(NSString *)digest resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+ [_owner whenLoaded:^{[self->_owner publicationOpen:handle identifier:identifier owner:owner digest:digest reads:self->_publicationReads resolve:resolve reject:reject];} otherwise:^{PorticoRefuseUnreadable(reject);}];
+}
+RCT_EXPORT_METHOD(publicationRead:(NSString *)handle operation:(double)operation offset:(double)offset length:(double)length resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {[_publicationReads range:handle operation:operation offset:offset length:length member:NO resolve:resolve reject:reject];}
+RCT_EXPORT_METHOD(publicationMember:(NSString *)handle operation:(double)operation offset:(double)offset compressed:(double)compressed size:(double)size method:(double)method digest:(NSString *)digest resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {[_publicationReads member:handle operation:operation offset:offset compressed:compressed size:size method:method digest:digest resolve:resolve reject:reject];}
+RCT_EXPORT_METHOD(publicationMemberRead:(NSString *)handle operation:(double)operation offset:(double)offset length:(double)length resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {[_publicationReads range:handle operation:operation offset:offset length:length member:YES resolve:resolve reject:reject];}
+RCT_EXPORT_METHOD(publicationCancel:(NSString *)handle operation:(double)operation) {[_publicationReads cancel:handle operation:operation];}
+RCT_EXPORT_METHOD(publicationClose:(NSString *)handle) {[_publicationReads close:handle];}
 @end

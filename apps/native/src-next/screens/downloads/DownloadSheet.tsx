@@ -1,3 +1,4 @@
+import {NativeReadingDownloadSheet} from './ReadingDownloadSheet';
 import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {NativeModules, Platform, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -22,7 +23,7 @@ type ContainerOptions = Readonly<{quality: string; label: string; available: boo
  * server's room and this device's, then today's confirmation. */
 export function NativeDownloadSheet({context}: {context: NativeShellBootstrapContext}) {
   const request = useSyncExternalStore(subscribeNativeDownload, getNativeDownloadSnapshot);
-  return request ? <NativeDownloadSheetBody context={context} request={request} key={`${request.itemId ?? ''}|${request.container?.kind ?? ''}|${request.container?.id ?? ''}|${request.title}`}/> : null;
+  return request?.reading ? <NativeReadingDownloadSheet context={context} request={request}/> : request ? <NativeDownloadSheetBody context={context} request={request} key={`${request.itemId ?? ''}|${request.container?.kind ?? ''}|${request.container?.id ?? ''}|${request.title}`}/> : null;
 }
 
 function NativeDownloadSheetBody({context, request}: {context: NativeShellBootstrapContext; request: NativeDownloadRequest}) {
