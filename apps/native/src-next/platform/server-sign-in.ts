@@ -19,7 +19,7 @@ import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type P
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
-import {startAppSetup, initializeServer, completeServerSetupDraft} from '../../../../packages/client-core/src/setup-onboarding';
+import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
 import {nativeSetupDraft} from './setup-draft';
 import type {HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 
@@ -121,11 +121,12 @@ export class NativeServerSignIn {
       const retained = await nativeAppSessions.read(); this.assertCurrent();
       const issued = await initializeServer(api, store, {setupToken: token, name: name.trim(), username: username.trim(), password,
         authMode: 'local', interactive: true}, this.controller.signal);
+      const completed = await store.read();
       // Pending Hosted claims are never sessions. Retain a fresh local grant for
       // cancellation cleanup before any asynchronous snapshot or publication.
       if ('claimRequired' in issued) throw mismatch();
       const pin = api.getRouteConnection()?.pin;
-      if (!pin || issued.viewer.authority !== 'local' || issued.viewer.serverId !== server.id
+      if (!pin || issued.viewer.authority !== 'local' || issued.viewer.role !== 'owner' || issued.viewer.serverId !== server.id || Date.parse(issued.expiresAt) <= Date.now()
         || issued.installationId !== this.installation?.installationId
         || issued.serverIdentity?.publicKey !== pin.publicKey || issued.serverIdentity.fingerprint !== pin.fingerprint
         || retained.servers.some(value => value.connection.session.sessionFamilyId === issued.sessionFamilyId)
@@ -133,13 +134,19 @@ export class NativeServerSignIn {
       this.issued.set(issued.sessionFamilyId, issued);
       try {
         this.assertCurrent(); api.setAccessToken(issued.accessToken);
-        const snapshot = parseDirectSnapshot(await api.request(routePath('get_direct_account'), 'GET', undefined, this.controller.signal), server.id);
+        const snapshot = parseDirectSnapshot(await api.request(routePath('get_direct_account'), 'GET', undefined, this.controller.signal),
+          {authority: 'local', serverId: server.id, accountId: issued.viewer.accountId}, true);
         this.assertCurrent();
-        if (snapshot.account.role !== 'owner') throw mismatch();
+        if (snapshot.account.role !== 'owner' || snapshot.account.disabled || !snapshot.capabilities.manageServer
+          || snapshot.account.primaryProfileId !== issued.viewer.profileId) throw mismatch();
         this.server = {...server, name: name.trim(), signIn: 'local', setupRequired: false};
         const result = await this.consume({kind: 'signed-in', session: issued, snapshot,
           accountScoped: issued.viewer.role === 'account', passwordChangeRequired: false});
-        await completeServerSetupDraft(api, store);
+        await store.change(old => {
+          this.assertCurrent();
+          if (!completed || old?.requestId !== completed.requestId || old.setupToken !== completed.setupToken || old.authMode !== 'local') throw mismatch();
+          return undefined;
+        });
         return result;
       } catch (error) {await this.retire(issued); throw error;}
     });
