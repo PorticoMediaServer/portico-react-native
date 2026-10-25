@@ -32,7 +32,7 @@ export type NativeSavedActions = Readonly<{
 export type NativeSavedSelectionPort = Readonly<{
   register: (snapshot: SavedSnapshot) => () => void;
   item: (entry: ContentEntry) => CardSelection;
-  render: () => React.ReactNode;
+  render: (artwork?: (path?: string) => React.ReactNode) => React.ReactNode;
 }>;
 export type NativeSavedScreenProps = Readonly<{
   destination: NativeSavedDestination; runtime: NativeShellRuntime; device: NativeOfflineDownloadsDevice;
