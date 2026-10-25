@@ -293,7 +293,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   };
   const liveConfirmation = liveActions.confirmed === 'series' ? t('guide.seriesSet') : liveActions.recording && liveOffer
     ? ['scheduled', 'recording', 'preparing'].includes(liveActions.recording.state)
-      ? t('player.live.scheduled', {title: liveOffer.programme.title}) : `${recordingLabel(liveActions.recording.state)}: ${liveOffer.programme.title}` : undefined;
+      ? t('player.live.scheduled', {title: liveActions.recording.programme.title}) : `${recordingLabel(liveActions.recording.state)}: ${liveActions.recording.programme.title}` : undefined;
   const liveEdge = linear ? channelSeconds(linear.media.liveEdgeUs) : undefined;
   const behindLive = liveEdge === undefined ? 0 : Math.max(0, liveEdge - source.playback.positionSeconds);
   const audioTracks = source.options?.versions.find(version => version.id === source.session?.versionId)?.audio.length ?? source.options?.versions[0]?.audio.length ?? 0;
