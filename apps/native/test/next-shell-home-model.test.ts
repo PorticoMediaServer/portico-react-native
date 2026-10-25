@@ -43,7 +43,8 @@ test('TV library order is server-owned and Read never enters the rail', () => {
 test('native breakpoint and safe area geometry retains the drawn bar and scales TV as a unit', () => {
   assert.equal(shellLayout(599, 844, false).panel, 'bottom');
   assert.equal(shellLayout(600, 1024, false).kind, 'tablet');
-  assert.equal(shellLayout(1023, 1366, false).tabs, true);
+  assert.equal(shellLayout(1023, 1366, false).tabs, false);
+  assert.equal(shellLayout(1023, 1366, false).rail, true);
   assert.equal(shellLayout(1024, 1366, false).kind, 'desktop');
   assert.equal(phoneBarHeight(0), 84);
   assert.equal(phoneBarHeight(34), 84);
@@ -51,7 +52,7 @@ test('native breakpoint and safe area geometry retains the drawn bar and scales 
   assert.deepEqual(phoneHeaderGeometry(24, false), {top: 54, height: 104});
   assert.deepEqual(phoneHeaderGeometry(24, true), {top: 46, height: 96});
   assert.deepEqual(phoneHeaderGeometry(60, false), {top: 60, height: 110});
-  assert.deepEqual(shellLayout(1280, 800, true), {kind: 'tv', panel: 'side', tabs: false, scale: 2 / 3, left: 0, top: 40, width: 1920, height: 1080});
+  assert.deepEqual(shellLayout(1280, 800, true), {kind: 'tv', panel: 'side', tabs: false, rail: false, scale: 2 / 3, left: 0, top: 40, width: 1920, height: 1080});
 });
 
 test('server/account/profile and permission epoch all fence retained component state', () => {
@@ -149,4 +150,30 @@ test('episode presentation receives actual structured show identity and numberin
   assert.deepEqual(subject.episode, {mode: 'seasonal', season: 2, episode: 3});
   assert.equal(subject.positionSeconds, 42);
   assert.equal(subject.durationSeconds, 1800);
+});
+
+
+test('sidebar is a bounded device boolean isolated by server/account/profile', async () => {
+  const records = new Records(), memory = new LastLibraryMemory(records), current = () => true;
+  const other = {...authority, profileId: 'other'};
+  assert.equal(await memory.readSidebar(authority, current), true);
+  await memory.rememberSidebar(authority, false, current);
+  assert.equal(await memory.readSidebar(authority, current), false);
+  assert.equal(await memory.readSidebar(other, current), true);
+  const key = 'next.sidebar-expanded.v1:' + JSON.stringify([authority.serverId, authority.accountId, authority.profileId]);
+  records.values.set(key, 'false');
+  assert.equal(await memory.readSidebar(authority, current), true);
+  assert.equal(records.values.get(key), 'false', 'invalid records are not destructively repaired');
+});
+
+test('retirement prevents queued sidebar writes even inside a delayed store callback', async () => {
+  const records = new Records(); let live = true, resume!: () => void;
+  const memory = new LastLibraryMemory({change: async (key, update) => {
+    await new Promise<void>(resolve => {resume = resolve;});
+    return records.change(key, update);
+  }});
+  const pending = memory.rememberSidebar(authority, false, () => live);
+  await Promise.resolve(); await Promise.resolve();
+  live = false; resume(); await pending;
+  assert.equal(records.writes, 0);
 });
