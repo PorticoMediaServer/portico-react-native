@@ -38,6 +38,7 @@ import {NativeServerTroubleshooting} from './server/TroubleshootingPage';
 import {NativeServerStorage} from './server/StoragePage';
 import {NativeServerIntegrations} from './server/IntegrationsPage';
 import {NativeServerGeneral} from './server/GeneralPage';
+import {NativeRemoteSourcesScreen} from '../settings/remote-sources/NativeRemoteSourcesScreen';
 import QRCode from 'react-native-qrcode-svg';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
@@ -57,7 +58,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
-    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments'));
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources'));
     // settings.html wins over the group's old order: General comes first.
     const general = pages.find(value => value.id === 'general');
     return general ? [general, ...pages.filter(value => value.id !== 'general')] : pages;
@@ -91,19 +92,28 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const column = ids.surface('settings.pages'), rows = ids.surface(`settings.rows.${page?.id ?? ''}`), keyboard = ids.surface('settings.keyboard'), searchField = ids.surface('settings.search');
   const enter = useScreenEntry(theme.isTV && page ? {regionId: column, childId: accountPages[0].id} : undefined, controller.lifetime.current);
   useDestinationEntryFocus({visible: theme.isTV && !searching, intent: restoreRevision ? 'enter' : 'restore', revision: restoreRevision}, page ? {regionId: column, childId: page.id} : undefined);
+  const remoteSourcesPage = !theme.isTV && page?.id === 'remote-sources';
+  const remoteBack = useRef<(() => boolean) | undefined>(undefined);
+  const setRemoteBack = useCallback((handler: (() => boolean) | undefined) => {remoteBack.current = handler;}, []);
   const back = useCallback(() => {
+    if (remoteSourcesPage) {
+      if (remoteBack.current?.()) return true;
+      setPushed(false);
+      if (theme.width >= 600 && accountPages[0]) setSelected(accountPages[0].id);
+      return true;
+    }
     if (searching) {setSearching(false); setQuery(''); setRestoreRevision(value => value + 1); return true;}
     if (registry.capture()?.regionId === rows && page) return registry.focus({regionId: column, childId: page.id});
     if (page && page.id !== accountPages[0]?.id) {setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
     return false;
-  }, [registry, column, rows, page, accountPages, searching]);
+  }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage, theme.width]);
   const compact = !theme.isTV && theme.width < 600;
   // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
   useEffect(() => {
     setNativeScreenChromeHidden('settings-pushed', compact && pushed);
     return () => setNativeScreenChromeHidden('settings-pushed', false);
   }, [compact, pushed]);
-  useScreenBack(runtime, back, theme.isTV);
+  useScreenBack(runtime, back, theme.isTV || remoteSourcesPage);
   if (!page) throw new Error('native_settings_structure_empty');
   // Libraries and Live TV draw their own pages and own their scrolling; they are not
   // stacks of rows inside the generic Settings body.
@@ -151,10 +161,10 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
         </ScrollView>}
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
-        {compact && <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t(serverPage ? 'next.shell.settings' : 'action.back')}</Button>}
-        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {compact && <Button variant="text" size="small" icon="i-left" onPress={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}>{t(serverPage ? 'next.shell.settings' : 'action.back')}</Button>}
+        {!(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !remoteSourcesPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
             {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
