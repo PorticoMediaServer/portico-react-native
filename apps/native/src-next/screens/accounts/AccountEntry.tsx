@@ -139,6 +139,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   // An opaque revision, advanced by every editable register field (the password
   // included), so a Submit drawn against an older draft cannot send its old values.
   const registerOpeningRef = useRef(registerOpening), providerOpeningRef = useRef(providerOpening), registerDraftRev = useRef(0);
+  // The transaction whose provider-suggested name has already been seeded into this draft.
+  const providerNameSeed = useRef<string | undefined>(undefined);
   registerOpeningRef.current = registerOpening; providerOpeningRef.current = providerOpening;
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
@@ -205,6 +207,18 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const owner = {live: true}, life = new AbortController();
     setProviderOpening(Object.freeze({transaction, source, owner, life}));
     setProviderUsernameUnavailable(false);
+    // The phone's first-time provider step considers this transaction once, on its first
+    // eligible opening, whether or not a name is suggested. Only an empty draft takes the
+    // suggested name, and only an actual seed advances the revision that retires an older
+    // Submit; a cleared draft on a later refresh is never seeded over.
+    if (!Platform.isTV && transaction.needsUsername && providerNameSeed.current !== transaction.transactionId) {
+      providerNameSeed.current = transaction.transactionId;
+      const suggested = transaction.suggestedName;
+      if (suggested && !name) {
+        registerDraftRev.current++;
+        setName(suggested);
+      }
+    }
     return () => {owner.live = false; life.abort();};
   }, [stage, transaction]);
   // One factor opening per phone Portico challenge; its layout cleanup retires and
@@ -1177,8 +1191,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const lede = phoneStep ? t('services.provider.lastThing') : undefined;
     const continuing = tx?.needsUsername && providerName && !theme.isTV
       ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('services.provider.heading', {provider: providerName})}</Text> : undefined;
+    // The address the provider chose to share; no relay label is claimed without a producer flag.
+    const sharedAddress = !theme.isTV && !!tx?.verifiedEmail && tx.needsUsername
+      ? <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{`${t('auth.email')}: ${tx.verifiedEmail}`}</Text> : undefined;
     return layout(heading, lede, fields(
       continuing,
+      sharedAddress,
       tx?.needsUsername && field(t('auth.username'), username, next => {setProviderUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
         !theme.isTV && providerUsernameUnavailable ? t('web.signIn.error.accountTaken') : undefined,
         theme.isTV ? undefined : t('services.provider.usernameHelp')),
