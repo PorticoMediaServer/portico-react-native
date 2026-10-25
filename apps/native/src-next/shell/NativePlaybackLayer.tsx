@@ -26,6 +26,7 @@ import {NativeVideoSnapshotCapture} from './video-snapshot';
 import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 import {TVStartFailure} from './TVStartFailure';
+import {TouchStartFailure} from './TouchStartFailure';
 
 const noListeningSubscribe = () => () => {};
 const noListeningNavigation = () => undefined;
@@ -289,7 +290,9 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
-    {theme.isTV && (snapshot.startFailure || snapshot.capacityWait) && <TVStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>}
+    {(snapshot.startFailure || snapshot.capacityWait) && (theme.isTV
+      ? <TVStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>
+      : <TouchStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>)}
     {/* One Play on sheet for every surface: the dock, a title page's control and the touch
         listening output all open the same shell controller, so it is mounted once here. */}
     {runtime.playOn && <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} posterUrl={snapshot.entry?.posterUrl}
