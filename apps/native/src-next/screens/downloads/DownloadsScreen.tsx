@@ -52,16 +52,36 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   const groups = downloadGroups(snapshot.entries), storage = downloadStorageSegments(snapshot);
   const requests = useSyncExternalStore(service ? service.subscribe : noSubscribe, service ? () => service.getSnapshot().requests : noRequests);
   const empty = snapshot.ready && snapshot.entries.length === 0 && requests.length === 0;
+  // tablet-read12 draws Saved › Downloads at the expanded width: what the device
+  // holds and what is left, then the profile's actual reading publications and
+  // everything else as two-column lists. Phone and medium keep today's page.
+  const expanded = !theme.isTV && dimensions.width >= 1024;
+  const readingEntry = (entry: OfflineEntry) => {
+    const kind = entry.info?.kind ?? entry.kind;
+    return kind === 'ebook' || kind === 'comic';
+  };
+  const readingEntries = snapshot.entries.filter(readingEntry), watchingEntries = snapshot.entries.filter(entry => !readingEntry(entry));
+  const storedBytes = (entry: OfflineEntry) => entry.state === 'ready' ? entry.bytes : entry.bytesDone;
+  const readingBytes = readingEntries.reduce((sum, entry) => sum + storedBytes(entry), 0);
+  const watchingBytes = watchingEntries.reduce((sum, entry) => sum + storedBytes(entry), 0);
+  const heldBytes = Math.max(snapshot.usedBytes, readingBytes + watchingBytes);
+  const watchingGroups = downloadGroups(watchingEntries);
   const requestText = (tracked: TrackedDownloadRequest): string => downloadRequestLines(tracked.request).map(line =>
     line.key === 'downloads.requestProgress' ? t(line.key, line.values as {ready: number; total: number})
       : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key)).join(' · ');
   const ruleList = <DownloadsRules settings={snapshot.settings} pending={pending} copy={copy} save={save} limitRef={limitRef} onLimit={() => setPickingLimit(true)}/>;
+  const otherNotice = snapshot.otherBytes > 0 && <View style={{marginHorizontal: 16, marginTop: 14, paddingLeft: 14, paddingRight: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: alpha(theme.colors.text, .08), flexDirection: 'row', gap: 10, alignItems: 'center'}}>
+    <Icon name="i-info" size={18} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 13.5, 400), {color: theme.colors.textSecondary, flex: 1}]}>{t(copy.otherProfiles, {size: defaultI18n.bytes(snapshot.otherBytes)})}</Text>
+    <Chip testID="downloads-remove-other-profiles" disabled={pending} onPress={() => run(device.removeOthers)}>{t('action.remove')}</Chip>
+  </View>;
   const firstMenuAction = useRef<View>(null);
   const menuItems: MenuAction[] = menu ? [
     ...(menu.state !== 'ready' ? [{id: 'resume', label: t('action.tryAgain'), icon: 'i-retry' as const, onSelect: () => run(() => device.resume(menu))}] : []),
     {id: 'title', label: t('web.downloads.goToTitle'), icon: 'i-film', onSelect: () => openTitle(menu)},
     {id: 'remove', label: t(copy.removeFromPhone), icon: 'i-trash', destructive: true, onSelect: () => run(() => device.remove(menu))},
   ] : [];
+  const downloadRow = (entry: OfflineEntry, separator: boolean) => <DownloadRow key={entry.id} entry={entry} device={device} runtime={runtime} copy={copy} separator={separator} menuOpen={menu?.id === entry.id}
+    onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={device.openOffline ? () => run(() => device.openOffline!(entry)) : undefined} onRetry={() => run(() => device.resume(entry))}/>;
   return <View testID="native-downloads-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{height: Math.max(96, insets.top + 48), paddingTop: Math.max(50, insets.top), paddingHorizontal: 10, justifyContent: 'center'}}>
       <Focusable testID="downloads-back" accessibilityLabel={t('saved.title')} onPress={back} style={{height: 38, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingRight: 6, marginLeft: -4}}>
@@ -80,9 +100,18 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
         {!empty && snapshot.ready && <View style={{marginHorizontal: 16, marginTop: 4, padding: 14, borderRadius: 14, backgroundColor: theme.colors.raised}}>
           <View style={{flexDirection: 'row', gap: 12, alignItems: 'baseline'}}>
           <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{t('downloads.used', {size: defaultI18n.bytes(snapshot.usedBytes)})}</Text>
-          <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary}]}>{t(copy.freeOnPhone, {size: defaultI18n.bytes(snapshot.freeBytes)})}</Text>
+          <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary}]}>{t(expanded ? 'downloads.freeOnDevice' : copy.freeOnPhone, {size: defaultI18n.bytes(snapshot.freeBytes)})}</Text>
           </View>
-          {storage && <View testID="downloads-storage-bar" style={{height: 6, borderRadius: 3, backgroundColor: theme.colors.raisedBright, marginTop: 10, overflow: 'hidden', flexDirection: 'row'}}>
+          {expanded ? (heldBytes > 0 && <>
+            <View testID="downloads-storage-split" style={{height: 6, borderRadius: 3, backgroundColor: theme.colors.raisedBright, marginTop: 10, overflow: 'hidden', flexDirection: 'row'}}>
+              <View style={{height: 6, width: `${100 * watchingBytes / heldBytes}%`, backgroundColor: theme.colors.accentStrong}}/>
+              <View style={{height: 6, width: `${100 * readingBytes / heldBytes}%`, backgroundColor: theme.colors.amber}}/>
+            </View>
+            <View style={{flexDirection: 'row', gap: 18, marginTop: 10, flexWrap: 'wrap'}}>
+              <DownloadsStorageKey color={theme.colors.accentStrong} label={t('next.live.watching')} size={watchingBytes}/>
+              <DownloadsStorageKey color={theme.colors.amber} label={t('next.settingsSpec.account.reading.title')} size={readingBytes}/>
+            </View>
+          </>) : storage && <View testID="downloads-storage-bar" style={{height: 6, borderRadius: 3, backgroundColor: theme.colors.raisedBright, marginTop: 10, overflow: 'hidden', flexDirection: 'row'}}>
             <View style={{height: 6, width: `${100 * storage.downloads}%`, backgroundColor: theme.colors.accentStrong}}/>
             <View style={{height: 6, width: `${100 * storage.other}%`, backgroundColor: alpha(theme.colors.accentStrong, .4)}}/>
           </View>}
@@ -97,24 +126,42 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
             </View>)}
           </View>
         </View>}
-        <View style={dimensions.width >= 1024 && !empty ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
-          {!empty && <View style={{flex: 1}}>{groups.map(group => <View key={group.key}>
+        {expanded && !empty ? <>
+          {readingEntries.length > 0 && <View testID="downloads-reading" style={{marginTop: 24}}>
+            <DownloadsSectionHeading label={t('next.settingsSpec.account.reading.title')} count={readingEntries.length}/>
+            <View style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14}}>
+              {readingEntries.map(entry => <View key={entry.id} style={{width: '50%', paddingHorizontal: 6}}>
+                <View style={{borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>{downloadRow(entry, false)}</View>
+              </View>)}
+            </View>
+          </View>}
+          {watchingGroups.length > 0 && <View testID="downloads-watching" style={{marginTop: 24}}>
+            <DownloadsSectionHeading label={t('next.live.watching')} count={watchingGroups.length}/>
+            {watchingGroups.map(group => <View key={group.key} style={{marginTop: 8}}>
+              {!!group.title && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 8, marginHorizontal: 20, marginBottom: 4}}>
+                <Text accessibilityRole="header" style={[browseType(theme, 15, 700), {color: theme.colors.textSecondary}]}>{group.title}</Text>
+                {group.episodeCount !== undefined && <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: group.episodeCount})}</Text>}
+              </View>}
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14}}>
+                {group.entries.map(entry => <View key={entry.id} style={{width: '50%', paddingHorizontal: 6}}>
+                  <View style={{borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>{downloadRow(entry, false)}</View>
+                </View>)}
+              </View>
+            </View>)}
+          </View>}
+          <View style={{marginTop: 10}}>{ruleList}{otherNotice}</View>
+        </> : <View>
+          {!empty && groups.map(group => <View key={group.key}>
             {!!group.title && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 20, marginHorizontal: 20, marginBottom: 8}}>
               <Text accessibilityRole="header" style={[browseType(theme, 13.5, 700), {color: theme.colors.textSecondary}]}>{group.title}</Text>
               {group.episodeCount !== undefined && <Text style={[browseType(theme, 13.5, 700), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: group.episodeCount})}</Text>}
             </View>}
             <View style={{marginHorizontal: 16, backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>
-              {group.entries.map((entry, index) => <DownloadRow key={entry.id} entry={entry} device={device} runtime={runtime} copy={copy} separator={index > 0} menuOpen={menu?.id === entry.id}
-                onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={device.openOffline ? () => run(() => device.openOffline!(entry)) : undefined} onRetry={() => run(() => device.resume(entry))}/>)}
+              {group.entries.map((entry, index) => downloadRow(entry, index > 0))}
             </View>
-          </View>)}</View>}
-          <View style={dimensions.width >= 1024 && !empty ? {width: 360} : {flex: 1}}>{ruleList}
-            {snapshot.otherBytes > 0 && <View style={{marginHorizontal: 16, marginTop: 14, paddingLeft: 14, paddingRight: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: alpha(theme.colors.text, .08), flexDirection: 'row', gap: 10, alignItems: 'center'}}>
-              <Icon name="i-info" size={18} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 13.5, 400), {color: theme.colors.textSecondary, flex: 1}]}>{t(copy.otherProfiles, {size: defaultI18n.bytes(snapshot.otherBytes)})}</Text>
-              <Chip testID="downloads-remove-other-profiles" disabled={pending} onPress={() => run(device.removeOthers)}>{t('action.remove')}</Chip>
-            </View>}
-          </View>
-        </View>
+          </View>)}
+          <View>{ruleList}{otherNotice}</View>
+        </View>}
       </>}
     </ScrollView>
     {dimensions.width < 600 && !theme.isTV ? <BottomSheet testID="downloads-entry-menu" title={undefined} open={!!menu} onOpenChange={open => {if (!open) setEntryMenu(undefined);}}
@@ -130,6 +177,23 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
     <Menu testID="downloads-storage-limit" open={pickingLimit} onOpenChange={setPickingLimit} anchorRef={limitRef} returnFocusRef={limitRef} title={t('downloads.storageLimit')}
       items={limits.map(value => ({id: String(value), label: value ? defaultI18n.bytes(value) : t('downloads.noLimit'), selected: snapshot.settings.limitBytes === value,
         onSelect: () => save({limitBytes: value})}))} presentation={dimensions.width < 600 ? 'sheet' : 'anchored'}/>
+  </View>;
+}
+
+function DownloadsSectionHeading({label, count}: {label: string; count: number}) {
+  const theme = useTheme();
+  return <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginHorizontal: 20, marginBottom: 6}}>
+    <Text accessibilityRole="header" style={[browseType(theme, 17, 700), {color: theme.colors.text}]}>{label}</Text>
+    <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.t('count.titles', {count})}</Text>
+  </View>;
+}
+
+function DownloadsStorageKey({color, label, size}: {color: string; label: string; size: number}) {
+  const theme = useTheme();
+  return <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+    <View style={{width: 7, height: 7, borderRadius: 4, backgroundColor: color}}/>
+    <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{label}</Text>
+    <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary}]}>{defaultI18n.bytes(size)}</Text>
   </View>;
 }
 
