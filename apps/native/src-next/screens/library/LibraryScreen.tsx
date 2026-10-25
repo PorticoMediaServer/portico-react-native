@@ -174,7 +174,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const emptyShown = empty || emptyHeld;
   const firstCard = state.collection?.itemAt(0), firstCardRegion = firstCard ? ids.libraryCard(state.library.id, nativeLibraryEntryKey(firstCard)) : undefined;
   useDestinationEntryFocus(active, emptyShown && theme.isTV ? {regionId: emptyRegion, childId: 'browse-home'} : undefined);
-  const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series'};
+  const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', ebook: 'books', comic: 'titles'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
     const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
     return {id: library.id, name: library.name, count: summary && <View style={{flexDirection: 'row', gap: 12}}>{summary.counts.filter(part => pivots[part.kind]).map(part => <Text key={part.kind}

@@ -36,6 +36,11 @@ test('only a live scan is offered for cancel, and its own state wins', () => {
 test('counts and audience come from the server summary', () => {
   const summary = {counts: [{kind: 'show', count: 24, atLeast: false}, {kind: 'episode', count: 96, atLeast: false}], coverUrls: ['/a.jpg'], latestArtwork: '', firstScan: false, empty: false, emptyKnown: true};
   assert.deepEqual(ownerLibraryCounts(library({summary})), [defaultI18n.t('lib.count', {count: 24, pivot: 'shows'}), defaultI18n.t('lib.count', {count: 96, pivot: 'episodes'})]);
+  // The merged reading summary kinds use the existing counted nouns: ebooks are
+  // books, comics take the catalogue's title/titles fallback, never audiobooks.
+  const reading = {...summary, counts: [{kind: 'ebook', count: 2, atLeast: false}, {kind: 'comic', count: 1, atLeast: false}]};
+  assert.deepEqual(ownerLibraryCounts(library({kind: 'book', summary: reading})),
+    [defaultI18n.t('lib.count', {count: 2, pivot: 'books'}), defaultI18n.t('lib.count', {count: 1, pivot: 'titles'})]);
   assert.equal(ownerLibraryAudience(library({audience: {everyone: false, accounts: 5}})), defaultI18n.t('next.ownerLibraries.audience', {count: 5}));
   assert.equal(ownerLibraryAudience(library({audience: {everyone: true, accounts: 5}})), defaultI18n.t('next.ownerLibraries.audienceEveryone'));
   assert.equal(ownerLibraryAudience(library()), undefined);
