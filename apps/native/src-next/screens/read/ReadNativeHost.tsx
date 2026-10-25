@@ -11,7 +11,7 @@ import {useTheme} from '../../kit/theme';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
 import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
 
-type Target = Readonly<{itemId: string; sourceId: string}>;
+type Target = Readonly<{itemId: string; sourceId: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
 /** Only trusted immutable app code is loaded. The real API/session never enters
  * the WebView; the single browser controller receives structural byte callbacks. */
 export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings}: {
@@ -66,7 +66,9 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot,
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
-        initialProgress, current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
+        initialProgress, initialContentsTarget: target.contentsTarget,
+        onUnavailable: () => {if (current()) setState({failed: true}); void dispose().catch(() => {});},
+        current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
       // The guest may handshake before the post-render activity effect runs.
       host.current.setActive(callbacks.current.active);
