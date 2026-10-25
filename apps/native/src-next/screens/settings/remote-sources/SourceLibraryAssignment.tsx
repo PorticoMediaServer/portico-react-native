@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Text} from 'react-native';
 import type {LibraryManagementService, ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
 import type {RemoteFolder, RemoteSource} from '../../../../../../packages/client-core/src/remote-sources';
@@ -29,10 +29,12 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
   const flight = useRef(false), revision = useRef(0), renderedRevision = revision.current;
   const [mode, setMode] = useState<'new' | 'existing'>('new'), [name, setName] = useState(source.name), [kind, setKind] = useState<ManagedLibrary['kind']>('movie');
   const [target, setTarget] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [done, setDone] = useState<string>();
-  const owns = () => current() && revision.current === renderedRevision;
+  const draft = useMemo(() => Object.freeze({mode, name, kind, target, source, folders}), [mode, name, kind, target, source, folders]);
+  const latestDraft = useRef(draft); latestDraft.current = draft;
+  const owns = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
   const kinds: readonly ManagedLibrary['kind'][] = ['movie', 'tv', 'anime', 'music', 'audiobook', 'book', 'comic'];
   const selected = snapshot.directory.data?.items.find(value => value.id === target);
-  const ambiguous = snapshot.mutation.phase === 'ambiguous';
+  const [ambiguous, setAmbiguous] = useState(false);
   const valid = folders.length > 0 && folders.length <= 64 && (mode === 'new' ? !!name.trim() && new TextEncoder().encode(name.trim()).length <= 100 : !!selected);
   const edit = (action: () => void) => {if (flight.current || !current()) return; revision.current++; setError(undefined); action();};
   const save = async () => {
@@ -42,11 +44,15 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
       if (mode === 'new') {
         await controller.validateAssignmentFolders(source, folders, owns);
         if (!owns()) return;
-        await service.createLibrary({name, kind, folders: folders.map(value => value.path)});
-        if (!owns()) return;
-        const result = service.getSnapshot().mutation;
-        if (result.phase !== 'complete') throw Object.assign(new Error('library_assignment_failed'), {code: result.error?.code});
-        setDone(name.trim());
+        const operation = controller.libraryAssignment(owns);
+        try {
+          await operation.createLibrary({name: draft.name, kind: draft.kind, folders: draft.folders.map(value => value.path)});
+          if (!owns()) return;
+          const result = operation.getSnapshot().mutation;
+          if (result.phase === 'ambiguous') setAmbiguous(true);
+          if (result.phase !== 'complete') throw Object.assign(new Error('library_assignment_failed'), {code: result.error?.code});
+          setDone(draft.name.trim());
+        } finally {operation.dispose();}
       } else if (selected) {
         for (const folder of folders) {if (!owns()) return; await controller.attachFolder(source, selected.id, folder, owns);}
         if (owns()) setDone(selected.name);
