@@ -79,8 +79,7 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
         {props.seasons.map(season => {
           const active = selected(season) || (focus.kind === 'season' && focus.season.id === season.id);
           const total = season.episodeCount, watched = season.watchedCount;
-          const complete = watched !== undefined && total !== undefined && total > 0 && watched >= total;
-          const partial = watched !== undefined && total !== undefined && !complete && watched > 0;
+          const counted = watched !== undefined && total !== undefined && total > 0;
           return <Focusable key={season.id} testID={`tv-season-${season.id}`} focusKind="row" focusRadius={12} accessibilityRole="button"
             accessibilityState={{selected: selected(season)}} hasTVPreferredFocus={focus.kind === 'season' && focus.season.id === season.id}
             nextFocusRight={rowTag} onLayout={active ? event => setListTag(event.target) : undefined}
@@ -90,11 +89,10 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
               backgroundColor: active ? '#409fd424' : 'transparent', overflow: 'hidden'}}>
             {active && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: theme.colors.accent}}/>}
             <Text numberOfLines={1} style={[browseType(theme, 26, 700), {color: theme.colors.text}]}>{season.title || t('title.season', {number: season.number})}</Text>
-            {complete ? <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('card.watched')}</Text>
-              : partial ? <View style={{marginTop: 4}}>
-                <View style={{height: 4, borderRadius: 2, backgroundColor: '#edf5fa29'}}><View style={{height: 4, width: `${Math.min(1, watched! / total!) * 100}%`, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/></View>
-                <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, marginTop: 4}]}>{t('title.seasonProgress', {watched, total})}</Text>
-              </View>
+            {counted ? <View style={{marginTop: 4}}>
+              <View style={{height: 4, borderRadius: 2, backgroundColor: '#edf5fa29'}}><View style={{height: 4, width: `${Math.min(1, watched! / total!) * 100}%`, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/></View>
+              <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, marginTop: 4}]}>{t('title.seasonProgress', {watched, total})}</Text>
+            </View>
               : total !== undefined ? <Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('count.episodes', {count: total})}</Text> : null}
           </Focusable>;
         })}
@@ -107,8 +105,9 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
         {episodes.map(entry => {
           const model = cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title, episode: numbering(entry), durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', props.text);
           const upNext = nextUp?.id === entry.id;
-          return <TVTile key={entry.id} entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} caption={model.detail} width={356}
-            length={entry.duration === undefined ? undefined : durationText(entry.duration, t)} status={upNext ? t('title.nextUp') : undefined}
+          // tv-detail frames 5 to 8 draw one muted label under the title and the length as a badge on the still.
+          return <TVTile key={entry.id} entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={356}
+            length={entry.duration === undefined ? undefined : durationText(entry.duration, t)} status={upNext ? t('player.post.upNext') : undefined}
             watched={entry.watched} progress={model.progress} artwork={props.artwork(entry.stillUrl)} backdropFallback={!entry.stillUrl} more={props.more}
             primaryAction="play" onLayout={upNext ? event => setRowTag(event.target) : undefined} hasTVPreferredFocus={focus.kind === 'episode' && focus.entry.id === entry.id}
             nextFocusLeft={listTag} onFocus={() => episodeFocus(entry)} onPlay={() => props.onPlayEpisode(entry)}/>;

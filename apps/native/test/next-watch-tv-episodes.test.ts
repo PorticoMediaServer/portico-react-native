@@ -43,11 +43,11 @@ test('TV episodes draw the season side list, the next-up tile and its focus band
     const rows = nodes.filter(node => node.props.testID?.startsWith('tv-season-'));
     assert.deepEqual(rows.map(row => row.props.testID), ['tv-season-s1', 'tv-season-s2']);
     assert.equal(rows[1].props.accessibilityState.selected, true, 'the open season is marked');
-    assert.ok(descendants(rows[0]).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('card.watched')));
+    assert.ok(descendants(rows[0]).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.seasonProgress', {watched: 7, total: 7})));
     assert.ok(descendants(rows[1]).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.seasonProgress', {watched: 2, total: 13})));
     const tiles = nodes.filter(node => node.type === TVTile);
     assert.equal(tiles.length, 3);
-    assert.equal(tiles[1].props.status, defaultI18n.t('title.nextUp'));
+    assert.equal(tiles[1].props.status, defaultI18n.t('player.post.upNext'));
     tiles[1].props.onLayout({target: 99}); host.rerender();
     assert.equal(descendants(tree).filter(node => node.props.testID?.startsWith('tv-season-'))[0].props.nextFocusRight, 99, 'Right from the list lands on the next-up tile');
     const band = nodes.find(node => node.type === FocusBand);
