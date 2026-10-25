@@ -1,3 +1,4 @@
+import type {NativeScreenLifetime} from '../lifetime';
 import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import type {ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
@@ -31,19 +32,20 @@ type Translate = typeof defaultI18n.t;
 type ViewerRole = 'owner' | 'administrator' | 'member';
 
 /** Settings › Server › Libraries: the owner's list and one library's page, on the phone. */
-export function NativeOwnerLibrariesPanel({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lifetime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialLibraryId?: string; lifetime?: NativeScreenLifetime}) {
   const theme = useTheme(), t = runtime.text.t, context = ports.context, authority = context.authority();
-  const api = useMemo(() => ({request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)}), [context]);
+  const api = useMemo(() => ({request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime ? lifetime.request(next => context.api.request<T>(path, method, body, next), signal) : context.api.request<T>(path, method, body, signal)}), [context, lifetime]);
   const scope = useMemo(() => ({serverId: authority.serverId, viewerId: JSON.stringify([authority.epoch, authority.accountId, authority.profileId])}), [authority]);
   const controller = useMemo(() => new NativeOwnerLibrariesController(api, scope, ports.requestId), [api, scope, ports]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
-  const [openId, setOpenId] = useState<string>(), [tab, setTab] = useState('general');
+  const initialOwnerLibrary = context.current() && context.account.canManage && context.account.account.role === 'owner' && !context.account.account.disabled && context.account.account.primaryProfileId === authority.profileId ? initialLibraryId : undefined;
+  const [openId, setOpenId] = useState<string>(initialOwnerLibrary), [tab, setTab] = useState('general');
   const [adding, setAdding] = useState(false), [folderForm, setFolderForm] = useState<{source?: InventorySource}>(),
     [rename, setRename] = useState(false), [leaving, setLeaving] = useState(false), [removingFolder, setRemovingFolder] = useState<InventorySource>(),
     [folderMenu, setFolderMenu] = useState<InventorySource>(), [libraryMenu, setLibraryMenu] = useState<ManagedLibrary>(), [menuOnPage, setMenuOnPage] = useState(false), [skipped, setSkipped] = useState(false);
 
-  useEffect(() => {void controller.refresh(); return () => controller.dispose();}, [controller]);
+  useEffect(() => {void controller.refresh().then(() => {if (initialOwnerLibrary) return controller.load(initialOwnerLibrary);}); return () => controller.dispose();}, [controller, initialOwnerLibrary]);
 
   const libraries = state.directory.data?.items ?? [];
   const library = libraries.find((value: ManagedLibrary) => value.id === openId) ?? (state.selectedId === openId ? state.selected.data?.library : undefined);

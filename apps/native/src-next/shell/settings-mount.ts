@@ -1,3 +1,4 @@
+import {createNativeLibrarySettingsRenderer} from '../screens/settings-live/owner-libraries/LibrarySettingsRoute';
 import {createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
 import {nativeShellRoutes, type NativeRouteFactory} from './route-registry';
 
@@ -8,3 +9,5 @@ const dashboardFactory: NativeRouteFactory = context => createNativeServerDashbo
 
 nativeShellRoutes.registerDestination('settings', settingsFactory);
 nativeShellRoutes.registerRoute('server-dashboard', dashboardFactory);
+
+nativeShellRoutes.registerRoute('library-settings', context => createNativeLibrarySettingsRenderer(context));
