@@ -16,6 +16,7 @@ import {nativeAppSessions} from './app-session-storage';
 import {nativeCertificatePlatform} from './server-connections';
 import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
+import {NativeProfileRecovery} from './profile-recovery';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -188,6 +189,30 @@ export class NativeServerSignIn {
       this.issued.set(result.session.sessionFamilyId, result.session);
       try {await this.persist(result.session);} catch (error) {await this.retire(result.session); throw error;}
     });
+  }
+  /** Auth18 on the sign-in picker. The same account-scoped sign-in that opened the
+   * picker supplies a proven management snapshot. This seam never opens the
+   * temporary-proof path, and disposal closes the recovery fence. */
+  profileRecovery(profileId: string) {
+    this.assertCurrent();
+    const api = this.api, snapshot = this.snapshot, account = this.account, server = this.server;
+    if (!api || !snapshot || !account || !server || !snapshot.canManage || !snapshot.capabilities.manageAccount
+      || account.viewer.role !== 'account' || account.viewer.authority !== snapshot.authority
+      || account.viewer.serverId !== snapshot.serverId || account.viewer.accountId !== snapshot.account.id) throw mismatch();
+    const pin = api.getRouteConnection()?.pin;
+    if (!pin) throw mismatch();
+    const authorityCurrent = () => {
+      if (!this.current() || this.api !== api || this.snapshot !== snapshot || this.account !== account) return false;
+      const live = api.getRouteConnection()?.pin;
+      return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;
+    };
+    return new NativeProfileRecovery({api, snapshot, profileId, selectedFamilyId: account.sessionFamilyId, kind: server.signIn,
+      authorityCurrent,
+      // This seam already has an authenticated management grant. Never mint or
+      // clean up a proof family here: both the account grant and any installed
+      // viewer family remain retained until normal sign-in publication/cancel.
+      temporary: () => {throw mismatch();}});
+
   }
   private async persist(session: LocalSession) {
     this.assertCurrent();
