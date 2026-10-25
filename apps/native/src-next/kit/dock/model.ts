@@ -99,8 +99,18 @@ export function validRect(rect: {x: number; y: number; width: number; height: nu
 export type DockBarFrame = Readonly<{left: number; right: number; bottom: number; maxWidth?: number}>;
 /** foldable3f .md .mini: 66 pt tall, 8 pt gaps, 44 pt transport controls, at most 540 pt wide. */
 export const mediumDockMetrics = Object.freeze({height: 66, gap: 8, button: 44, maxWidth: 540});
-export function dockBarFrame(platform: 'phone' | 'tablet' | 'web' | 'tv', bottomInset: number | undefined, safeBottom: number): DockBarFrame {
-  if (platform === 'tablet') return {left: 100, right: 16, bottom: 18, maxWidth: mediumDockMetrics.maxWidth};
+/** tablet-play 4a/13: the expanded dock is 100 tall at the content's foot, beside
+ * the sidebar, with a 96 × 54 card, 44 pt tools around a 48 pt centre and a plain
+ * 4 pt scrubber with a 44 pt touch zone. */
+export const expandedDockMetrics = Object.freeze({height: 100, cardWidth: 96, cardHeight: 54, button: 44, primary: 48, sideLeft: 16, sideRight: 12,
+  topInset: 12, bottomInset: 23, transportGap: 6, scrubWidth: 400, scrubHeight: 4, scrubZone: 44, endGap: 0,
+  /** The 1180 frame's body and tools, clamped to the bar's own measured width. */
+  bodyWidth: 232, toolsWidth: 132, edgeGap: 12, minBody: 108, minScrub: 120});
+export function dockBarFrame(platform: 'phone' | 'tablet' | 'web' | 'tv', bottomInset: number | undefined, safeBottom: number, contentInset = 84): DockBarFrame {
+  // The expanded window puts the bar at the foot of the content area beside the
+  // sidebar; the medium one floats above the home indicator, 16 in from it.
+  if (platform === 'web') return {left: contentInset, right: 0, bottom: 0};
+  if (platform === 'tablet') return {left: contentInset + 16, right: 16, bottom: 18, maxWidth: mediumDockMetrics.maxWidth};
   return {left: 8, right: 8, bottom: bottomInset ?? Math.max(84, safeBottom) + 8};
 }
 

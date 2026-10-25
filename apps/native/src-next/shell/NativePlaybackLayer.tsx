@@ -26,7 +26,7 @@ import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
-export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
+export function NativePlaybackLayer({adapter, runtime, authority, contentInset}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority; contentInset?: number}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme(), insets = useSafeAreaInsets();
   const watch = runtime.watch;
@@ -198,11 +198,11 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={watch ? {position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height} : {position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
-        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
+        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot} contentInset={contentInset}
           tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
-          notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'tablet' ? 66 : 62) + 10}/>}
+          notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'web' ? 100 : theme.platform === 'tablet' ? 66 : 62) + 10}/>}
         {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined} artwork={runtime.artwork}
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
