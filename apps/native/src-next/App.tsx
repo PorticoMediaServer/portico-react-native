@@ -17,6 +17,7 @@ if (!Platform.isTV) {
   require('./screens/library/OverviewRoute');
   require('./screens/destinations/PinsRoute');
   require('./screens/destinations/music/register');
+  require('./screens/destinations/audiobooks/register');
   require('./screens/read/register');
   require('./screens/people/register');
   require('./screens/search/register');

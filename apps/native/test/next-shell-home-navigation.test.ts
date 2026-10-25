@@ -134,3 +134,11 @@ test('activation never admits a different library or retired viewer, and title r
   assert.equal(routes.top({kind: 'library', libraryId: 'movies'}, authority), false);
   routes.dispose();
 });
+
+test('a book route keeps its audiobook library in the rail', () => {
+  const routes = new NativeShellNavigation(authority, () => authority);
+  routes.open({kind: 'book', entry: {id: 'book-1', libraryId: 'books', kind: 'book', title: 'The Martian'}}, authority);
+  assert.deepEqual(nativeRailDestination(routes.getSnapshot(), [{id: 'books'}]), {kind: 'library', libraryId: 'books'});
+  assert.deepEqual(nativeRailDestination(routes.getSnapshot(), []), {kind: 'home'});
+  routes.dispose();
+});
