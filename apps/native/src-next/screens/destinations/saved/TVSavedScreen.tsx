@@ -118,8 +118,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const theme = useTheme(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [tab, setTab] = useState<Tab>(initialTab), [sort, setSort] = useState<Exclude<SavedListSort, 'updated'>>('added');
   const [filter, setFilter] = useState<SavedListFilter>('all'), [period, setPeriod] = useState<HistoryPeriod>('7d');
-  const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false);
-  const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
+  const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false), [clearing, setClearing] = useState(false);
+  const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null), clearOpener = useRef<View>(null), clearCancel = useRef<View>(null);
   // tv-more1: Jump to is drawn only under a title sort, over the titles this page has actually
   // loaded; nothing claims an index for a page it has not read.
   const page = useRef<ScrollView>(null), [jumpOpen, setJumpOpen] = useState(false), [scrollY, setScrollY] = useState(0);
@@ -240,7 +240,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
           {periods.map(value => <Chip focusId={`saved-period-${value}`} key={value} selected={period === value} onPress={() => {setPeriod(value); run(controller.select(tab, {sort, filter, period: value}));}}>
             {value === '30d' || value === '90d' ? t('web.saved.days', {count: value === '30d' ? 30 : 90}) : t(periodLabel[value])}
           </Chip>)}
-          <Button focusId="saved-clear-history" variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={() => setClearOpen(true)}>{t('web.saved.clearHistory')}</Button>
+          <Button ref={clearOpener} focusId="saved-clear-history" variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={() => setClearOpen(true)}>{t('web.saved.clearHistory')}</Button>
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
@@ -255,8 +255,14 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         onSelect: () => {setFilter(option.id as SavedListFilter); run(controller.select(tab, {sort, filter: option.id as SavedListFilter, period}));}}))
       : filters.map(value => ({id: value.id, label: t(value.label), selected: value.id === filter,
         onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
-    <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
-      footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
+    <Dialog open={clearOpen} onOpenChange={value => {if (!value && !clearing) setClearOpen(false);}} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
+      initialFocusRef={clearCancel} returnFocusRef={clearOpener}
+      footer={<><Button ref={clearCancel} variant="glass" disabled={clearing} onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={clearing} loading={clearing} onPress={() => {
+        if (clearing) return;
+        // The dialog closes on the press; the flag keeps a second press from clearing twice.
+        setClearing(true); setClearOpen(false);
+        void controller.clearHistory(period).catch(runtime.reportError).finally(() => setClearing(false));
+      }}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
     <LibraryJumpSheet open={jumpOpen} panelId={`${ids.savedGrid}.jump`} letters={jumpLetters.map(letter => ({key: letter.key, index: letter.index}))} selected={selectedLetter}
       onSelect={key => {
         const target = jumpLetters.find(letter => letter.key === key), top = target ? cardTop(target.id) : undefined;
