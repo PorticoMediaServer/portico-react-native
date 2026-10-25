@@ -46,8 +46,9 @@ const authorPart = (item: ReadingItem) => item.author ? [{id: 'author', text: it
 /** phone-read frames 1 and 2: Discover (real Continue reading and Recently
  * added rows) and Books/Volumes (the bounded Reading list). The other drawn
  * rows need producers that do not exist yet, so they are omitted rather than
- * faked; no generic content browse, series route or word-count estimate is
- * used. */
+ * faked; no generic content browse, library series row or word-count estimate
+ * is used. An item opens its own book page, whose series link reaches the
+ * signed series page; the library itself lists no synthetic series row. */
 export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProps) {
   const {context, runtime, libraryId, title, labels, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   type DownloadOwner = {live: boolean; current?: () => boolean};
