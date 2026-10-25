@@ -24,6 +24,7 @@ export function decodeCreateDownloadRequestResponse(input: unknown): types.Creat
 export function decodeCreateJobResponse(input: unknown): types.CreateJobResponse { return decode("CreateJobResponse", input) as types.CreateJobResponse; }
 export function decodeCreateQueueResponse(input: unknown): types.CreateQueueResponse { return decode("CreateQueueResponse", input) as types.CreateQueueResponse; }
 export function decodeCreateStorageSourceRcloneResponse(input: unknown): types.CreateStorageSourceRcloneResponse { return decode("CreateStorageSourceRcloneResponse", input) as types.CreateStorageSourceRcloneResponse; }
+export function decodeCreateStorageSourceRcloneConfigResponse(input: unknown): types.CreateStorageSourceRcloneConfigResponse { return decode("CreateStorageSourceRcloneConfigResponse", input) as types.CreateStorageSourceRcloneConfigResponse; }
 export function decodeCreateWebhookResponse(input: unknown): types.CreateWebhookResponse { return decode("CreateWebhookResponse", input) as types.CreateWebhookResponse; }
 export function decodeDeleteAdminBackupResponse(input: unknown): types.DeleteAdminBackupResponse { return decode("DeleteAdminBackupResponse", input) as types.DeleteAdminBackupResponse; }
 export function decodeDeleteAdminDvrRecordingGroupsIdResponse(input: unknown): types.DeleteAdminDvrRecordingGroupsIdResponse { return decode("DeleteAdminDvrRecordingGroupsIdResponse", input) as types.DeleteAdminDvrRecordingGroupsIdResponse; }
@@ -214,6 +215,7 @@ export function decodeGetGuideOnNowResponse(input: unknown): types.GetGuideOnNow
 export function decodeGetGuideProgrammeImageResponse(input: unknown): types.GetGuideProgrammeImageResponse { return decode("GetGuideProgrammeImageResponse", input) as types.GetGuideProgrammeImageResponse; }
 export function decodeGetGuideRemindersResponse(input: unknown): types.GetGuideRemindersResponse { return decode("GetGuideRemindersResponse", input) as types.GetGuideRemindersResponse; }
 export function decodeGetGuideSourcesResponse(input: unknown): types.GetGuideSourcesResponse { return decode("GetGuideSourcesResponse", input) as types.GetGuideSourcesResponse; }
+export function decodeGetHardwareFactsResponse(input: unknown): types.GetHardwareFactsResponse { return decode("GetHardwareFactsResponse", input) as types.GetHardwareFactsResponse; }
 export function decodeGetHealthLiveResponse(input: unknown): types.GetHealthLiveResponse { return decode("GetHealthLiveResponse", input) as types.GetHealthLiveResponse; }
 export function decodeGetHealthReadyResponse(input: unknown): types.GetHealthReadyResponse { return decode("GetHealthReadyResponse", input) as types.GetHealthReadyResponse; }
 export function decodeGetHomeResponse(input: unknown): types.GetHomeResponse { return decode("GetHomeResponse", input) as types.GetHomeResponse; }
@@ -349,10 +351,14 @@ export function decodeGetSignInSettingsResponse(input: unknown): types.GetSignIn
 export function decodeGetStorageMountsResponse(input: unknown): types.GetStorageMountsResponse { return decode("GetStorageMountsResponse", input) as types.GetStorageMountsResponse; }
 export function decodeGetStorageOperationsIdResponse(input: unknown): types.GetStorageOperationsIdResponse { return decode("GetStorageOperationsIdResponse", input) as types.GetStorageOperationsIdResponse; }
 export function decodeGetStorageRcloneBundledResponse(input: unknown): types.GetStorageRcloneBundledResponse { return decode("GetStorageRcloneBundledResponse", input) as types.GetStorageRcloneBundledResponse; }
+export function decodeGetStorageSourceAdvancedResponse(input: unknown): types.GetStorageSourceAdvancedResponse { return decode("GetStorageSourceAdvancedResponse", input) as types.GetStorageSourceAdvancedResponse; }
+export function decodeGetStorageSourceFoldersResponse(input: unknown): types.GetStorageSourceFoldersResponse { return decode("GetStorageSourceFoldersResponse", input) as types.GetStorageSourceFoldersResponse; }
 export function decodeGetStorageSourceOperationsIdResponse(input: unknown): types.GetStorageSourceOperationsIdResponse { return decode("GetStorageSourceOperationsIdResponse", input) as types.GetStorageSourceOperationsIdResponse; }
+export function decodeGetStorageSourceRcloneConfigResponse(input: unknown): types.GetStorageSourceRcloneConfigResponse { return decode("GetStorageSourceRcloneConfigResponse", input) as types.GetStorageSourceRcloneConfigResponse; }
 export function decodeGetStorageSourceRcloneOperationResponse(input: unknown): types.GetStorageSourceRcloneOperationResponse { return decode("GetStorageSourceRcloneOperationResponse", input) as types.GetStorageSourceRcloneOperationResponse; }
 export function decodeGetStorageSourceRcloneProvidersResponse(input: unknown): types.GetStorageSourceRcloneProvidersResponse { return decode("GetStorageSourceRcloneProvidersResponse", input) as types.GetStorageSourceRcloneProvidersResponse; }
 export function decodeGetStorageSourceReadProfileResponse(input: unknown): types.GetStorageSourceReadProfileResponse { return decode("GetStorageSourceReadProfileResponse", input) as types.GetStorageSourceReadProfileResponse; }
+export function decodeGetStorageSourceStatusResponse(input: unknown): types.GetStorageSourceStatusResponse { return decode("GetStorageSourceStatusResponse", input) as types.GetStorageSourceStatusResponse; }
 export function decodeGetStorageSourcesResponse(input: unknown): types.GetStorageSourcesResponse { return decode("GetStorageSourcesResponse", input) as types.GetStorageSourcesResponse; }
 export function decodeGetStorageStatusResponse(input: unknown): types.GetStorageStatusResponse { return decode("GetStorageStatusResponse", input) as types.GetStorageStatusResponse; }
 export function decodeGetSubtitleFontsCjkResponse(input: unknown): types.GetSubtitleFontsCjkResponse { return decode("GetSubtitleFontsCjkResponse", input) as types.GetSubtitleFontsCjkResponse; }
@@ -654,6 +660,7 @@ export function decodePutSavedResourcesIdSharesResponse(input: unknown): types.P
 export function decodePutShowsIdMetadataScreenResponse(input: unknown): types.PutShowsIdMetadataScreenResponse { return decode("PutShowsIdMetadataScreenResponse", input) as types.PutShowsIdMetadataScreenResponse; }
 export function decodePutShowsIdMetadataScreenSeasonResponse(input: unknown): types.PutShowsIdMetadataScreenSeasonResponse { return decode("PutShowsIdMetadataScreenSeasonResponse", input) as types.PutShowsIdMetadataScreenSeasonResponse; }
 export function decodePutShowsIdMetadataTvdbResponse(input: unknown): types.PutShowsIdMetadataTvdbResponse { return decode("PutShowsIdMetadataTvdbResponse", input) as types.PutShowsIdMetadataTvdbResponse; }
+export function decodePutStorageSourceAdvancedResponse(input: unknown): types.PutStorageSourceAdvancedResponse { return decode("PutStorageSourceAdvancedResponse", input) as types.PutStorageSourceAdvancedResponse; }
 export function decodePutStorageSourceReadProfileResponse(input: unknown): types.PutStorageSourceReadProfileResponse { return decode("PutStorageSourceReadProfileResponse", input) as types.PutStorageSourceReadProfileResponse; }
 export function decodePutStorageSourcesWebdavIdResponse(input: unknown): types.PutStorageSourcesWebdavIdResponse { return decode("PutStorageSourcesWebdavIdResponse", input) as types.PutStorageSourcesWebdavIdResponse; }
 export function decodePutV1ItemsItemIdSubtitlesResourceResponse(input: unknown): types.PutV1ItemsItemIdSubtitlesResourceResponse { return decode("PutV1ItemsItemIdSubtitlesResourceResponse", input) as types.PutV1ItemsItemIdSubtitlesResourceResponse; }
@@ -725,6 +732,7 @@ export function decodeStopAccountPlaybackResponse(input: unknown): types.StopAcc
 export function decodeStopPlaybackSessionResponse(input: unknown): types.StopPlaybackSessionResponse { return decode("StopPlaybackSessionResponse", input) as types.StopPlaybackSessionResponse; }
 export function decodeSyncDownloadProgressResponse(input: unknown): types.SyncDownloadProgressResponse { return decode("SyncDownloadProgressResponse", input) as types.SyncDownloadProgressResponse; }
 export function decodeTerminateAdminSessionResponse(input: unknown): types.TerminateAdminSessionResponse { return decode("TerminateAdminSessionResponse", input) as types.TerminateAdminSessionResponse; }
+export function decodeTestAdminTranscodeHardwareResponse(input: unknown): types.TestAdminTranscodeHardwareResponse { return decode("TestAdminTranscodeHardwareResponse", input) as types.TestAdminTranscodeHardwareResponse; }
 export function decodeTestStorageSourceRcloneResponse(input: unknown): types.TestStorageSourceRcloneResponse { return decode("TestStorageSourceRcloneResponse", input) as types.TestStorageSourceRcloneResponse; }
 export function decodeTestStorageSourceWebdavResponse(input: unknown): types.TestStorageSourceWebdavResponse { return decode("TestStorageSourceWebdavResponse", input) as types.TestStorageSourceWebdavResponse; }
 export function decodeTestWebhookResponse(input: unknown): types.TestWebhookResponse { return decode("TestWebhookResponse", input) as types.TestWebhookResponse; }

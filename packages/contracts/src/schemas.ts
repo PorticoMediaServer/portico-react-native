@@ -825,6 +825,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -1095,6 +1098,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -2330,6 +2336,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -2600,6 +2609,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -4082,6 +4094,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -4352,6 +4367,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -11030,6 +11048,9 @@ export const schemas = {
                   "codec": {
                     "type": "string"
                   },
+                  "delivery": {
+                    "type": "string"
+                  },
                   "layout": {
                     "type": "string"
                   },
@@ -11300,6 +11321,9 @@ export const schemas = {
                     "type": "integer"
                   },
                   "codec": {
+                    "type": "string"
+                  },
+                  "delivery": {
                     "type": "string"
                   },
                   "layout": {
@@ -12483,6 +12507,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -12753,6 +12780,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -16194,6 +16224,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -16464,6 +16497,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -17351,6 +17387,77 @@ export const schemas = {
     },
     "required": [
       "queue"
+    ],
+    "type": "object"
+  },
+  "CreateStorageSourceRcloneConfigRequest": {
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "operationId": {
+        "type": "string"
+      },
+      "remote": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "operationId",
+      "name",
+      "remote"
+    ],
+    "type": "object"
+  },
+  "CreateStorageSourceRcloneConfigResponse": {
+    "properties": {
+      "receipt": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "generation": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean"
+          },
+          "sourceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId",
+          "accepted",
+          "sourceId",
+          "generation"
+        ],
+        "type": "object"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "receipt"
     ],
     "type": "object"
   },
@@ -18678,6 +18785,9 @@ export const schemas = {
           "type": "string"
         },
         "type": "array"
+      },
+      "canMakeEpisodeThumbnail": {
+        "type": "boolean"
       },
       "candidates": {
         "items": {
@@ -30968,8 +31078,81 @@ export const schemas = {
               "device": {
                 "type": "string"
               },
+              "devices": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "inUse": {
+                      "type": "boolean"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "inUse"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "effective": {
                 "type": "string"
+              },
+              "formats": {
+                "items": {
+                  "properties": {
+                    "decode": {
+                      "type": "boolean"
+                    },
+                    "encode": {
+                      "type": "boolean"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "format",
+                    "decode",
+                    "encode"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastError": {
+                "nullable": true,
+                "properties": {
+                  "backend": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "device": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "lastTest": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
               },
               "probes": {
                 "items": {
@@ -30978,6 +31161,12 @@ export const schemas = {
                       "type": "string"
                     },
                     "detail": {
+                      "type": "string"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "encoder": {
                       "type": "string"
                     },
                     "supported": {
@@ -30998,7 +31187,11 @@ export const schemas = {
               "configured",
               "effective",
               "device",
-              "probes"
+              "probes",
+              "devices",
+              "formats",
+              "lastError",
+              "lastTest"
             ],
             "type": "object"
           },
@@ -32232,6 +32425,9 @@ export const schemas = {
           "stateDirectory": {
             "type": "string"
           },
+          "stateDirectoryOnNetwork": {
+            "type": "boolean"
+          },
           "totalBytes": {
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
@@ -32755,8 +32951,81 @@ export const schemas = {
               "device": {
                 "type": "string"
               },
+              "devices": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "inUse": {
+                      "type": "boolean"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "inUse"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "effective": {
                 "type": "string"
+              },
+              "formats": {
+                "items": {
+                  "properties": {
+                    "decode": {
+                      "type": "boolean"
+                    },
+                    "encode": {
+                      "type": "boolean"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "format",
+                    "decode",
+                    "encode"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastError": {
+                "nullable": true,
+                "properties": {
+                  "backend": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "device": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "lastTest": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
               },
               "probes": {
                 "items": {
@@ -32765,6 +33034,12 @@ export const schemas = {
                       "type": "string"
                     },
                     "detail": {
+                      "type": "string"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "encoder": {
                       "type": "string"
                     },
                     "supported": {
@@ -32785,7 +33060,11 @@ export const schemas = {
               "configured",
               "effective",
               "device",
-              "probes"
+              "probes",
+              "devices",
+              "formats",
+              "lastError",
+              "lastTest"
             ],
             "type": "object"
           },
@@ -46894,6 +47173,130 @@ export const schemas = {
       "viewerFence",
       "revision",
       "sources"
+    ],
+    "type": "object"
+  },
+  "GetHardwareFactsRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetHardwareFactsResponse": {
+    "properties": {
+      "formats": {
+        "items": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "later": {
+        "items": {
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "detail"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "platform": {
+        "properties": {
+          "container": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "remedy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "container"
+        ],
+        "type": "object"
+      },
+      "targets": {
+        "items": {
+          "properties": {
+            "decode": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "encode": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "notes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "toneMapping": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "decode",
+            "encode",
+            "toneMapping",
+            "notes"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "platform",
+      "targets",
+      "formats",
+      "later"
     ],
     "type": "object"
   },
@@ -74379,6 +74782,139 @@ export const schemas = {
     "properties": {
       "canShare": {
         "type": "boolean"
+      },
+      "librarySelection": {
+        "properties": {
+          "resource": {
+            "nullable": true,
+            "properties": {
+              "canManage": {
+                "type": "boolean"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "deleted": {
+                "type": "boolean"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "document": {
+                "properties": {
+                  "embeddedOffsetMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "format": {
+                    "type": "string"
+                  },
+                  "lines": {
+                    "items": {
+                      "properties": {
+                        "atMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "atMs",
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "format",
+                  "text",
+                  "lines",
+                  "embeddedOffsetMs"
+                ],
+                "type": "object"
+              },
+              "format": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string"
+              },
+              "offsetMs": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "provenance": {
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "origin": {
+                    "type": "string"
+                  },
+                  "providerId": {
+                    "type": "string"
+                  },
+                  "rights": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "origin",
+                  "providerId",
+                  "label",
+                  "rights"
+                ],
+                "type": "object"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "scope": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "revision",
+              "scope",
+              "canManage",
+              "deleted",
+              "language",
+              "offsetMs",
+              "format",
+              "digest",
+              "provenance",
+              "createdAt"
+            ],
+            "type": "object"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "resource"
+        ],
+        "type": "object"
       },
       "providers": {
         "properties": {
@@ -114031,6 +114567,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "canMakeEpisodeThumbnail": {
+        "type": "boolean"
+      },
       "candidates": {
         "items": {
           "properties": {
@@ -114476,6 +115015,66 @@ export const schemas = {
         "type": "integer"
       },
       "includeAdult": {
+        "type": "boolean"
+      },
+      "libraries": {
+        "items": {
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "agentOptions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "canScrub": {
+              "type": "boolean"
+            },
+            "episodeThumbnailMode": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "lyricsSource": {
+              "type": "string"
+            },
+            "managed": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "scrubPreviews": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind",
+            "revision",
+            "agent",
+            "agentOptions",
+            "lyricsSource",
+            "episodeThumbnailMode",
+            "scrubPreviews",
+            "canScrub",
+            "managed"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "librariesComplete": {
         "type": "boolean"
       },
       "localArtworkLimitBytes": {
@@ -121004,6 +121603,9 @@ export const schemas = {
                   "codec": {
                     "type": "string"
                   },
+                  "delivery": {
+                    "type": "string"
+                  },
                   "layout": {
                     "type": "string"
                   },
@@ -121274,6 +121876,9 @@ export const schemas = {
                     "type": "integer"
                   },
                   "codec": {
+                    "type": "string"
+                  },
+                  "delivery": {
                     "type": "string"
                   },
                   "layout": {
@@ -126168,6 +126773,9 @@ export const schemas = {
                   ],
                   "type": "object"
                 },
+                "coverUrl": {
+                  "type": "string"
+                },
                 "format": {
                   "enum": [
                     "epub",
@@ -126184,6 +126792,30 @@ export const schemas = {
                 },
                 "libraryId": {
                   "type": "string"
+                },
+                "publicationType": {
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "owner",
+                        "file-metadata"
+                      ],
+                      "type": "string"
+                    },
+                    "value": {
+                      "enum": [
+                        "book",
+                        "magazine",
+                        "newspaper"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "source"
+                  ],
+                  "type": "object"
                 },
                 "series": {
                   "additionalProperties": false,
@@ -126353,6 +126985,9 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "coverUrl": {
+                    "type": "string"
+                  },
                   "format": {
                     "enum": [
                       "epub",
@@ -126369,6 +127004,30 @@ export const schemas = {
                   },
                   "libraryId": {
                     "type": "string"
+                  },
+                  "publicationType": {
+                    "properties": {
+                      "source": {
+                        "enum": [
+                          "owner",
+                          "file-metadata"
+                        ],
+                        "type": "string"
+                      },
+                      "value": {
+                        "enum": [
+                          "book",
+                          "magazine",
+                          "newspaper"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "source"
+                    ],
+                    "type": "object"
                   },
                   "series": {
                     "additionalProperties": false,
@@ -126474,6 +127133,9 @@ export const schemas = {
                           ],
                           "type": "object"
                         },
+                        "coverUrl": {
+                          "type": "string"
+                        },
                         "format": {
                           "enum": [
                             "epub",
@@ -126490,6 +127152,30 @@ export const schemas = {
                         },
                         "libraryId": {
                           "type": "string"
+                        },
+                        "publicationType": {
+                          "properties": {
+                            "source": {
+                              "enum": [
+                                "owner",
+                                "file-metadata"
+                              ],
+                              "type": "string"
+                            },
+                            "value": {
+                              "enum": [
+                                "book",
+                                "magazine",
+                                "newspaper"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "source"
+                          ],
+                          "type": "object"
                         },
                         "series": {
                           "additionalProperties": false,
@@ -126612,6 +127298,9 @@ export const schemas = {
               ],
               "type": "object"
             },
+            "coverUrl": {
+              "type": "string"
+            },
             "format": {
               "enum": [
                 "epub",
@@ -126628,6 +127317,30 @@ export const schemas = {
             },
             "libraryId": {
               "type": "string"
+            },
+            "publicationType": {
+              "properties": {
+                "source": {
+                  "enum": [
+                    "owner",
+                    "file-metadata"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "enum": [
+                    "book",
+                    "magazine",
+                    "newspaper"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "source"
+              ],
+              "type": "object"
             },
             "series": {
               "additionalProperties": false,
@@ -126724,6 +127437,9 @@ export const schemas = {
               ],
               "type": "object"
             },
+            "coverUrl": {
+              "type": "string"
+            },
             "format": {
               "enum": [
                 "epub",
@@ -126740,6 +127456,30 @@ export const schemas = {
             },
             "libraryId": {
               "type": "string"
+            },
+            "publicationType": {
+              "properties": {
+                "source": {
+                  "enum": [
+                    "owner",
+                    "file-metadata"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "enum": [
+                    "book",
+                    "magazine",
+                    "newspaper"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "source"
+              ],
+              "type": "object"
             },
             "series": {
               "additionalProperties": false,
@@ -148253,6 +148993,240 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "GetStorageSourceAdvancedRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetStorageSourceAdvancedResponse": {
+    "properties": {
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      },
+      "settings": {
+        "properties": {
+          "cacheApplied": {
+            "type": "boolean"
+          },
+          "cacheError": {
+            "type": "string"
+          },
+          "cacheSupported": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "saved": {
+            "type": "boolean"
+          },
+          "scanIntervalObserved": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "values": {
+            "properties": {
+              "cacheBytes": {
+                "description": "0 disables the read cache; otherwise 64 MiB through 64 GiB.",
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "cacheFloorBytes": {
+                "description": "0 keeps the mount's current free-space floor; otherwise 1 GiB through 1 TiB.",
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "chapterImages": {
+                "type": "boolean"
+              },
+              "checksums": {
+                "type": "boolean"
+              },
+              "fullRecheckDays": {
+                "enum": [
+                  0,
+                  7,
+                  14,
+                  30
+                ],
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "loudness": {
+                "type": "boolean"
+              },
+              "scanIntervalSeconds": {
+                "enum": [
+                  0,
+                  900,
+                  3600,
+                  21600,
+                  86400,
+                  604800
+                ],
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "scanOnStart": {
+                "type": "boolean"
+              },
+              "seekPreviews": {
+                "type": "boolean"
+              },
+              "watchForChanges": {
+                "type": "boolean"
+              },
+              "waveforms": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "scanIntervalSeconds",
+              "watchForChanges",
+              "scanOnStart",
+              "fullRecheckDays",
+              "cacheBytes",
+              "cacheFloorBytes",
+              "seekPreviews",
+              "chapterImages",
+              "waveforms",
+              "loudness",
+              "checksums"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "sourceId",
+          "generation",
+          "revision",
+          "saved",
+          "cacheSupported",
+          "cacheApplied",
+          "scanIntervalObserved",
+          "values"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "settings"
+    ],
+    "type": "object"
+  },
+  "GetStorageSourceFoldersRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetStorageSourceFoldersResponse": {
+    "properties": {
+      "folders": {
+        "properties": {
+          "entries": {
+            "items": {
+              "properties": {
+                "hidden": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "relative": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "relative",
+                "hidden"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "relative": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sourceId",
+          "generation",
+          "path",
+          "relative",
+          "entries",
+          "nextCursor",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "folders"
+    ],
+    "type": "object"
+  },
   "GetStorageSourceOperationsIdRequest": {
     "properties": {},
     "required": [],
@@ -148436,6 +149410,65 @@ export const schemas = {
     "required": [
       "scope",
       "receipt"
+    ],
+    "type": "object"
+  },
+  "GetStorageSourceRcloneConfigRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetStorageSourceRcloneConfigResponse": {
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "remotes": {
+        "items": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "supported": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "kind",
+            "supported",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "path",
+      "remotes"
     ],
     "type": "object"
   },
@@ -148634,6 +149667,122 @@ export const schemas = {
     "required": [
       "scope",
       "settings"
+    ],
+    "type": "object"
+  },
+  "GetStorageSourceStatusRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetStorageSourceStatusResponse": {
+    "properties": {
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      },
+      "status": {
+        "properties": {
+          "analysisReads": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "connectionsInUse": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "lastCheckedAt": {
+            "type": "string"
+          },
+          "libraries": {
+            "items": {
+              "properties": {
+                "folders": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "libraryId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "libraryId",
+                "name",
+                "kind",
+                "folders"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "librariesTruncated": {
+            "type": "boolean"
+          },
+          "playbackReads": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "rangeSupport": {
+            "type": "string"
+          },
+          "scanIntervalSeconds": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceId",
+          "generation",
+          "state",
+          "rangeSupport",
+          "lastCheckedAt",
+          "connectionsInUse",
+          "playbackReads",
+          "analysisReads",
+          "scanIntervalSeconds",
+          "libraries",
+          "librariesTruncated"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "status"
     ],
     "type": "object"
   },
@@ -154053,6 +155202,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -154323,6 +155475,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -177185,6 +178340,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "canMakeEpisodeThumbnail": {
+        "type": "boolean"
+      },
       "candidates": {
         "items": {
           "properties": {
@@ -177862,6 +179020,9 @@ export const schemas = {
           "type": "string"
         },
         "type": "array"
+      },
+      "canMakeEpisodeThumbnail": {
+        "type": "boolean"
       },
       "candidates": {
         "items": {
@@ -181985,6 +183146,9 @@ export const schemas = {
           "author": {
             "type": "string"
           },
+          "coverUrl": {
+            "type": "string"
+          },
           "direction": {
             "enum": [
               "ltr",
@@ -181995,6 +183159,30 @@ export const schemas = {
           },
           "language": {
             "type": "string"
+          },
+          "publicationType": {
+            "properties": {
+              "source": {
+                "enum": [
+                  "owner",
+                  "file-metadata"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "enum": [
+                  "book",
+                  "magazine",
+                  "newspaper"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "source"
+            ],
+            "type": "object"
           },
           "title": {
             "type": "string"
@@ -192026,6 +193214,9 @@ export const schemas = {
         "minimum": -9007199254740991,
         "type": "integer"
       },
+      "scope": {
+        "type": "string"
+      },
       "sessionId": {
         "type": "string"
       },
@@ -194149,6 +195340,36 @@ export const schemas = {
       "includeAdult": {
         "type": "boolean"
       },
+      "libraries": {
+        "items": {
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "episodeThumbnailMode": {
+              "type": "string"
+            },
+            "expectedRevision": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "lyricsSource": {
+              "type": "string"
+            },
+            "scrubPreviews": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "expectedRevision"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
       "localArtworkLimitBytes": {
         "maximum": 9007199254740991,
         "minimum": -9007199254740991,
@@ -194190,6 +195411,66 @@ export const schemas = {
         "type": "integer"
       },
       "includeAdult": {
+        "type": "boolean"
+      },
+      "libraries": {
+        "items": {
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "agentOptions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "canScrub": {
+              "type": "boolean"
+            },
+            "episodeThumbnailMode": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "lyricsSource": {
+              "type": "string"
+            },
+            "managed": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "scrubPreviews": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind",
+            "revision",
+            "agent",
+            "agentOptions",
+            "lyricsSource",
+            "episodeThumbnailMode",
+            "scrubPreviews",
+            "canScrub",
+            "managed"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "librariesComplete": {
         "type": "boolean"
       },
       "localArtworkLimitBytes": {
@@ -195403,6 +196684,241 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "PutStorageSourceAdvancedRequest": {
+    "properties": {
+      "expectedGeneration": {
+        "type": "string"
+      },
+      "expectedRevision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "values": {
+        "properties": {
+          "cacheBytes": {
+            "description": "0 disables the read cache; otherwise 64 MiB through 64 GiB.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "cacheFloorBytes": {
+            "description": "0 keeps the mount's current free-space floor; otherwise 1 GiB through 1 TiB.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "chapterImages": {
+            "type": "boolean"
+          },
+          "checksums": {
+            "type": "boolean"
+          },
+          "fullRecheckDays": {
+            "enum": [
+              0,
+              7,
+              14,
+              30
+            ],
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "loudness": {
+            "type": "boolean"
+          },
+          "scanIntervalSeconds": {
+            "enum": [
+              0,
+              900,
+              3600,
+              21600,
+              86400,
+              604800
+            ],
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "scanOnStart": {
+            "type": "boolean"
+          },
+          "seekPreviews": {
+            "type": "boolean"
+          },
+          "watchForChanges": {
+            "type": "boolean"
+          },
+          "waveforms": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scanIntervalSeconds",
+          "watchForChanges",
+          "scanOnStart",
+          "fullRecheckDays",
+          "cacheBytes",
+          "cacheFloorBytes",
+          "seekPreviews",
+          "chapterImages",
+          "waveforms",
+          "loudness",
+          "checksums"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "expectedGeneration",
+      "expectedRevision",
+      "values"
+    ],
+    "type": "object"
+  },
+  "PutStorageSourceAdvancedResponse": {
+    "properties": {
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      },
+      "settings": {
+        "properties": {
+          "cacheApplied": {
+            "type": "boolean"
+          },
+          "cacheError": {
+            "type": "string"
+          },
+          "cacheSupported": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "saved": {
+            "type": "boolean"
+          },
+          "scanIntervalObserved": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "values": {
+            "properties": {
+              "cacheBytes": {
+                "description": "0 disables the read cache; otherwise 64 MiB through 64 GiB.",
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "cacheFloorBytes": {
+                "description": "0 keeps the mount's current free-space floor; otherwise 1 GiB through 1 TiB.",
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "chapterImages": {
+                "type": "boolean"
+              },
+              "checksums": {
+                "type": "boolean"
+              },
+              "fullRecheckDays": {
+                "enum": [
+                  0,
+                  7,
+                  14,
+                  30
+                ],
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "loudness": {
+                "type": "boolean"
+              },
+              "scanIntervalSeconds": {
+                "enum": [
+                  0,
+                  900,
+                  3600,
+                  21600,
+                  86400,
+                  604800
+                ],
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "scanOnStart": {
+                "type": "boolean"
+              },
+              "seekPreviews": {
+                "type": "boolean"
+              },
+              "watchForChanges": {
+                "type": "boolean"
+              },
+              "waveforms": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "scanIntervalSeconds",
+              "watchForChanges",
+              "scanOnStart",
+              "fullRecheckDays",
+              "cacheBytes",
+              "cacheFloorBytes",
+              "seekPreviews",
+              "chapterImages",
+              "waveforms",
+              "loudness",
+              "checksums"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "sourceId",
+          "generation",
+          "revision",
+          "saved",
+          "cacheSupported",
+          "cacheApplied",
+          "scanIntervalObserved",
+          "values"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "settings"
+    ],
+    "type": "object"
+  },
   "PutStorageSourceReadProfileRequest": {
     "additionalProperties": false,
     "properties": {
@@ -196467,6 +197983,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -196737,6 +198256,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
@@ -209014,6 +210536,9 @@ export const schemas = {
                   "codec": {
                     "type": "string"
                   },
+                  "delivery": {
+                    "type": "string"
+                  },
                   "layout": {
                     "type": "string"
                   },
@@ -209284,6 +210809,9 @@ export const schemas = {
                     "type": "integer"
                   },
                   "codec": {
+                    "type": "string"
+                  },
+                  "delivery": {
                     "type": "string"
                   },
                   "layout": {
@@ -210205,6 +211733,449 @@ export const schemas = {
     "required": [],
     "type": "object"
   },
+  "TestAdminTranscodeHardwareRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "TestAdminTranscodeHardwareResponse": {
+    "properties": {
+      "data": {
+        "properties": {
+          "dependencies": {
+            "additionalProperties": {
+              "properties": {
+                "ok": {
+                  "type": "boolean"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "version",
+                "ok"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "directStreamRemux": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hardware": {
+            "properties": {
+              "configured": {
+                "type": "string"
+              },
+              "device": {
+                "type": "string"
+              },
+              "devices": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "inUse": {
+                      "type": "boolean"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "inUse"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "effective": {
+                "type": "string"
+              },
+              "formats": {
+                "items": {
+                  "properties": {
+                    "decode": {
+                      "type": "boolean"
+                    },
+                    "encode": {
+                      "type": "boolean"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "format",
+                    "decode",
+                    "encode"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "lastError": {
+                "nullable": true,
+                "properties": {
+                  "backend": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "device": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "lastTest": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "probes": {
+                "items": {
+                  "properties": {
+                    "backend": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "encoder": {
+                      "type": "string"
+                    },
+                    "supported": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "backend",
+                    "supported",
+                    "detail"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "configured",
+              "effective",
+              "device",
+              "probes",
+              "devices",
+              "formats",
+              "lastError",
+              "lastTest"
+            ],
+            "type": "object"
+          },
+          "hdrToneMapping": {
+            "properties": {
+              "detail": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "detail"
+            ],
+            "type": "object"
+          },
+          "observedAt": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "planningPolicy": {
+            "type": "string"
+          },
+          "playedRetentionMs": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "presets": {
+            "items": {
+              "properties": {
+                "audioKbps": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "height": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "videoKbps": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "height",
+                "videoKbps",
+                "audioKbps"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sessions": {
+            "properties": {
+              "active": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "nullable": true,
+                "type": "integer"
+              },
+              "background": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "nullable": true,
+                "type": "integer"
+              },
+              "hardware": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "nullable": true,
+                "type": "integer"
+              },
+              "limits": {
+                "properties": {
+                  "background": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "concurrent": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "hardware": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "software": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "concurrent",
+                  "hardware",
+                  "software",
+                  "background"
+                ],
+                "type": "object"
+              },
+              "software": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "nullable": true,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "active",
+              "hardware",
+              "software",
+              "background",
+              "limits"
+            ],
+            "type": "object"
+          },
+          "temporaryDirectory": {
+            "properties": {
+              "freeBytes": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "nullable": true,
+                "type": "integer"
+              },
+              "path": {
+                "type": "string"
+              },
+              "ready": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "path",
+              "ready",
+              "freeBytes"
+            ],
+            "type": "object"
+          },
+          "throttleBufferMs": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "toolchain": {
+            "properties": {
+              "bitstreamFilters": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "configuration": {
+                "type": "string"
+              },
+              "decoders": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "dolbyVisionProfile7To81": {
+                "type": "boolean"
+              },
+              "encoders": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "filters": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "hwaccels": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "identity": {
+                "type": "string"
+              },
+              "muxers": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "openclAvailable": {
+                "type": "boolean"
+              },
+              "version": {
+                "type": "string"
+              },
+              "vulkanAvailable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "dolbyVisionProfile7To81",
+              "bitstreamFilters",
+              "vulkanAvailable",
+              "openclAvailable",
+              "version",
+              "configuration",
+              "encoders",
+              "decoders",
+              "filters",
+              "muxers",
+              "hwaccels",
+              "identity"
+            ],
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "x264Preset": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "hardware",
+          "sessions",
+          "hdrToneMapping",
+          "directStreamRemux",
+          "x264Preset",
+          "planningPolicy",
+          "throttleBufferMs",
+          "playedRetentionMs",
+          "temporaryDirectory",
+          "presets",
+          "dependencies",
+          "warnings",
+          "observedAt"
+        ],
+        "type": "object"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "data"
+    ],
+    "type": "object"
+  },
   "TestStorageSourceRcloneRequest": {
     "properties": {
       "config": {
@@ -210782,6 +212753,9 @@ export const schemas = {
                       "codec": {
                         "type": "string"
                       },
+                      "delivery": {
+                        "type": "string"
+                      },
                       "layout": {
                         "type": "string"
                       },
@@ -211052,6 +213026,9 @@ export const schemas = {
                         "type": "integer"
                       },
                       "codec": {
+                        "type": "string"
+                      },
+                      "delivery": {
                         "type": "string"
                       },
                       "layout": {
