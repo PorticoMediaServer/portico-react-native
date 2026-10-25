@@ -24,7 +24,7 @@ RCT_EXPORT_MODULE()
 /** What this engine is and does, in the terms both player engines use (ENGINE-CONTRACT.md), so
  * the player screen can hide what does not apply to the engine in use. */
 - (NSDictionary *)constantsToExport{
- return @{@"engine":@"native",@"available":@YES,@"features":@{@"pictureInPicture":@YES,@"airPlayVideo":@((BOOL)!TARGET_OS_TV),@"liveChannels":@YES,@"musicSessions":@YES,@"audioTrackSwitching":@NO,@"subtitleRendering":@[@"text",@"ass",@"pgs",@"vobsub",@"dvb"],@"chapters":@NO}};
+ return @{@"engine":@"native",@"available":@YES,@"dynamicRangeMatching":@((BOOL)TARGET_OS_TV),@"features":@{@"pictureInPicture":@YES,@"airPlayVideo":@((BOOL)!TARGET_OS_TV),@"liveChannels":@YES,@"musicSessions":@YES,@"audioTrackSwitching":@NO,@"subtitleRendering":@[@"text",@"ass",@"pgs",@"vobsub",@"dvb"],@"chapters":@NO}};
 }
 RCT_REMAP_METHOD(acquire,acquire:(NSString *)owner resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(self.invalidated){reject(@"bridge_closed",@"bridge_closed",nil);return;}NSDictionary *lease=[_controller acquire:owner];if(lease)resolve(lease);else reject(@"owner_busy",@"owner_busy",nil);}
 RCT_REMAP_METHOD(command,command:(NSDictionary *)command resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(self.invalidated){reject(@"bridge_closed",@"bridge_closed",nil);return;}NSString *error=[_controller acceptCommand:command];if(error)reject(@"command_rejected",@"command_rejected",nil);else resolve(@YES);}

@@ -966,6 +966,7 @@ export class NativePlaybackRuntime {
     if (this.retired) return;
     const state = this.playback.getSnapshot(), fence = this.fence(), settings = this.o.settings();
     this.coordinator.setDisplayMatching(this.o.androidDisplayMatching ? settings.matchFrameRate ?? 'auto' : undefined);
+    this.coordinator.setDynamicRangeMatching(this.o.nativeDynamicRangeMatching ? settings.matchDynamicRange ?? 'auto' : undefined);
     if (!state.session || !fence) { this.clearForcedImage(); this.coordinator.setOptions(1, null, null); return; }
     if (fence.kind === 'channel') {
       this.clearForcedImage();

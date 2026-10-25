@@ -14,6 +14,7 @@ import {NativePlaybackRuntime} from './runtime';
 import {PlaybackScopeHttp} from './scope-http';
 import {createVideoSnapshotCapture} from '../video-snapshot';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeOptions, NativePlaybackSurfaceProps} from './types';
+import {nativeDynamicRangeMatchingAvailable} from './dynamic-range-matching';
 import {offlineDownloads} from '../../../platform/offline-downloads';
 
 const names = {native: {module: 'PorticoPlaybackModule', fact: 'PorticoPlaybackFact', view: 'PorticoPlayer'}, mpv: {module: 'PorticoMpvPlaybackModule', fact: 'PorticoMpvPlaybackFact', view: 'PorticoMpvPlayer'}} as const;
@@ -36,7 +37,7 @@ function transport(module: EngineModule, event: string): NativePlaybackTransport
   return {acquire: owner => module.acquire(owner), command: value => module.command(value), release: lease => module.release(lease),
     subscribe: listener => { const subscription = emitter.addListener(event, listener); return () => subscription.remove(); }};
 }
-export type NativePlaybackFactoryOptions = Omit<NativePlaybackRuntimeOptions, 'transport' | 'engines' | 'engineFeatures' | 'nativeListening' | 'requestId' | 'capabilitiesReady' | 'disposeCapabilities' | 'timers'> & Readonly<{appVersion: string}>;
+export type NativePlaybackFactoryOptions = Omit<NativePlaybackRuntimeOptions, 'nativeDynamicRangeMatching' | 'androidDisplayMatching' | 'transport' | 'engines' | 'engineFeatures' | 'nativeListening' | 'requestId' | 'capabilitiesReady' | 'disposeCapabilities' | 'timers'> & Readonly<{appVersion: string}>;
 
 /** Binds real platform modules. There is no alternate renderer/engine, demo session or URL. */
 export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryOptions): NativePlaybackAdapter & {runtime: NativePlaybackRuntime} {
@@ -86,7 +87,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
   }) : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const} : {}), ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
       const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
