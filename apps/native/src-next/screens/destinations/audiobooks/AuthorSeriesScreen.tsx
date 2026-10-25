@@ -59,6 +59,9 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets();
   const entity = snapshot.entity ?? entry, tv = theme.isTV;
   const books = snapshot.sections.find(section => section.id === 'books')?.entries ?? [];
+  // collections 41c/45: the series page's author opens the author destination.
+  // The entry exists only when the projection named a real author identity.
+  const authorEntry = (snapshot.sections.find(section => section.id === 'context')?.entries ?? []).find(value => value.kind === 'author');
   const covers = books.flatMap(book => {const art = runtime.artwork(book.posterUrl); return art ? [art] : [];});
   const resume = books.find(book => book.bookProgress?.itemId);
   const series = entry.kind === 'book_series';
@@ -95,7 +98,11 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
         <View style={tv ? {position: 'absolute', left: series ? 760 : 200, top: series ? 150 : 150, width: series ? 1000 : 940} : {alignItems: 'center', marginTop: 18, width: '100%'}}>
           <Text style={[browseType(theme, tv ? 22 : 13, 700), {color: theme.colors.textSecondary, textAlign: tv ? 'left' : 'center'}]}>{t('title.kind', {kind: entry.kind})}</Text>
           <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? (series ? 88 : 120) : 30, 800, -.04), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{title}</Text>
-          {author ? <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, marginTop: 6}]}>{author}</Text> : null}
+          {author || authorEntry ? (authorEntry && openEntry
+            ? <Focusable focusId="series-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{marginTop: 6, paddingVertical: 2}}>
+              {({focused}) => <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, textAlign: tv ? 'left' : 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{author ?? authorEntry.title}</Text>}
+            </Focusable>
+            : <Text style={[browseType(theme, tv ? 24 : 16, 700), {color: theme.colors.accentStrong, marginTop: 6}]}>{author}</Text>) : null}
           <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: tv ? 'flex-start' : 'center', columnGap: 18, rowGap: 6, marginTop: 10}}>
             {facts.map((fact, index) => <Text key={fact} style={[browseType(theme, tv ? 22 : 13, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
           </View>
