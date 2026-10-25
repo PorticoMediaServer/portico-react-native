@@ -33,15 +33,44 @@ type Row = Readonly<{kind: 'heading'; id: string; title: string}> | Readonly<{ki
 
 /** Cursor pages remain bounded server pages. Full TV paging awaits the canonical window
  * projection; this screen never scans the inventory or invents an offset/loaded-page total. */
+/** The same recorded row, not merely the same title: a reload can change revision. */
+const sameRecording = (open: Recording | undefined, recording: Recording) => open !== undefined && open.id === recording.id && open.revision === recording.revision;
+
+/** The loaded view a row was opened in, without the page cursor a later load added. */
+const queryKey = (query: Readonly<{view: string; cursor?: string; sort?: string; group?: string}>) => JSON.stringify([query.view, query.sort ?? '', query.group ?? '']);
+
+/** The shell route and destination a row was opened in. */
+const routeKey = (route: Readonly<{revision: number; route: {kind: string}; destination: unknown}>) => JSON.stringify([route.revision, route.route.kind, route.destination]);
+
+/** One opening of a row's menu or sheet, created by the handler that opens it. Callbacks
+ * capture this object and compare it by identity, so a late close from an earlier opening
+ * can never mutate the current one. `retired` says that opening may no longer act. */
+type OverlayOpening = {kind: 'menu' | 'details'; recording: Recording; query: string; route: string; retired: boolean};
+
+/** The delete ask started from one opening, holding that exact opening. */
+type DeleteAsk = Readonly<{opening: OverlayOpening; controller: NativeRecordingsController; recording: Recording}>;
+
 export function NativeRecordingsScreen({controller, ports, runtime, onGuide, owner}: {controller: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime; onGuide: () => void; owner?: NativeLiveOwnerController}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), query = state.query;
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), tabs = ids.surface('recordings.views'), body = ids.surface('recordings.page');
   const registry = useFocusRegistry(), bodyFocused = useRef(false);
-  const [group, setGroup] = useState<Group>(), [menu, setMenu] = useState<Recording>(), [detail, setDetail] = useState<Recording>(), [rule, setRule] = useState<RecordingRule>();
+  const [group, setGroup] = useState<Group>(), [menu, setMenu] = useState<OverlayOpening>(), [detail, setDetail] = useState<OverlayOpening>(), [rule, setRule] = useState<RecordingRule>();
   const [confirm, setConfirm] = useState<Readonly<{recording: Recording; preview?: DeletePreview}>>(), [newRule, setNewRule] = useState(false);
   const opener = useRef<View | null>(null), rows = useRef(new Map<string, View>()), cancel = useRef<View>(null);
   const list = useRef<FlatList<Row>>(null), alive = useRef(true);
+  const navigation = ports.context.navigation;
+  const route = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
+  // The presented menu or sheet, and the delete ask started from one of them. A
+  // render-time change of controller, view, route or visibility retires the ask before
+  // the new scope draws, so a hidden or retained destination cannot settle one.
+  const overlay = useRef<OverlayOpening>(), ask = useRef<DeleteAsk>();
+  const scope = useRef<Readonly<{controller: NativeRecordingsController; key: string}>>();
+  const scopeKey = `${queryKey(query)}|${routeKey(route)}|${navigation.isCurrent()}|${runtime.getSnapshot().contentVisible === true}`;
+  const previousScope = scope.current;
+  if (previousScope && (previousScope.controller !== controller || previousScope.key !== scopeKey)) ask.current = undefined;
+  scope.current = {controller, key: scopeKey};
+  const retire = () => {ask.current = undefined;};
   const recordings = state.page?.recordings ?? [], groups = state.groups?.groups ?? [], rules = state.page?.rules ?? [];
   const first = query.view === 'recorded' && !query.group ? groups[0]?.key : query.view === 'rules' ? rules[0]?.id : (recordings.find(value => value.state === 'conflicted') ? `${recordings.find(value => value.state === 'conflicted')!.id}.resolve` : recordings[0]?.id);
   const emptyGuide = !state.loading && !state.accessDenied && state.error === undefined
@@ -50,16 +79,41 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const entryRegion = first || emptyGuide ? body : tabs, entryChild = first ?? (emptyGuide ? 'recordings-open-guide' : query.view);
   const awaitingFirstPage = state.loading || !state.page && !state.groups && query.view !== 'storage';
   const enter = useScreenEntry(theme.isTV && !awaitingFirstPage ? {regionId: entryRegion, childId: entryChild} : undefined, controller.lifetime.current);
-  useEffect(() => {alive.current = true; const previous = controller.getSnapshot().query; void controller.load(previous.group ? {view: 'recorded', sort: previous.sort} : previous); void controller.loadFacts(); return () => {alive.current = false;};}, [controller]);
-  const select = (view: DVRView) => {if (view === query.view && !query.group) return; setGroup(undefined); void controller.load({view}); list.current?.scrollToOffset({offset: 0, animated: false});};
+  // The asks die with the screen in the layout phase, so StrictMode's
+  // mount/unmount/mount leaves them live again on the committed mount.
+  useLayoutEffect(() => {alive.current = true; return () => {alive.current = false; ask.current = undefined;};}, []);
+  useEffect(() => {const previous = controller.getSnapshot().query; void controller.load(previous.group ? {view: 'recorded', sort: previous.sort} : previous); void controller.loadFacts();}, [controller]);
+  const select = (view: DVRView) => {if (view === query.view && !query.group) return; retire(); setGroup(undefined); void controller.load({view}); list.current?.scrollToOffset({offset: 0, animated: false});};
   const back = useCallback(() => {
     if (menu || detail || rule || confirm) return false;
     if (bodyFocused.current && registry.focus({regionId: tabs, childId: query.view})) return true;
-    if (query.group) {setGroup(undefined); void controller.load({view: 'recorded'}); return true;}
+    if (query.group) {ask.current = undefined; setGroup(undefined); void controller.load({view: 'recorded'}); return true;}
+    ask.current = undefined;
     onGuide(); return true;
   }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, onGuide]);
   useScreenBack(runtime, back, theme.isTV);
-  const open = (recording: Recording, kind: 'details' | 'menu') => {opener.current = rows.current.get(recording.id) ?? null; if (kind === 'menu') setMenu(recording); else setDetail(recording);};
+  const open = (recording: Recording, kind: 'menu' | 'details') => {
+    const opening: OverlayOpening = {kind, recording, query: queryKey(controller.getSnapshot().query), route: routeKey(navigation.getSnapshot()), retired: false};
+    if (overlay.current) overlay.current.retired = true;
+    retire(); opener.current = rows.current.get(recording.id) ?? null; overlay.current = opening;
+    if (kind === 'menu') setMenu(opening); else setDetail(opening);
+  };
+  /** A close acts only for the opening it was drawn for. The menu's own close after a
+   * select ('action') keeps that opening's ask alive so its preview can still present. */
+  const close = (opening: OverlayOpening, reason: 'user' | 'action') => {
+    if (overlay.current !== opening) return;
+    overlay.current = undefined;
+    if (reason === 'user') {opening.retired = true; if (ask.current?.opening === opening) ask.current = undefined;}
+    if (opening.kind === 'menu') setMenu(current => current === opening ? undefined : current);
+    else setDetail(current => current === opening ? undefined : current);
+  };
+  /** The exact opening, still in the scope it opened in and visibly on screen. */
+  const askReady = (opening: OverlayOpening) => {
+    if (opening.retired || !controller.lifetime.current() || !navigation.isCurrent()) return false;
+    if (runtime.getSnapshot().contentVisible !== true) return false;
+    if (routeKey(navigation.getSnapshot()) !== opening.route) return false;
+    return queryKey(controller.getSnapshot().query) === opening.query;
+  };
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (alive.current && controller.lifetime.current()) runtime.reportError(error);});};
   const play = async (recording: Recording) => {
     if (!playableRecording(recording)) return;
@@ -72,9 +126,18 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
     controller.lifetime.assert();
     await ports.context.playback.start({entry, target: entry.playback!});
   };
-  const askDelete = async (recording: Recording) => {
+  const askDelete = async (opening: OverlayOpening) => {
+    // Refuse before the read as well as after it: a stale callback in a hidden destination
+    // must not even ask the server for a preview.
+    if (!alive.current || overlay.current !== opening || !askReady(opening)) return;
+    const recording = opening.recording, current: DeleteAsk = {opening, controller, recording};
+    ask.current = current;
     const preview = activeRecording(recording) ? undefined : await controller.deletePreview(recording);
-    if (alive.current && controller.lifetime.current()) {setMenu(undefined); setDetail(undefined); setConfirm({recording, preview});}
+    if (ask.current !== current || !askReady(opening)) return;
+    if (controller.getSnapshot().page?.recordings?.some(value => sameRecording(value, recording)) !== true) return;
+    ask.current = undefined;
+    if (overlay.current === opening) {overlay.current = undefined; if (opening.kind === 'menu') setMenu(current => current === opening ? undefined : current); else setDetail(current => current === opening ? undefined : current);}
+    setConfirm({recording, preview});
   };
   const rowData: Row[] = [];
   if (query.view === 'upcoming') {
@@ -105,17 +168,17 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
         : state.loading && !state.page && !state.groups ? <StateView title={t('recordings.loading')}/>
         : unavailable ? <StateView title={t('recordings.unavailableTitle')} body={t('recordings.unavailableBody')}/>
         : isEmpty ? <StateView testID="recordings-empty" title={t(emptyTitle)} body={emptyBody && t(emptyBody)} primaryAction={emptyGuide ? {id: 'guide', testID: 'recordings-open-guide', label: t('web.dvr.openGuide'), onPress: onGuide} : undefined}/>
-        : query.view === 'recorded' && !query.group ? <FlatList key={`groups:${theme.isTV ? 4 : theme.width >= 700 ? 3 : 2}`} data={groups} numColumns={theme.isTV ? 4 : theme.width >= 700 ? 3 : 2} keyExtractor={value => value.key} columnWrapperStyle={{gap: theme.isTV ? 28 : 16}} contentContainerStyle={{gap: theme.isTV ? 36 : 24, paddingBottom: 90}} renderItem={({item}) => <RecordingCard value={item} runtime={runtime} onOpen={() => {setGroup(item); void controller.load({view: 'recorded', group: item.key, sort: 'recent'});}}/>}/>
+        : query.view === 'recorded' && !query.group ? <FlatList key={`groups:${theme.isTV ? 4 : theme.width >= 700 ? 3 : 2}`} data={groups} numColumns={theme.isTV ? 4 : theme.width >= 700 ? 3 : 2} keyExtractor={value => value.key} columnWrapperStyle={{gap: theme.isTV ? 28 : 16}} contentContainerStyle={{gap: theme.isTV ? 36 : 24, paddingBottom: 90}} renderItem={({item}) => <RecordingCard value={item} runtime={runtime} onOpen={() => {setGroup(item); retire(); void controller.load({view: 'recorded', group: item.key, sort: 'recent'});}}/>}/>
         : query.view === 'rules' ? <FlatList key="rules" data={rules} keyExtractor={value => value.id} contentContainerStyle={{gap: theme.isTV ? 14 : 12, paddingBottom: 90}} ListHeaderComponent={<View style={{flexDirection: 'row', alignItems: 'center', gap: 20, marginBottom: theme.isTV ? 6 : 4}}><Text style={[shellType(theme.isTV ? 22 : 14), {color: theme.colors.textTertiary, flex: 1}]}>{t('recordings.rulesLedeLead')} <Text style={{color: theme.colors.text, fontWeight: '700'}}>{t('recordings.rulesLedeAction')}</Text> {t('recordings.rulesLedeTail')}</Text>{owner && theme.isTV && <Button testID="recordings-new-rule" icon="i-plus" size="compact" variant="glass" onPress={() => setNewRule(true)}>{t('web.recordingRules.newRule')}</Button>}</View>} renderItem={({item}) => <RuleRow rule={item} runtime={runtime} refNode={node => {if (node) rows.current.set(item.id, node); else rows.current.delete(item.id);}} onOpen={() => {opener.current = rows.current.get(item.id) ?? null; setRule(item);}}/>}/>
         : <FlatList key={`rows:${query.view}:${query.group ?? ''}`} ref={list} data={rowData} keyExtractor={value => value.kind === 'heading' ? value.id : value.recording.id} contentContainerStyle={{paddingBottom: 90}} renderItem={({item}) => item.kind === 'heading' ? <Text accessibilityRole="header" style={[shellType(theme.isTV ? 32 : 22, 700, 'normal', -.02), {color: theme.colors.text, marginTop: 16, marginBottom: 14}]}>{item.title}</Text> : <RecordingRow recording={item.recording} history={query.view === 'history'} runtime={runtime} refNode={node => {if (node) rows.current.set(item.recording.id, node); else rows.current.delete(item.recording.id);}} onOpen={() => open(item.recording, 'details')} onMenu={() => open(item.recording, 'menu')}/>}/>}
     </FocusRegion>
-    <Menu open={menu !== undefined} onOpenChange={value => {if (!value) setMenu(undefined);}} title={menu?.programme.title} returnFocusRef={opener} testID="recordings-menu" items={menu ? [
-      ...(playableRecording(menu) ? [{id: 'play', icon: 'i-play' as const, label: t('action.play'), disabled: state.busy, onSelect: () => run(() => play(menu))}] : []),
-      ...(!activeRecording(menu) && playableRecording(menu) ? [{id: 'keep', icon: 'i-bookmark' as const, label: t(menu.keep ? 'web.dvr.stopKeeping' : 'web.dvr.keep'), disabled: state.busy, onSelect: () => run(() => controller.keep(menu))}] : []),
-      ...(activeRecording(menu) ? [{id: 'cancel', label: t('recordings.cancelAction'), disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : state.page?.deletionAvailable ? [{id: 'separator', separator: true as const}, {id: 'delete', icon: 'i-trash' as const, label: t('web.dvr.deleteRecording'), destructive: true, disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : []),
+    <Menu key={menu ? `${menu.recording.id}:${menu.recording.revision}` : 'recordings-menu'} open={menu !== undefined} onOpenChange={(value, reason) => {if (!value && menu) close(menu, reason === 'action' ? 'action' : 'user');}} title={menu?.recording.programme.title} returnFocusRef={opener} testID="recordings-menu" items={menu ? [
+      ...(playableRecording(menu.recording) ? [{id: 'play', icon: 'i-play' as const, label: t('action.play'), disabled: state.busy, onSelect: () => {if (overlay.current === menu) run(() => play(menu.recording));}}] : []),
+      ...(!activeRecording(menu.recording) && playableRecording(menu.recording) ? [{id: 'keep', icon: 'i-bookmark' as const, label: t(menu.recording.keep ? 'web.dvr.stopKeeping' : 'web.dvr.keep'), disabled: state.busy, onSelect: () => {if (overlay.current === menu) run(() => controller.keep(menu.recording));}}] : []),
+      ...(activeRecording(menu.recording) ? [{id: 'cancel', label: t('recordings.cancelAction'), disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : state.page?.deletionAvailable ? [{id: 'separator', separator: true as const}, {id: 'delete', icon: 'i-trash' as const, label: t('web.dvr.deleteRecording'), destructive: true, disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : []),
     ] : []}/>
-    {detail && <RecordingDetails key={`${detail.id}:${detail.revision}`} recording={detail} controller={controller} runtime={runtime} onClose={() => setDetail(open => open && open.id === detail.id && open.revision === detail.revision ? undefined : open)} opener={opener} onPlay={() => run(() => play(detail))} onRemove={() => run(() => askDelete(detail))} deletionAvailable={state.page?.deletionAvailable === true}/>}
-    <Dialog open={confirm !== undefined} onOpenChange={value => {if (!value && !state.busy) setConfirm(undefined);}} title={confirm ? t(confirm.preview ? 'web.dvr.deleteTitle' : 'web.dvr.cancelTitle', {title: confirm.recording.programme.title}) : ''} description={confirm ? confirm.preview ? t(confirm.preview.activeReaders ? 'web.dvr.deleteBodyInUse' : confirm.preview.keep ? 'web.dvr.deleteBodyKept' : 'web.dvr.deleteBody', {size: defaultI18n.bytes(confirm.preview.bytes)}) : t('web.dvr.cancelBody') : undefined} width={theme.isTV ? 980 : undefined} initialFocusRef={cancel} returnFocusRef={opener} testID="recordings-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 16}}><Button testID="recordings-confirm-cancel" ref={cancel} variant="glass" disabled={state.busy} onPress={() => setConfirm(undefined)}>{t('web.dvr.keepIt')}</Button><Button testID="recordings-confirm-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} loading={state.busy} onPress={() => {if (!confirm) return; run(async () => {const result = confirm.preview ? await controller.remove(confirm.recording, confirm.preview) : await controller.cancel(confirm.recording); if (result && alive.current) setConfirm(undefined);});}}>{t(confirm?.preview ? 'web.dvr.deleteRecording' : 'recordings.cancelAction')}</Button></View>}>{state.error !== undefined ? <StateView testID="recordings-confirm-error" {...runtime.error(state.error, () => setConfirm(undefined))}/> : <View/>}</Dialog>
+    {detail && <RecordingDetails key={`${detail.recording.id}:${detail.recording.revision}:${detail.query}`} recording={detail.recording} controller={controller} runtime={runtime} onClose={() => close(detail, 'user')} opener={opener} onPlay={() => {if (overlay.current === detail) run(() => play(detail.recording));}} onRemove={() => run(() => askDelete(detail))} deletionAvailable={state.page?.deletionAvailable === true}/>}
+    <Dialog key={confirm ? `${confirm.recording.id}:${confirm.recording.revision}` : 'recordings-confirm'} open={confirm !== undefined} onOpenChange={value => {if (!value && !controller.getSnapshot().busy) setConfirm(current => current === confirm ? undefined : current);}} title={confirm ? t(confirm.preview ? 'web.dvr.deleteTitle' : 'web.dvr.cancelTitle', {title: confirm.recording.programme.title}) : ''} description={confirm ? confirm.preview ? t(confirm.preview.activeReaders ? 'web.dvr.deleteBodyInUse' : confirm.preview.keep ? 'web.dvr.deleteBodyKept' : 'web.dvr.deleteBody', {size: defaultI18n.bytes(confirm.preview.bytes)}) : t('web.dvr.cancelBody') : undefined} width={theme.isTV ? 980 : undefined} initialFocusRef={cancel} returnFocusRef={opener} testID="recordings-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 16}}><Button testID="recordings-confirm-cancel" ref={cancel} variant="glass" disabled={state.busy} onPress={() => setConfirm(current => current === confirm ? undefined : current)}>{t('web.dvr.keepIt')}</Button><Button testID="recordings-confirm-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} loading={state.busy} onPress={() => {if (!confirm) return; const opening = confirm; run(async () => {const result = opening.preview ? await controller.remove(opening.recording, opening.preview) : await controller.cancel(opening.recording); if (result && alive.current && controller.lifetime.current()) setConfirm(current => current === opening ? undefined : current);});}}>{t(confirm?.preview ? 'web.dvr.deleteRecording' : 'recordings.cancelAction')}</Button></View>}>{state.error !== undefined ? <StateView testID="recordings-confirm-error" {...runtime.error(state.error, () => setConfirm(current => current === confirm ? undefined : current))}/> : <View/>}</Dialog>
     {rule && <RuleEditor key={`${rule.id}:${rule.revision}`} rule={rule} controller={controller} runtime={runtime} opener={opener} onClose={() => setRule(current => current === rule ? undefined : current)}/>}
     {owner && <NewRuleSheet controller={owner} runtime={runtime} open={newRule} onOpenChange={setNewRule} onSaved={() => {setNewRule(false); void controller.load({view: 'rules'});}}/>}
   </Screen>;
