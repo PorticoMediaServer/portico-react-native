@@ -48,6 +48,7 @@ export class NativeMemberAccountMove<Result> {
   private proof?: Proof;
   private client?: MemberAccountMoveClient;
   private abort?: AbortController;
+  private accepted?: Readonly<{epoch: number; result: Result; isCurrent: () => boolean}>;
 
   constructor(ports: NativeMemberMovePorts<Result>, initial: 'password' | 'code') {
     if (ports.server.id !== ports.pin.serverId || !ports.installationId || !ports.isCurrent()
@@ -58,6 +59,11 @@ export class NativeMemberAccountMove<Result> {
     if (ports.signal.aborted) this.dispose();
   }
   getSnapshot = () => this.state;
+  takeAcceptedResult = (): Result | undefined => {
+    const accepted = this.accepted; this.accepted = undefined;
+    return accepted && !this.disposed && accepted.epoch === this.epoch && !this.ports.signal.aborted && accepted.isCurrent()
+      ? accepted.result : undefined;
+  };
   subscribe = (listener: () => void) => {if (this.disposed) return () => {}; this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private current(epoch: number, hosted?: NativeMoveHostedCapture) {
     return !this.disposed && epoch === this.epoch && !this.ports.signal.aborted && this.ports.isCurrent() && (!hosted || hosted.isCurrent());
@@ -96,7 +102,7 @@ export class NativeMemberAccountMove<Result> {
     this.publish({busy: true, error: undefined, collision: undefined});
     try {await this.fence(epoch); await work(epoch, abort.signal, client);}
     catch (error) {
-      if (this.current(epoch)) this.publish({error, ...(error instanceof ApiError && error.code === 'move_collision' && error.current
+      if (this.current(epoch)) this.publish({error, ...(!this.proof ? {phase: this.initial, username: undefined} : {}), ...(error instanceof ApiError && error.code === 'move_collision' && error.current
         ? {phase: 'collision' as const, collision: error.current} : {})});
     } finally {
       client.dispose();
@@ -145,7 +151,10 @@ export class NativeMemberAccountMove<Result> {
       // Once handed off, only that normal operation owns grant cleanup. Do
       // not revoke an adopted profile/account family if the page retires.
       if (!this.disposed && epoch === this.epoch && !this.ports.signal.aborted
-        && (!hosted || hosted.isCurrent()) && adopted.isCurrent()) this.publish({phase: 'adopted', result: adopted.result});
+        && (!hosted || hosted.isCurrent()) && adopted.isCurrent()) {
+        this.accepted = {epoch, result: adopted.result, isCurrent: () => (!hosted || hosted.isCurrent()) && adopted.isCurrent()};
+        this.publish({phase: 'adopted', result: adopted.result});
+      }
     } catch (error) {
       if (!handedOff && result.kind === 'signed-in') await this.retireFresh(result.session);
       throw error;
@@ -183,7 +192,7 @@ export class NativeMemberAccountMove<Result> {
     });
   }
   cancel = () => {
-    ++this.epoch; this.proof = undefined; this.abort?.abort(); this.client?.dispose();
+    ++this.epoch; this.proof = undefined; this.accepted = undefined; this.abort?.abort(); this.client?.dispose();
     this.abort = undefined; this.client = undefined;
     this.publish({phase: this.initial, busy: false, username: undefined, collision: undefined, result: undefined, error: undefined});
   };
