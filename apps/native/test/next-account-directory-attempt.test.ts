@@ -52,6 +52,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     '../../platform/account-authority': {hostedUrl: 'https://hosted.test'},
     '../../tv/auth': {TVProfilePINForm: 'PIN', TVForgotPINHandoff: 'Forgot', TVFrontDoor: 'Front', TVCodePresenter: 'Code',
       TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required'},
+    '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'},
     './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
     './directory-chooser': {nextRetryDelay, directoryRows: (servers: readonly {id: string; name: string}[]) => servers.map(server => ({id: server.id, name: server.name, offline: false})),
       directoryFailure: (server: unknown, error: unknown) => !server ? 'other' : error === undefined ? 'opening' : 'waiting',
