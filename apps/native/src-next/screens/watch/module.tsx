@@ -22,6 +22,8 @@ import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
 import {NativeTVLiveGuide} from './live-guide';
+import {NativeTVLiveActions} from './live-actions';
+import {NativeLiveActionPanels} from './LiveActionPanels';
 import {NativePlaybackFailed} from './PlaybackFailed';
 import {NativeWatchPostPlay} from './PostPlayScreen';
 import {isTablet} from '../../../src/bridge/device-platform';
@@ -74,6 +76,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   let disposed = false;
   const current = () => !disposed && context.current();
   const liveGuide = Platform.isTV ? new NativeTVLiveGuide(context) : undefined;
+  const liveActions = liveGuide ? new NativeTVLiveActions(context, liveGuide) : undefined;
   // Media's retry changes the failed phase and source itself, so these controllers
   // belong to the module and its route, never to the error surface. They abort on a
   // route/authority replacement, a collapsed watch or disposal — not on phase,
@@ -186,6 +189,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       // tablet-play8 / tv-player: the guide opens from the live player on a television
       // and on a tablet, where the mini guide docks beside the picture; a phone has none.
       ...(liveGuide ? {liveGuide} : {}),
+      ...(liveActions ? {liveActions} : {}),
       ...(liveGuide ? {onGuide: liveGuide.guideAction()} : isTablet ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),
     }),
@@ -228,15 +232,16 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     title: screens.title,
     channel: {render: (route: import('../../shell/routes').NativeShellRoute) => current() && route.kind === 'channel'
       ? <NativeWatchChannelRoute key={JSON.stringify([route.sourceId, route.channelId])} context={context} route={route} title={bindings.title}/> : null},
-    renderOverlays: (runtime: NativeShellRuntime) => current() ? bindings.renderOverlays?.(runtime) : null,
+    renderOverlays: (runtime: NativeShellRuntime) => current() ? <>{bindings.renderOverlays?.(runtime)}{liveActions && <NativeLiveActionPanels actions={liveActions} context={context} runtime={runtime}/>}</> : null,
     back: () => {
       if (!current()) return false;
+      if (liveActions?.close()) return true;
       if (liveGuide?.close()) return true;
       const group = Platform.isTV ? groupPort() : undefined;
       if (group?.playerVisible?.() === false) return context.navigation.back(context.authority());
       return screens.watch.back() || group?.closePlayer?.() === true;
     },
     screens,
-    dispose: () => {if (disposed) return; disposed = true; liveGuide?.dispose(); abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
+    dispose: () => {if (disposed) return; disposed = true; liveActions?.dispose(); liveGuide?.dispose(); abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });
 }

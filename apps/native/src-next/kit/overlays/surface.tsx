@@ -67,13 +67,13 @@ export function SurfaceHeader({title, description, action, side = false, inset =
   </View>;
 }
 
-function CenteredDialog({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width: suppliedWidth, size = 'md', dismissOnOutsidePress = true, dismissOnBack = true, showClose = true, faceColor, scrimColor, footerMarginTop}: DialogProps) {
+function CenteredDialog({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width: suppliedWidth, size = 'md', dismissOnOutsidePress = true, dismissOnBack = true, showClose = true, faceColor, scrimColor, footerMarginTop}: DialogProps) {
   const theme = useTheme();
   const animation = useSurfaceMotion(open, 'dialog');
   const closeRef = useRef<View>(null);
   const scrimStyle = useScrimStyle(animation.progress);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
-  useOverlayLifecycle(animation.present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID);
+  useOverlayLifecycle(animation.present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID, restoreFocus);
   if (!animation.present) return null;
   const width = suppliedWidth ?? (size === 'md' ? theme.isTV ? 900 : 480 : theme.spec.overlay.width[size][theme.platform]);
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
@@ -100,7 +100,7 @@ export function Dialog(props: DialogProps) {
 function useScrimStyle(progress: {value: number}) {
   return useAnimatedStyle(() => ({opacity: progress.value}));
 }
-export function SidePanel({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width, topInset = 76, closeOnOutsidePress = false, dismissOnBack = true, showClose = true, logicalCanvas}: SidePanelProps) {
+export function SidePanel({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width, topInset = 76, closeOnOutsidePress = false, dismissOnBack = true, showClose = true, logicalCanvas}: SidePanelProps) {
   const theme = useTheme();
   const frame = useOverlayFrame();
   const viewport = useWindowDimensions();
@@ -112,7 +112,7 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
   const animation = useSurfaceMotion(open, 'side', actualWidth);
   const closeRef = useRef<View>(null);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
-  useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID);
+  useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID, restoreFocus);
   const panelWidth = Math.min(actualWidth, hostWidth);
   const rect = {x: frame.x + hostWidth - panelWidth, y: frame.y + topInset, width: panelWidth, height: Math.max(0, hostHeight - topInset)};
   if (!animation.present) return null;
