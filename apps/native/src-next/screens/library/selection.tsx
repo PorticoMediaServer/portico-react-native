@@ -1,4 +1,4 @@
-import React, {useState, useSyncExternalStore} from 'react';
+import React, {useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -12,7 +12,7 @@ import {selectedItemsLabel} from '../../shell/selection-display';
 import {SelectionBar, SelectionPhoneActionBar, type SelectionActionOffer, type SelectionBarProps} from '../../kit/selection';
 import type {LayoutSelection} from '../../kit/layout';
 import {useTheme} from '../../kit/theme';
-import {Dialog} from '../../kit/overlays';
+import {Dialog, SidePanel} from '../../kit/overlays';
 import {Button} from '../../kit/controls';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
@@ -42,7 +42,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   let disposed = false, revision = 0, entering = false, token = '';
   let producer: Producer | undefined, stopModel: (() => void) | undefined;
   let pending: AbortController | undefined, personalController: AbortController | undefined, queued: string | undefined;
-  let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, personalCurrent: (() => boolean) | undefined;
+  let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, personalCurrent: (() => boolean) | undefined, personalToken = 0;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const visible = () => !disposed && lifetime.current() && activation.getSnapshot().visible;
   const model = () => producer?.model;
@@ -53,7 +53,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   };
   const reset = () => {
     pending?.abort(); pending = undefined; queued = undefined;
-    personalController?.abort(); personalController = undefined; personalCurrent = undefined;
+    personalController?.abort(); personalController = undefined; personalCurrent = undefined; personalToken++;
     if (personal) {personal.dispose(); personal = undefined;}
     stopModel?.(); stopModel = undefined;
     producer?.dispose(); producer = undefined;
@@ -169,6 +169,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     if (entries.length !== op.target.items.length) return;
     const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current && current.model.isOperationCurrent(op);
     personalController = controller; personalCurrent = live;
+    personalToken++;
     personal = createCataloguePersonalSelection({api: context.api, scope: lifetime.scope, requestId: services.requestId, signal: controller.signal, isCurrent: live});
     personal.service.setEntries(entries); personal.service.begin();
     for (const entry of entries) personal.service.toggle(mediaSelectionKey(entry));
@@ -183,6 +184,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   };
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, snapshot, loadedCount: () => loaded().length, personal: () => personal?.service.getSnapshot(),
+    personalBusy: () => !!personal?.service.getSnapshot().busy, resultsToken: () => personalToken,
     busy: () => !!pending || !!personal?.service.getSnapshot().busy, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal};
   // useSyncExternalStore compares snapshots by identity: one layout object per
   // revision, never a fresh object on every read.
@@ -232,6 +234,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
 
 type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number; snapshot(): SelectionSnapshot<BrowseSelectionContext> | undefined;
   personal(): ReturnType<ReturnType<typeof createCataloguePersonalSelection>['service']['getSnapshot']> | undefined;
+  personalBusy(): boolean; resultsToken(): number;
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; active(): boolean; queueControl(): boolean; clear(): void;
   execute(action: 'play' | 'playNext' | 'playLater', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>};
@@ -239,6 +242,8 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
 function LibrarySelectionBars({store}: {store: Store}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
+  // Hooks stay above the inactive return so a bar that leaves the tree cannot change hook order.
+  const doneRef = useRef<View>(null), retryRef = useRef<View>(null);
   const state = store.snapshot();
   if (!store.active()) return null;
   const summary = state?.summary;
@@ -257,19 +262,29 @@ function LibrarySelectionBars({store}: {store: Store}) {
       if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action, state!);}
       else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action, state!);}
     }};
+  // These handlers run later, so they re-read the live operation instead of the
+  // render's own: a retired result set must never clear a successor's selection.
+  const token = store.resultsToken(), failed = !!personal?.results.some(result => result.status === 'failed');
+  const current = () => !store.personalBusy() && store.resultsToken() === token;
+  const done = () => {if (current()) store.clear();};
+  const retry = () => {if (current()) void store.retryPersonal();};
+  const closeResults = (open: boolean) => {if (!open && current()) store.clear();};
+  const title = summary ? defaultI18n.t('next.selection.selectedItems', {items: selectedItemsLabel(summary)}) : '';
+  const rows = personal?.results.map(result => <View key={result.key} style={{gap: 4, marginBottom: 12}}>
+    <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{result.title}</Text>
+    <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{result.status === 'saved' ? defaultI18n.t('next.selection.saved') : presentError({code: 'unavailable'}, 'detail', {operation: 'action'}).body}</Text>
+  </View>);
+  // select 26: Try again holds focus when a title failed, Done otherwise.
+  const footer = personal && <><Button ref={doneRef} disabled={store.personalBusy()} onPress={done}>{defaultI18n.t('next.selection.done')}</Button>
+    {failed && <Button ref={retryRef} disabled={store.personalBusy()} onPress={retry}>{defaultI18n.t('next.selection.retry')}</Button>}</>;
   return <>
     <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
       {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}
     </View>
-    <SelectionBar {...props}/>
-    {personal && summary && <Dialog open title={defaultI18n.t('next.selection.selectedItems', {items: selectedItemsLabel(summary)})}
-      onOpenChange={open => {if (!open && !personal.busy) store.clear();}}
-      footer={<><Button disabled={personal.busy} onPress={store.clear}>{defaultI18n.t('next.selection.done')}</Button>
-        {personal.results.some(result => result.status === 'failed') && <Button disabled={personal.busy} onPress={() => {void store.retryPersonal();}}>{defaultI18n.t('next.selection.retry')}</Button>}</>}>
-      {personal.results.map(result => <View key={result.key} style={{gap: 4, marginBottom: 12}}>
-        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{result.title}</Text>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{result.status === 'saved' ? defaultI18n.t('next.selection.saved') : presentError({code: 'unavailable'}, 'detail', {operation: 'action'}).body}</Text>
-      </View>)}
-    </Dialog>}
+    {theme.isTV ? <View style={{marginLeft: 200, marginRight: 96}}><SelectionBar {...props}/></View> : <SelectionBar {...props}/>}
+    {personal && summary && (theme.isTV
+      ? <SidePanel testID="library-selection-results" open onOpenChange={closeResults} showClose={false} dismissOnBack={!store.personalBusy()}
+        title={title} width={640} topInset={0} initialFocusRef={failed ? retryRef : doneRef} footer={footer}>{rows}</SidePanel>
+      : <Dialog open title={title} onOpenChange={closeResults} footer={footer}>{rows}</Dialog>)}
   </>;
 }
