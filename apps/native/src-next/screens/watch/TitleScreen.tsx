@@ -109,7 +109,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const [settingsSheet, setSettingsSheet] = useState<Readonly<{lease: NativeTitlePageLease; ticket: number; busy: boolean}>>();
   const sheetTicket = useRef(0);
   const [tvFocus, setTvFocus] = useState<{play?: number; episodes?: number; related?: number}>({});
-  const continueController = useRef<AbortController>();
+  const continueController = useRef<AbortController | undefined>(undefined);
   const [continueBusy, setContinueBusy] = useState(false), [continueRemoved, setContinueRemoved] = useState(false);
   useEffect(() => () => continueController.current?.abort(), []);
   const captureTag = (key: keyof typeof tvFocus) => theme.isTV ? (event: LayoutChangeEvent) => {
