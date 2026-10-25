@@ -128,7 +128,7 @@ export const shellMessages = {
   'next.shell.case.serverHeader': 'Server header',
   'next.shell.case.serverShared': 'Server header for a shared page',
   'next.shell.case.serverAdministrator': 'Server header for an administrator',
-  // tv-more frame 22's Settings key hints (ds-native-live-r2).
+  // The phone Settings page's hint strip, drawn in tv-more.html frame 22 (ds-native-live-r2).
   'next.shell.settingsHintChoose': 'Choose a page',
   'next.shell.settingsHintEdit': 'Edit its rows',
   'next.shell.settingsHintPages': 'Pages',
