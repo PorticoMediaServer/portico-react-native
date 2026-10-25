@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useLayoutEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {parseJoinLink} from '../../../../../packages/client-core/src/join-link';
@@ -15,7 +15,19 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
   const [invitation, setInvitation] = useState(''), [address, setAddress] = useState('');
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const link = parseJoinLink(invitation);
-  const changeInvitation = (raw: string) => {setInvitation(raw); const target = parseJoinLink(raw); if (target) setAddress(target.server);};
+  const opening = useRef<{active: boolean; invitation: string; address: string} | undefined>(undefined);
+  const latestBusy = useRef(busy); latestBusy.current = busy;
+  if (!opening.current || !opening.current.active || opening.current.invitation !== invitation || opening.current.address !== address) {
+    if (opening.current) opening.current.active = false;
+    opening.current = {active: true, invitation, address};
+  }
+  const ticket = opening.current;
+  useLayoutEffect(() => {if (opening.current === ticket) ticket.active = true; return () => {ticket.active = false;};}, [ticket]);
+  const current = () => ticket.active && opening.current === ticket && !latestBusy.current;
+  const changeAddress = (raw: string) => {if (!current() || raw === ticket.address) return; ticket.active = false; setAddress(raw);};
+  const changeInvitation = (raw: string) => {if (!current() || raw === ticket.invitation) return; ticket.active = false; setInvitation(raw);
+    const target = parseJoinLink(raw); if (target) setAddress(target.server);};
+  const join = () => {if (!current() || !ticket.invitation.trim()) return; ticket.active = false; onJoin(ticket.invitation, ticket.address);};
   return <View testID="phone-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
@@ -27,10 +39,10 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
       </View>
       <View style={{gap: 12, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raised}}>
         <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('web.directJoin.title')}</Text>
-        <TextField label={t('accounts.signIn.address')} value={link?.server ?? address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy && !link}/>
+        <TextField label={t('accounts.signIn.address')} value={link?.server ?? address} onChangeText={changeAddress} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy && !link}/>
         <TextField label={t('services.start.invitation')} placeholder={t('web.directJoin.codePlaceholder')} value={invitation} onChangeText={changeInvitation} autoCapitalize="none" autoCorrect={false} autoComplete="off" editable={!busy}/>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.directJoin.entryBody')}</Text>
-        <Button disabled={busy || !invitation.trim()} onPress={() => onJoin(invitation, address)}>{t('action.continue')}</Button>
+        <Button disabled={busy || !invitation.trim()} onPress={join}>{t('action.continue')}</Button>
       </View>
       <View style={{gap: 10}}>
         <Button variant="glass" disabled={busy} onPress={onFind}>{t('connection.discovery.find')}</Button>

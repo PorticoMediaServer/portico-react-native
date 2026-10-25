@@ -13,6 +13,34 @@ type Ports<T> = {
 class InvitationExpired extends Error {}
 const cancelled = () => Object.assign(new Error('invitation_retired'), {name: 'AbortError'});
 
+export class NativeInvitationUnavailable extends Error {}
+
+/** Public, proved-server preview for the signed-out entry. No Hosted API or token. */
+export async function readPorticoInvitationPreview(api: ProfileAPI, raw: string, target: Readonly<{origin: string; id: string; fingerprint: string}>,
+  signal: AbortSignal, current: () => boolean): Promise<Readonly<{preview: PublicInvitation; entry: NativeInvitationEntry}>> {
+  const check = () => {if (signal.aborted || !current()) throw cancelled();};
+  check();
+  const shortCode = parseShortInvitationCode(raw), link = shortCode ? undefined : parseJoinLink(raw);
+  if (!shortCode && (!link || link.server !== target.origin || link.id !== undefined && link.id !== target.id)) throw cancelled();
+  const client = new PeopleInvitationsClient({request: async <R,>(path: string, method?: string, body?: unknown) => {
+    check(); try {const value = await api.request<R>(path, method, body, signal); check(); return value;}
+    catch (error) {check(); throw error;}
+  }});
+  try {
+    const preview = shortCode ? await client.previewShort(shortCode, signal) : await client.preview(link!.code, signal);
+    check(); if (preview.signInMethod !== 'portico') throw cancelled();
+    if (Date.parse(preview.expiresAt) <= Date.now()) throw new InvitationExpired();
+    return Object.freeze({preview, entry: Object.freeze({raw, server: target.origin, id: target.id, fingerprint: target.fingerprint,
+      signIn: 'portico' as const, expiresAt: preview.expiresAt})});
+  } catch (error) {
+    check();
+    if (shortCode && (error instanceof InvitationExpired || error instanceof ApiError && (
+      error.status === 410 && error.code === 'invitation_expired'
+      || error.status === 403 && error.code === 'invitation_for_another_account'))) throw new NativeInvitationUnavailable();
+    throw error;
+  }
+}
+
 /** The anonymous preview grants nothing; only the canonical assertion/accept command joins. */
 export class NativePorticoInvitation<T> {
   readonly username: string;

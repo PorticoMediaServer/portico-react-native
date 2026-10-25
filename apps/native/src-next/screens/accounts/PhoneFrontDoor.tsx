@@ -12,8 +12,8 @@ const registerNativeHost: typeof import('../../dev/layout-dump/index').registerN
   __DEV__ ? require('../../dev/layout-dump/index').registerNativeHost : undefined;
 
 /** Connect 39a. The account owner supplies the two genuine entry commands. */
-export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
-  busy: boolean; error?: React.ReactNode; onPortico: () => void; onLocal: () => void;
+export function PhoneFrontDoor({busy, error, onPortico, onLocal, onInvitation}: {
+  busy: boolean; error?: React.ReactNode; onPortico: () => void; onLocal: () => void; onInvitation?: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const welcomeStyle = {flex: 1, backgroundColor: theme.colors.ink};
@@ -58,6 +58,7 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
           style={{alignSelf: 'stretch', height: 48, borderRadius: 11, paddingHorizontal: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.portico')}</Button>
         <Button testID="accounts-welcome-local" variant="glass" disabled={busy} onPress={onLocal}
           style={{alignSelf: 'stretch', height: 48, borderRadius: 11, paddingHorizontal: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.local')}</Button>
+        {onInvitation && <Button testID="accounts-welcome-invitation" variant="text" disabled={busy} onPress={onInvitation}>{t('services.start.join')}</Button>}
       </View>
     </ScrollView>
   </View>;
