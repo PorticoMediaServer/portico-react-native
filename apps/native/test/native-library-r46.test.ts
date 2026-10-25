@@ -5,6 +5,7 @@ import {createTheme} from '../src-next/kit/theme.ts';
 import * as libraryJump from '../src-next/screens/library/jump.ts';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../src-next/screens/read/platform.ts';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
+import {libraryTabletGridGeometry} from '../src-next/screens/library/library-grid.ts';
 
 // The phone Library screen's own declared geometry and paint, taken from
 // phone-app.html #r2a (frame 4) and its filter/browse frames: the compact 44
@@ -26,13 +27,14 @@ async function libraryScreen(width: number, isTV = false) {
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height: 844}),
       StyleSheet: {create: (styles: unknown) => styles, absoluteFill: {position: 'absolute', left: 0, right: 0, top: 0, bottom: 0}}},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34, left: 0, right: 0})},
+    'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: unknown) => ({value}), withTiming: (value: unknown) => value},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id, number: (value: number) => String(value), has: () => true}},
     '../../../../../packages/client-core/src/presentation/kit-model': {browseToolbarModel: () => ({groups: [], applied: [], quick: [], sorts: [], sort: {field: 'title', direction: 'asc'}})},
     '../../../../../packages/client-core/src/presentation/library-tabs': {libraryTabs: () => []},
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: () => ''},
     '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
     '../../kit/artwork': {AmbientArt: 'AmbientArt'},
-    '../../kit/controls': {Focusable: 'Focusable'},
+    '../../kit/controls': {Focusable: 'Focusable', Button: 'Button'},
     '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({})},
     '../../kit/browse': {LibraryHeader: 'LibraryHeader', LibraryMenu: 'LibraryMenu', LibrarySwitcher: 'LibrarySwitcher', StickyBrowseHeader: 'StickyBrowseHeader', ViewToggle: 'ViewToggle'},
     '../../kit/overlays': {Menu: 'Menu'},
@@ -41,6 +43,7 @@ async function libraryScreen(width: number, isTV = false) {
     '../../kit/layout': {WindowedGrid: 'WindowedGrid', AlphabetRail: 'AlphabetRail'},
     '../../kit/states': {StateView: 'StateView'},
     '../../kit/theme': {useTheme: () => theme},
+    '../../kit/useMotion': {useMotion: () => ({transforms: false, timing: () => ({})})},
     '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({nativeBlur: false, blurAmount: 0})},
     '../home/model': {homeCardText: () => ({caption: undefined})},
     '../destinations/focus': {createDestinationEntryFocus: () => ({}), nativeDestinationFocusIds: () => ({rail: 'rail', libraryTabs: (id: string) => `tabs:${id}`, libraryToolbar: (id: string) => `toolbar:${id}`, libraryCard: (id: string, key: string) => `card:${id}:${key}`})},
@@ -50,6 +53,9 @@ async function libraryScreen(width: number, isTV = false) {
     './directory': {NativeLibraryDirectory: 'NativeLibraryDirectory'},
     './LibraryFilters': {LibraryFilters: 'LibraryFilters'},
     './applied-filters': {libraryAppliedFilters: () => []},
+    './library-grid': {libraryTabletGridGeometry},
+    '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
+    '../destinations/music/TVMusicDiscover': {TVMusicDiscover: 'TVMusicDiscover'},
     '../read/platform': {hiddenReadingLibraryOnTV, isReadingLibraryKind},
   };
   const jumpSheet = await screenModule(new URL('../src-next/screens/library/LibraryJumpSheet.tsx', import.meta.url), modules);
@@ -57,8 +63,33 @@ async function libraryScreen(width: number, isTV = false) {
     ...modules, './LibraryJumpSheet': jumpSheet, './jump': libraryJump,
     '../../platform/home-action-diagnostics': {homeActionDiagnostics},
   });
-  return {theme, module};
+  return {theme, module, host};
 }
+
+test('a library page renders with no selection port and routes the supplied tablet Select action', async () => {
+  for (const width of [390, 1180]) {
+    const {module, host} = await libraryScreen(width);
+    let starts = 0;
+    const selection = width >= 1024 ? {start: () => {starts++;}} : undefined;
+    const library = {id: 'movies', name: 'Movies', kind: 'movie'};
+    const state = {phase: 'loading', library, tab: {id: 'movies'}, predicates: []};
+    const props = {destination: {getSnapshot: () => state, subscribe: () => () => {}},
+      runtime: {getSnapshot: () => ({authority: {}}), libraryMenu: () => ({owner: false, onEditPins: () => {}})},
+      activation: {getSnapshot: () => ({visible: true, revision: 1, intent: 'enter'}), subscribe: () => () => {}},
+      directory: {getSnapshot: () => ({phase: 'ready', libraries: []}), subscribe: () => () => {}},
+      libraries: [library], actions: {}, labels: {}, selection};
+    const tree = host.render(() => module.LibraryScreen(props));
+    assert.ok(elements(tree).some(node => node.props.testID === 'native-library-movies'));
+    if (selection) {
+      const header = elements(tree).find(node => node.type === module.LibraryExpandedHeader);
+      const button = header?.props.selection;
+      assert.equal(button?.props.testID, 'library-select-header');
+      assert.equal(button.props.onPress, selection.start);
+      button.props.onPress();
+      assert.equal(starts, 1);
+    }
+  }
+});
 
 test('the wash is drawn only for the Listen and Read libraries', async () => {
   const {module} = await libraryScreen(390);

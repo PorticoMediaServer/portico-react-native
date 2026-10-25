@@ -228,7 +228,7 @@ export function LibraryResultCount({phone, style, children, controls}: {phone: b
 /** The actual library route, independently retained below a title page. The
  * initial TV card is a real producer entity, never an index or placeholder. */
 export function LibraryScreen(props: NativeLibraryScreenProps) {
-  const {destination, runtime, activation, directory, libraries, actions} = props, theme = useTheme(), registry = useFocusRegistry(), dimensions = useWindowDimensions();
+  const {destination, runtime, activation, directory, libraries, actions, selection} = props, theme = useTheme(), registry = useFocusRegistry(), dimensions = useWindowDimensions();
   useSyncExternalStore(actions.menuState?.subscribe ?? noSubscribe, actions.menuState?.getSnapshot ?? (() => 0));
   const entryRequest = useMemo(() => createDestinationEntryFocus(registry), [registry]);
   const [entered, setEntered] = useState(false), onEntered = useCallback(() => setEntered(true), []);
