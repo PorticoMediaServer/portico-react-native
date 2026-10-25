@@ -85,6 +85,11 @@ export function ReadPeriodicalScreen({controller, route, runtime, onBack}: {
               style={{height: 34, paddingHorizontal: 12, borderRadius: 17, justifyContent: 'center', backgroundColor: month === state.selectedMonth ? theme.colors.text : alpha(theme.colors.text, .08)}}>
               <Text style={[browseType(theme, 13, 700), {color: month === state.selectedMonth ? theme.colors.ink : theme.colors.textSecondary}]}>{month}</Text>
             </Focusable>)}
+            {state.archiveCursor ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.controls.more')}
+              onPress={() => {void controller.moreMonths(state).catch(runtime.reportError);}}
+              style={{height: 34, paddingHorizontal: 12, borderRadius: 17, justifyContent: 'center', borderWidth: 1, borderColor: alpha(theme.colors.text, .24)}}>
+              <Text style={[browseType(theme, 13, 700), {color: theme.colors.textSecondary}]}>{t('next.controls.more')}</Text>
+            </Focusable> : null}
           </ScrollView>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, marginTop: 16}}>
             {state.days.map(day => <Focusable key={day.value} accessibilityRole="button" accessibilityLabel={day.value}

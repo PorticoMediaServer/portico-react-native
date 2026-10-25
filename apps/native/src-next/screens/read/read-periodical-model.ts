@@ -23,6 +23,8 @@ export type NativeReadPeriodicalState = Readonly<{
   selectedDate?: string;
   /** The selected query's own next page, if the server published one. */
   nextCursor?: string;
+  /** The unfiltered archive's own next page for discovering older months. */
+  archiveCursor?: string;
   error?: unknown;
 }>;
 type PeriodicalRoute = Extract<NativeShellRoute, {kind: 'read-periodical'}>;
@@ -116,8 +118,11 @@ export class NativeReadPeriodical {
       const latest = unfiltered.items[0];
       const months = monthsOf(unfiltered.items);
       const groupName = latest?.item.series?.name;
-      const issueCount = unfiltered.years.length ? unfiltered.years.reduce((total, year) => total + year.count, 0) : undefined;
-      const selectedYear = this.publicationType === 'magazine' ? unfiltered.years[0]?.value : undefined;
+      // The raw wire years are {year, issueCount}; only the client's canonical
+      // yearChoices are the validated {value, count} projection.
+      const buckets = unfiltered.yearChoices;
+      const issueCount = buckets.length ? buckets.reduce((total, year) => total + year.count, 0) : undefined;
+      const selectedYear = this.publicationType === 'magazine' ? buckets[0]?.value : undefined;
       const selectedMonth = this.publicationType === 'newspaper' ? months[0] : undefined;
       const page = selectedYear ? await client.periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: selectedYear, limit: 60}, signal)
         : selectedMonth ? await client.periodicalIssues(this.libraryId, this.groupId, this.publicationType, {month: selectedMonth, limit: 60}, signal)
@@ -126,7 +131,8 @@ export class NativeReadPeriodical {
       this.publish({phase: 'ready', items: page.items, ...(latest ? {latest} : {}), years: page.yearChoices, days: page.dayChoices,
         months, ...(groupName ? {groupName} : {}), ...(issueCount === undefined ? {} : {issueCount}), publicationType: this.publicationType,
         ...(selectedYear ? {selectedYear} : {}), ...(selectedMonth ? {selectedMonth} : {}),
-        ...(page.nextCursor ? {nextCursor: page.nextCursor} : {})});
+        ...(page.nextCursor ? {nextCursor: page.nextCursor} : {}),
+        ...(unfiltered.nextCursor ? {archiveCursor: unfiltered.nextCursor} : {})});
     } catch (error) {
       if (flight !== this.flight || !this.current() || cancelled(error)) return;
       this.publish({phase: 'error', items: [], years: [], days: [], months: [], error});
@@ -186,6 +192,25 @@ export class NativeReadPeriodical {
       if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== rendered || !this.current() || this.state.nextCursor !== cursor) return;
       this.publish({...rendered, items: [...rendered.items, ...page.items], years: page.yearChoices, days: page.dayChoices,
         ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined})});
+    } catch (error) {
+      if (this.life === life && this.command === ticket && flight === this.flight && this.state === rendered && this.current() && !cancelled(error))
+        this.publish({...rendered, error});
+    } finally {if (this.command === ticket) this.command = undefined;}
+  };
+  /** Discover older newspaper months from the unfiltered archive's own cursor;
+   * one real page per call, appending only the months that page actually holds. */
+  moreMonths = async (rendered: NativeReadPeriodicalState): Promise<void> => {
+    const cursor = rendered.archiveCursor;
+    if (this.command || this.publicationType !== 'newspaper' || !cursor || !this.current() || this.state !== rendered || rendered.phase !== 'ready') return;
+    const life = this.life, flight = ++this.flight, ticket = {};
+    if (!life) return;
+    this.command = ticket;
+    try {
+      const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {cursor, limit: 60}, life.signal);
+      if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== rendered || !this.current()) return;
+      const known = new Set(rendered.months);
+      const discovered = monthsOf(page.items).filter(month => !known.has(month));
+      this.publish({...rendered, months: [...rendered.months, ...discovered], ...(page.nextCursor ? {archiveCursor: page.nextCursor} : {archiveCursor: undefined})});
     } catch (error) {
       if (this.life === life && this.command === ticket && flight === this.flight && this.state === rendered && this.current() && !cancelled(error))
         this.publish({...rendered, error});
