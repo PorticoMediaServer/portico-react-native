@@ -23,6 +23,7 @@ import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
 import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
 import {rememberNativeSignInHint} from './sign-in-ended';
+import {createNativeOwnerRecoveryContact} from './owner-recovery-contact';
 import {requestOwnerResetFile, verifyOwnerResetFile} from '../../../../packages/client-core/src/account-reset';
 import {createNativeSetupClaim} from './setup-claim';
 import {nativeSetupDraft} from './setup-draft';
@@ -34,6 +35,7 @@ const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed
 /** Current product sign-in commands. UI frames are separate; no retired screen is imported.
  * Every path uses the canonical probe, real verified routes, account/profile API and secure store. */
 export class NativeServerSignIn {
+  static ownerRecoveryContact = createNativeOwnerRecoveryContact;
   static parseInvitationEntry = NativeLocalInvitation.parseEntry;
   static parseShortInvitationEntry = NativeLocalInvitation.parseShortEntry;
   static formatInvitationCode = NativeLocalInvitation.formatCode;
@@ -79,6 +81,8 @@ export class NativeServerSignIn {
   }
   private current = (): boolean => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease()) && (!this.localInvitation || this.localInvitation.current()) && (!this.invitationBinding || this.invitationBinding()) && (!this.porticoInvitation || this.porticoInvitation.current());
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
+  /** Read-only lifetime fence for the original phone directory contact; never admission evidence. */
+  ownerRecoveryCurrent() {return this.current() && !this.complete;}
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
   /** Public hand-offs use the connected, identity-verified server origin. The
    * address being typed or an unconfirmed discovery/proof is never a source. */
