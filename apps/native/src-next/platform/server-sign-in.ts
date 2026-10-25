@@ -56,7 +56,7 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly setupIssuers = new Map<string, {origin: string; routes: NonNullable<ReturnType<HttpLocalApi['getRouteConnection']>>; pin: ServerPin}>();
   private readonly requiredSetupHandoff: boolean;
-  private readonly expectedInvitation?: Readonly<{origin: string; serverId?: string}>;
+  private readonly expectedInvitation?: Readonly<{origin: string; serverId?: string; fingerprint?: string; signIn?: 'local' | 'portico'; expiresAt?: string}>;
   private readonly expectedTarget?: Readonly<{serverId: string; fingerprint: string}>;
   private ownerResetReady = false;
   private ownerResetGrant?: Extract<DirectSignIn, {kind: 'signed-in'}>;
@@ -68,7 +68,7 @@ export class NativeServerSignIn {
   private invitationBinding?: () => boolean;
   private localInvitation?: NativeLocalInvitation<Awaited<ReturnType<NativeServerSignIn['signInLocal']>>>;
   private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
-  constructor(owner: NativeAccounts = nativeAccounts, options: {expectedInvitation?: Readonly<{origin: string; serverId?: string}>; requiredSetupHandoff?: boolean; expectedTarget?: Readonly<{serverId: string; fingerprint: string}>} = {}) {
+  constructor(owner: NativeAccounts = nativeAccounts, options: {expectedInvitation?: Readonly<{origin: string; serverId?: string; fingerprint?: string; signIn?: 'local' | 'portico'; expiresAt?: string}>; requiredSetupHandoff?: boolean; expectedTarget?: Readonly<{serverId: string; fingerprint: string}>} = {}) {
     this.expectedInvitation = options.expectedInvitation ? Object.freeze({...options.expectedInvitation}) : undefined;
     this.expectedTarget = options.expectedTarget ? Object.freeze({...options.expectedTarget}) : undefined;
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
@@ -113,7 +113,7 @@ export class NativeServerSignIn {
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
       if (this.expectedTarget && (server.id !== this.expectedTarget.serverId || server.signIn !== 'local' || server.setupRequired)) throw mismatch();
-      if (this.expectedInvitation && (server.setupRequired || this.expectedInvitation.serverId && server.id !== this.expectedInvitation.serverId)) throw mismatch();
+      if (this.expectedInvitation && (server.setupRequired || this.expectedInvitation.signIn && server.signIn !== this.expectedInvitation.signIn || this.expectedInvitation.serverId && server.id !== this.expectedInvitation.serverId)) throw mismatch();
       this.server = server; return server;
     });
   }
@@ -387,7 +387,7 @@ export class NativeServerSignIn {
       const server = this.server, origin = this.probe.getSnapshot().origin;
       if (!server || server.signIn !== 'portico' || server.setupRequired || !origin || this.api || this.expectedTarget || this.porticoInvitation) throw mismatch();
       const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
-      if (pin.serverId !== server.id) throw mismatch();
+      if (pin.serverId !== server.id || this.expectedInvitation?.fingerprint && pin.fingerprint !== this.expectedInvitation.fingerprint) throw mismatch();
       assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
       const credentials = this.owner.accountCredentials(); await credentials.synchronize(); this.assertCurrent();
       const account = await credentials.accessSession(); this.assertCurrent();
@@ -406,7 +406,8 @@ export class NativeServerSignIn {
         this.assertCurrent(); if (this.server.setupRequired) throw mismatch();
         const anonymous = new HttpLocalApi(connected.api.baseUrl, '', nativeNetworkFetch); anonymous.useRoutes(connected.connection);
         this.porticoInvitation = new NativePorticoInvitation({api: anonymous, origin: routeOrigin(origin), serverId: pin.serverId,
-          username: account.account.username, current: this.current,
+          fingerprint: pin.fingerprint, username: account.account.username, scope: {accountId: account.account.id, familyId: account.familyId},
+          expiresAt: this.expectedInvitation?.expiresAt, current: this.current,
           accept: capability => this.run(() => this.consumeHostedCommand(connected, credentials, account, (hosted, api, signal) =>
             'shortCode' in capability
               ? acceptShortPorticoInvitation(hosted, hostedUrl, api, server.id, capability.shortCode, signal, nativeRouteCrypto)

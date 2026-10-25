@@ -4,9 +4,10 @@ import type {ProfileAPI} from '../../../../packages/client-core/src/profile-mana
 import {parseJoinLink} from '../../../../packages/client-core/src/join-link';
 import {parseShortInvitationCode} from '../../../../packages/client-core/src/short-invitation-code';
 
+export type NativeInvitationEntry = Readonly<{raw: string; server: string; id: string; fingerprint: string; signIn: 'portico'; expiresAt: string}>;
 export type NativeInvitationCapability = Readonly<{code: string} | {shortCode: string}>;
 type Ports<T> = {
-  api: ProfileAPI; origin: string; serverId: string; username: string; current: () => boolean;
+  api: ProfileAPI; origin: string; serverId: string; fingerprint: string; username: string; scope: Readonly<{accountId: string; familyId: string}>; expiresAt?: string; current: () => boolean;
   accept: (capability: NativeInvitationCapability) => Promise<T>;
 };
 class InvitationExpired extends Error {}
@@ -18,7 +19,7 @@ export class NativePorticoInvitation<T> {
   private readonly ports: Ports<T>;
   private readonly abort = new AbortController();
   private readonly client: PeopleInvitationsClient;
-  private invitation?: {capability: NativeInvitationCapability; preview: PublicInvitation};
+  private invitation?: {raw: string; capability: NativeInvitationCapability; preview: PublicInvitation};
   private busy = false;
   constructor(ports: Ports<T>) {
     this.ports = ports; this.username = ports.username;
@@ -40,17 +41,24 @@ export class NativePorticoInvitation<T> {
     try {
       const preview = 'shortCode' in capability ? await this.client.previewShort(capability.shortCode, this.abort.signal) : await this.client.preview(capability.code, this.abort.signal);
       this.assertCurrent(); if (preview.signInMethod !== 'portico') throw cancelled();
-      if (Date.parse(preview.expiresAt) <= Date.now()) throw new InvitationExpired();
-      this.invitation = {capability, preview}; return preview;
+      if (Date.parse(preview.expiresAt) <= Date.now() || this.ports.expiresAt && Date.parse(this.ports.expiresAt) <= Date.now()) throw new InvitationExpired();
+      this.invitation = {raw: input, capability, preview}; return preview;
     } catch (error) {this.assertCurrent(); throw error;} finally {this.busy = false;}
   }
   async join(preview: PublicInvitation): Promise<T> {
     this.assertCurrent(); const invitation = this.invitation;
     if (this.busy || !invitation || invitation.preview !== preview) throw cancelled();
-    if (Date.parse(preview.expiresAt) <= Date.now()) throw new InvitationExpired();
+    if (Date.parse(preview.expiresAt) <= Date.now() || this.ports.expiresAt && Date.parse(this.ports.expiresAt) <= Date.now()) throw new InvitationExpired();
     this.busy = true;
     try {return await this.ports.accept(Object.freeze({...invitation.capability}));}
     catch (error) {this.assertCurrent(); throw error;} finally {this.busy = false;}
+  }
+  captureAccountSwitch(): Readonly<{entry: NativeInvitationEntry; scope: Readonly<{accountId: string; familyId: string}>; username: string}> {
+    this.assertCurrent(); const invitation = this.invitation;
+    if (this.busy || !invitation) throw cancelled();
+    return Object.freeze({entry: Object.freeze({raw: invitation.raw, server: this.ports.origin, id: this.ports.serverId,
+      fingerprint: this.ports.fingerprint, signIn: 'portico' as const, expiresAt: this.ports.expiresAt ?? invitation.preview.expiresAt}),
+      scope: Object.freeze({...this.ports.scope}), username: this.username});
   }
   failure(error: unknown): 'expired' | 'other-account' | undefined {
     if (error instanceof InvitationExpired || error instanceof ApiError && error.status === 410 && error.code === 'invitation_expired') return 'expired';

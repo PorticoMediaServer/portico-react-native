@@ -9,6 +9,8 @@ import {hostedUrl} from './account-authority';
 /** Explicit Portico sign-in only. Native continuation storage contains a binding and
  * one-time completion, never a password, provider assertion or session credential. */
 export class NativePorticoSignIn {
+  private readonly isCurrent: () => boolean;
+  constructor(isCurrent: () => boolean = () => true) {this.isCurrent = isCurrent;}
   private readonly abort = new AbortController();
   private readonly bridge = NativeModules.PorticoAccountAuth;
   private client?: HostedAccountClient;
@@ -18,20 +20,21 @@ export class NativePorticoSignIn {
   private authenticating = false;
   private nativeApple = false;
   private readonly off = nativeAccounts.onCancel(() => this.dispose());
-  private check() {if (this.abort.signal.aborted) throw Object.assign(new Error('native_portico_cancelled'), {name: 'AbortError'});}
+  private check() {if (this.abort.signal.aborted || !this.isCurrent()) throw Object.assign(new Error('native_portico_cancelled'), {name: 'AbortError'});}
   private async checkpoint(update: Partial<NativeAccountContinuation>) {
     this.check(); if (!this.continuation) throw new Error('native_continuation_missing');
     this.continuation = {...this.continuation, ...update};
     await this.bridge.saveContinuation(hostedUrl, JSON.stringify(this.continuation)); this.check();
   }
   async prepare() {
+    this.check();
     const raw: unknown = await this.bridge.loadContinuation(hostedUrl); this.check();
     let saved: NativeAccountContinuation | undefined;
     if (typeof raw === 'string') {try {saved = parseNativeAccountContinuation(raw);} catch { /* Invalid noncredential continuation is replaced. */ }}
     const binding: unknown = saved?.binding ?? await this.bridge.newBinding(); this.check();
     if (typeof binding !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(binding)) throw new Error('native_continuation_invalid');
     this.continuation = saved ?? {version: 1, binding, expiresAt: new Date(Date.now() + 15 * 60000).toISOString()};
-    this.client = nativeAccounts.accountClient(binding);
+    this.client = nativeAccounts.accountClient(binding, () => !this.abort.signal.aborted && this.isCurrent(), () => this.authenticating);
     await this.checkpoint({});
     const options = await this.client.options(this.abort.signal); this.check();
     this.nativeApple = this.bridge.canSignInApple === true && options.providers.some(value => value.id === 'apple' && value.enabled && value.native && value.nativeClientIds.includes(this.bridge.bundleId));
@@ -39,6 +42,7 @@ export class NativePorticoSignIn {
   }
   private api() {this.check(); if (!this.client) throw new Error('native_continuation_missing'); return this.client;}
   private async authenticate(work: (signal: AbortSignal) => Promise<HostedSession>) {
+    this.check(); if (this.authenticating) throw Object.assign(new Error('native_account_attempt_active'), {name: 'AbortError'});
     this.authenticating = true;
     try {
       const result = await nativeAccounts.authenticatePorticoAccount(async signal => {this.check(); return work(signal);});
@@ -69,6 +73,7 @@ export class NativePorticoSignIn {
     const start = await this.api().start(provider, {mode: 'login', requestId: await this.bridge.newRequestId(), nativeApple,
       ...(!nativeApple ? {completion: 'code' as const} : {})}, this.abort.signal); this.check();
     await this.checkpoint({transactionId: start.transactionId, completionCode: undefined});
+    this.check();
     if (nativeApple) {
       const assertion = await this.bridge.signInApple(start.nativeNonce); this.check();
       this.transaction = await this.api().nativeApple(start.transactionId, assertion.idToken, assertion.displayName ?? '', this.abort.signal);
