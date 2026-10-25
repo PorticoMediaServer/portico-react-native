@@ -149,9 +149,12 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
       {(['endpoint', 'region', 'accessKey', 'secretKey', 'bucket', 'folder'] as const).map(key => <TextField key={key}
         label={t(({endpoint: 'next.remoteSources.s3Endpoint', region: 'next.remoteSources.s3Region', accessKey: 'next.remoteSources.s3AccessKey',
           secretKey: 'next.remoteSources.s3SecretKey', bucket: 'next.remoteSources.s3Bucket', folder: 'next.remoteSources.s3Folder'} as const)[key])}
+        description={key === 'endpoint' ? t('next.remoteSources.s3EndpointHelp') : key === 'region' ? t('next.remoteSources.s3RegionHelp')
+          : key === 'bucket' ? t('next.remoteSources.s3BucketHelp') : key === 'folder' ? t('next.remoteSources.s3FolderHelp') : undefined}
         value={s3[key]} editable={editable} autoCapitalize="none" autoCorrect={false} secureTextEntry={key === 'secretKey'} textContentType="none"
         onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setS3(previous => ({...previous, [key]: value,
           ...((key === 'endpoint' || key === 'accessKey') ? {secretKey: ''} : {})}));}}/>)}
+      {!built && Object.values(s3).some(value => value !== '') && <Problem message={t('next.remoteSources.s3Invalid')}/>}
     </> : form === 'driveOAuth' ? <>
       <TextField label={t('next.remoteSources.driveClientId')} value={clientId} editable={editable} autoCapitalize="none" autoCorrect={false}
         onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setClientId(value); setClientSecret('');}}/>
@@ -174,6 +177,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
       </>}
       {oauthResult && !oauthResult.ok && <Problem message={t('next.remoteSources.driveOAuthInvalid')}/>}
     </> : form === 'drive' ? <>
+      {!drive.keyJson && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.driveKeyEmptyHint')}</Text>}
       <TextField label={t('next.remoteSources.driveKey')} value={drive.keyJson} multiline
         editable={editable} autoCapitalize="none" autoCorrect={false} textContentType="none"
         onChangeText={value => {if (flight.current || !admitted()) return; invalidate(); setDrive(previous => ({...previous, keyJson: value}));}}/>
