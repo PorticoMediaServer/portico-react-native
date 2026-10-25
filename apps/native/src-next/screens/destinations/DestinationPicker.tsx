@@ -1,4 +1,5 @@
 import React, {useState, useSyncExternalStore} from 'react';
+import {Platform, View} from 'react-native';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {CollectionPicker, PlaylistPicker, type PickerEntry, type PickerResult} from '../../kit/selection';
 import type {NativeLoadedDestinations} from '../search/loaded-destinations';
@@ -22,12 +23,27 @@ export function NativeDestinationPicker({controller, kind, open, selectionLabel,
   const snapshot = controller.snapshot();
   const saved = snapshot.playlists, personal = snapshot.collections;
   const selected = snapshot.chosen?.kind === kind ? snapshot.chosen.id : undefined;
+  // select.html 18: a destination row carries its own 2 by 2 mosaic when the server
+  // published more than one cover. One path keeps the existing single artwork.
+  const mosaic = (paths: readonly (string | undefined)[]) => {
+    const sources = paths.filter((path): path is string => !!path).slice(0, 4);
+    const first = artwork(sources[0]);
+    // The drawn 2 by 2 cells are the phone/tablet picker's 48 px frame; TV keeps its own
+    // 76 px single artwork until its cell geometry has its own proof. No artwork at all
+    // (a caller that draws none) keeps today's empty cell.
+    if (sources.length < 2 || Platform.isTV || first == null) return first;
+    return <View style={{flex: 1, flexDirection: 'row', flexWrap: 'wrap'}}>
+      {Array.from({length: 4}, (_, index) => <View key={index} style={{width: '50%', height: '50%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden'}}>
+        {sources[index] ? <View style={{transform: [{scale: 0.5}]}}>{artwork(sources[index])}</View> : null}
+      </View>)}
+    </View>;
+  };
   const entries: PickerEntry[] = kind === 'playlist'
     ? (saved.projection?.sections ?? []).flatMap(section => section.entries).flatMap(entry => entry.kind === 'playlist'
-      ? [{id: entry.id, title: entry.title, size: entry.count ?? 0, canAdd: true, artwork: artwork(entry.artworkPaths?.[0])}]
+      ? [{id: entry.id, title: entry.title, size: entry.count ?? 0, canAdd: true, artwork: mosaic(entry.artworkPaths ?? [])}]
       : [])
     : personal.resources.flatMap(resource => resource.kind === 'collection'
-      ? [{id: resource.id, title: resource.name, size: resource.entryCount, canAdd: true, artwork: artwork(resource.artworkPaths?.[0])}]
+      ? [{id: resource.id, title: resource.name, size: resource.entryCount, canAdd: true, artwork: mosaic(resource.artworkPaths ?? [])}]
       : []);
   const outcome = snapshot.collectionOutcome;
   const destination = kind === 'playlist'
