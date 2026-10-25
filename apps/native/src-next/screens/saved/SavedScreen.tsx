@@ -112,6 +112,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     || documentFacts.category === 'timeout' || documentFacts.category === 'busy');
   const retainedDocument = !!snapshot.myList.projection || !!snapshot.myListSquares?.projection;
   const admitted = theme.isTV || documentFacts === undefined || (transportFailure && retainedDocument);
+  // A withheld document retires its query menus too; reopening waits for an admitted page.
+  useLayoutEffect(() => {if (!admitted) {setFilterOpen(false); setSortOpen(false);}}, [admitted]);
   // The actual server shape window supplies the drawn poster preview. Filtering
   // one mixed page locally could hide later posters and misstate its count.
   const posterProjection = admitted ? snapshot.myList.projection : undefined, squareProjection = admitted ? snapshot.myListSquares?.projection : undefined;
@@ -233,8 +235,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       </View>}
     </ScrollView>}
     {!downloadsOpen && admitted && selection?.render()}
-    <Menu testID="saved-my-list-filter-menu" open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterRef} returnFocusRef={filterRef} title={t('filter.title')} items={filterItems}/>
-    <Menu testID="saved-my-list-sort-menu" open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortRef} returnFocusRef={sortRef} title={t('next.browse.native.sort')} items={sortItems}/>
+    <Menu testID="saved-my-list-filter-menu" open={admitted && filterOpen} onOpenChange={setFilterOpen} anchorRef={filterRef} returnFocusRef={filterRef} title={t('filter.title')} items={filterItems}/>
+    <Menu testID="saved-my-list-sort-menu" open={admitted && sortOpen} onOpenChange={setSortOpen} anchorRef={sortRef} returnFocusRef={sortRef} title={t('next.browse.native.sort')} items={sortItems}/>
   </View>;
 }
 
