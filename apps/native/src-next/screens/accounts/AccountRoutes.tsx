@@ -28,6 +28,7 @@ import {AccountEntry} from './AccountEntry';
 import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {PhoneServerChooser} from './PhoneServerChooser';
+import {TVTrustedCertificates} from './TVTrustedCertificates';
 import {removeCapturedServerDownloads} from './sign-out-downloads';
 import {TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 
@@ -219,6 +220,7 @@ export function ServersRoute({context, onBack, onComplete, onSetupComplete}: {co
         setCaptured({session: found, name: value.name}); setPanel('sign-out-server');
       });}}>{t('accounts.signOut.server', {server: value.name})}</Button>
     </View>)}
+    <TVTrustedCertificates context={context}/>
   </ScrollView>, action('add-server', t('accounts.signIn.local'), async () => setPanel('add')),
   <View style={{alignSelf: 'stretch', gap: 8, marginTop: 10}}>
     <Button variant="text" disabled={busy} onPress={() => setPanel('consent-kind')}>{t('settings.linkTV')}</Button>

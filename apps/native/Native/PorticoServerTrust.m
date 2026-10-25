@@ -267,6 +267,21 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   }
 }
 
++ (BOOL)forgetCaptured:(NSString *)origin fingerprint:(NSString *)fingerprint serverId:(NSString *)serverId {
+  NSString *key = [self keyForOrigin:origin];
+  if (!key || PorticoTrustIsAccount(key) || !PorticoTrustText(fingerprint, @"^[A-Za-z0-9_-]{43}$") || !PorticoTrustText(serverId, @"^srv_[A-Za-z0-9_-]{43}$")) return NO;
+  @synchronized(self) {
+    NSDictionary *current = [self pinnedForKey:key];
+    if (![current[@"fingerprint"] isEqualToString:fingerprint] || ![current[@"serverId"] isEqualToString:serverId]) return NO;
+    NSUserDefaults *defaults = PorticoTrustDefaults();
+    NSMutableDictionary *pins = [[defaults dictionaryForKey:PorticoTrustRecord] mutableCopy];
+    [pins removeObjectForKey:key];
+    [defaults setObject:pins forKey:PorticoTrustRecord];
+    [PorticoTrustRefused removeObjectForKey:key];
+    return YES;
+  }
+}
+
 + (BOOL)forgetServerCertificates:(NSString *)serverId origins:(NSArray<NSString *> *)origins {
   if (!PorticoTrustText(serverId, @"^srv_[A-Za-z0-9_-]{43}$") || ![origins isKindOfClass:NSArray.class] || origins.count > 128) return NO;
   NSMutableSet<NSString *> *keys = [NSMutableSet set];

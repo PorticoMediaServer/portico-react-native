@@ -207,6 +207,10 @@ final class PorticoNetwork: RCTEventEmitter, NetServiceDelegate {
         if PorticoServerTrust.pin(origin, fingerprint: fingerprint, serverId: serverId) { resolve(true) } else { reject("certificate_storage", "The server's certificate could not be saved.", nil) }
     }
     @objc func forgetCertificate(_ origin: String) { PorticoServerTrust.forget(origin) }
+    @objc func forgetCapturedCertificate(_ origin: String, fingerprint: String, serverId: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+        if PorticoServerTrust.forgetCaptured(origin, fingerprint: fingerprint, serverId: serverId) { resolve(true) }
+        else { reject("certificate_changed", "certificate_changed", nil) }
+    }
     @objc func forgetServerCertificates(_ serverId: String, origins: [String], resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
         if PorticoServerTrust.forgetServerCertificates(serverId, origins: origins) { resolve(nil) }
         else { reject("certificate_storage", "certificate_storage", nil) }

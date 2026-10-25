@@ -152,6 +152,21 @@ internal object PorticoServerTrust {
     synchronized(this) { if (pins.remove(key) != null) save() }
   }
 
+  /** Remove only the exact certificate shown by the confirmation. */
+  fun forgetCaptured(origin: String?, fingerprint: String?, serverId: String?): Boolean {
+    val key = key(origin) ?: return false
+    if (key == accountKey || fingerprint == null || !FINGERPRINT.matches(fingerprint) || serverId == null || !SERVER_ID.matches(serverId)) return false
+    load()
+    synchronized(this) {
+      val previous = pins[key] ?: return false
+      if (previous.fingerprint != fingerprint || previous.serverId != serverId) return false
+      pins.remove(key)
+      if (!save()) { pins[key] = previous; return false }
+      refused.remove(key)
+      return true
+    }
+  }
+
   /** One offline durable replacement. Failed storage leaves the in-memory pins unchanged. */
   fun forgetServer(serverId: String, origins: List<String>): Boolean {
     if (!SERVER_ID.matches(serverId) || origins.size > 256) return false

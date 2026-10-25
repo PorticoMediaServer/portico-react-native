@@ -33,6 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSDictionary<NSString *, NSString *> *)pinnedAt:(nullable NSString *)origin NS_SWIFT_NAME(pinned(at:));
 + (BOOL)pin:(nullable NSString *)origin fingerprint:(nullable NSString *)fingerprint serverId:(nullable NSString *)serverId NS_SWIFT_NAME(pin(_:fingerprint:serverId:));
 + (void)forget:(nullable NSString *)origin NS_SWIFT_NAME(forget(_:));
++ (BOOL)forgetCaptured:(NSString *)origin fingerprint:(NSString *)fingerprint serverId:(NSString *)serverId NS_SWIFT_NAME(forgetCaptured(_:fingerprint:serverId:));
 /** Offline, one-record removal by server ID and named origins; YES acknowledges persistence. */
 + (BOOL)forgetServerCertificates:(NSString *)serverId origins:(NSArray<NSString *> *)origins NS_SWIFT_NAME(forgetServerCertificates(_:origins:));
 /** Every pinned certificate: `address` (host:port), `fingerprint` and `serverId`, in address order. */
