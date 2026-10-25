@@ -100,7 +100,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
       <View style={{width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08)}}><Icon name="i-mic" size={28} color={theme.colors.textSecondary}/></View>
       <Text style={[browseType(theme, 20, 400, 0, 29), {color: theme.colors.textTertiary, flex: 1}]}><Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t(copy.preferToTalk)}</Text>{' '}{t(copy.voiceHint)}</Text>
     </View>}
-    <FocusRegion id={ids.searchResults} entry={firstResult} enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboard}}
+    <FocusRegion id={ids.searchResults} entry={firstResult} enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}}
       style={tvSearchR46.results}>
       <ScrollView ref={scroll} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
         if (state.group === 'all' || state.search.phase !== 'ready') return;
