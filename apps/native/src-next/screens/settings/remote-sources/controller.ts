@@ -1,4 +1,4 @@
-import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues, type RcloneSourceDraft, type RcloneTestInput, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues, type RcloneSourceDraft, type RcloneTestInput, type RcloneTestResult, type SourceAdvancedSettings, type SourceAdvanced} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -99,6 +99,24 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     this.assertAllowed();
     try {if (!guard()) throw screenScopeEnded(); await this.service.configure(id, input, base, guard);}
     finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async readAdvanced(source: RemoteSource, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.readAdvanced(source.id, guard);
+    this.assertAllowed();
+    if (!guard() || result.generation !== String(source.generation)) throw screenScopeEnded();
+    return result;
+  }
+
+  async saveAdvanced(settings: SourceAdvancedSettings, values: SourceAdvanced, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.saveAdvanced(settings, values, guard);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
   }
 
   async sourceFolders(source: RemoteSource, options: Readonly<{path?: string; cursor?: string; showHidden?: boolean}>, guard: () => boolean) {
