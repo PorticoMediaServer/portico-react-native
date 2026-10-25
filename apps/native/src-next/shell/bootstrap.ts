@@ -44,6 +44,7 @@ import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
+import {createNativeShellAccountBinding} from './account-binding';
 
 export type NativeShellBootstrapContext = Readonly<{
   api: HttpLocalApi;
@@ -142,8 +143,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const local = api;
     trackNativeConnection(local);
     session = restored.session;
+    const accountBinding = createNativeShellAccountBinding(selected, session, {
+      current: () => alive && installation.current() && !signal.signal.aborted,
+      session: () => session, pin: () => local.getRouteConnection()?.pin, readSelected: () => nativeAppSessions.selected(),
+    });
     services = new NativeShellBootstrapServices(local, {viewer: session.viewer, deviceClass: Platform.isTV ? 'television' : 'mobile',
-      signal: signal.signal, current: () => alive && installation.current(), onAuthorityEnded: end});
+      signal: signal.signal, current: () => alive && installation.current(), accountBinding, onAuthorityEnded: end});
     const readers = services;
     home = readers.home;
     const documentService = home;
@@ -244,6 +249,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     bindings = await makeBindings(context); assertCurrent();
     const selectedBeforePublish = await readNativeSelectedViewer(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
+    await accountBinding.assertCurrent(); assertCurrent();
     const bound = bindings;
     const publish = () => {
       if (!current()) return;
@@ -312,6 +318,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         // Observe the native record after all network/identity awaits. An older
         // parallel read must not overwrite a device setting committed meanwhile.
         const nextInstallation = await records.change('preferences:v1', raw => ({record: raw, value: raw})); assertCurrent();
+        await accountBinding.assertCurrent(); assertCurrent();
         preferences = currentPreferenceSnapshot(preferences, nextFacts.preferences); installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
         text.refreshDeviceRegion();
         account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;

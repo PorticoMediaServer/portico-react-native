@@ -4,15 +4,17 @@ import {parseNotificationSummary} from '../../../../packages/client-core/src/not
 import {PreferencesReader} from '../../../../packages/client-core/src/preferences-reader';
 import type {DeviceClass, PreferencePatch, PreferenceScope, PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
 import {fetchGuideSourceSummaries} from '../../../../packages/client-core/src/guide/directory';
-import {parseDirectSnapshot} from '../../../../packages/client-core/src/profile-management';
+import {parseDirectSnapshot, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {routePath} from '../../../../packages/contracts/src/routes';
 import type {HttpLocalApi, LocalSession} from '../../../../packages/client-core/src';
+import type {NativeShellAccountBinding} from './account-binding';
 
 type Domain = 'preferences' | 'inbox' | 'guide' | 'home';
 type Facts = Readonly<{preferences: PreferenceSnapshot; unread: number; hasLiveTV: boolean}>;
 type Options = {
   viewer: LocalSession['viewer']; deviceClass: Extract<DeviceClass, 'mobile' | 'television'>;
   signal: AbortSignal; current: () => boolean; onAuthorityEnded: () => void;
+  accountBinding: NativeShellAccountBinding;
 };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const cancelled = () => Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});
@@ -22,7 +24,8 @@ const closedHome: HomeSnapshot = Object.freeze({phase: 'idle', paging: Object.fr
 export const nativeShellPermissionDenied = (error: unknown): boolean => object(error) &&
   ([401, 403].includes(Number(error.status)) || (typeof error.code === 'string' && ['unauthorized', 'forbidden', 'access_refused', 'identity_mismatch'].includes(error.code)));
 
-/** AccountShell currently consumes DirectSnapshot. Never relabel a hosted principal as local. */
+/** Portico-linked members also hold local server sessions. Legacy Hosted principals
+ * must re-admit through the signed challenge, never be relabelled by the shell. */
 export function nativeShellDirectViewer(viewer: LocalSession['viewer']): void {
   if (viewer.authority !== 'local') throw Object.assign(new Error('native_shell_hosted_account_binding_unavailable'), {code: 'native_shell_hosted_account_binding_unavailable'});
   if (!['owner', 'admin', 'member'].includes(viewer.role)) throw changed();
@@ -129,14 +132,30 @@ export class NativeShellBootstrapServices {
   }
   /** Other bootstrap reads share the same abort/current-authority boundary. */
   request = <T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => this.call<T>(undefined, path, method, body, signal);
+  private async assertAccountBinding(account?: DirectSnapshot): Promise<void> {
+    try {
+      if (account) this.options.accountBinding.assertAccount(account);
+      await this.options.accountBinding.assertCurrent();
+    }
+    catch (error) {
+      if (this.isCurrent() && nativeShellPermissionDenied(error)) this.retire();
+      throw error;
+    }
+    this.assertCurrent();
+  }
   readAccount = async (signal?: AbortSignal) => {
+    if (signal?.aborted) throw cancelled();
+    await this.assertAccountBinding();
+    this.assertCurrent();
     const viewer = this.options.viewer;
     const raw = await this.request(routePath('get_direct_account'), 'GET', undefined, signal);
     if (object(raw) && (typeof raw.serverId === 'string' && raw.serverId !== viewer.serverId
       || typeof raw.authority === 'string' && raw.authority !== viewer.authority
       || object(raw.account) && typeof raw.account.id === 'string' && raw.account.id !== viewer.accountId)) this.retire();
     const account = parseDirectSnapshot(raw, {authority: 'local', serverId: viewer.serverId, accountId: viewer.accountId}, true);
+    await this.assertAccountBinding(account);
     this.assertCurrent();
+    if (signal?.aborted) throw cancelled();
     if (account.account.disabled || account.account.role !== viewer.role) this.retire();
     return account;
   };

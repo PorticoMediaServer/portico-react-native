@@ -8,6 +8,8 @@ import {routePath} from '../../../packages/contracts/src/routes.ts';
 import {nativeNetworkFetch} from '../src-next/platform/session.ts';
 import {nativePlaybackSettings} from '../src-next/shell/playback-settings.ts';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from '../src-next/shell/bootstrap-services.ts';
+import {createNativeShellAccountBinding} from '../src-next/shell/account-binding.ts';
+import type {AppServerSession} from '../../../packages/client-core/src/app-sessions.ts';
 
 const origin = 'https://native-shell.test';
 const viewer: LocalSession['viewer'] = {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', role: 'owner'};
@@ -48,7 +50,7 @@ function homeRow(fence: string) {
 
 /** Only the native transport is stood in. Requests traverse the actual HttpLocalApi,
  * native cancellation wrapper, PreferencesReader, InboxService, HomeService and guide parser. */
-function fixture(t: TestContext, deviceClass: DeviceClass = 'mobile', role: 'owner' | 'admin' | 'member' = 'owner') {
+function fixture(t: TestContext, deviceClass: DeviceClass = 'mobile', role: 'owner' | 'admin' | 'member' = 'owner', linkedAccountId?: string) {
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
   const names = ['networkRequest', 'playbackRequestId', 'cancelQueueRequest'] as const;
   const before = Object.fromEntries(names.map(name => [name, runtime[name]])), claim = installationIdentity();
@@ -57,7 +59,7 @@ function fixture(t: TestContext, deviceClass: DeviceClass = 'mobile', role: 'own
   setInstallationIdentity({installationId: 'native_bootstrap_0123456789abcdef01234567', name: 'Native test device', app: 'Portico', platform: 'android', appVersion: '1.9.42'});
   const controller = new AbortController();
   const state = {
-    current: true, ended: 0, speed: 1.85, deviceClass, role: String(role), disabled: false,
+    current: true, ended: 0, speed: 1.85, deviceClass, role: String(role), disabled: false, linkedAccountId,
     fences: {home: 'home-domain', preferences: 'a'.repeat(64), inbox: 'b'.repeat(64), guide: 'guide-domain'},
     servers: {home: 'server', preferences: 'server', inbox: 'server', guide: 'server'},
     calls: [] as Request[], cancellations: [] as string[],
@@ -92,7 +94,8 @@ function fixture(t: TestContext, deviceClass: DeviceClass = 'mobile', role: 'own
     if (path === routePath('get_direct_account')) return {value: {authority: 'local', serverId: 'server', canManage: true,
       capabilities: {manageAccount: true, managePeople: state.role === 'owner' || state.role === 'admin',
         manageServer: state.role === 'owner' || state.role === 'admin', manageSignIn: state.role === 'owner'},
-      account: {id: 'account', username: 'owner', primaryProfileId: 'profile', role: state.role, revision: 1, disabled: state.disabled, allowedLibraries: ['movies']},
+      account: {id: 'account', username: 'owner', primaryProfileId: 'profile', role: state.role, revision: 1, disabled: state.disabled, allowedLibraries: ['movies'],
+        ...(state.linkedAccountId ? {hostedAccountId: state.linkedAccountId} : {})},
       profiles: [{id: 'profile', name: 'Actual profile', primary: true, position: 0, art: 'mint', revision: 1, pinRevision: 1, pinRequired: false}]}};
     throw new Error('Unexpected request: ' + path);
   };
@@ -105,7 +108,16 @@ function fixture(t: TestContext, deviceClass: DeviceClass = 'mobile', role: 'own
     const reply = await state.reply(request);
     return {status: reply.status ?? 200, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(reply.value)};
   };
-  const services = new NativeShellBootstrapServices(api, {viewer: {...viewer, role}, deviceClass, signal: controller.signal, current: () => state.current, onAuthorityEnded: () => {state.ended++;}});
+  const pin = {serverId: 'server', publicKey: 'original-key', fingerprint: 'original-fingerprint'};
+  const session: LocalSession = {viewer: {...viewer, role}, accessToken: 'in_memory_access', tokenGeneration: '1', sessionFamilyId: 'family',
+    expiresAt: '2026-10-25T22:00:00Z', authorizationHorizon: '2026-10-26T22:00:00Z'};
+  const selected: AppServerSession = {signIn: linkedAccountId ? 'portico' : 'local', connection: {version: '1', pin, session,
+    logicalOrigin: origin, routes: {paired: []}, ...(linkedAccountId ? {hosted: {origin: 'https://accounts.test', accountId: linkedAccountId,
+      key: {keyId: 'route-key', publicKey: 'route-public'}}} : {})}};
+  const accountBinding = createNativeShellAccountBinding(selected, session, {current: () => state.current,
+    session: () => session, pin: () => pin, readSelected: async () => selected});
+  const services = new NativeShellBootstrapServices(api, {viewer: {...viewer, role}, deviceClass, signal: controller.signal, current: () => state.current,
+    accountBinding, onAuthorityEnded: () => {state.ended++;}});
   t.after(() => {services.dispose(); for (const name of names) runtime[name] = before[name]; api.setDeviceClass(''); setInstallationIdentity(claim);});
   return {api, state, controller, services, response};
 }
@@ -256,6 +268,15 @@ test('direct account parsing preserves actual role and profiles, and refuses a c
   const f = fixture(t), account = await f.services.readAccount();
   assert.equal(account.account.role, viewer.role); assert.equal(account.profiles[0]?.name, 'Actual profile'); assert.equal(account.profiles[0]?.art, 'mint');
   f.state.role = 'member'; await assert.rejects(f.services.readAccount(), {code: 'access_refused'}); assert.equal(f.state.ended, 1);
+});
+
+for (const replacement of [undefined, 'other-portico-account']) test(`linked account read refuses ${replacement ? 'a changed' : 'a missing'} Portico identity link`, async t => {
+  const f = fixture(t, 'mobile', 'member', 'original-portico-account');
+  assert.equal((await f.services.readAccount()).account.hostedAccountId, 'original-portico-account');
+  f.state.linkedAccountId = replacement;
+  await assert.rejects(f.services.readAccount(), {code: 'access_refused'});
+  assert.equal(f.state.ended, 1);
+  assert.equal(f.services.home.getSnapshot().document, undefined);
 });
 
 for (const role of ['owner', 'admin', 'member'] as const) test(`the actual ${role} role is retained without an owner fallback`, async t => {
