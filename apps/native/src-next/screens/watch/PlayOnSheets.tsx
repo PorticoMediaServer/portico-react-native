@@ -49,13 +49,13 @@ export function NativePlayOnSheets({controller, artwork, posterUrl, onLinkTV}: N
         <Button focusId="remote-close" variant="text" iconOnly icon="i-close" accessibilityLabel={t('action.close')} onPress={controller.closeRemote}/>
       </View>
       <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18, marginTop: 26}}>
-        {control('back', 'i-rew', t('player.skipBackSeconds', {seconds: 10}), () => {void controller.skip(-10);}, false, !remote.allows.seek || remote.stopped)}
-        {control('restart', 'i-restart', t('next.controls.startOver'), () => {void controller.startOver();}, false, !remote.allows.seek || remote.stopped)}
+        {control('back', 'i-rew', t('player.skipBackSeconds', {seconds: 10}), () => {void controller.skip(-10, remote.id);}, false, !remote.allows.seek || remote.stopped)}
+        {control('restart', 'i-restart', t('next.controls.startOver'), () => {void controller.startOver(remote.id);}, false, !remote.allows.seek || remote.stopped)}
         {remote.playing
-          ? control('pause', 'i-pause', t('action.pause'), () => {void controller.pause();}, true, !remote.allows.pause || remote.stopped)
-          : control('play', 'i-play', t('action.play'), () => {void controller.resume();}, true, !remote.allows.resume || remote.stopped)}
-        {control('forward', 'i-ffw', t('player.skipForwardSeconds', {seconds: 30}), () => {void controller.skip(30);}, false, !remote.allows.seek || remote.stopped)}
-        {control('stop', 'i-stop', t('next.dock.native.stopRemote', {device: remote.device}), () => {void controller.stop();}, false, remote.stopped)}
+          ? control('pause', 'i-pause', t('action.pause'), () => {void controller.pause(remote.id);}, true, !remote.allows.pause || remote.stopped)
+          : control('play', 'i-play', t('action.play'), () => {void controller.resume(remote.id);}, true, !remote.allows.resume || remote.stopped)}
+        {control('forward', 'i-ffw', t('player.skipForwardSeconds', {seconds: 30}), () => {void controller.skip(30, remote.id);}, false, !remote.allows.seek || remote.stopped)}
+        {control('stop', 'i-stop', t('next.dock.native.stopRemote', {device: remote.device}), () => {void controller.stop(remote.id);}, false, remote.stopped)}
       </View>
       <View style={{marginTop: 22, alignItems: 'center'}}>
         <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('playOn.volumeOnTV')}</Text>
@@ -90,7 +90,7 @@ export function NativePlayOnSheets({controller, artwork, posterUrl, onLinkTV}: N
         <Button focusId="play-on-cancel" variant="glass" onPress={controller.close}>{t('action.cancel')}</Button>
       </View>}
       {state.phase === 'failed' && <View style={{paddingVertical: 12}}>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{state.message ?? t('playOn.notReachable', {device: state.target?.displayName ?? ''})}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{state.error ?? state.message ?? t('playOn.notReachable', {device: state.target?.displayName ?? ''})}</Text>
       </View>}
     </View>
   </Dialog>;

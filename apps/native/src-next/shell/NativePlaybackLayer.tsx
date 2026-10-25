@@ -59,7 +59,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     }},
   }), [adapter, authority, runtime]);
   const playOn = runtime.playOn;
-  const action = useMemo(() => bindNativeDock(adapter, playOn ? {remote: async command => {await playOn.command(command.type, command.positionSeconds);}} : {}), [adapter, playOn]);
+  const action = useMemo(() => bindNativeDock(adapter, playOn ? {remote: async command => {await playOn.command(command.type, command.positionSeconds, command.remote.id);}} : {}), [adapter, playOn]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
     const current = adapter.getSnapshot();
     if (!alive.current || !sameAuthority(current.authority, authority) || !sameFence(current.fence, original)

@@ -1189,7 +1189,14 @@ export class NativePlaybackRuntime {
   goLive = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && fence.kind === 'channel') this.channelControl?.goLive(); };
 
   /** The remote dock's own transitions: this app's player is not the source of any of them. */
-  beginRemote = async (value: RemoteDock): Promise<void> => { if (this.active()) await this.onTransition(this.dock.beginRemote(value, Date.now())); };
+  beginRemote = async (value: RemoteDock): Promise<void> => {
+    if (!this.active()) return;
+    // The explicit connection start may only retire the playback it was captured
+    // from; a replacement dock playback is never stopped by a late handoff.
+    const local = this.dock.getSnapshot().local;
+    if (local && !sameFence(local.fence, value.playback.fence)) return;
+    await this.onTransition(this.dock.beginRemote(value, Date.now()));
+  };
   updateRemote = async (value: RemoteDock): Promise<void> => { if (this.active()) await this.onTransition(this.dock.remote(value, Date.now())); };
   dismissRemote = async (id: string): Promise<void> => { if (this.active()) await this.onTransition(this.dock.dismissRemote(id)); };
   continueHere = async (id: string): Promise<void> => { if (this.active()) await this.onTransition(this.dock.continueHere(id)); };
