@@ -22,6 +22,6 @@ export function useSettingsRequestScope(context: NativeShellBootstrapContext) {
     };
     return {api, lifetime, authority, mount};
   }, [context]);
-  useLayoutEffect(scope.mount, [scope]);
+  useLayoutEffect(() => scope.mount(), [scope]);
   return scope;
 }
