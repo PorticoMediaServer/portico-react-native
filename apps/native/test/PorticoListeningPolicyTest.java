@@ -24,6 +24,20 @@ public final class PorticoListeningPolicyTest {
     check(!PorticoListeningPolicy.rateAllowed(false, 1.5, rates));
     check(PorticoListeningPolicy.rateAllowed(false, 1.0, rates));
     check(PorticoListeningPolicy.rateAllowed(true, 1.5, rates));
-    System.out.println("17 Android listening policy assertions PASS; no device/runtime effect claim");
+    Map<String,Object> book=Map.of("skipBackMs",60000,"skipForwardMs",90000,"resumeRewindMs",5000);
+    check(PorticoListeningPolicy.validAudiobookPreferences(book));
+    check(!PorticoListeningPolicy.validAudiobookPreferences(null));
+    check(!PorticoListeningPolicy.validAudiobookPreferences(Map.of("skipBackMs",60000,"skipForwardMs",90000,"resumeRewindMs",true)));
+    check(PorticoListeningPolicy.skipSeconds(true,book,false)==60 && PorticoListeningPolicy.skipSeconds(true,book,true)==90);
+    check(PorticoListeningPolicy.skipSeconds(false,book,false)==30 && PorticoListeningPolicy.skipSeconds(false,book,true)==30);
+    check(PorticoListeningPolicy.skipSeconds(true,null,false)==15 && PorticoListeningPolicy.skipSeconds(true,null,true)==30);
+    for(double amount:new double[]{0,5000,15000,30000}) {
+      check(PorticoListeningPolicy.resumeDisplacement(299,100,amount)==0);
+      check(PorticoListeningPolicy.resumeDisplacement(301,100,amount)==amount/1000);
+      check(PorticoListeningPolicy.resumeDisplacement(3601,100,amount)==amount/1000);
+      check(PorticoListeningPolicy.resumeDisplacement(3601,2,amount)==(amount>0?2:0));
+    }
+    check(PorticoListeningPolicy.resumeDisplacement(3601,100,7000)==0);
+    System.out.println("Android listening policy assertions PASS; no device/runtime effect claim");
   }
 }
