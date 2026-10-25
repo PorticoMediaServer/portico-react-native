@@ -140,7 +140,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
             <Text style={[browseType(theme, tv ? 21 : 13, 500), {color: theme.colors.textSecondary}]}>{t('title.resumeRemaining', {remaining})}</Text>
           </View> : null}
           <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 18 : 10, marginTop: tv ? 24 : 18, alignSelf: tv ? 'flex-start' : 'stretch'}}>
-            <Button icon="i-play" onPress={onPlay} accessibilityLabel={resumeLabel} style={{flex: tv ? undefined : 1, minWidth: tv ? 320 : undefined}}>{resumeLabel}</Button>
+            <Button icon="i-play" onPress={onPlay} accessibilityLabel={resumeLabel} hasTVPreferredFocus={tv} style={{flex: tv ? undefined : 1, minWidth: tv ? 320 : undefined}}>{resumeLabel}</Button>
             <Button variant="glass" icon="i-restart" onPress={() => {void controller.startOver().catch(error => runtime.reportError(error));}} accessibilityLabel={t('action.startOver')}>{tv ? t('action.startOver') : undefined}</Button>
             {!tv ? <Button variant="glass" iconOnly icon={'i-check'} accessibilityLabel={t('title.markFinished')}
               accessibilityState={{checked: snapshot.finished}} onPress={() => {void controller.markFinished().catch(error => runtime.reportError(error));}}/> : null}
