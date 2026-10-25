@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {Image, ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../packages/i18n/src';
@@ -16,7 +16,8 @@ type RailEntry = Readonly<{key: string; label: string; icon: IconName; destinati
 
 /** foldable1/tablet: the 84 pt medium rail replaces the phone tab bar. Search,
  * Home, Live TV, Saved, Settings and Profile stay put; only the libraries scroll. */
-export function MediumRail({libraries, hasLiveTV, destination, profile, unread, serverAction, onNavigate, onProfile, profileRef, short}: {
+export function MediumRail({libraries, hasLiveTV, destination, profile, unread, serverAction, onNavigate, onProfile, profileRef, short, expanded = false, onToggle, serverName}: {
+  expanded?: boolean; onToggle?: () => void; serverName?: string;
   libraries: readonly Library[]; hasLiveTV: boolean; destination: ShellDestination; profile: ProfileOption; unread: boolean;
   /** Owner/administrator-only Server activity, icon-only as tablet 2/3 draw it. */
   serverAction?: Readonly<{id: string; label: string; onPress: () => void}>;
@@ -39,20 +40,27 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
     const selected = sameDestination(entry.destination, destination);
     return <Focusable key={entry.key} testID={`medium-rail-${entry.key}`} accessibilityRole="button" accessibilityLabel={entry.label}
       accessibilityState={{selected}} onPress={() => onNavigate(entry.destination)} focusRadius={mediumRailMetrics.itemRadius}
-      style={{width: mediumRailMetrics.itemWidth, minHeight: 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius,
-        alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: selected ? `${theme.colors.text}1A` : undefined}}>
-      <Icon name={entry.icon} size={mediumRailMetrics.iconSize} color={selected ? theme.colors.text : theme.colors.textTertiary}/>
-      <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: 10.5, lineHeight: 13.5, color: selected ? theme.colors.text : theme.colors.textTertiary, maxWidth: mediumRailMetrics.itemWidth, textAlign: 'center'}]}>{entry.label}</Text>
+      style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 44 : 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius,
+        flexDirection: expanded ? 'row' : 'column', paddingHorizontal: expanded ? 12 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center', gap: expanded ? 12 : 4, backgroundColor: selected ? `${theme.colors.text}1A` : undefined}}>
+      <Icon name={entry.icon} size={expanded ? 20 : mediumRailMetrics.iconSize} color={selected ? theme.colors.text : theme.colors.textTertiary}/>
+      <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: expanded ? 15 : 10.5, lineHeight: expanded ? 20 : 13.5, color: selected ? theme.colors.text : theme.colors.textTertiary, maxWidth: expanded ? 168 : mediumRailMetrics.itemWidth, textAlign: expanded ? 'left' : 'center'}]}>{entry.label}</Text>
     </Focusable>;
   };
-  const hairline = <View accessible={false} style={{width: 40, height: 1, backgroundColor: theme.colors.line, marginVertical: 6}}/>;
+  const hairline = <View accessible={false} style={{width: expanded ? 200 : 40, height: 1, backgroundColor: theme.colors.line, marginVertical: 6}}/>;
   return <View testID="medium-rail" accessibilityLabel={defaultI18n.t('next.home.native.mainNavigation')}
-    style={{position: 'absolute', left: 0, top: 0, bottom: 0, width: mediumRailMetrics.width, zIndex: theme.layers.navigation, overflow: 'hidden',
+    style={{position: 'absolute', left: 0, top: 0, bottom: 0, width: expanded ? 248 : mediumRailMetrics.width, zIndex: theme.layers.navigation, overflow: 'hidden',
       borderRightWidth: 1, borderRightColor: theme.colors.line}}>
     <BlurView pointerEvents="none" style={{position: 'absolute', inset: 0}} blurType="dark" blurAmount={18} reducedTransparencyFallbackColor={theme.colors.raised}/>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: .72}}/>
     <View style={{flex: 1, alignItems: 'center', paddingTop: padding.top, paddingBottom: padding.bottom}}>
+      {onToggle && <View style={{width: '100%', height: 48, paddingHorizontal: expanded ? 24 : 0, flexDirection: 'row', alignItems: 'center', justifyContent: expanded ? 'space-between' : 'center'}}>
+        {expanded && <Image accessible accessibilityLabel={defaultI18n.t('next.platform.appName')} source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 86, height: 17}}/>}
+        <Focusable testID="sidebar-toggle" accessibilityRole="button" accessibilityLabel={defaultI18n.t(expanded ? 'web.shell.collapse' : 'web.shell.expand')} accessibilityState={{expanded}} onPress={onToggle} focusRadius={12} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
+          <Svg width={22} height={22} viewBox="0 0 24 24" color={theme.colors.textSecondary}><Rect x={3.5} y={4.5} width={17} height={15} rx={3} fill="none" stroke="currentColor" strokeWidth={2}/><Rect x={8.5} y={4.5} width={1.5} height={15} fill="currentColor"/></Svg>
+        </Focusable>
+      </View>}
       {top.map(item)}
+      {expanded && <Text style={{alignSelf: 'flex-start', marginTop: 14, marginLeft: 24, marginBottom: 4, fontSize: 12, fontWeight: '700', color: theme.colors.textTertiary}}>{defaultI18n.t('web.shell.libraries')}</Text>}
       <View style={{flexGrow: 0, flexShrink: 1, minHeight: 0, width: '100%', marginTop: short ? 2 : 0, gap: short ? 2 : 0}}>
         <ScrollView style={{flexGrow: 0, flexShrink: 1, width: '100%'}} contentContainerStyle={{alignItems: 'center', gap: short ? 2 : mediumRailMetrics.gap}}
           showsVerticalScrollIndicator={false} onLayout={event => setLibraryViewport(event.nativeEvent.layout.height)}
@@ -68,16 +76,16 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
       {below.map(item)}
       {hairline}
       {serverAction && <Focusable testID="medium-rail-server" accessibilityRole="button" accessibilityLabel={serverAction.label} onPress={serverAction.onPress} focusRadius={mediumRailMetrics.itemRadius}
-        style={{width: mediumRailMetrics.itemWidth, minHeight: 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius, alignItems: 'center', justifyContent: 'center'}}>
-        <Icon name="i-activity" size={mediumRailMetrics.iconSize} color={theme.colors.textTertiary}/>
+        style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 44 : 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius, flexDirection: expanded ? 'row' : 'column', gap: expanded ? 12 : 0, paddingHorizontal: expanded ? 12 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center'}}>
+        <Icon name="i-activity" size={expanded ? 20 : mediumRailMetrics.iconSize} color={theme.colors.textTertiary}/>{expanded && <Text style={{fontSize: 15, fontWeight: '600', color: theme.colors.textSecondary}}>{serverAction.label}</Text>}
       </Focusable>}
       <View style={{marginTop: 'auto', alignItems: 'center'}}>
         {item({key: 'settings', icon: 'i-settings', label: defaultI18n.t('settings.title'), destination: {kind: 'settings'}})}
         <Focusable testID="medium-rail-profile" accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={mediumRailMetrics.itemRadius}
-          style={{width: mediumRailMetrics.itemWidth, minHeight: 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius, alignItems: 'center', justifyContent: 'center', gap: 4}}>
+          style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 44 : 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius, flexDirection: expanded ? 'row' : 'column', paddingHorizontal: expanded ? 10 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center', gap: expanded ? 12 : 4}}>
           <View ref={profileRef} collapsable={false} style={{width: 30, height: 30}}><ProfileFace {...profile} size={30} locked={profile.pinRequired} scaleOnFocus={false}/>
             {unread && <View pointerEvents="none" style={{position: 'absolute', top: 0, right: 0, width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.accentStrong, borderWidth: 2, borderColor: theme.colors.ink}}/>}</View>
-          <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: 10.5, lineHeight: 13.5, color: theme.colors.textTertiary}]}>{defaultI18n.t('web.shell.profile')}</Text>
+          {expanded ? <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={{fontSize: 14, fontWeight: '700', color: theme.colors.text}}>{profile.name}</Text>{serverName && <Text numberOfLines={1} style={{fontSize: 12, marginTop: 1, color: theme.colors.textTertiary}}>{serverName}</Text>}</View> : <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: 10.5, lineHeight: 13.5, color: theme.colors.textTertiary}]}>{defaultI18n.t('web.shell.profile')}</Text>}
         </Focusable>
       </View>
     </View>

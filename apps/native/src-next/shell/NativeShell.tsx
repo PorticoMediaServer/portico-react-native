@@ -18,7 +18,6 @@ import {MediumRail} from './MediumRail';
 import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
-import {DesktopHeader} from './DesktopHeader';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -42,6 +41,9 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const lastOpenedLibrary = useRef<string | undefined>(undefined);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
   const [homeScrolled, setHomeScrolled] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const sidebarRevision = useRef(0);
+  const sidebarLifetime = useRef<object | undefined>(undefined);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
   const current = useCallback(() => alive.current?.runtime === runtime && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
@@ -66,6 +68,24 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       pending.current++;
     };
   }, [runtime]);
+  useEffect(() => {
+    if (theme.isTV || dimensions.width < 1024) return;
+    const lifetime = {}, authority = {...snapshot.authority}, revision = sidebarRevision.current;
+    sidebarLifetime.current = lifetime;
+    const valid = () => sidebarLifetime.current === lifetime && current() && sameAuthority(authority, runtime.getSnapshot().authority);
+    void runtime.memory.readSidebar(authority, valid).then(value => {
+      if (valid() && revision === sidebarRevision.current) setSidebarExpanded(value);
+    }, error => {if (valid()) runtime.reportError(error);});
+    return () => {if (sidebarLifetime.current === lifetime) sidebarLifetime.current = undefined;};
+  }, [current, runtime, snapshot.authority, theme.isTV, dimensions.width >= 1024]);
+  const toggleSidebar = () => {
+    const lifetime = sidebarLifetime.current, authority = {...snapshot.authority};
+    const valid = () => !!lifetime && sidebarLifetime.current === lifetime && current() && sameAuthority(authority, runtime.getSnapshot().authority);
+    if (!valid()) return;
+    sidebarRevision.current++;
+    const value = !sidebarExpanded; setSidebarExpanded(value);
+    void runtime.memory.rememberSidebar(authority, value, valid).catch(error => {if (valid()) runtime.reportError(error);});
+  };
   useEffect(() => {
     let pending = true;
     void runtime.memory.read(snapshot.authority).then(id => {if (pending && current()) {setRemembered(lastOpenedLibrary.current ?? id); setMemoryReady(true);}}, error => {if (pending && current()) {setMemoryReady(true); runtime.reportError(error);}});
@@ -127,10 +147,12 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const barHeight = layout.tabs && !chromeHidden ? phoneBarHeight(insets.bottom) : 0;
   // foldable3e/3f: the phone bar leaves only on medium; the dock floats at the foot.
-  const homeBottom = layout.rail ? 92 : barHeight, pageBottom = layout.rail ? 16 : barHeight;
+  const sideNavigation = layout.rail || layout.kind === 'desktop';
+  const sideWidth = layout.kind === 'desktop' && sidebarExpanded ? 248 : mediumRailMetrics.width;
+  const homeBottom = sideNavigation ? 92 : barHeight, pageBottom = sideNavigation ? 16 : barHeight;
   const railDestination = snapshot.railDestination ?? destination;
   const content = <>
-    <Animated.View style={[{flex: 1}, layout.rail ? {paddingLeft: mediumRailMetrics.width} : null, pageStyle]}>
+    <Animated.View style={[{flex: 1}, sideNavigation ? {paddingLeft: sideWidth} : null, pageStyle]}>
       {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled}/>
         : <View style={{flex: 1, paddingBottom: pageBottom}}>
           {runtime.renderDestination(destination, openLibrary)}
@@ -140,13 +162,12 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
-        {layout.rail && <MediumRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
+        {sideNavigation && <MediumRail expanded={layout.kind === 'desktop' && sidebarExpanded} onToggle={layout.kind === 'desktop' ? toggleSidebar : undefined} serverName={snapshot.serverName} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
           serverAction={snapshot.account.serverAction && {id: snapshot.account.serverAction.id, label: snapshot.account.serverAction.label, onPress: snapshot.account.serverAction.onPress}}
           profileRef={avatarRef} short={dimensions.height - insets.top - insets.bottom < 800}
           onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
           onProfile={() => setAccountOpen(true)}/>}
-        {layout.kind === 'desktop' ? <DesktopHeader snapshot={snapshot} avatarRef={avatarRef} scrolled={homeScrolled} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)} onProfile={() => setAccountOpen(true)} activity={runtime.desktopActivity}/>
-          : destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
+        {destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
       </>)}
     {theme.isTV ? <TVProfileMenu snapshot={snapshot} open={accountOpen} onOpenChange={setAccountOpen} returnFocusRef={avatarRef}/>

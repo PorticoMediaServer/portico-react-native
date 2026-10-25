@@ -150,3 +150,29 @@ test('episode presentation receives actual structured show identity and numberin
   assert.equal(subject.positionSeconds, 42);
   assert.equal(subject.durationSeconds, 1800);
 });
+
+
+test('sidebar is a bounded device boolean isolated by server/account/profile', async () => {
+  const records = new Records(), memory = new LastLibraryMemory(records), current = () => true;
+  const other = {...authority, profileId: 'other'};
+  assert.equal(await memory.readSidebar(authority, current), true);
+  await memory.rememberSidebar(authority, false, current);
+  assert.equal(await memory.readSidebar(authority, current), false);
+  assert.equal(await memory.readSidebar(other, current), true);
+  const key = 'next.sidebar-expanded.v1:' + JSON.stringify([authority.serverId, authority.accountId, authority.profileId]);
+  records.values.set(key, 'false');
+  assert.equal(await memory.readSidebar(authority, current), true);
+  assert.equal(records.values.get(key), 'false', 'invalid records are not destructively repaired');
+});
+
+test('retirement prevents queued sidebar writes even inside a delayed store callback', async () => {
+  const records = new Records(); let live = true, resume!: () => void;
+  const memory = new LastLibraryMemory({change: async (key, update) => {
+    await new Promise<void>(resolve => {resume = resolve;});
+    return records.change(key, update);
+  }});
+  const pending = memory.rememberSidebar(authority, false, () => live);
+  await Promise.resolve(); await Promise.resolve();
+  live = false; resume(); await pending;
+  assert.equal(records.writes, 0);
+});
