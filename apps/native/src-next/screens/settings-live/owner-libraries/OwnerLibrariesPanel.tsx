@@ -186,17 +186,17 @@ function LibraryPage({library, document, state, tab, tabChange, t, runtime, serv
       <View style={{paddingHorizontal: 20, paddingTop: 8}}>
         {state.detail === 'loading' && !document && <Text style={[shellType(13.5, 500), {color: theme.colors.textTertiary}]}>{t('web.libraries.loadingOne')}</Text>}
         {state.detail === 'error' && <StateView {...runtime.error(state.detailError, () => {void runtime.reportError(state.detailError);})}/>}
-        {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} addFolder={addFolder} folderMenu={folderMenu}/>}
+        {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} addFolder={addFolder} folderMenu={folderMenu} busy={state.busy} save={save}/>}
         {tab === 'metadata' && <MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/>}
         {tab === 'attention' && <AttentionTab state={state} t={t} more={moreUnmatched}/>}
-        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save}/>}
-        {tab === 'advanced' && <AdvancedTab document={document} t={t} scanAll={scanAll} save={save}/>}
+        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save} scanAll={scanAll}/>}
+        {tab === 'advanced' && <AdvancedTab document={document} t={t} owner={viewerRole === 'owner'} busy={state.busy} save={save}/>}
       </View>
     </ScrollView>
   </View>;
 }
 
-function GeneralTab({library, document, t, renameLibrary, removeLibrary, addFolder, folderMenu}: {library: ManagedLibrary; document?: LibraryAdminDocument; t: Translate; renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void}) {
+function GeneralTab({library, document, t, renameLibrary, removeLibrary, addFolder, folderMenu, busy, save}: {library: ManagedLibrary; document?: LibraryAdminDocument; t: Translate; renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void; busy: boolean; save: (patch: Partial<LibrarySettings>) => void}) {
   const theme = useTheme(), source = document?.sources ?? [];
   return <>
     <LibraryGroup>
@@ -209,9 +209,42 @@ function GeneralTab({library, document, t, renameLibrary, removeLibrary, addFold
       {!source.length && <LibraryRow first label={t('web.libraries.noFolders')}/>}
       {source.map((folder, index) => <LibraryRow key={folder.id} first={index === 0} icon="i-folder" label={folder.name || folder.path} help={`${folder.path} · ${ownerFolderLocation(folder, t)}`} value={ownerFolderState(folder, t)} onPress={() => folderMenu(folder)}/>)}
     </LibraryGroup>
+    {document && <ContinueWatchingGroup document={document} busy={busy} t={t} save={save}/>}
     <SectionTitle>{t('server.library.remove')}</SectionTitle>
     <LibraryGroup>
       <LibraryRow first icon="i-trash" tone="danger" minHeight={64} label={t('server.library.removeRow')} help={t('server.library.removeHelp')} onPress={removeLibrary}/>
+    </LibraryGroup>
+  </>;
+}
+
+/** Root §35: keep the existing five controls and server eligibility, in General. */
+function ContinueWatchingGroup({document, busy, t, save}: {document: LibraryAdminDocument; busy: boolean; t: Translate; save: (patch: Partial<LibrarySettings>) => void}) {
+  const value = document.settings.continueWatching, eligible = (id: string) => document.eligibleControls.includes(id);
+  const update = (patch: Partial<LibrarySettings['continueWatching']>) => {if (!busy) save({continueWatching: {...value, ...patch}});};
+  const weekLabel = (weeks: number) => weeks === 26 ? t('next.ownerLibraries.continue.sixMonths') : weeks === 52 ? t('next.ownerLibraries.continue.oneYear')
+    : weeks === 104 ? t('next.ownerLibraries.continue.twoYears') : t('next.ownerLibraries.continue.weekCount', {count: weeks});
+  const percentLabel = (percent: number) => percent === 100 ? t('next.ownerLibraries.continue.finished') : t('next.ownerLibraries.continue.percent', {percent});
+  // A server may hold a valid custom value. Keep it visible until the owner chooses
+  // an authored option; opening this page never coerces or writes a preference.
+  const numericOptions = (values: readonly number[], current: number, label: (n: number) => string) =>
+    [...values, ...(values.includes(current) ? [] : [current])].map(n => ({value: String(n), label: label(n)}));
+  const ids = ['libraries.cwWeeks', 'libraries.cwMax', 'libraries.cwPremieres', 'libraries.cwWatched', 'libraries.cwRule'];
+  if (!ids.some(eligible)) return null;
+  const selectStyle = {backgroundColor: 'transparent', paddingHorizontal: 0};
+  return <>
+    <SectionTitle>{t('next.ownerLibraries.continueWatching')}</SectionTitle>
+    <LibraryGroup>
+      {eligible('libraries.cwWeeks') && <LibraryRow first label={t('next.ownerLibraries.continue.weeks')} trailing={<Select disabled={busy} accessibilityLabel={t('next.ownerLibraries.continue.weeks')} value={String(value.weeks)}
+        options={numericOptions([4, 8, 16, 26, 52, 104], value.weeks, weekLabel)} onValueChange={next => update({weeks: Number(next)})} style={selectStyle}/>}/>}
+      {eligible('libraries.cwMax') && <LibraryRow first={!eligible('libraries.cwWeeks')} label={t('next.ownerLibraries.continue.maximum')} trailing={<Select disabled={busy} accessibilityLabel={t('next.ownerLibraries.continue.maximum')} value={String(value.maximumItems)}
+        options={numericOptions([20, 40, 100, 200], value.maximumItems, n => defaultI18n.number(n))} onValueChange={next => update({maximumItems: Number(next)})} style={selectStyle}/>}/>}
+      {eligible('libraries.cwPremieres') && <LibraryRow label={t('next.ownerLibraries.continue.premieres')} help={t('next.ownerLibraries.continue.premieresHelp')}
+        trailing={<Switch disabled={busy} checked={value.includeSeasonPremieres} accessibilityLabel={t('next.ownerLibraries.continue.premieres')} onCheckedChange={next => update({includeSeasonPremieres: next})}/>}/>}
+      {eligible('libraries.cwWatched') && <LibraryRow label={t('next.ownerLibraries.continue.watchedAt')} help={t('next.ownerLibraries.continue.watchedAtHelp')} trailing={<Select disabled={busy} accessibilityLabel={t('next.ownerLibraries.continue.watchedAt')} value={String(value.videoPlayedThreshold)}
+        options={numericOptions([80, 85, 90, 95, 100], value.videoPlayedThreshold, percentLabel)} onValueChange={next => update({videoPlayedThreshold: Number(next)})} style={selectStyle}/>}/>}
+      {eligible('libraries.cwRule') && <LibraryRow label={t('next.ownerLibraries.continue.rule')} help={t('next.ownerLibraries.continue.ruleHelp')} trailing={<Select disabled={busy} accessibilityLabel={t('next.ownerLibraries.continue.rule')} value={value.videoCompletion}
+        options={[{value: 'earliest', label: t('next.ownerLibraries.continue.earliest')}, {value: 'threshold', label: t('next.ownerLibraries.continue.threshold')}, {value: 'credits', label: t('next.ownerLibraries.continue.credits')}]}
+        onValueChange={next => {if (next === 'earliest' || next === 'threshold' || next === 'credits') update({videoCompletion: next});}} style={selectStyle}/>}/>}
     </LibraryGroup>
   </>;
 }
@@ -252,7 +285,7 @@ function AttentionTab({state, t, more}: {state: NativeOwnerLibrariesSnapshot; t:
   </>;
 }
 
-function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, dashboard, save}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void}) {
+function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, dashboard, save, scanAll}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void; scanAll: () => void}) {
   const theme = useTheme(), active = ownerLibraryScan(library), settings = document?.settings;
   if (!document || !settings) return null;
   const skippedCount = ownerSkippedFiles(state.skipped?.items ?? []).length || (library.filesSkipped ?? 0);
@@ -283,22 +316,18 @@ function ScanningTab({library, document, metadata, state, t, locale, skipped, ca
     <LibraryGroup style={{marginTop: 12}}>
       {document.sources.map((folder, index) => <LibraryRow key={folder.id} first={index === 0} label={t('next.ownerLibraries.rescan', {folder: folder.name || folder.path})} value={ownerLibraryInterval(folder.intervalSeconds, t)}/>)}
     </LibraryGroup>
-  </>;
-}
-
-function AdvancedTab({document, t, scanAll, save}: {document?: LibraryAdminDocument; t: Translate; scanAll: () => void; save: (patch: Partial<LibrarySettings>) => void}) {
-  const theme = useTheme();
-  if (!document) return null;
-  return <>
-    <LibraryGroup style={{marginTop: 4}}>
-      <LibraryRow first label={t('next.ownerLibraries.allowDeletion')} help={t('next.ownerLibraries.allowDeletionHelp')}
-        trailing={<Switch testID="owner-libraries-deletion" checked={document.settings.allowMediaDeletion} accessibilityLabel={t('next.ownerLibraries.allowDeletion')} onCheckedChange={next => save({allowMediaDeletion: next})}/>}/>
-    </LibraryGroup>
     <LibraryGroup style={{marginTop: 12}}>
       <LibraryRow first icon="i-refresh" label={t('next.ownerLibraries.scanAll')} help={t('next.ownerLibraries.scanAllHelp')} onPress={scanAll}/>
     </LibraryGroup>
-    <Text style={[shellType(12, 500, 17), {color: theme.colors.textTertiary, marginTop: 10, paddingHorizontal: 4}]}>{t('next.ownerLibraries.advancedHint')}</Text>
   </>;
+}
+
+function AdvancedTab({document, t, owner, busy, save}: {document?: LibraryAdminDocument; t: Translate; owner: boolean; busy: boolean; save: (patch: Partial<LibrarySettings>) => void}) {
+  if (!document || !owner || !document.eligibleControls.includes('libraries.allowDelete')) return null;
+  return <LibraryGroup style={{marginTop: 4}}>
+    <LibraryRow first label={t('next.ownerLibraries.allowDeletion')} help={t('next.ownerLibraries.allowDeletionHelp')}
+      trailing={<Switch testID="owner-libraries-deletion" disabled={busy} checked={document.settings.allowMediaDeletion} accessibilityLabel={t('next.ownerLibraries.allowDeletion')} onCheckedChange={next => save({allowMediaDeletion: next})}/>}/>
+  </LibraryGroup>;
 }
 
 function SkippedSheet({open, onOpenChange, state, t, scan, more}: {open: boolean; onOpenChange: (open: boolean) => void; state: NativeOwnerLibrariesSnapshot; t: Translate; scan: () => void; more: () => void}) {
