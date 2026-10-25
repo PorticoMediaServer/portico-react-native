@@ -14,6 +14,7 @@ import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {Artwork} from '../../kit/artwork';
 import {TVServerPageMenu} from './server/TVServerPageMenu';
+import {TVDiskUsage} from './server/TVDiskUsage';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
 import {Screen, ScreenText, useScreenEntry} from './Screen';
@@ -78,6 +79,7 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
             {state.alerts.map(alert => <Focusable key={alert.id} focusId={`alert:${alert.id}`} testID={`dashboard-alert-${alert.id}`} accessibilityRole="text" accessibilityLabel={alertName(t, defaultI18n.has, alert.code)} focusKind="row" style={{backgroundColor: theme.colors.raised, borderRadius: 16, padding: 24, marginBottom: 8}}><ScreenText>{alertName(t, defaultI18n.has, alert.code)}</ScreenText></Focusable>)}
             <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textSecondary, marginTop: 36, marginBottom: 14}]}>{t('next.shell.backgroundTasks')}</Text>
             {state.jobs.map(job => <Focusable key={job.id} focusId={`job:${job.id}`} testID={`dashboard-job-${job.id}`} accessibilityRole="text" accessibilityLabel={jobName(t, defaultI18n.has, job.kind)} focusKind="row" style={{backgroundColor: theme.colors.raised, borderRadius: 16, padding: 24, marginBottom: 8}}><ScreenText>{jobName(t, defaultI18n.has, job.kind)}</ScreenText></Focusable>)}
+            <TVDiskUsage context={ports.context} runtime={runtime} freeBytes={health.freeBytes} databaseBytes={health.databaseBytes}/>
           </>}
         </FocusRegion>
       </ScrollView>
