@@ -57,7 +57,7 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
         {!!sorts.length && <Chip focusId="tv-saved-sort" icon="i-sort" trailingIcon="i-down" disabled={!enabled} onPress={() => {
           const current = sorts.find(sort => sort.id === saved?.projection?.query.sort) ?? sorts[0];
           if (current) select({view: 'playlists', sort: current.id, direction: saved?.projection?.query.direction === 'asc' ? 'desc' : 'asc'});
-        }}>{saved?.projection?.query.sort === 'title' ? t('web.saved.sort.title') : saved?.projection?.query.sort === 'created' ? t('playlists.sort', {field: 'created'}) : t('web.saved.sort.other')}</Chip>}
+        }}>{t('playlists.sort', {field: saved?.projection?.query.sort ?? ''})}</Chip>}
         {filters.flatMap(filter => filter.options.map(option => <Chip key={`${filter.id}:${option.id}`} focusId={`tv-saved-filter-${option.id}`} disabled={!enabled} count={option.count}
           selected={(saved?.projection?.query.category ?? 'all') === option.id} onPress={() => selectFilter(option.id as PlaylistListFilter)}>{option.label}</Chip>))}
       </>}
