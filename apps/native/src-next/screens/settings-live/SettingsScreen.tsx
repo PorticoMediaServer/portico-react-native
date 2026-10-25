@@ -302,7 +302,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   const hasDevicePlayer = theme.isTV && Platform.OS === 'android' && page.id === 'device' && engine !== undefined;
   const pageSections: SettingsPage['sections'] = hasDevicePlayer ? [...page.sections, {id: 'device-player', advanced: true, title: 'next.settingsSpec.account.device.advanced.groups.3.title', rows: [
     {kind: 'composite', id: 'playerEngine', storage: 'device', scope: 'device', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.label', control: {type: 'choice', choices: [
-      {value: 'auto', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.label'},
+      {value: 'automatic', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.label'},
       {value: 'native', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.label'},
       {value: 'mpv', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.label'},
     ]}},
