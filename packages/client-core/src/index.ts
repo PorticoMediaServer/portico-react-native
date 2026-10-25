@@ -1,5 +1,6 @@
 export * from './reading-mark-all.ts';
 export * from './reading-reread.ts';
+export * from './reading-indexed-search.ts';
 import type {MusicTechnicalFacts} from './music-facts.ts';
 import {routeBody} from "../../contracts/src/routes.ts";
 import {ReadingClient, type ReadingScope} from './reading.ts';
@@ -2287,7 +2288,7 @@ export {videoPictureName, videoAudioFormatName, videoTrackName, videoTrackWords,
 export type {VideoTrackWords, VideoTrackNameParts} from './video-track-labels.ts';
 
 export {createReadingHost, connectReadingHost} from './reading-host.ts';
-export type {ReadingHostSession, ReadingHostTransport, ReadingGuest, ReadingHostContentsTarget, ReadingHostCrease} from './reading-host.ts';
+export type {ReadingHostSession, ReadingHostTransport, ReadingGuest, ReadingHostContentsTarget, ReadingHostCrease, ReadingHostSearchAll} from './reading-host.ts';
 export {savedViewSummary, type SavedViewSummary, type SavedViewSummaryText} from './presentation/saved-view-summary.ts';
 export {readLibrarySettings,saveLibrarySettings,reorderLibraries,saveLibraryFolder,removeLibraryFolder} from './server-admin/libraries.ts';
 export {readLibraryInventoryConfig} from './library-inventory.ts';
