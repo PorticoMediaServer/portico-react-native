@@ -17,6 +17,7 @@ export function nativeListeningStatus(raw: Record<string, any>, text: (key: Mess
     ...(raw.supportedRates !== undefined ? {supportedRates: Object.freeze([...raw.supportedRates])} : {}),
     ...(raw.rateWaiting !== undefined ? {rateWaiting: raw.rateWaiting} : {}),
     ...(raw.rateError !== undefined ? {rateError: raw.rateError ? text('playback.message.operation_unavailable') : ''} : {}),
+    ...(raw.levelingApplied === true && raw.levelingGainDb !== undefined ? {levelingGainDb: raw.levelingGainDb} : {}),
     ...Object.fromEntries(['rendering', 'eqApplied', 'levelingApplied', 'timerStopped', 'expiredTimerRevision', 'policyRevision'].filter(key => raw[key] !== undefined).map(key => [key, raw[key]])),
   });
 }
