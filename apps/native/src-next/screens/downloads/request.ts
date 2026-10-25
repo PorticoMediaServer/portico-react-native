@@ -1,3 +1,5 @@
+import type {RefObject} from 'react';
+import type {View} from 'react-native';
 /** One download intent raised from a title page. The shell owns the sheet, so a
  * title renderer only names the real item (or container) and its drawn title. */
 export type NativeDownloadContainerKind = 'show' | 'season' | 'album' | 'book' | 'playlist';
@@ -9,6 +11,8 @@ export type NativeDownloadRequest = Readonly<{
   itemId?: string;
   /** A whole show/season/album/book/playlist goes through the durable request. */
   container?: Readonly<{kind: NativeDownloadContainerKind; id: string}>;
+  /** The real control the page raised this from, for an anchored presentation. */
+  anchorRef?: RefObject<View | null>;
 }>;
 
 let current: NativeDownloadRequest | undefined;

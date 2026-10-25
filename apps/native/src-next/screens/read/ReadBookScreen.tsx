@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useState, useSyncExternalStore} from 'react';
+import React, {useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
@@ -12,6 +12,8 @@ import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import {shellLayout} from '../../shell/model';
+import {askNativeDownload} from '../downloads/request';
+import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeReadBook} from './read-book-model';
@@ -65,6 +67,9 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   const toggleRead = (mark: ReadingReadMark) => {
     void controller.toggleRead(mark).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
+  const downloadAnchor = useRef<View | null>(null);
+  const canDownload = nativePublicationReadsAvailable();
+  const download = () => {askNativeDownload({title: controller.item.title, itemId: controller.item.id, reading: true, anchorRef: downloadAnchor});};
   const openSeries = (target: SeriesLink, manifest: ReadingManifest) => {
     void controller.openSeries(target, manifest).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
@@ -78,7 +83,7 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
         versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
-        listed={state.listed} onList={toggleList}/>;
+        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor}/>;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
@@ -95,13 +100,14 @@ export function ReadBookScreen({controller, route, comic, runtime, onBack, onOpe
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
   listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
+  canDownload: boolean; onDownload: () => void; downloadRef: React.RefObject<View | null>;
 }) {
   const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
@@ -157,6 +163,8 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, saved
         <Button variant="icon" icon={listed?.listed ? 'i-check' : 'i-plus'} iconOnly disabled={!listed}
           accessibilityLabel={t(listed?.listed ? 'next.home.removeMyList' : 'next.home.addMyList')}
           onPress={() => {if (listed) onList(listed);}} style={{height: 48, width: 48}}/>
+        <Button ref={downloadRef} variant="icon" icon="i-dl" iconOnly disabled={!canDownload}
+          accessibilityLabel={t('action.download')} onPress={onDownload} style={{height: 48, width: 48}}/>
       </View>
       {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
         onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: wide ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
