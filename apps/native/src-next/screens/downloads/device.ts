@@ -25,7 +25,13 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
   let released = false;
   const assertBorrowed = () => {if (released) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});};
   const source = current.lease.device;
-  const playback = createNativeOfflineEntryPlayback(context, source, () => !released);
+  let playback: ReturnType<typeof createNativeOfflineEntryPlayback>;
+  try {playback = createNativeOfflineEntryPlayback(context, source, () => !released);}
+  catch (error) {
+    current.references--;
+    if (current.references === 0) {if (pool.get(device) === current) pool.delete(device); current.lease.dispose();}
+    throw error;
+  }
   const openOffline = playback.openOffline;
   const borrowed: NativeOfflineDownloadsDevice = {
     ...source,
