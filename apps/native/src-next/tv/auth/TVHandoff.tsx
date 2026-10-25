@@ -8,6 +8,7 @@ import {stateSentenceParts} from '../../kit/states/sentence-parts';
 import {nativeType, useTheme} from '../../kit/theme';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
+import {useTVBusyEntryRevision} from './entry-revision';
 import {TVAuthLayout} from './TVAuthLayout';
 
 /** Display-only public URL. The account controller supplies its verified origin;
@@ -71,7 +72,8 @@ function RequiredSetupHandoff(props: TVRequiredSetupHandoffProps) {
   if (address.pathname !== (portico ? '/account' : '/settings/profile') || address.search) throw new Error('native_tv_required_setup_url_invalid');
   const id = `tv.auth.required.${portico ? 'portico' : 'local'}.${props.requirement}`;
   useHandoffBack(props.onBack, props.busy);
-  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: 0}, {regionId: id, childId: 'sign-in-again'});
+  const entryRevision = useTVBusyEntryRevision(props.busy);
+  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision}, {regionId: id, childId: 'sign-in-again'});
   const aside = handoffCodeCard(theme, address, props.copy.reference, material.nativeBlur, 'tv-required-setup-card');
   const name = portico ? t('account.portico') : props.serverName;
   return <TVAuthLayout testID="tv-required-setup" portico={portico} eyebrow={name} aside={aside}

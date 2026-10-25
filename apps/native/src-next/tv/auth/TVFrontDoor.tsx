@@ -9,6 +9,7 @@ import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus
 import {shellLayout} from '../../shell/model';
 import type {HostRegistration} from '../../dev/layout-dump/index';
 import {useNativeObservation} from '../../kit/dev-observation';
+import {useTVBusyEntryRevision} from './entry-revision';
 
 /** Only this presenter's public heading is observed; supplied error content and
  * Button internals keep their own owners. No resolved paint/font is inferred. */
@@ -49,7 +50,8 @@ export function TVFrontDoor(props: TVFrontDoorProps) {
 }
 function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const theme = useTheme(), window = useWindowDimensions(), canvas = shellLayout(window.width, window.height, true), id = 'tv.auth.front-door';
-  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: 0}, {regionId: id, childId: 'portico'});
+  const entryRevision = useTVBusyEntryRevision(busy);
+  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision}, {regionId: id, childId: 'portico'});
   const textStyle = nativeType({size: 26, weight: 700, lineHeight: 'normal', tracking: 0}, theme.textScale);
   const title = defaultI18n.t('web.signin.welcomeHome');
   const titleStyle = useMemo(() => [nativeType({size: 88, weight: 800, lineHeight: 88, tracking: -.045}, theme.textScale),

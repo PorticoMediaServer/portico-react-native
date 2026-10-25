@@ -5,6 +5,7 @@ import {Button, TextField} from '../../kit/controls';
 import {FocusProvider, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
+import {useTVBusyEntryRevision} from './entry-revision';
 import {TVAuthLayout} from './TVAuthLayout';
 
 export type TVCredentialFormProps = Readonly<{
@@ -42,7 +43,8 @@ export function TVCredentialForm(props: TVCredentialFormProps) {
 function CredentialForm(props: TVCredentialFormProps) {
   const {kind, username, password, busy} = props, registry = useFocusRegistry(), id = `tv.auth.${kind}.credentials`;
   const initial = useRef(!username ? 'username' : !password ? 'password' : 'submit');
-  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: 0}, {regionId: id, childId: initial.current});
+  const entryRevision = useTVBusyEntryRevision(busy);
+  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision}, {regionId: id, childId: initial.current});
   const t = defaultI18n.t, submit = () => {if (!busy && username && password) props.onSubmit();};
   return <TVAuthLayout testID={`tv-${kind}-credentials`} portico={kind === 'portico'}
     heading={props.kind === 'portico' ? t('auth.welcomeHome') : props.serverName}

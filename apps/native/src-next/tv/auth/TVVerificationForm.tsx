@@ -6,6 +6,7 @@ import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
+import {useTVBusyEntryRevision} from './entry-revision';
 import {TVAuthLayout} from './TVAuthLayout';
 import {TVCodeBoxes, TVNumericPad} from './TVNumericPad';
 
@@ -29,7 +30,9 @@ function VerificationForm(props: TVVerificationFormProps) {
   useTVEventHandler(event => {
     if (!props.recovery && !props.busy && event.eventType === 'playPause' && event.eventKeyAction !== 1) remove();
   });
-  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: props.recovery ? 1 : 0},
+  // Recovery owns the odd ticket; a completed pending state moves both kinds on.
+  const entryRevision = useTVBusyEntryRevision(props.busy) * 2 + (props.recovery ? 1 : 0);
+  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision},
     {regionId: `${id}.${props.recovery ? 'keyboard' : 'pad'}.0`, childId: props.recovery ? 'A' : '1'});
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400) => nativeType({size, weight, tracking: 0, lineHeight: 'normal'}, theme.textScale);
   const digit = (value: string) => {

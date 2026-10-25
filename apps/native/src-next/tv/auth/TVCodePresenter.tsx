@@ -7,6 +7,7 @@ import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
+import {useTVBusyEntryRevision} from './entry-revision';
 import {TVAuthLayout} from './TVAuthLayout';
 
 export type TVCodePresenterProps = Readonly<{
@@ -22,7 +23,8 @@ export function TVCodePresenter(props: TVCodePresenterProps) {
 function CodePresenter(props: TVCodePresenterProps) {
   const theme = useTheme(), id = `tv.auth.${props.mode}.code`, t = defaultI18n.t, material = glassRecipe();
   const address = props.verificationUri ? new URL(props.verificationUri) : undefined;
-  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: 0}, {regionId: id, childId: 'credentials'});
+  const entryRevision = useTVBusyEntryRevision(props.busy);
+  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision}, {regionId: id, childId: 'credentials'});
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400, lineHeight = 1.45) => nativeType({size, weight, tracking: 0, lineHeight: size * lineHeight}, theme.textScale);
   const aside = <View style={{position: 'absolute', right: 140, top: 0, bottom: 0, width: 720, justifyContent: 'center'}}>
     <View style={{paddingTop: 52, paddingHorizontal: 56, paddingBottom: 48, borderRadius: 28, backgroundColor: '#0d1b25C7',
