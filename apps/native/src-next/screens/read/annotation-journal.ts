@@ -383,11 +383,13 @@ export class NativeAnnotationJournal {
       const existing = record(raw, identity);
       if (!existing) return {record: carried!, value: undefined};
       const groups = [...existing.groups];
+      const changed = new Set<string>(); // Destination sources whose projected view this migration changes.
       for (const group of carried!.groups) {
-        const wanted = JSON.stringify([group.source.itemId, group.source.sourceId, group.source.sourceRevision, group.source.format]);
-        const at = groups.findIndex(value => JSON.stringify([value.source.itemId, value.source.sourceId, value.source.sourceRevision, value.source.format]) === wanted);
-        if (at < 0) {groups.push(group); continue;}
-        const operations = [...groups[at]!.operations];
+        const wanted = sourceKey(group.source);
+        const at = groups.findIndex(value => sourceKey(value.source) === wanted);
+        if (at < 0) {groups.push(group); changed.add(wanted); continue;}
+        const before = groups[at]!;
+        const operations = [...before.operations];
         for (const operation of group.operations) {
           const same = operations.find(value => value.id === operation.id);
           if (!same) {operations.push(operation); continue;}
@@ -395,12 +397,23 @@ export class NativeAnnotationJournal {
           // they are and report the conflict instead of clearing the legacy record.
           if (same.observedAt !== operation.observedAt || JSON.stringify(same) !== JSON.stringify(operation)) conflict = true;
         }
-        groups[at] = {...groups[at]!, operations: Object.freeze(operations), cache: groups[at]!.cache ?? group.cache} as NativeAnnotationGroup;
+        const cache = before.cache ?? group.cache;
+        if (operations.length !== before.operations.length || cache !== before.cache) changed.add(wanted);
+        groups[at] = {...before, operations: Object.freeze(operations), cache} as NativeAnnotationGroup;
       }
       if (conflict) return {record: raw ?? null, value: undefined};
       const tokens: Record<string, number> = {};
       for (const source of [carried!, ...(existing ? [existing] : [])]) for (const [key, value] of Object.entries(source.tokens)) tokens[key] = Math.max(tokens[key] ?? 0, value);
       for (const group of groups) {const key = sourceKey(group.source); tokens[key] = Math.max(tokens[key] ?? 0, group.localRevision);}
+      // Any destination whose projected view/completeness actually changed advances its token;
+      // a draft holding the previous token can no longer pass the accepting-turn CAS.
+      for (const key of changed) {
+        const at = groups.findIndex(value => sourceKey(value.source) === key);
+        if (at < 0) continue;
+        if (!ledgerRoom(tokens, key)) throw new Error('native_annotation_journal_migration_overflow');
+        const token = bumpToken(tokens, key, groups[at]!.localRevision);
+        groups[at] = {...groups[at]!, localRevision: token} as NativeAnnotationGroup;
+      }
       if (Object.keys(tokens).length > LEDGER_LIMIT) throw new Error('native_annotation_journal_migration_overflow');
       const merged: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}),
         groups: Object.freeze(groups), tokens: Object.freeze(tokens)});
