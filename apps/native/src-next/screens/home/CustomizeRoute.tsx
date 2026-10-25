@@ -145,10 +145,10 @@ function Customization({source, runtime, close}: {source: Source; runtime: Nativ
       if (!intentAdded.current) setIntentProblem(runtime.text.t('error.unavailable'));
     }, () => {if (source.current()) setIntentProblem(runtime.text.t('error.unavailable'));});
   }, [source, state.phase, runtime]);
-  return <HomeCustomize summary={view => source.summaries.line(view, labels)} controller={source.controller} copy={copy} i18n={labels} onClose={close} onAddView={retry} notice={intentProblem} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>} testID="home-customize"
+  return <HomeCustomize summary={view => source.summaries.line(view, labels)} controller={source.controller} copy={copy} i18n={labels} onClose={close} onAddView={retry} notice={intentProblem} renderError={(error, again) => <StateView variant="centered" {...runtime.error(error, again)} testID="home-customize-error"/>} testID="home-customize"
       views={{items: views.resources, loading: views.loading, error: views.error, retry, hasMore: !!views.nextCursor,
         loadMore: () => {if (source.current()) void source.views.next().catch(error => {if (source.current()) runtime.reportError(error);});},
-        renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>}}/>;
+        renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)} testID="home-customize-views-error"/>}}/>;
 }
 
 nativeShellRoutes.registerRoute('home-customize', createNativeHomeCustomizeRenderer);

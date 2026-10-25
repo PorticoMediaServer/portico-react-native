@@ -10,7 +10,7 @@ import {alpha} from '../../kit/browse/presentation';
 import {BottomSheet, Dialog, SidePanel} from '../../kit/overlays';
 import {focusTarget} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
-import {NativeHomeCustomizeController} from './customize-controller';
+import {NativeHomeCustomizeController, type NativeHomeResetOpening} from './customize-controller';
 
 /** Exact catalogue values supplied by the canonical copy owner. No screen copy
  * or server row label is manufactured by this presentation. */
@@ -32,7 +32,19 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   const rowRefs = useRef(new Map<string, View>());
   const first = useRef<View>(null), reload = useRef<View>(null), cancelReset = useRef<View>(null);
   const picked = useRef<View>(null), scroller = useRef<ScrollView>(null), returning = useRef(false);
-  const [reset, setReset] = useState(false), [choosing, setChoosing] = useState(false);
+  const [reset, setReset] = useState<NativeHomeResetOpening>(), [choosing, setChoosing] = useState(false);
+  const resetOwner = useRef<NativeHomeResetOpening | undefined>(undefined);
+  if (resetOwner.current?.controller !== controller) resetOwner.current = undefined;
+  const resetOpening = reset && resetOwner.current === reset && reset.controller === controller ? reset : undefined;
+  const closeReset = (opening: NativeHomeResetOpening | undefined) => {
+    if (!opening || resetOwner.current !== opening) return;
+    resetOwner.current = undefined;setReset(value => value === opening ? undefined : value);
+  };
+  const confirmReset = (opening: NativeHomeResetOpening | undefined) => {
+    if (!opening || resetOwner.current !== opening || opening.controller !== controller || !controller.isCurrent()) return;
+    closeReset(opening);void opening.controller.resetConfirmed(opening);
+  };
+  useLayoutEffect(() => () => {if (resetOwner.current?.controller === controller) resetOwner.current = undefined;}, [controller]);
   const firstView = useRef<View>(null), viewEntryFocused = useRef(false);
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
   const [positions, setPositions] = useState<ReadonlyMap<string, number>>(new Map());
@@ -158,10 +170,10 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     {!state.pickedId && <Button ref={addView} focusId="add-view" variant="text" icon="i-plus" disabled={blocked || !!state.pickedId} onPress={() => {if (views) setChoosing(true); onAddView();}}>{copy.addView}</Button>}
   </ScrollView>;
   const footer = choosing ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18}}>
-    {views?.hasMore ? <Button variant="text" disabled={views.loading} onPress={views.loadMore}>{i18n.t('action.showMore')}</Button> : <View/>}
-    <Button variant="glass" onPress={returnToAdd}>{i18n.t('action.cancel')}</Button>
+    {views?.hasMore ? <Button focusId="views-more" testID={`${testID}-views-more`} variant="text" disabled={views.loading} onPress={views.loadMore}>{i18n.t('action.showMore')}</Button> : <View/>}
+    <Button focusId="views-cancel" testID={`${testID}-views-cancel`} variant="glass" onPress={returnToAdd}>{i18n.t('action.cancel')}</Button>
   </View> : state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} disabled={state.pending || state.phase === 'loading'} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={() => {controller.keepEditing();if (controller.isCurrent()) focusTarget(first.current ?? addView.current);}}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
-    <Button ref={resetButton} focusId="reset" variant="glass" disabled={blocked || !!state.pickedId} onPress={() => setReset(true)}>{i18n.t('action.resetToDefault')}</Button>
+    <Button ref={resetButton} focusId="reset" variant="glass" disabled={blocked || !!state.pickedId} onPress={() => {const opening = controller.captureReset(state.layout);if (opening) {resetOwner.current = opening;setReset(opening);}}}>{i18n.t('action.resetToDefault')}</Button>
     <Button focusId="save" disabled={blocked || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
   const body = choosing && views ? views.loading && !views.items.length ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices disabled={views.loading || blocked} summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} hasMore={views.hasMore} i18n={i18n} firstRef={firstView}
@@ -178,10 +190,10 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
       style={{paddingTop: 46, paddingLeft: 60, paddingRight: 96}}>{body}</SidePanel>
       : <BottomSheet open onOpenChange={open => {if (!open) back();}} title={choosing ? defaultI18n.t('home.customize.addView') : copy.title} description={defaultI18n.t(choosing ? 'home.customize.chooseView' : 'home.customize.subtitle')}
         testID={testID} initialFocusRef={choosing ? firstView : first} footer={footer}>{body}</BottomSheet>}
-    <Dialog open={reset} onOpenChange={setReset} title={defaultI18n.t('confirm.resetHome.title')} description={defaultI18n.t('confirm.resetHome.body')}
+    <Dialog testID={`${testID}-reset-confirm`} open={!!resetOpening} onOpenChange={open => {if (!open) closeReset(resetOpening);}} title={defaultI18n.t('confirm.resetHome.title')} description={defaultI18n.t('confirm.resetHome.body')}
       initialFocusRef={cancelReset} returnFocusRef={resetButton} showClose={false} footer={<View style={{flexDirection: 'row', gap: 18}}>
-        <Button ref={cancelReset} variant="glass" onPress={() => setReset(false)}>{defaultI18n.t('action.cancel')}</Button>
-        <Button variant="glass" style={{backgroundColor: `${theme.colors.record}24`}} textStyle={{color: theme.colors.record}} onPress={() => {setReset(false); void controller.resetConfirmed();}}>{copy.reset}</Button>
+        <Button ref={cancelReset} focusId="reset-cancel" testID={`${testID}-reset-cancel`} variant="glass" onPress={() => closeReset(resetOpening)}>{defaultI18n.t('action.cancel')}</Button>
+        <Button focusId="reset-confirm" testID={`${testID}-reset-submit`} variant="glass" style={{backgroundColor: `${theme.colors.record}24`}} textStyle={{color: theme.colors.record}} disabled={state.pending} onPress={() => confirmReset(resetOpening)}>{copy.reset}</Button>
       </View>}><View/></Dialog>
   </>;
 }
