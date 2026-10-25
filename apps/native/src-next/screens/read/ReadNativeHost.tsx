@@ -2,7 +2,7 @@ import {readingHighlightsSavePort} from '../../platform/reading-highlights-save'
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
-import {createReadingHost, preferenceValue, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
+import {createReadingHost, preferenceValue, ReadingError, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
 import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {nativeRouteCrypto} from '../../platform/server-connections';
@@ -21,6 +21,8 @@ import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-
 import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 
 type Target = Readonly<{itemId: string; sourceId: string; downloadId?: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
+const annotationDiagnosticCodes = new Set(['cancelled', 'conflict', 'invalid_document', 'invalid_location', 'invalid_response',
+  'invalid_revision', 'not_permitted', 'response_size', 'source_changed']);
 /** Only trusted immutable app code is loaded. The real API/session never enters
  * the WebView; the single browser controller receives structural byte callbacks. */
 export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings}: {
@@ -62,8 +64,13 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   }, [active, annotations, target.downloadId]);
   useEffect(() => annotations.subscribe(() => {
     const snapshot = annotations.getSnapshot();
-    if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) console.warn('portico_annotation_journal',
-      JSON.stringify({phase: snapshot.phase, queued: snapshot.queued, unresolved: snapshot.unresolved, error: String(snapshot.error ?? '')}));
+    if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) {
+      // Only closed codes may leave this boundary; unknown messages can contain private records or paths.
+      const error = snapshot.error instanceof ReadingError && annotationDiagnosticCodes.has(snapshot.error.code)
+        ? snapshot.error.code : snapshot.error == null ? '' : 'native_error';
+      console.warn('portico_annotation_journal', JSON.stringify({phase: snapshot.phase, queued: snapshot.queued,
+        unresolved: snapshot.unresolved, error}));
+    }
   }), [annotations]);
   type Owner = {retired: boolean; active?: {live: boolean; abort: AbortController}};
   const ownership = useMemo<Owner>(() => ({retired: false}), [context, target, preferences, retry]);
