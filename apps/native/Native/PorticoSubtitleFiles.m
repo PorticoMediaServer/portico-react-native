@@ -118,42 +118,52 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId resolver:(RCTPromiseResolveBloc
 #endif
 @end
 
+
+@interface PorticoDocumentPickRequest : NSObject
+@property(nonatomic,copy) NSString *identifier;
+@property(nonatomic,copy) NSString *kind;
+@property(nonatomic,copy) RCTPromiseResolveBlock resolve;
+@property(nonatomic,copy) RCTPromiseRejectBlock reject;
+@property(nonatomic,strong) NSProgress *progress;
+#if !TARGET_OS_TV
+@property(nonatomic,strong) UIDocumentPickerViewController *picker;
+@property(nonatomic,assign) BOOL reading;
+#endif
+@end
+@implementation PorticoDocumentPickRequest @end
+
 #if TARGET_OS_TV
 @interface PorticoDocumentFiles : NSObject<RCTBridgeModule,RCTInvalidating> @end
 #else
 @interface PorticoDocumentFiles : NSObject<RCTBridgeModule,RCTInvalidating,UIDocumentPickerDelegate> @end
 #endif
 @implementation PorticoDocumentFiles {
- NSString *_requestId;
- NSString *_kind;
- RCTPromiseResolveBlock _resolve;
- RCTPromiseRejectBlock _reject;
+ PorticoDocumentPickRequest *_request;
  BOOL _invalidated;
-#if !TARGET_OS_TV
- UIDocumentPickerViewController *_picker;
- BOOL _reading;
-#endif
 }
 RCT_EXPORT_MODULE()
 + (BOOL)requiresMainQueueSetup{return YES;}
 - (dispatch_queue_t)methodQueue{return dispatch_get_main_queue();}
-- (void)finish:(NSDictionary *)result code:(NSString *)code {
- RCTPromiseResolveBlock resolve=_resolve;RCTPromiseRejectBlock reject=_reject;
- _requestId=nil;_kind=nil;_resolve=nil;_reject=nil;
+- (void)finish:(PorticoDocumentPickRequest *)request result:(NSDictionary *)result code:(NSString *)code {
+ if(!request||_request!=request)return;
+ _request=nil;[request.progress cancel];
 #if !TARGET_OS_TV
- _picker.delegate=nil;
- if(_picker.presentingViewController)[_picker dismissViewControllerAnimated:NO completion:nil];
- _picker=nil;_reading=NO;
+ request.picker.delegate=nil;
+ if(request.picker.presentingViewController)[request.picker dismissViewControllerAnimated:NO completion:nil];
+ request.picker=nil;
 #endif
+ RCTPromiseResolveBlock resolve=request.resolve;RCTPromiseRejectBlock reject=request.reject;
+ request.resolve=nil;request.reject=nil;
  if(result){if(resolve)resolve(result);}else if(reject)reject(code,code,nil);
 }
 - (void)invalidate {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self invalidate];});return;}
- _invalidated=YES;[self finish:nil code:@"cancelled"];
+ _invalidated=YES;[self finish:_request result:nil code:@"cancelled"];
 }
 RCT_REMAP_METHOD(cancel,cancel:(NSString *)requestId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
- BOOL current=[requestId isKindOfClass:NSString.class]&&[_requestId isEqualToString:requestId];
- if(current)[self finish:nil code:@"cancelled"];
+ PorticoDocumentPickRequest *request=_request;
+ BOOL current=[requestId isKindOfClass:NSString.class]&&[request.identifier isEqualToString:requestId];
+ if(current)[self finish:request result:nil code:@"cancelled"];
  resolve(@(current));
 }
 RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
@@ -163,38 +173,53 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId kind:(NSString *)kind resolver:
 #if TARGET_OS_TV
  reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);
 #else
- if(_requestId){reject(@"document_picker_busy",@"document_picker_busy",nil);return;}
+ if(_request){reject(@"document_picker_busy",@"document_picker_busy",nil);return;}
  UIViewController *presenter=RCTPresentedViewController();if(!presenter){reject(@"document_picker_unavailable",@"document_picker_unavailable",nil);return;}
- _requestId=requestId;_kind=kind;_resolve=resolve;_reject=reject;
+ PorticoDocumentPickRequest *request=[PorticoDocumentPickRequest new];
+ request.identifier=requestId;request.kind=kind;request.resolve=resolve;request.reject=reject;request.progress=[NSProgress progressWithTotalUnitCount:1];
  NSMutableArray<UTType *> *types=[NSMutableArray new];
  for(NSString *extension in [kind isEqualToString:@"playlist"]?@[@"m3u",@"m3u8"]:@[@"xml"]){[types addObject:[UTType typeWithFilenameExtension:extension]?:UTTypeData];}
  UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc]initForOpeningContentTypes:types asCopy:NO];
- _picker=picker;picker.delegate=self;picker.allowsMultipleSelection=NO;[presenter presentViewController:picker animated:YES completion:nil];
+ request.picker=picker;picker.delegate=self;picker.allowsMultipleSelection=NO;_request=request;[presenter presentViewController:picker animated:YES completion:nil];
 #endif
 }
 #if !TARGET_OS_TV
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
- if(controller==_picker)[self finish:nil code:@"cancelled"];
+ PorticoDocumentPickRequest *request=_request;
+ if(request&&controller==request.picker)[self finish:request result:nil code:@"cancelled"];
 }
-- (NSData *)readDocument:(NSURL *)url limit:(NSUInteger)limit {
+- (NSData *)readDocument:(NSURL *)url limit:(NSUInteger)limit request:(PorticoDocumentPickRequest *)request {
+ if(!request||request.progress.cancelled)return nil;
  BOOL scoped=[url startAccessingSecurityScopedResource];
- NSData *data=[NSData dataWithContentsOfURL:url options:0 error:NULL];
- if(scoped)[url stopAccessingSecurityScopedResource];
- return data.length>0&&data.length<=limit?data:nil;
+ NSMutableData *bounded=[NSMutableData new];
+ @try {
+  NSFileHandle *file=[NSFileHandle fileHandleForReadingFromURL:url error:NULL];
+  if(file){
+   @try {
+    while(!request.progress.cancelled&&bounded.length<=limit){
+     NSData *chunk=[file readDataUpToLength:MIN((NSUInteger)65536,limit+1-bounded.length) error:NULL];
+     if(!chunk.length)break;
+     [bounded appendData:chunk];
+    }
+   } @finally {[file closeAndReturnError:nil];}
+  }
+ } @finally {if(scoped)[url stopAccessingSecurityScopedResource];}
+ return !request.progress.cancelled&&bounded.length>0&&bounded.length<=limit?bounded:nil;
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
- if(_invalidated||!_requestId||controller!=_picker||_reading)return;
- _reading=YES;
+ PorticoDocumentPickRequest *request=_request;
+ if(_invalidated||!request||controller!=request.picker||request.reading)return;
+ request.reading=YES;
  NSURL *url=urls.count==1?urls.firstObject:nil;
- NSString *kind=_kind;
+ NSString *kind=request.kind;
  NSString *extension=url.pathExtension.lowercaseString;
  BOOL allowed=url.isFileURL&&([kind isEqualToString:@"playlist"]?[extension isEqualToString:@"m3u"]||[extension isEqualToString:@"m3u8"]:[extension isEqualToString:@"xml"]);
- if(!allowed){[self finish:nil code:@"document_format"];return;}
+ if(!allowed){[self finish:request result:nil code:@"document_format"];return;}
  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-  NSData *data=[self readDocument:url limit:16*1024*1024];
+  NSData *data=[self readDocument:url limit:16*1024*1024 request:request];
   NSString *text=data?[[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding]:nil;
   NSDictionary *result=text.length?@{@"data":text,@"title":[url.lastPathComponent substringToIndex:MIN((NSUInteger)160,url.lastPathComponent.length)],@"bytes":@(data.length)}:nil;
-  dispatch_async(dispatch_get_main_queue(),^{[self finish:result code:@"document_file"];});
+  dispatch_async(dispatch_get_main_queue(),^{[self finish:request result:result code:@"document_file"];});
  });
 }
 #endif

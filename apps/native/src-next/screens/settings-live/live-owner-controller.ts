@@ -52,16 +52,21 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     if (!this.ready) this.ready = this.load().finally(() => {this.ready = undefined;});
     return this.ready;
   }
-  private act<T>(work: () => Promise<T>, after: (value: T) => void): Promise<T | undefined> {
-    if (!this.current() || this.getSnapshot().busy) return Promise.resolve(undefined);
+  private act<T>(work: () => Promise<T>, after: (value: T) => void, caller?: Readonly<{isCurrent: () => boolean; signal?: AbortSignal}>): Promise<T | undefined> {
+    const live = () => !caller || (caller.isCurrent() && caller.signal?.aborted !== true);
+    if (!this.current() || this.getSnapshot().busy || !live()) return Promise.resolve(undefined);
     this.publish({...this.getSnapshot(), busy: true, error: undefined, notice: undefined});
     return work().then(value => {
       if (!this.current()) return undefined;
+      if (!live()) {this.publish({...this.getSnapshot(), busy: false});return undefined;}
       after(value);
       this.publish({...this.getSnapshot(), busy: false});
       return value;
     }, error => {
-      if (this.current()) this.publish({...this.getSnapshot(), busy: false, error});
+      if (this.current()) {
+        if (live()) this.publish({...this.getSnapshot(), busy: false, error});
+        else this.publish({...this.getSnapshot(), busy: false});
+      }
       return undefined;
     });
   }
@@ -141,11 +146,22 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     return previewRemoteSource({request: this.request}, this.lifetime.authority.serverId, normalized);
   };
   saveRemote = (previewId: string) => this.act(async () => parseSourceDocument(await this.request<unknown>('/v1/admin/live-sources/remote/save', 'POST', {previewId, requestId: this.operationId()}), this.lifetime.authority.serverId), () => undefined);
-  previewFiles = async (draft: LiveSourceInput): Promise<UploadPreview> => {
+  private uploadRequest = <T,>(path: string, draft: LiveSourceInput, caller?: Readonly<{isCurrent: () => boolean; signal?: AbortSignal}>) =>
+    this.lifetime.request(signal => this.api.request<T>(path, 'POST', draft, caller?.signal ?? signal));
+  previewFiles = async (draft: LiveSourceInput, caller?: Readonly<{isCurrent: () => boolean; signal?: AbortSignal}>): Promise<UploadPreview> => {
     this.lifetime.assert();
-    return parseUploadPreview(await this.request<unknown>('/v1/admin/live-sources/preview', 'POST', draft), this.lifetime.authority.serverId);
+    if (caller && (!caller.isCurrent() || caller.signal?.aborted === true)) throw new Error('cancelled');
+    const raw = await this.uploadRequest<unknown>('/v1/admin/live-sources/preview', draft, caller);
+    if (caller && (!caller.isCurrent() || caller.signal?.aborted === true)) throw new Error('cancelled');
+    return parseUploadPreview(raw, this.lifetime.authority.serverId);
   };
-  saveFiles = (draft: LiveSourceInput) => this.act(async () => parseLiveSourceReceipt(await this.request<unknown>('/v1/admin/live-sources', 'POST', draft), this.lifetime.authority.serverId), () => undefined);
+  saveFiles = (draft: LiveSourceInput, caller?: Readonly<{isCurrent: () => boolean; signal?: AbortSignal}>) =>
+    this.act(async () => {
+      if (caller && (!caller.isCurrent() || caller.signal?.aborted === true)) throw new Error('cancelled');
+      const raw = await this.uploadRequest<unknown>('/v1/admin/live-sources', draft, caller);
+      if (caller && (!caller.isCurrent() || caller.signal?.aborted === true)) throw new Error('cancelled');
+      return parseLiveSourceReceipt(raw, this.lifetime.authority.serverId);
+    }, () => undefined, caller);
   tuners = async (): Promise<TunerView> => parseTunerView(await this.request<unknown>('/v1/admin/dvr/tuners'), this.lifetime.authority.serverId);
   policy = async (): Promise<RecordingPolicy> => {
     const [owners, grants] = await Promise.all([this.request<unknown>('/v1/admin/dvr/recording-owners?limit=200'), this.request<unknown>('/v1/admin/dvr/recording-permissions')]);
