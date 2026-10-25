@@ -79,11 +79,13 @@ function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime:
     {report.error !== undefined && !doc ? <StateView {...serverFailure(report.error, report.reload, t)}/> : null}
     {doc ? <>
       <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('settings.server.diskUsage')}</Text>
-      <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.storageLede')}</Text>
       <View style={{marginTop: 10, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-        <View style={{flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12}}>
-          <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{t('web.maintenance.totalLabel')}</Text>
-          <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{defaultI18n.bytes(doc.totalBytes)}</Text>
+        <View style={{paddingHorizontal: 14, paddingVertical: 12}}>
+          <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+            <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{t('web.maintenance.totalLabel')}</Text>
+            <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{defaultI18n.bytes(doc.totalBytes)}</Text>
+          </View>
+      <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.storageLede')}</Text>
         </View>
         {doc.categories.filter(category => category.present).map(category => <View key={category.id} style={{paddingHorizontal: 14, paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft}}>
           <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 10}}>
