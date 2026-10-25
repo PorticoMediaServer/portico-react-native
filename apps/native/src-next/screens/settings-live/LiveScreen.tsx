@@ -19,6 +19,7 @@ import {SkeletonBlock, StateView} from '../../kit/states';
 import {alpha, shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
+import {shellLayout} from '../../shell/model';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
 import {Screen, ScreenText, useScreenEntry} from './Screen';
@@ -55,7 +56,9 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const insetLeft = landscape ? Math.max(12, insets.left + 8) : compact ? 0 : theme.isTV ? 0 : 20;
   const insetRight = landscape ? Math.max(12, insets.right + 8) : compact || theme.isTV ? 0 : 20;
   const [now, setNow] = useState(Date.now), [start, setStart] = useState(() => floorTo(Date.now(), SLOT_MS) - (theme.isTV || phoneChrome ? SLOT_MS : 0)), [measuredWidth, setMeasuredWidth] = useState(theme.isTV ? 1660 : theme.width - 40);
-  const view = state.view ?? (theme.isTV || theme.width >= 600 ? 'guide' : 'list');
+  // phone-app 5: phones open on the list, upright or sideways; the shell's own
+  // layout classifier decides which windows are phones, and a remembered view wins.
+  const view = state.view ?? (shellLayout(theme.width, dimensions.height, theme.isTV).kind === 'phone' ? 'list' : 'guide');
   const setView = (value: 'guide' | 'list') => {if (value === 'list') goNow(); controller.chooseView(value);};
   const [selected, setSelected] = useState<Readonly<{channel: GuideChannelRow; program?: GuideProgram}>>();
   // tablet-play6/7: a chosen programme docks in the right pane on tablets as well as
