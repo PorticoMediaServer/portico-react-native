@@ -35,3 +35,18 @@ test('the account menu offers only destinations whose screen is registered', () 
     } finally {offNotifications(); offDashboard();}
   } finally {for (const release of releases) release();}
 });
+
+test('TV Server settings has its own registered route and preserves the phone Dashboard', () => {
+  const opened: unknown[] = [];
+  const offDashboard = nativeShellRoutes.registerRoute('server-dashboard', factory);
+  try {
+    assert.equal(nativeAccountMenu(account, route => opened.push(route), true, nativeMenuRouteAvailable).serverAction, undefined);
+    const offSettings = nativeShellRoutes.registerRoute('server-settings', factory);
+    try {
+      nativeAccountMenu(account, route => opened.push(route), true, nativeMenuRouteAvailable).serverAction!.onPress();
+      nativeAccountMenu(account, route => opened.push(route), false, nativeMenuRouteAvailable).serverAction!.onPress();
+      assert.deepEqual(opened, [{kind: 'server-settings'}, {kind: 'server-dashboard'}]);
+      assert.equal(nativeAccountMenu({...account, account: {...account.account, role: 'member'}}, () => {}, true, nativeMenuRouteAvailable).serverAction, undefined);
+    } finally {offSettings();}
+  } finally {offDashboard();}
+});
