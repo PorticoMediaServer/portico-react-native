@@ -16,6 +16,7 @@ import {ProfilePicker} from '../../kit/artwork';
 import {useTheme} from '../../kit/theme';
 import {nativeAccounts} from '../../platform/accounts';
 import {NativeServerSignIn} from '../../platform/server-sign-in';
+import {NativeSetupEnded} from '../../platform/setup-outcome';
 import {HostedSignInUnavailable} from '../../platform/hosted-sign-in-unavailable';
 import {NativePorticoSignIn} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
@@ -39,7 +40,7 @@ import {PhonePINEntry} from './PhonePINEntry';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
-export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move';
+export type NativeAccountEntryStage = 'welcome' | 'ended-sign-in' | 'owner-reset' | 'owner-reset-code' | 'owner-reset-done' | 'setup-ended' | 'setup-confirm' | 'setup-choice' | 'setup-review' | 'setup-hosted' | 'setup-local' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'forgot' | 'forgot-sent' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup' | 'member-move';
 type MemberMove = Awaited<ReturnType<NativeServerSignIn['createMemberMove']>>;
 type MemberMoveSnapshot = ReturnType<MemberMove['getSnapshot']>;
 type PINRecovery = {controller: NativeProfileRecovery; profile: ManagedProfile; operation: NativeServerSignIn; retired: boolean};
@@ -59,6 +60,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [resetLocation, setResetLocation] = useState<ResetFileLocation>();
   const ownerResetOpening = useRef<{source: NativeServerSignIn; controller: AbortController} | undefined>(undefined);
   const retireOwnerReset = () => {const ticket = ownerResetOpening.current; ownerResetOpening.current = undefined; ticket?.controller.abort(); ticket?.source.dispose();};
+  const [setupEndedReason, setSetupEndedReason] = useState<'declined' | 'cancelled'>('cancelled');
   const [setupMode, setSetupMode] = useState<'hosted' | 'local'>('hosted');
   const [setupAddress, setSetupAddress] = useState('');
   const [setupApprovalURL, setSetupApprovalURL] = useState<string>();
@@ -128,7 +130,12 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   }, [stage]);
   const run = async (work: () => Promise<void>) => {
     if (busy || acting.current || adoptingTV.current || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
+    const startedOperation = operation.current;
     try {await work();} catch (failure) {if (lifetime.current) {
+      if (failure instanceof NativeSetupEnded) {
+        if (!startedOperation || operation.current !== startedOperation || !['setup-choice', 'setup-review', 'setup-hosted'].includes(stageRef.current)) return;
+        retireSetupReview(); setPassword(''); setCode(''); setSetupEndedReason(failure.reason); setError(undefined); setStage('setup-ended'); return;
+      }
       if (endedTarget.current) {setPassword(''); setCode('');}
       if (failure instanceof MFARequiredError) {factorKind.current = 'portico'; setCode(''); setRecovery(false); setStage('factor');}
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
@@ -494,6 +501,18 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         if (current()) {retireSetupReview(); setStage('setup-hosted');}
       });}}/>;
   }
+  if (stage === 'setup-ended') {
+    const source = operation.current;
+    const current = () => !!source && operation.current === source && lifetime.current && stageRef.current === 'setup-ended';
+    const restart = async (local: boolean) => {
+      if (!current() || !source) return;
+      await source.restartEndedSetup();
+      if (current()) {setSetupApprovalURL(undefined); setSetupMode(local ? 'local' : 'hosted'); setStage(local ? 'setup-local' : 'setup-choice');}
+    };
+    return layout(t('accounts.setup.declinedTitle', {server: server!.name}), t(setupEndedReason === 'declined' ? 'accounts.setup.declinedBody' : 'accounts.setup.endedBody'),
+      undefined, action('restart-setup', t('accounts.setup.startAgain'), () => restart(false)),
+      <Button variant="glass" disabled={busy} onPress={() => {if (current()) void run(() => restart(true));}}>{t('accounts.setup.useLocalInstead')}</Button>);
+  }
   if (stage === 'setup-hosted') return layout(t('web.claim.title', {server: server!.name}), t('accounts.setup.waiting'), undefined,
     action('setup-resume', t('action.continue'), async () => {
       const result = await operation.current!.finishHostedSetup();
@@ -501,7 +520,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     }), setupApprovalURL && <Button variant="glass" disabled={busy} onPress={() => {void run(async () => {await Linking.openURL(setupApprovalURL);});}}>{t('accounts.signIn.continuePortico')}</Button>);
   if (stage === 'setup-local') return layout(t('web.setup.ownerTitle'), t('web.setup.localSignInBody'),
     fields(field(t('auth.username'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password'),
-      <Text key="strength" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{password ? t(passwordStrength(password).level >= 3 ? 'accounts.password.good' : 'accounts.password.weak') : ''}</Text>,
+      <Text key="strength" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{password ? t(passwordStrength(password).level >= 3 ? 'services.password.strong' : passwordStrength(password).level === 2 ? 'accounts.password.fair' : 'accounts.password.weak') : ''}</Text>,
       field(t('accounts.signIn.confirmPassword'), setupPasswordConfirm, setSetupPasswordConfirm, true),
       <Text key="recovery" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('accounts.setup.localRecovery')}</Text>),
     action('create-owner', t('web.setup.createOwner'), async () => {
