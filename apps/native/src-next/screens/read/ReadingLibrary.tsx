@@ -103,8 +103,8 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   // own Books/Volumes grid is the honest destination, never a false empty copy.
   useEffect(() => {
     if (tab === 'discover' && !fellBack.current && discoveryState.phase === 'ready' && !discoveryState.continueItems.length
-      && !discoveryState.recent.length && !(tablet && discoveryState.shortReads.length)) {fellBack.current = true; setTab('browse');}
-  }, [tab, discoveryState, tablet]);
+      && !discoveryState.recent.length && !discoveryState.shortReads.length) {fellBack.current = true; setTab('browse');}
+  }, [tab, discoveryState]);
   const readingLibraries = context.libraries().filter(value => isReadingLibraryKind(value.kind));
   const switcherItems: MenuEntry[] = readingLibraries.map(value => ({id: value.id, label: value.name, selected: value.id === libraryId,
     onSelect: () => {setSwitcherOpen(false); if (value.id !== libraryId) runtime.onDestination({kind: 'library', libraryId: value.id});}}));
@@ -134,8 +134,8 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
       {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 172 : 116} onOpen={openDiscover} onDownload={offerDownload}/>)}
     </DiscoveryRow> : null}
-    {tablet && discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')}>
-      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={172} onOpen={openDiscover} onDownload={offerDownload}
+    {discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')} sub={defaultI18n.t('next.reader.underThreeHours')}>
+      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 172 : 116} onOpen={openDiscover} onDownload={offerDownload}
         detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
   </ScrollView>;
@@ -187,11 +187,12 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
 }
 
 /** The drawn Read row heading and its horizontal track (phone-read frames 1-3). */
-function DiscoveryRow({title, first = false, onSeeAll, children}: {title: string; first?: boolean; onSeeAll?: () => void; children?: ReactNode}) {
+function DiscoveryRow({title, sub, first = false, onSeeAll, children}: {title: string; sub?: string; first?: boolean; onSeeAll?: () => void; children?: ReactNode}) {
   const theme = useTheme();
   return <View style={{marginTop: first ? 14 : 44}}>
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 14, paddingHorizontal: theme.gutter, marginBottom: 14}}>
       <Text accessibilityRole="header" style={[browseType(theme, 22, 700, -.015), {color: theme.colors.text}]}>{title}</Text>
+      {sub ? <Text numberOfLines={1} style={[browseType(theme, theme.platform === 'phone' ? 13 : 14, 500), {color: theme.colors.textTertiary, flexShrink: 1}]}>{sub}</Text> : null}
       {onSeeAll ? <Focusable accessibilityRole="button" accessibilityLabel={title} focusKind="row" onPress={onSeeAll}
         style={{width: 44, height: 44, marginLeft: -8, alignItems: 'flex-start', justifyContent: 'center'}}>
         <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
