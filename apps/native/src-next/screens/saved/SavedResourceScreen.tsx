@@ -18,6 +18,7 @@ import {Icon} from '../../kit/Icon';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import {nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSavedViewDestination} from './view-model';
@@ -52,6 +53,8 @@ type Row = Readonly<{id: string; media: ContentEntry}>;
  * once when it opened, so no later move can pull focus to a row the person has left. */
 type RowMenu = Readonly<{entry: ContentEntry; entryId: string; route: SavedRoute; focus?: 'open' | 'up' | 'down'}>;
 type Command = 'done' | 'failed' | 'busy' | 'stale';
+/** The page a command started on: its epoch (which moves with the route) and its authority. */
+type PageWitness = Readonly<{epoch: number; authority: ShellAuthority}>;
 
 /** The page's membership rows, from whichever snapshot the caller holds: the render and a
  * command dispatched later must both read the same thing. */
@@ -96,17 +99,24 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const canReorder = reordering || (isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true);
   const visibility = resource?.kind === 'collection' ? savedVisibility(resource) : undefined;
   const report = (error: unknown) => runtime.reportError(error);
+  /** The page a command started on, as a witness; `still` also knows its command is the one in
+   * flight. A completion that lands late — a toast, a sheet closing, Back — can tell it is no
+   * longer on its own page and leaves the successor alone. */
+  const witness = (): PageWitness => ({epoch: epoch.current, authority: runtime.getSnapshot().authority});
+  const onPage = (at: PageWitness): boolean => mounted.current && epoch.current === at.epoch
+    && sameAuthority(runtime.getSnapshot().authority, at.authority) && activation.getSnapshot().visible;
   /** One command at a time, refused synchronously: a held remote OK repeats faster than a
-   * render can disable the row it is on. A result only lands on the page that started it. */
-  const run = async (work: () => Promise<unknown>): Promise<Command> => {
+   * render can disable the row it is on. The work is handed a witness, so a completion that
+   * lands late — a toast, a sheet closing, Back — can tell it is no longer on its own page. */
+  const run = async (work: (still: () => boolean) => Promise<unknown>): Promise<Command> => {
     if (flight.current) return 'busy';
-    const token = {}, at = epoch.current;
+    const token = {}, at = witness();
     flight.current = {token};
     setBusy(true); setProblem('');
-    const current = () => mounted.current && epoch.current === at && flight.current?.token === token;
-    try {await work(); if (!current()) return 'stale'; changed?.(); return 'done';}
+    const current = () => onPage(at) && flight.current?.token === token;
+    try {await work(current); if (!current()) return 'stale'; changed?.(); return 'done';}
     catch (error) {if (!current()) return 'stale'; setProblem(presentError(error, 'saved', {operation: 'save'}).body); return 'failed';}
-    finally {if (flight.current?.token === token) {flight.current = undefined; if (mounted.current && epoch.current === at) setBusy(false);}}
+    finally {if (flight.current?.token === token) {flight.current = undefined; if (mounted.current && epoch.current === at.epoch) setBusy(false);}}
   };
   /** The page as the server last stated it, for a sheet that has outlived a refresh. */
   const page = () => {
@@ -144,21 +154,28 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     if (index < 0 || !removable) {closeOpening(menu); return;}
     const row = live.rows[index]!;
     closeOpening(menu);
-    void run(async () => {
+    void run(async still => {
       if (isPlaylist) {
         await destination.mutateSaved({action: 'remove', entryId: row.id});
         const token = destination.getSnapshot().saved?.lastReceipt?.undoToken;
-        if (token) showUndo(t('saved.removal.fromPlaylist', {title: row.media.title}), () => destination.mutateSaved({action: 'restore', undoToken: token}), t('saved.removal.fromPlaylist', {title: row.media.title}));
+        if (token && still()) showUndo(t('saved.removal.fromPlaylist', {title: row.media.title}), () => destination.mutateSaved({action: 'restore', undoToken: token}), t('saved.removal.fromPlaylist', {title: row.media.title}));
       } else {
         await destination.mutatePersonal({action: 'entries', removeEntryIds: [row.id]});
         const undo = destination.getSnapshot().personal?.result?.undo;
-        if (undo) showUndo(t('saved.removal.fromCollection', {title: row.media.title}), () => destination.mutatePersonal({action: 'entries', undoToken: undo.token}), t('saved.removal.fromCollection', {title: row.media.title}));
+        if (undo && still()) showUndo(t('saved.removal.fromCollection', {title: row.media.title}), () => destination.mutatePersonal({action: 'entries', undoToken: undo.token}), t('saved.removal.fromCollection', {title: row.media.title}));
       }
     });
   };
+  /** The toast's Undo belongs to the page that created it and to that one toast: the press
+   * never dispatches from a successor page, and a late result never clears or replaces a newer
+   * toast on the same page. */
   const showUndo = (message: string, undo: () => Promise<unknown>, failure: string) => {
-    const id = String(++toastId.current);
-    setToast({id, message, action: {label: t('action.undo'), onPress: () => {void undo().then(() => setToast(null)).catch(() => {setToast({id: `${id}-failed`, message: failure});});}}});
+    const id = String(++toastId.current), at = witness();
+    setToast({id, message, action: {label: t('action.undo'), onPress: () => {
+      if (!onPage(at)) return;
+      const settle = (next: () => ToastMessage | null) => {if (onPage(at)) setToast(current => current?.id === id ? next() : current);};
+      void undo().then(() => settle(() => null)).catch(() => settle(() => ({id: `${id}-failed`, message: failure})));
+    }}});
   };
   /** collections.html 19: a TV playlist's sheet stays open so Move up and Move down can be
    * pressed again, and a failed move closes the sheet it was pressed from so the page's own
@@ -192,17 +209,20 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     }).then(result => {if (result === 'failed' && keepSheetOpen) closeOpening(menu);});
   };
   const saveName = (input: {name: string; summary: string; visibility: 'private' | 'server'}) => {
-    void run(async () => {
+    void run(async still => {
       if (isPlaylist) await destination.mutateSaved({action: 'rename', name: input.name, ...(playlist?.actions.includes('summary') ? {summary: input.summary} : {})});
       else await destination.mutatePersonal({action: 'update', name: input.name, summary: input.summary});
-      setRenaming(false);
+      if (still()) setRenaming(false);
     });
   };
   const confirmDelete = () => {
-    void run(async () => {
+    void run(async still => {
       if (isPlaylist) await destination.mutateSaved({action: 'delete'});
       else await destination.mutatePersonal({action: 'delete'});
-      setDeleting(false); back();
+      // A delete that finishes after the person has left closes nothing, goes back nowhere and
+      // refreshes nothing: the successor page keeps its own sheets and its own history.
+      if (!still()) return;
+      changed?.(); setDeleting(false); back();
     });
   };
   const rowMenuEntries = (menu: RowMenu): readonly MenuEntry[] => {
