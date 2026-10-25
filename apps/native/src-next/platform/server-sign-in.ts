@@ -46,7 +46,7 @@ export class NativeServerSignIn {
   private readonly issued = new Map<string, LocalSession>();
   private readonly requiredSetupHandoff: boolean;
   private memberMove?: {dispose: () => void};
-  private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; retire: (fresh: LocalSession) => Promise<void>}>;
+  private memberMoveFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; isCurrent: () => boolean; assertCurrent: () => Promise<void>; retire: (fresh: LocalSession) => Promise<void>}>;
   constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean} = {}) {
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
@@ -274,7 +274,7 @@ export class NativeServerSignIn {
           return {api: new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch), origin: hostedUrl, accountId, familyId,
             isCurrent: hostedCurrent, assertCurrent: async () => {if (!hostedCurrent()) throw cancelled(); await assertCurrent(); if (!hostedCurrent()) throw cancelled();}};
         },
-        adopt: async result => {
+        adopt: async (result, hosted) => {
           let handedToConsume = false;
           let accepted: Awaited<ReturnType<NativeServerSignIn['consume']>>;
           try {
@@ -309,8 +309,19 @@ export class NativeServerSignIn {
           // selected/default getter may broaden it after normal adoption.
           const acceptedCurrent = () => lease && this.current() && this.api === api
             && this.server === server && this.account === acceptedAccount && this.snapshot === acceptedSnapshot && this.challenge === acceptedChallenge && samePin();
-          if (accepted.kind === 'challenge' && acceptedChallenge)
-            this.memberMoveFactor = {api, token: acceptedChallenge, expiresAt: accepted.expiresAt, isCurrent: acceptedCurrent, retire: retireCaptured};
+          if (accepted.kind === 'challenge' && acceptedChallenge) {
+            // Keep the SAME official Hosted account/family captured by the
+            // redeem command throughout this server's factor continuation.
+            const factorCurrent = () => acceptedCurrent() && (!hosted || hosted.isCurrent());
+            const assertFactorCurrent = async () => {
+              if (!factorCurrent()) throw cancelled();
+              if (hosted) {await hosted.assertCurrent(); if (!factorCurrent()) throw cancelled();}
+              const stored = await nativeAppSessions.read();
+              if (!factorCurrent() || stored.revision !== state.revision) throw cancelled();
+            };
+            this.memberMoveFactor = {api, token: acceptedChallenge, expiresAt: accepted.expiresAt,
+              isCurrent: factorCurrent, assertCurrent: assertFactorCurrent, retire: retireCaptured};
+          }
           return {result: accepted, isCurrent: acceptedCurrent};
         },
       }, initial);
@@ -325,11 +336,18 @@ export class NativeServerSignIn {
       const factor = this.memberMoveFactor;
       if (!factor || !factor.isCurrent() || this.api !== factor.api || this.challenge !== factor.token
         || Date.parse(factor.expiresAt) <= Date.now()) throw cancelled();
+      await factor.assertCurrent();
+      if (this.memberMoveFactor !== factor || !factor.isCurrent()) throw cancelled();
       const result = await completeDirectSignInChallenge(factor.api, factor.token, code, this.controller.signal);
-      if (!factor.isCurrent() || this.memberMoveFactor !== factor || this.api !== factor.api || this.challenge !== factor.token) {
+      try {
+        await factor.assertCurrent();
+        if (!factor.isCurrent() || this.memberMoveFactor !== factor || this.api !== factor.api || this.challenge !== factor.token) throw cancelled();
+      } catch (error) {
         if (result.kind === 'signed-in') await factor.retire(result.session);
-        throw cancelled();
+        throw error;
       }
+      // No await separates the final captured Hosted/issuer fence and normal
+      // consume; from that handoff onward the operation owns grant cleanup.
       const accepted = await this.consume(result);
       this.memberMoveFactor = undefined;
       return accepted;

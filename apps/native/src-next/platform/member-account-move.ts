@@ -23,7 +23,7 @@ export type NativeMemberMovePorts<Result> = Readonly<{
   /** Closed over the original issuing API/pin. Never a selected/default API. */
   retireLateGrant: (fresh: LocalSession) => Promise<void>;
   /** The SAME operation's normal DirectSignIn/challenge/profile handling. */
-  adopt: (result: DirectSignIn) => Promise<Readonly<{result: Result; isCurrent: () => boolean}>>;
+  adopt: (result: DirectSignIn, hosted?: NativeMoveHostedCapture) => Promise<Readonly<{result: Result; isCurrent: () => boolean}>>;
   captureHosted: () => Promise<NativeMoveHostedCapture>;
   release: () => void;
 }>;
@@ -147,7 +147,7 @@ export class NativeMemberAccountMove<Result> {
       if (result.kind === 'signed-in' && !this.fresh(result.session))
         throw new CodedError('identity_mismatch', 'The account move did not issue a fresh session.');
       handedOff = true;
-      const adopted = await this.ports.adopt(result);
+      const adopted = await this.ports.adopt(result, hosted);
       // Once handed off, only that normal operation owns grant cleanup. Do
       // not revoke an adopted profile/account family if the page retires.
       if (!this.disposed && epoch === this.epoch && !this.ports.signal.aborted
