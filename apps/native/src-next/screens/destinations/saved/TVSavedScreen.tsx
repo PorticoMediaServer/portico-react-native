@@ -10,6 +10,7 @@ import {PosterCard, SquareCard} from '../../../kit/cards';
 import {Dialog, Menu} from '../../../kit/overlays';
 import {StateView} from '../../../kit/states';
 import {FocusRegion} from '../../../kit/focus';
+import type {NativeSavedSelectionPort} from '../../saved/SavedScreen';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
@@ -106,9 +107,9 @@ function HistoryRow({entry, updatedAt, positionSeconds, completed, runtime, acti
 }
 
 /** tv-more1–5: the TV Saved landing with the six drawn tabs and server-owned bodies. */
-export function TVSavedScreen({controller, runtime, actions, activation, authority, openSaved, openEntry, browseHome, initialTab}: {
+export function TVSavedScreen({controller, runtime, actions, activation, authority, openSaved, openEntry, browseHome, initialTab, selection}: {
   controller: NativeTVSavedController; runtime: NativeShellRuntime; actions: Actions; activation: NativeDestinationActivationPort;
-  authority: Parameters<typeof nativeDestinationFocusIds>[0]; initialTab: Tab;
+  authority: Parameters<typeof nativeDestinationFocusIds>[0]; initialTab: Tab; selection?: NativeSavedSelectionPort;
   openSaved: (route: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; browseHome: () => void;
 }) {
   const theme = useTheme(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -137,9 +138,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
   const card = (entry: ContentEntry) => <PosterCard key={entry.id} testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
-    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
+    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>;
   const square = (entry: ContentEntry) => <SquareCard key={entry.id} testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
-    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
+    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>;
+  /** The menu's Select starts this screen's own canonical Saved selection on that title. */
+  const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry).onEnter();} : undefined;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;
@@ -192,5 +195,6 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
     <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
       footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
+    {selection?.render()}
   </View>;
 }
