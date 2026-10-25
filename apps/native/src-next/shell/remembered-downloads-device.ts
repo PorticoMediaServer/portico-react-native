@@ -26,6 +26,7 @@ export function createRememberedDownloadsDevice(identity: RememberedDownloadsVie
     offIdentity = identity.subscribe(dispose); check();
     // The nominal lease contains the exact protected selected owner, not a label,
     // directory row or invented Home context. adopt itself disconnects online IO.
+    offlineDownloads.disconnect(); check();
     offlineDownloads.adopt(identity.owner); check();
     offDevice = offlineDownloads.subscribe(changed);
   } catch (error) {dispose(); throw error;}

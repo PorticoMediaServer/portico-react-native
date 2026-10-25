@@ -34,11 +34,13 @@ export class NativeOfflinePlayback {
     this.local = new LocalPlayback(progress => this.progress(progress));
   }
   owner(): NativeOfflineOwner | undefined {
+    try {
     if (typeof this.identity !== 'function') return this.identity.current() ? this.identity.owner : undefined;
     const session = this.identity(), viewer = session?.viewer;
     if (!session || !viewer || viewer.authority !== 'local' && viewer.authority !== 'hosted'
       || ![viewer.serverId, viewer.accountId, viewer.profileId, session.sessionFamilyId].every(text)) return;
     return Object.freeze({authority: viewer.authority, serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId, sessionFamilyId: session.sessionFamilyId});
+    } catch {return undefined;}
   }
   /** A closed local transport. Ordinary create/progress/stop can never reach a server.
    * PlaybackService.playLocal explicitly uses only the admitted journal owner. */
@@ -105,6 +107,7 @@ export class NativeOfflinePlayback {
       || !Number.isSafeInteger(claims.artifact.bytes) || claims.artifact.bytes < 1) throw unavailable();
     const artifact = Object.freeze({...claims.artifact}), preparationId = claims.preparationId;
     const currentEntry = (): OfflineEntry | undefined => {
+      try {
       const currentOwner = this.owner();
       if (!currentOwner || ownerKey(currentOwner) !== ownerKey(owner)) return;
       const matches = this.device.getSnapshot().entries.filter(value => value.id === entry.id);
@@ -115,6 +118,7 @@ export class NativeOfflinePlayback {
         || (['authority', 'serverId', 'accountId', 'profileId'] as const).some(key => receipt.viewer[key] !== owner[key])
         || this.device.playabilityReason(live) !== null) return;
       return live;
+      } catch {return undefined;}
     };
     const before = currentEntry();
     if (!isCurrent() || !before) throw unavailable();

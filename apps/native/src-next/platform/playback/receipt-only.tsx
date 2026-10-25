@@ -47,9 +47,9 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
   const listeners = new Set<() => void>();
   const publish = () => listeners.forEach(listener => listener());
   const coordinator = new NativePlaybackCoordinator(playback, transports.native, id,
-    state => current() && state.session ? admission.mediaUrl(state.session) ?? '' : '',
+    state => {try {return current() && state.session ? admission.mediaUrl(state.session) ?? '' : '';} catch {dispose(); return ''; }},
     fact => {
-      if (!current() || !source?.current()) {dispose(); return;}
+      check(); if (!current() || !source) return;
       const state = playback.getSnapshot();
       if (fact.type === 'ready') playback.ready(state.intentId);
       else if (fact.type === 'systemPaused') playback.pause();
@@ -68,7 +68,10 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
     if (epoch !== operation) return; playback.leave(false);
     if (epoch === operation) publish();
   };
-  const check = () => {if (!current() || source && !source.current()) dispose();};
+  const check = () => {let valid = false;
+    try {valid = current() && (!source || source.current());} catch { /* Revoked device reads are unavailable. */ }
+    if (!valid) dispose();
+  };
   const configure = () => {
     if (!current()) {dispose(); return;}
     const settings = options.settings(), state = playback.getSnapshot();
@@ -88,7 +91,8 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
     check(); if (!current()) throw cancelled();
   } catch (error) {dispose(); throw error;}
   const fence = (): LocalPlaybackFence | undefined => {
-    const state = playback.getSnapshot(); return current() && source?.current() && state.session ? admission.fence(state.session, state.playbackRun) : undefined;
+    try {const state = playback.getSnapshot(); return current() && source?.current() && state.session ? admission.fence(state.session, state.playbackRun) : undefined;}
+    catch {dispose(); return undefined;}
   };
   /** One committed surface owns the renderer. Replay gets a fresh mount ticket,
    * retires the old play, and never resumes it automatically. */
