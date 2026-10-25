@@ -67,7 +67,7 @@ export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selectio
   dispose: () => void;
 };
 export type NativeShellBindingsFactory = (context: NativeShellBootstrapContext) => Promise<NativeShellBindings> | NativeShellBindings;
-export type RestoredNativeShellRuntime = NativeShellRuntime & {readonly appearanceMotion?: 'follow' | 'reduce'; readonly appearanceTextSize?: 'standard' | 'large'; readonly appearanceCardSizePercent?: 85 | 100 | 125; readonly appearanceShowBackdrops?: boolean; dispose: () => void; refresh: () => Promise<void>};
+export type RestoredNativeShellRuntime = NativeShellRuntime & {readonly firstLibraryContext?: NativeShellBootstrapContext; readonly appearanceMotion?: 'follow' | 'reduce'; readonly appearanceTextSize?: 'standard' | 'large'; readonly appearanceCardSizePercent?: 85 | 100 | 125; readonly appearanceShowBackdrops?: boolean; dispose: () => void; refresh: () => Promise<void>};
 
 function cancelled(): Error {return Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});}
 const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamilyId === b.sessionFamilyId && (['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).every(key => a.viewer[key] === b.viewer[key]);
@@ -325,7 +325,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
       return value / 1000;
     };
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;

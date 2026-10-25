@@ -20,20 +20,21 @@ import {ownerLibraryKind, ownerLibraryKinds} from './presentation';
 export type AddLibraryInput = Readonly<{name: string; kind: ManagedLibrary['kind']; folders: readonly string[]; metadataAgent?: 'online' | 'local'; metadataLanguage?: string}>;
 
 /** Settings › Server › Libraries › Add library, as one page (frame 17). */
-export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error}: {api: LibraryContentApi; serverName: string; onCreate: (input: AddLibraryInput) => void; onCancel: () => void; busy: boolean; error?: unknown}) {
+export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error, firstRun = false}: {api: LibraryContentApi; serverName: string; onCreate: (input: AddLibraryInput) => void; onCancel: () => void; busy: boolean; error?: unknown; firstRun?: boolean}) {
   const theme = useTheme(), t = defaultI18n.t;
   const [kind, setKind] = useState<ManagedLibrary['kind']>('movie'), [name, setName] = useState(defaultI18n.t('next.ownerLibraries.kind.movie')), [touched, setTouched] = useState(false);
   const [folders, setFolders] = useState<readonly ExplorerFolder[]>([]), [exploring, setExploring] = useState(false);
   const [agents, setAgents] = useState<readonly MetadataAgentOption[]>([]), [agent, setAgent] = useState('online'), [language, setLanguage] = useState<string>();
 
   useEffect(() => {
+    if (firstRun) return;
     let alive = true;
     api.request<unknown>(kindMetadataAgentsPath(kind)).then(parseKindMetadataAgents).then(
       value => {if (!alive) return; setAgents(value.agents); const chosen = value.agents.find(option => option.id === 'online') ?? value.agents[0];
         if (chosen) {setAgent(current => value.agents.some(option => option.id === current) ? current : chosen.id); setLanguage(chosen.defaultLanguage);}},
       () => {if (alive) setAgents([]);});
     return () => {alive = false;};
-  }, [api, kind]);
+  }, [api, kind, firstRun]);
 
   const chosenAgent = useMemo(() => agents.find(option => option.id === agent), [agents, agent]);
   const chooseKind = (next: ManagedLibrary['kind']) => {setKind(next); if (!touched) setName(t(ownerLibraryKind(next).label));};
@@ -44,7 +45,7 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
 
       <SectionTitle>{t('web.libraries.type')}</SectionTitle>
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>
-        {ownerLibraryKinds.map(option => {
+        {ownerLibraryKinds.filter(option => !firstRun || option.kind !== 'comic').map(option => {
           const on = option.kind === kind;
           return <Focusable key={option.kind} accessibilityRole="radio" accessibilityLabel={t(option.label)} accessibilityState={{checked: on}} onPress={() => chooseKind(option.kind)} focusKind="card" focusRadius={14}
             style={{width: '47%', flexGrow: 1, minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderRadius: 14, backgroundColor: on ? alpha(theme.colors.accent, .16) : theme.colors.raised, borderWidth: 1.5, borderColor: on ? theme.colors.accentStrong : 'transparent'}}>
@@ -81,8 +82,8 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
       {error !== undefined && <Text accessibilityRole="alert" style={[shellType(13, 600, 18), {color: theme.colors.record, marginTop: 16}]}>{error instanceof Error ? error.message : t('next.ownerLibraries.saveFailed')}</Text>}
     </ScrollView>
     <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.ink}}>
-      <Button variant="glass" size="small" disabled={busy} onPress={onCancel}>{t('action.cancel')}</Button>
-      <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onCreate({name: name.trim(), kind, folders: folders.map(folder => folder.path), ...(agent ? {metadataAgent: agent as 'online' | 'local'} : {}), ...(language ? {metadataLanguage: language} : {})})} style={{flex: 1}}>{t('web.empty.addLibrary')}</Button>
+      <Button variant="glass" size="small" disabled={busy} onPress={onCancel}>{t(firstRun ? 'web.setup.skip' : 'action.cancel')}</Button>
+      <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onCreate({name: name.trim(), kind, folders: folders.map(folder => folder.path), ...(!firstRun && agent ? {metadataAgent: agent as 'online' | 'local'} : {}), ...(!firstRun && language ? {metadataLanguage: language} : {})})} style={{flex: 1}}>{t(firstRun ? 'web.setup.addLibraryScan' : 'web.empty.addLibrary')}</Button>
     </View>
     <FolderExplorer open={exploring} onOpenChange={setExploring} api={api} title={t('next.ownerLibraries.explorer.choose')} subtitle={t('next.ownerLibraries.explorer.subtitle', {server: serverName})}
       chosen={folders} onUse={setFolders}/>
