@@ -190,6 +190,22 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const option = (name: NativeWatchPanel, label: string, value?: string) => <Focusable focusId={`watch-option-${name}`} testID={`watch-option-${name}`} accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => panel(name)} style={{minHeight: theme.isTV ? 64 : 36, paddingHorizontal: theme.isTV ? 16 : 12, paddingVertical: theme.isTV ? 10 : 6, justifyContent: 'center', borderRadius: theme.isTV ? 12 : 8, backgroundColor: theme.colors.raisedHigh}}>
     {theme.isTV ? <><Text style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 20, color: theme.colors.text}}>{label}</Text>{value && <Text style={{fontFamily: theme.type.body.fontFamily, fontSize: 17, color: theme.colors.textSecondary}}>{value}</Text>}</> : <Text style={[theme.type.caption, {color: theme.colors.text}]}>{value ? label ? `${label} ${value}` : value : label}</Text>}
   </Focusable>;
+  // phone-player 1: the pill row — Episodes, Subtitles, Audio and the Quality chip that
+  // shows the current choice, last on the right.
+  const chip = (name: NativeWatchPanel, icon: IconName, label: string, value: string | undefined, onPress?: () => void) => <Focusable key={`${name}:${label}`}
+    focusId={onPress ? `watch-chip-${name}` : `watch-option-${name}`} testID={onPress ? `watch-chip-${name}` : `watch-option-${name}`} accessibilityRole="button" focusable={visible} disabled={!visible}
+    onPress={() => {if (onPress) onPress(); else panel(name);}} style={{height: 36, paddingLeft: 11, paddingRight: 14, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 7,
+      backgroundColor: 'rgba(237,245,250,.14)'}}>
+    <Icon name={icon} size={18} color={theme.colors.textSecondary}/>
+    {!!label && <Text style={{fontFamily: 'Manrope-Bold', fontSize: 13.5, fontWeight: '700', color: theme.colors.text}}>{label}</Text>}
+    {!!value && <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 13.5, fontWeight: '600', marginLeft: label ? 3 : 0, color: label ? theme.colors.textTertiary : theme.colors.text}}>{value}</Text>}
+  </Focusable>;
+  const qualityChip = (small = false) => <Focusable focusId="watch-option-quality" testID="watch-option-quality" accessibilityRole="button" focusable={visible} disabled={!visible}
+    onPress={() => panel('quality')} style={small ? {height: 28, paddingLeft: 8, paddingRight: 10, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(237,245,250,.16)'}
+      : {height: 36, paddingLeft: 11, paddingRight: 14, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(237,245,250,.14)'}}>
+    <Icon name="i-quality" size={small ? 16 : 18} color={theme.colors.textSecondary}/>
+    <Text style={{fontFamily: 'Manrope-Bold', fontSize: small ? 12.5 : 13.5, fontWeight: '700', color: theme.colors.text, fontVariant: ['tabular-nums']}}>{props.quality || t('player.opt.quality')}</Text>
+  </Focusable>;
   const keycap = (label: string, icons?: IconName[]) => <View style={{minWidth: 44, height: 36, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: 'rgba(237,245,250,.3)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2}}>
     {icons ? icons.map(name => <Icon key={name} name={name} size={20} color={theme.colors.textSecondary}/>) : <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 17, fontWeight: '800', color: theme.colors.textSecondary}}>{label}</Text>}
   </View>;
@@ -260,17 +276,31 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
               {linear.next && <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.textTertiary, flexShrink: 1}]}>{t('player.live.next', {title: linear.next.title})}</Text>}
             </View>
           </View></>}
-          {!linear && !compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}><Text numberOfLines={1} style={[nativeType({size: 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
+          {!linear && !compact && theme.isTV && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}><Text numberOfLines={1} style={[nativeType({size: 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
             {theme.isTV ? <View style={{flexDirection: 'row', alignItems: 'baseline', minWidth: 0}}>{identity!.subtitle.map((part, index) =>
               <Text key={`${part.role}:${index}`} numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.textSecondary},
                 {flexShrink: index === 0 ? 0 : 1, marginRight: 10}]}>{part.text}</Text>)}</View>
               : <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 13, color: theme.colors.textSecondary}]}>{identity!.subtitle.map(part => part.text).join(' ')}</Text>}</View>}
+          {!theme.isTV && linear && <View style={{flexShrink: 1, minWidth: 0}}>
+            <Text numberOfLines={1} style={[nativeType({size: 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center', minWidth: 0, marginTop: 1}}>
+              <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 13, color: theme.colors.textSecondary, flexShrink: 0}]}>{linear.name}</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 10}}>
+                <View style={{width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.colors.record}}/>
+                <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 12, fontWeight: '600', color: theme.colors.text}}>{t('next.kit.live')}</Text>
+              </View>
+            </View>
+          </View>}
+          {!theme.isTV && !linear && !compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}>
+            <Text numberOfLines={1} style={[nativeType({size: 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
+            <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 13, marginTop: 1, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join('  ')}</Text>
+          </View>}
           <View style={{flex: 1}}/>
           {theme.isTV && !linear && <View style={{marginLeft: 14, alignItems: 'flex-end'}}>
             <Text style={{fontFamily: 'Manrope-Bold', fontSize: 32, lineHeight: 40, fontWeight: '700', color: theme.colors.text, fontVariant: ['tabular-nums']}}>{wallClock(now)}</Text>
             <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, lineHeight: 26, fontWeight: '600', marginTop: 2, color: theme.colors.textSecondary}}>{t('next.watch.ends', {time: wallClock(now + Math.max(0, source.playback.duration - source.playback.positionSeconds) * 1000)})}</Text>
           </View>}
-          {props.onCast && !theme.isTV && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence))}
+          {props.onCast && !theme.isTV && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence))}
           {props.onPictureInPicture && !theme.isTV && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
           {!theme.isTV && icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
         </View>
@@ -315,25 +345,37 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             </View>}
         </View>}
         {!theme.isTV && <View style={{position: 'absolute', left: (compact ? 14 : 60) + (props.edgeInsets?.left ?? 0), right: (compact ? 6 : 60) + (props.edgeInsets?.right ?? 0), bottom: compact ? 8 : 15}}>
+          {!compact && <View style={{marginBottom: 8}}>
+            <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} liveEdge={liveEdge} onPreview={setLanding} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+          </View>}
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-            <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.text}]}>{clockText(source.playback.positionSeconds)}</Text>
+            <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
+            {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 12, marginLeft: 8, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}
             {compact && <Text style={[theme.type.bodyStrong, {fontSize: 12, color: theme.colors.textSecondary}]}>{`/ ${clockText(source.playback.duration)}`}</Text>}
             <View style={{flex: 1}}/>
-            {!compact && <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>}
-            {compact && <>{option('quality', '', props.quality)}{props.onFullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => props.onFullWindow!(fence))}</>}
+            {!compact && (linear && behindLive > 5 && props.goLive
+              ? <Focusable focusId="watch-go-live" testID="watch-go-live" accessibilityRole="button" focusable={visible} disabled={!visible}
+                  onPress={() => {if (current() && props.goLive) {controls.reveal(fence); props.goLive(fence);}}}
+                  style={{height: 28, paddingHorizontal: 12, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(237,245,250,.14)'}}>
+                  <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.record}}/>
+                  <Text style={{fontFamily: 'Manrope-Bold', fontSize: 12.5, fontWeight: '700', color: theme.colors.text}}>{t('player.live.goLive')}</Text>
+                </Focusable>
+              : <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>)}
+            {compact && <>{qualityChip(true)}{props.onFullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => props.onFullWindow!(fence))}</>}
           </View>
-          {!compact && <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10}}>
-            <View style={{flex: 1}}>{fence.kind === 'queue' && fence.showId && option('episodes', t('title.episodes'))}</View>
-            <View style={{flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 8}}>
-              {source.capabilities.subtitleTrack && option('subtitles', t('player.opt.subtitles'), props.subtitle)}
-              {source.capabilities.audioTrack && option('audio', t('title.audio'), props.audio)}
-              {option('quality', '', props.quality)}
-            </View>
+          {!compact && <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8}}>
+            {linear
+              ? (props.onGuide ? chip('episodes', 'i-list', t('player.live.guide'), undefined, () => {if (current() && props.onGuide) props.onGuide();}) : null)
+              : fence.kind === 'queue' && fence.showId ? chip('episodes', 'i-stack', t('title.episodes'), undefined) : null}
+            <View style={{flex: 1}}/>
+            {source.capabilities.subtitleTrack && chip('subtitles', 'i-cc', linear ? t('player.live.captions') : t('player.opt.subtitles'), props.subtitle ?? (linear ? t('player.opt.off') : undefined))}
+            {source.capabilities.audioTrack && audioTracks > 1 && chip('audio', 'i-audio', t('title.audio'), props.audio)}
+            {qualityChip()}
           </View>}
         </View>}
-        <View style={{position: 'absolute', left: (compact ? 0 : 120) + (props.edgeInsets?.left ?? 0), right: (compact ? 0 : 112) + (props.edgeInsets?.right ?? 0), bottom: compact ? -21 : 58}}>
-          {!theme.isTV && <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} onPreview={setLanding} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>}
-        </View>
+        {!theme.isTV && compact && <View style={{position: 'absolute', left: (props.edgeInsets?.left ?? 0), right: (props.edgeInsets?.right ?? 0), bottom: -21}}>
+          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact enabled={visible} onPreview={setLanding} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+        </View>}
       </FocusRegion>
     </Animated.View>
     {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: theme.isTV ? 96 : 60,
