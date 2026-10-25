@@ -1,3 +1,4 @@
+import {NativeLossNoticesRow, nativeLossNoticesFocusId} from './NativeLossNoticesRow';
 import {NativeSafeModeRow, nativeSafeModeAvailable, nativeSafeModeFocusId} from './NativeSafeModeRow';
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
@@ -223,7 +224,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     if (showEqualizer && !equalizer.ready && !nativeEqualizer.getSnapshot().pending) void nativeEqualizer.refresh().catch(runtime.reportError);
   }, [showEqualizer, equalizer.ready, runtime.reportError]);
   const showSafeMode = theme.isTV && page.id === 'quality' && nativeSafeModeAvailable(devicePreferences);
-  const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId), ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : [])]);
+  const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId), ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : []), ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [nativeLossNoticesFocusId] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
     if (row.kind === 'composite' && row.storage === 'device') {void devicePreferences.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
@@ -283,7 +284,8 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
       })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}</View>
-    </View>{managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
+    </View>{theme.isTV && page.id === 'device' && section.id === 'device' && <NativeLossNoticesRow context={ports.context} runtime={runtime}/>}
+    {managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
     <Dialog testID="settings-action-confirm" open={confirmation !== undefined} onOpenChange={open => {if (!open && !actionBusy) setConfirmation(undefined);}} initialFocusRef={cancel}
