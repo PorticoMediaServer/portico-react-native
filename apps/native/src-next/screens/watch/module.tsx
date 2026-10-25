@@ -10,7 +10,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import {createNativeWatchScreens, type NativeWatchFactoryPorts} from './factory';
 import type {MusicPlaylistPickerHandle} from '../destinations/music/MusicPlaylistPicker';
-import {NativePlaybackInfoPanel} from './PlaybackInfoPanel';
+import {NativePlaybackInfoPanel, playbackInfoWords} from './PlaybackInfoPanel';
 import {NativeWatchPanels, type NativeWatchPanelsProps, type NativeWatchStylePort} from './WatchPanels';
 import {NativeWatchPanelOptions} from './panel-options';
 import type {NativeWatchHostBindings} from './WatchHost';
@@ -121,6 +121,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     panel: host => <NativeWatchPanels context={host} options={options} playback={context.playback} names={bindings.names ?? createNativeWatchPanelNames(host.runtime.text)} copy={copy}
       subtitleControls={fence => context.playback.subtitleControls?.(fence)} sleep={context.playback.setSleepTimer ? sleepPort() : undefined} style={stylePort()}
       reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo ?? (value => <NativePlaybackInfoPanel context={value} read={screens.readPlaybackInfo} renderError={bindings.title.renderError}/>)} episodes={bindings.episodes}/>,
+    notice: (fence, lifetime) => screens.readPlaybackInfo(fence, playbackInfoWords(), lifetime).then(info => info?.notice),
     content: host => screens.watch.body(host),
     postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
       current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}

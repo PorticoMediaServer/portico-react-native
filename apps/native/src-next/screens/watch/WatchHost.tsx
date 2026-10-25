@@ -1,9 +1,10 @@
-import React, {useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, View, useWindowDimensions} from 'react-native';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {resolvePlayerPresentation, playerControlsRevealDeadline, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
 import {usePlatformPosture} from '../../platform/platformPosture';
-import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
+import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
+import type {NativeWatchNotice} from './playback-info';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
@@ -38,6 +39,8 @@ export type NativeWatchHostBindings = Readonly<{
   presentation?: (layout: PlayerPresentation | undefined) => void;
   scrubbing?: boolean;
   focusHeld?: boolean;
+  /** tv-player/phone-player 5 and 13: the committed plan's own loss note, read once per playback. */
+  notice?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<NativeWatchNotice | undefined>;
 }>;
 type Props = Readonly<{
   authority: ShellAuthority;
@@ -64,6 +67,22 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const expanded = !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
   const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
+  const [lossNotice, setLossNotice] = useState<{key: string; value: NativeWatchNotice}>();
+  const noticeLive = useRef({read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.disposed, expanded});
+  noticeLive.current = {read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.disposed, expanded};
+  const noticeKey = fence ? JSON.stringify(fence) : undefined;
+  useEffect(() => {
+    const live = noticeLive.current;
+    if (!live.read || !live.fence || !live.expanded || live.disposed || !noticeKey || lossNotice?.key === noticeKey) return;
+    const abort = new AbortController();
+    const isLive = () => !abort.signal.aborted && noticeLive.current.runtime === live.runtime && noticeLive.current.playback === live.playback
+      && !!noticeLive.current.fence && sameFence(noticeLive.current.fence, live.fence) && noticeLive.current.authority === live.authority
+      && !noticeLive.current.disposed;
+    void live.read(live.fence, {signal: abort.signal, isCurrent: isLive}).then(value => {
+      if (value && isLive()) setLossNotice({key: noticeKey, value});
+    }).catch(() => {});
+    return () => abort.abort();
+  }, [noticeKey, expanded, lossNotice?.key]);
   const input = useMemo<PlayerPresentationInput>(() => ({window: {width: window.width, height: window.height}, posture, docked: !expanded, panelOpen: !isTV && panelOpen}),
     [window.width, window.height, posture, expanded, panelOpen, isTV]);
   const television = useMemo(() => isTV ? nativeWatchTVPresentation(input.window, !expanded, panelOpen ? state.panel : undefined) : undefined, [isTV, input.window, expanded, panelOpen, state.panel]);
@@ -100,7 +119,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
     {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
-      <NativeWatchChrome {...bindings.chrome(source, runtime)} source={source} controls={controls} playback={playback} text={runtime.text}
+      <NativeWatchChrome {...bindings.chrome(source, runtime)} notice={expanded && lossNotice?.key === noticeKey && layout.mode !== 'watch' && layout.mode !== 'book' ? {key: lossNotice.key, value: lossNotice.value, shownAt: 0} : undefined} source={source} controls={controls} playback={playback} text={runtime.text}
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'}
         tvPanelRight={television?.backdropRight}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>

@@ -14,11 +14,12 @@ import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon, type IconName} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
-import {useMotion} from '../../kit/useMotion';
+import {useMotion, useReducedMotion} from '../../kit/useMotion';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
 import {NativeUpNextCard} from './UpNextCard';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
+import type {NativeWatchNotice} from './playback-info';
 
 export type NativeWatchChromeProps = Readonly<{
   source: NativePlaybackRuntimeSnapshot;
@@ -53,7 +54,39 @@ export type NativeWatchChromeProps = Readonly<{
   onPictureInPicture?: (fence: PlaybackFence) => void;
   onCast?: (fence: PlaybackFence) => void;
   onFullWindow?: (fence: PlaybackFence) => void;
+  /** tv-player/phone-player 5 and 13: the committed plan's one loss note, once per playback. */
+  notice?: Readonly<{key: string; value: NativeWatchNotice; shownAt: number}>;
 }>;
+
+const NOTICE_SECONDS = 6;
+/** tv-player/phone-player 5 and 13: one quiet line, once per playback, that never
+ * takes focus and clears the top row. The plan's own words, not a code. */
+function LossNotice({notice, top, gutter}: {notice: NonNullable<NativeWatchChromeProps['notice']>; top: number; gutter: number}) {
+  const theme = useTheme(), reduced = useReducedMotion(), line = useSharedValue(1);
+  const [expired, setExpired] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    setExpired(undefined);
+    line.value = 1;
+    line.value = withTiming(0, {duration: reduced ? 0 : NOTICE_SECONDS * 1000});
+    const timer = setTimeout(() => setExpired(notice.key), NOTICE_SECONDS * 1000);
+    return () => {clearTimeout(timer); cancelAnimation(line);};
+  }, [notice.key, line, reduced]);
+  const drain = useAnimatedStyle(() => ({width: `${line.value * 100}%`}));
+  if (expired === notice.key) return null;
+  const phone = !theme.isTV;
+  return <View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityRole="alert" testID="watch-loss-notice"
+    style={{position: 'absolute', top, right: gutter, maxWidth: phone ? 320 : 560, borderRadius: phone ? 12 : 20, overflow: 'hidden',
+      paddingLeft: phone ? 12 : 20, paddingRight: phone ? 14 : 26, paddingTop: phone ? 9 : 14, paddingBottom: phone ? 11 : 18,
+      backgroundColor: 'rgba(9,19,27,.82)', boxShadow: `inset 0 0 0 1px rgba(237,245,250,.1), 0 18px 40px -18px rgba(0,0,0,.85)`}}>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 9 : 14}}>
+      <Icon name={notice.value.icon === 'picture' ? 'i-film' : 'i-audio'} size={phone ? 16 : 24} color={theme.colors.textSecondary}/>
+      <Text style={[nativeType({size: phone ? 13.5 : 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flexShrink: 1, color: theme.colors.text}]}>{notice.value.message}</Text>
+    </View>
+    {!reduced && <View style={{marginTop: phone ? 7 : 10, height: 2, borderRadius: 1, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.18)'}}>
+      <Animated.View style={[{height: 2, backgroundColor: theme.colors.accentStrong}, drain]}/>
+    </View>}
+  </View>;
+}
 
 function SkipIcon({seconds, forward, size, color}: {seconds: number; forward?: boolean; size: number; color: string}) {
   return <Svg width={size} height={size} color={color} viewBox="0 0 32 32" accessible={false}>
@@ -379,6 +412,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>}
       </FocusRegion>
     </Animated.View>
+    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={theme.isTV ? 168 : 68} gutter={theme.isTV ? 96 : 16}/>}
     {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: theme.isTV ? 96 : 60,
       bottom: theme.isTV ? 284 : visible ? 110 : 20}}>
       {theme.isTV
