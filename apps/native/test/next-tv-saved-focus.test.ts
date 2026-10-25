@@ -63,3 +63,46 @@ test('TV Saved tabs have a mounted content target and return edges for every tab
     assert.equal(render().find(node => node.type === 'FocusRegion').props.enabled, false, 'retained hidden content cannot receive focus');
   }
 });
+
+test('TV Saved directory keeps filters, retry and pagination inside its content region', async () => {
+  const host = hooks();
+  let snapshot: any;
+  const {SavedTVDirectory} = await screenModule(new URL('../src-next/screens/saved/SavedTVDirectory.tsx', import.meta.url), {
+    react: host.react,
+    'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
+    '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
+    '../../kit/artwork': {AmbientArt: 'AmbientArt', CoverMosaic: 'CoverMosaic', MediaArt: 'MediaArt'},
+    '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
+    '../../kit/focus': {FocusRegion: 'FocusRegion'},
+    '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/states': {StateView: 'StateView'},
+    '../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
+    '../../kit/theme': {useTheme: () => ({colors: {}, gutter: 64})},
+    './presentation': Object.fromEntries(['savedCollectionCount', 'savedItemCount', 'savedLibraryName', 'savedTitleCount', 'savedViewCount', 'savedVisibility'].map(key => [key, String])),
+  });
+  const props: any = {
+    view: 'playlists', enabled: true, regionId: 'grid', edges: {up: 'tabs', left: 'rail'}, libraries: [],
+    destination: {subscribe: () => () => {}, getSnapshot: () => snapshot},
+    runtime: {error: () => ({primaryAction: {id: 'retry', label: 'Retry', onPress: () => {}}})},
+  };
+  for (const phase of ['empty', 'ready', 'error', 'loading']) {
+    snapshot = {phase: phase === 'loading' ? 'loading' : 'ready', ...(phase === 'error' ? {error: new Error('offline')} : {}),
+      ...(phase === 'loading' ? {} : {saved: {projection: {
+        query: {}, sorts: [{id: 'title'}], filters: [{id: 'category', options: [{id: 'all', label: 'All'}]}],
+        sections: [{totalCount: phase === 'ready' ? 1 : 0, entries: phase === 'ready' ? [{id: 'one', kind: 'playlist'}] : []}],
+      }, pagination: {next: [{sectionId: 'main'}]}}}),
+    };
+    const tree = host.render(() => SavedTVDirectory(props));
+    assert.equal(tree.type, 'FocusRegion', phase);
+    assert.equal(tree.props.id, 'grid');
+    assert.deepEqual(tree.props.edges, props.edges);
+    const children = nodes(tree.props.children);
+    if (phase !== 'loading') assert.ok(children.some(node => node.props.focusId === 'tv-saved-sort'), phase);
+    if (phase === 'ready') assert.ok(children.some(node => node.props.focusId === 'tv-saved-more'));
+    if (phase === 'error') assert.equal(children.find(node => node.type === 'StateView').props.primaryAction.id, 'retry');
+    props.enabled = false;
+    assert.equal(host.render(() => SavedTVDirectory(props)).props.enabled, false);
+    props.enabled = true;
+  }
+});
