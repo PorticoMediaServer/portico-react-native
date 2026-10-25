@@ -140,7 +140,7 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
   const items = [...profile.items, ...(adminVisible ? admin.items : [])];
   const sections = [
     {id: 'profile', title: t('notifications.audience.profile'), tag: undefined, service: lease.profile, state: profile},
-    ...(adminVisible ? [{id: 'admin', title: t('notifications.audience.admin'), tag: t(context.account.account.role === 'admin' ? 'next.shell.administrators' : 'next.shell.ownerOnly'), service: lease.admin, state: admin}] : []),
+    ...(adminVisible ? [{id: 'admin', title: t('notifications.audience.admin'), tag: t('next.shell.ownerOnly'), service: lease.admin, state: admin}] : []),
   ].filter(section => section.state.items.length > 0);
 
   const routeFor = (action: NotificationAction): NativeShellRoute | undefined => {
