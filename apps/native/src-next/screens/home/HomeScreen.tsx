@@ -259,7 +259,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
   if (!document) return recovery.visible && recovery.session
-    ? <TvHomeRecovery session={recovery.session} onRetryNow={recovery.retryNow} onSwitchServer={recovery.switchServer}/>
+    ? <TvHomeRecovery session={recovery.session} onRetryNow={recovery.retryNow} onSwitchServer={recovery.switchServer} connectionFacts={runtime.connectionFacts}/>
     : snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
     : <HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>;
   if (!document.spotlight.length && !rows.length) return <>{runtime.renderHomeEmpty()}</>;

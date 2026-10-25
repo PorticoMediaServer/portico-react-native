@@ -16,6 +16,12 @@ export const scopeKey = (scope: ShellScope): string => JSON.stringify([scope.ser
 export const authorityKey = (scope: ShellAuthority): string => JSON.stringify([scope.serverId, scope.accountId, scope.profileId, scope.epoch, scope.viewerFence]);
 export const sameAuthority = (a: ShellAuthority, b: ShellAuthority): boolean => authorityKey(a) === authorityKey(b);
 
+/** The host a signed-in session reached its server at: no scheme, credentials or path, and
+ * absent rather than guessed when the session's address is not a URL. */
+export const nativeServerHost = (baseUrl: string): string | undefined => {
+  try {return new URL(baseUrl).host || undefined;} catch {return undefined;}
+};
+
 /** The API's user order is authoritative. This never sorts libraries by name or kind. */
 export function visibleLibraries(libraries: readonly Library[], isTV: boolean): readonly Library[] {
   return isTV ? libraries.filter(library => !hiddenReadingLibraryOnTV(library.kind)) : libraries;

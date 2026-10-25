@@ -10,8 +10,9 @@ import type {TvHomeRecoverySession, TvHomeRecoveryTicket} from './useTvHomeRecov
  * the TV is in front, tries at once when it wakes, and offers the drawn Details panel.
  * Every line is a real attempt fact or drawn copy: no diagnostic code is printed. Every
  * action carries the ticket it was drawn for, so a delayed press cannot act on a later Home. */
-export function TvHomeRecovery({session, onRetryNow, onSwitchServer}: {
+export function TvHomeRecovery({session, onRetryNow, onSwitchServer, connectionFacts}: {
   session: TvHomeRecoverySession; onRetryNow: (ticket: TvHomeRecoveryTicket) => void; onSwitchServer?: (ticket: TvHomeRecoveryTicket) => void;
+  connectionFacts?: Readonly<{serverName?: string; connectionAddress?: string}>;
 }) {
   const theme = useTheme(), t = defaultI18n.t;
   const [detailsTicket, setDetailsTicket] = useState<TvHomeRecoveryTicket>(), [now, setNow] = useState(() => Date.now());
@@ -25,7 +26,7 @@ export function TvHomeRecovery({session, onRetryNow, onSwitchServer}: {
   const progress = session.dueAt === undefined || session.delayMs <= 0 ? undefined : Math.min(1, Math.max(0, 1 - remaining / (session.delayMs / 1000)));
   const label = session.dueAt === undefined ? t('next.states.retrying') : t('next.states.retryIn', {seconds: remaining});
   const detail = session.attempts > 0 && session.firstAt ? t('next.states.triesSince', {count: session.attempts, time: defaultI18n.time(session.firstAt)}) : undefined;
-  const facts = [detail, label, t('next.states.native.tvConnectionHelp')].filter((line): line is string => !!line);
+  const facts = [detail, connectionFacts?.connectionAddress ? `${t('next.states.address')} · ${connectionFacts.connectionAddress}` : undefined, label, t('next.states.native.tvConnectionHelp')].filter((line): line is string => !!line);
   return <>
     <StateLayout icon="i-srvoff" tone="warning" testID="tv-home-recovery"
       title={session.presented.title} body={session.presented.body}

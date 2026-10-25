@@ -81,6 +81,11 @@ export interface NativeShellRuntime {
   renderHomeEmpty: () => ReactNode;
   /** The drawn Switch server action, when the installed source offers that route. */
   openServers?: () => void;
+  /** Sanctioned, already-known connection facts for a recovery panel: the server's display
+   * name and the address this session is reaching it on. The address is neither proof of a
+   * home/local route nor of a secure one - this client has no authoritative distinct producer
+   * for either - so it is only ever labelled neutrally, and never inferred from its range. */
+  connectionFacts?: Readonly<{serverName?: string; connectionAddress?: string}>;
   /** The shell-owned download sheet, opened by a title page's drawn Download action. */
   renderDownloads?: () => ReactNode;
   /** Destinations name their own copy context; Home stays the default. */

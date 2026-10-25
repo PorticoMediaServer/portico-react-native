@@ -22,7 +22,7 @@ import {NativeDownloadSheet} from '../screens/downloads/DownloadSheet';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
-import {sameAuthority} from './model';
+import {sameAuthority, nativeServerHost} from './model';
 import {createNativeMusicDiscoverNavigation} from './music-discover-navigation';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
@@ -357,6 +357,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       hasLibraries={context.libraries().length > 0} onSwitchServer={nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined}/>,
     renderDownloads: () => <NativeDownloadSheet context={context}/>,
     openServers: nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined,
+    connectionFacts: {serverName: context.serverName, connectionAddress: nativeServerHost(context.api.baseUrl)},
     libraryMenu: library => {
       const common = {read: isReadingLibraryKind(library.kind),
         onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};
