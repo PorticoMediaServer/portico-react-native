@@ -8,6 +8,7 @@ import {NativeTVMusicController} from './model';
 import {TVAlbumScreen, TVArtistScreen} from './TVMusicScreens';
 import {PhoneAlbumScreen, PhoneArtistScreen} from './PhoneMusicScreens';
 import {createMusicPlaylistPicker, type MusicPlaylistPickerHandle} from './MusicPlaylistPicker';
+import './MusicDiscoverRoute';
 
 type Page = Readonly<{key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
 

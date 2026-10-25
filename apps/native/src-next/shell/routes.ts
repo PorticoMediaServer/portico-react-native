@@ -9,6 +9,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'shell'; destination: ShellDestination}
   | {kind: 'title'; entry: ContentEntry}
   | {kind: 'music'; entry: ContentEntry}
+  | {kind: 'music-discover'}
   | {kind: 'book'; entry: ContentEntry}
   | {kind: 'audiobook'; entry: ContentEntry}
   | {kind: 'person'; personId: string}

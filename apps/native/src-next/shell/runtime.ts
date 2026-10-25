@@ -94,6 +94,8 @@ export interface NativeShellRuntime {
   appearanceCardSizePercent?: 85 | 100 | 125;
   appearanceShowBackdrops?: boolean;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
+  /** Opens the TV Music Discover page (its Mixes row reads the same projection). */
+  musicDiscover?: () => void;
   /** music-plus (MC-9): the profile's own Mixes row, read from /v1/music/mixes. Absent
    * until the shell binds a real API and authority. */
   mixes?: import('../screens/destinations/music/mixes').NativeMusicMixesPort;

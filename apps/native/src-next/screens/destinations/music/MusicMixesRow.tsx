@@ -39,17 +39,20 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
 }
 
 /** Mixes for you: the server's own profile row, absent until it has something real to draw. */
-export function MusicMixesRow({port, artwork, reportError, title = t('music.mixesForYou')}: {
+export function MusicMixesRow({port, artwork, reportError, title = t('music.mixesForYou'), onOpen, marginHorizontal}: {
   port: NativeMusicMixesPort; artwork: (path: string | undefined) => React.ComponentProps<typeof Artwork>['source'];
-  reportError: (error: unknown) => void; title?: string;
+  reportError: (error: unknown) => void; title?: string; onOpen?: () => void; marginHorizontal?: number;
 }) {
   const theme = useTheme(), snapshot = useSyncExternalStore(port.subscribe, port.getSnapshot);
   useEffect(() => {if (snapshot.phase === 'idle') void port.load().catch(() => {});}, [port, snapshot.phase]);
   if (snapshot.phase !== 'ready' || !snapshot.rows.length) return null;
   const play = (row: NativeMusicMixRow) => {void port.play(row).catch(error => reportError(error));};
   return <View testID="music-mixes-row" style={{marginTop: theme.isTV ? 30 : theme.layoutMode === 'phone' ? 28 : 26}}>
-    <Text style={[browseType(theme, 20, 800, -.02), {marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, color: theme.colors.text}]}>{title}</Text>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.isTV ? 96 : 16}}>
+    {onOpen ? <Focusable focusId="music-mixes-open" testID="music-mixes-open" accessibilityRole="button" accessibilityLabel={title} onPress={onOpen}
+      style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12}}>
+      <Text style={[browseType(theme, 20, 800, -.02), {color: theme.colors.text}]}>{title}</Text>
+    </Focusable> : <Text style={[browseType(theme, 20, 800, -.02), {marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, color: theme.colors.text}]}>{title}</Text>}
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16)}}>
       {snapshot.rows.map(row => <MusicMixCard key={row.id} row={row} artwork={artwork} width={theme.isTV ? 300 : theme.platform === 'tablet' ? 210 : 186} onPlay={() => play(row)}/>)}
     </ScrollView>
   </View>;
