@@ -65,6 +65,10 @@ export type NativeTitleScreenProps = Readonly<{
 }>;
 const noMenuSubscribe = () => () => {};
 const noMenuSnapshot = () => undefined;
+/** An episode's own numbering, the same shape the episode rows and the player label use. */
+const episodeNumbering = (entry: ContentEntry) => entry.absoluteNumber !== undefined ? {mode: 'absolute' as const, number: entry.absoluteNumber}
+  : entry.dateBased && entry.airDate ? {mode: 'date' as const, day: entry.airDate}
+    : entry.seasonNumber === 0 ? {mode: 'special' as const} : {mode: 'seasonal' as const, season: entry.seasonNumber, episode: entry.episodeNumber};
 
 /** The retained title route. Technical facts exist only in its separate File info surface. */
 export function NativeTitleScreen(props: NativeTitleScreenProps) {
@@ -183,6 +187,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   }
   const primary = detail?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over');
   const playback = primary?.playback ?? workspace?.nextUp?.playback ?? snapshot.entry.playback;
+  // tv.html frame 3 names the episode the button starts: "Play S1 E1".
+  const primaryEpisode = theme.isTV && show && workspace?.nextUp && playback?.itemId === workspace.nextUp.id ? workspace.nextUp : undefined;
+  const primaryCode = primaryEpisode ? episodeLabel(episodeNumbering(primaryEpisode), 'player', text) : undefined;
   const progress = detail?.personal.progressSeconds ?? snapshot.entry.progressSeconds;
   const resuming = !!playback?.startSeconds && (progress ?? 0) > 0;
   const duration = detail?.item.duration ?? snapshot.entry.duration;
@@ -280,8 +287,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               icon={watching?.playback.intent === 'playing' ? 'i-pause' : 'i-play'} onPress={toggle}>{t(watching?.playback.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
               : playback && (theme.isTV && resuming && duration && progress !== undefined
                 ? <ResumeButton ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}
-                    progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{t('entry.resume')}</ResumeButton>
-                : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}>{t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
+                    progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{primaryCode ? t('title.resumeEpisode', {code: primaryCode.text}) : t('entry.resume')}</ResumeButton>
+                : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}>{primaryCode ? t(resuming ? 'title.resumeEpisode' : 'title.playEpisode', {code: primaryCode.text}) : t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
             {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" nextFocusDown={focusDown} onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
             {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} nextFocusDown={focusDown} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
             {!props.watch && theme.isTV && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly nextFocusDown={focusDown}
@@ -324,7 +331,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             {props.owner && <Button testID="watch-show-settings-open" variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => setSettingsOpen(true)}/>}
           </View>
           {episodes.map(entry => {
-            const numbering = entry.absoluteNumber !== undefined ? {mode: 'absolute' as const, number: entry.absoluteNumber} : entry.dateBased && entry.airDate ? {mode: 'date' as const, day: entry.airDate} : entry.seasonNumber === 0 ? {mode: 'special' as const} : {mode: 'seasonal' as const, season: entry.seasonNumber, episode: entry.episodeNumber};
+            const numbering = episodeNumbering(entry);
             const model = cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title, episode: numbering, durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
             const plate = !theme.isTV && openEpisode.entry?.id === entry.id && openEpisode.entry.kind === 'episode';
             return cell(entry.id, plate ? <NativeTitleEpisodePlate entry={entry} code={episodeLabel(numbering, 'player', text)} width={bodyWidth - 40}
