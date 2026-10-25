@@ -91,7 +91,7 @@ export type SettingsControl =
 export type CompositeId =
   | 'playbackMethod' | 'cardSize'
   // Kept by the device and published in its capability document (`withViewerSettings`).
-  | 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching'
+  | 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'tvSupports' | 'music.sampleRateMatching'
   | 'libraryView' | 'reduceMotion' | 'textSize' | 'receiveFromDevices'
   // Kept by the device and read before the app draws anything (B-19.10).
   | 'layout';
@@ -270,9 +270,15 @@ const accountPages: readonly AuthoredPage[] = [
         ]}},
       ]},
       // Where the device cannot detect them, the viewer says what the TV shows and plays. Off: standard range and stereo.
-      {id: 'tvOutputs', title: 'settings.section.tvOutputs', description: 'settings.section.tvOutputsHelp', rows: [
-        {kind: 'composite', id: 'tvHdr', storage: 'device', label: 'settings.row.tvHdr', help: 'settings.help.tvHdr', scope: 'device', needs: c => c.declaredOutputs === true, control: {type: 'switch'}},
-        {kind: 'composite', id: 'tvSurround', storage: 'device', label: 'settings.row.tvSurround', help: 'settings.help.tvSurround', scope: 'device', needs: c => c.declaredOutputs === true, control: {type: 'switch'}},
+      // One drawn choice, shown on a television. Its value is the viewer's override;
+      // what the TV reports is read live and shown only until an override exists.
+      {id: 'tvOutputs', title: 'next.settingsSpec.account.quality.groups.2.title', description: 'settings.section.tvOutputsHelp', platforms: ['tv'], rows: [
+        {kind: 'composite', id: 'tvSupports', storage: 'device', label: 'next.settingsSpec.account.quality.groups.2.rows.0.label', help: 'next.settingsSpec.account.quality.groups.2.rows.0.help', scope: 'device', control: {type: 'choice', choices: [
+          {value: 'none', label: 'next.settingsSpec.account.quality.groups.2.rows.0.control.options.0.label'},
+          {value: 'hdr', label: 'next.settingsSpec.account.quality.groups.2.rows.0.control.options.1.label'},
+          {value: 'surround', label: 'next.settingsSpec.account.quality.groups.2.rows.0.control.options.2.label'},
+          {value: 'hdr-surround', label: 'next.settingsSpec.account.quality.groups.2.rows.0.control.options.3.label'},
+        ]}},
       ]},
       // The short list for when detection is wrong. Each narrows what the server plans this device as.
       {id: 'fixes', title: 'settings.section.playbackFixes', description: 'settings.section.playbackFixesHelp', rows: [
