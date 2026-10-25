@@ -169,9 +169,10 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // tv-more1/3 and collections 15: the page opens on its first title or tile; an empty page
   // keeps the tab as the entry (SavedTVTabs), so focus never lands nowhere.
   const firstPlaylist = (snapshot.playlists?.sections ?? []).flatMap(section => section.entries).find(entry => entry.kind === 'playlist');
+  // A card's focus child is its testID, whose id is URI-encoded; a tile's focus id is not.
   const firstChild = tab === 'watchlist' || tab === 'favorites'
-    ? (posters[0] ? `saved-poster-${posters[0].id}` : squares[0] ? `saved-square-${squares[0].id}` : undefined)
-    : tab === 'history' ? (snapshot.entries[0] ? `saved-history-${snapshot.entries[0].id}` : undefined)
+    ? (posters[0] ? `saved-poster-${encodeURIComponent(posters[0].id)}` : squares[0] ? `saved-square-${encodeURIComponent(squares[0].id)}` : undefined)
+    : tab === 'history' ? (snapshot.entries[0] ? `saved-history-${encodeURIComponent(snapshot.entries[0].id)}` : undefined)
       : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
         : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
   useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
