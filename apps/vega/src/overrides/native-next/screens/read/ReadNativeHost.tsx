@@ -1,6 +1,6 @@
 import React from 'react';
 import {Text, View} from 'react-native';
-import {defaultI18n} from '../../../../../../packages/i18n/src';
+import {defaultI18n} from '../../../../../../../packages/i18n/src';
 
 type Props = Readonly<{active: boolean}>;
 
