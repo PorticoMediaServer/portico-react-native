@@ -352,7 +352,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'account-sign-out') return layout(t('accounts.signOut.portico'), undefined, undefined,
     action('account-sign-out', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope.current!); reset();}));
   if (stage === 'profiles') return layout(t('accounts.profiles.onServer', {server: server!.name}), t('accounts.session.' + server!.signIn as 'accounts.session.portico' | 'accounts.session.local'),
-    <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} showTitle={false}
+    <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} preferredProfileId={theme.isTV ? profiles[0]?.id : undefined} showTitle={false}
       onSelect={id => {const value = profiles.find(item => item.id === id)!; if (value.pinRequired) {setProfile(value); setCode(''); setStage('profile-pin');} else void run(() => choose(id));}}/>);
   if (theme.isTV && stage === 'profile-forgot-pin') return <TVForgotPINHandoff profileName={profile!.name}
     url={new URL('/settings/profile', operation.current!.serverOrigin()).href} body="next.auth.tv.forgotPINBody" onBack={back}/>;
