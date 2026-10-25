@@ -13,12 +13,13 @@ test('the one settings mount registers the Settings destination and owner Dashbo
       createNativeSettingsRenderer: (context: unknown) => {built.push(['settings', context]); return {render: (route: unknown) => ({screen: 'settings', route})};},
       createNativeServerDashboardRenderer: (context: unknown) => {built.push(['dashboard', context]); return {render: (route: unknown) => ({screen: 'dashboard', route})};},
     },
+    '../screens/settings-live/owner-libraries/LibrarySettingsRoute': {createNativeLibrarySettingsRenderer: (context: unknown) => {built.push(['library', context]); return {}; }},
     './route-registry': {nativeShellRoutes: {
       registerDestination: (kind: string, factory: never) => registrations.push({kind: 'destination', route: kind, factory}),
       registerRoute: (kind: string, factory: never) => registrations.push({kind: 'route', route: kind, factory}),
     }},
   });
-  assert.deepEqual(registrations.map(value => [value.kind, value.route]), [['destination', 'settings'], ['route', 'server-dashboard'], ['route', 'server-settings'], ['route', 'settings-equalizer']]);
+  assert.deepEqual(registrations.map(value => [value.kind, value.route]), [['destination', 'settings'], ['route', 'server-dashboard'], ['route', 'server-settings'], ['route', 'settings-equalizer'], ['route', 'library-settings']]);
   assert.deepEqual(built, [], 'registering a factory composes nothing before a viewer binds');
   const context = {serverName: 'Demo server'};
   const settings = registrations[0]!.factory(context) as {render: (route: unknown) => unknown};

@@ -1,3 +1,4 @@
+import {createNativeLibrarySettingsRenderer} from '../screens/settings-live/owner-libraries/LibrarySettingsRoute';
 import {createNativeEqualizerSettingsRenderer, createNativeTVServerSettingsRenderer, createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
 import {nativeShellRoutes, type NativeRouteFactory} from './route-registry';
 
@@ -12,3 +13,4 @@ nativeShellRoutes.registerRoute('server-dashboard', dashboardFactory);
 nativeShellRoutes.registerRoute('server-settings', context => createNativeTVServerSettingsRenderer(context));
 
 nativeShellRoutes.registerRoute('settings-equalizer', context => createNativeEqualizerSettingsRenderer(context));
+nativeShellRoutes.registerRoute('library-settings', context => createNativeLibrarySettingsRenderer(context));
