@@ -151,7 +151,10 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
           <View style={{flex: 1, minWidth: 0}}>
             <Text style={[browseType(theme, 15, 600), {color: theme.colors.textSecondary, marginBottom: 10}]}>{t('next.browse.native.album')}</Text>
             <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 58, 800, -.04, 61), {color: theme.colors.text}]}>{title}</Text>
-            {entry.artist?.name ? <Text numberOfLines={1} style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong, marginTop: 4}]}>{entry.artist.name}</Text> : null}
+            {entry.artist?.name ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4}}>
+              <ArtistCircle covers={art ? [art] : []} rings={[2]} initials={[...entry.artist.name.trim()][0] ?? ''} alt={entry.artist.name} size={28} visible/>
+              <Text numberOfLines={1} style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong}]}>{entry.artist.name}</Text>
+            </View> : null}
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
               {facts.length ? <Facts facts={facts}/> : null}
               <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="tablet"/>
@@ -182,6 +185,18 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
               <Text style={[browseType(theme, 13, 400), {width: 76, color: theme.colors.textTertiary}]}>{label}</Text><Text style={[browseType(theme, 13, 500), {flex: 1, color: theme.colors.text}]}>{value}</Text></View>)}
           </View> : null}
         </View>
+        {snapshot.similar.length ? <View style={{marginTop: 30, paddingHorizontal: 32}}>
+          <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 10}]}>{t('next.controls.moreLikeThis')}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 14}}>
+            {snapshot.similar.flatMap(value => {
+              if (!value.libraryId) return [];
+              const album: MusicAlbumRow = {id: value.id, libraryId: value.libraryId, title: value.title,
+                ...(value.artist?.id && value.artist.name ? {artist: {id: value.artist.id, name: value.artist.name}} : {}),
+                ...(value.year ? {year: value.year} : {}), ...(value.posterUrl ? {posterUrl: value.posterUrl} : {})};
+              return [<AlbumCard key={value.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry}/>];
+            })}
+          </ScrollView>
+        </View> : null}
       </ScrollView>
     </View>;
   }
