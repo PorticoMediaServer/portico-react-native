@@ -16,16 +16,17 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   private readonly lifetime: NativeScreenLifetime;
   private readonly service: RemoteSourceService;
   private readonly ports: NativeSettingsLivePorts;
+  private readonly viewportCurrent: () => boolean;
   private offService: () => void = () => {};
   private offAuthority: () => void = () => {};
   private disposed = false;
 
-  constructor(ports: NativeSettingsLivePorts) {
+  constructor(ports: NativeSettingsLivePorts, viewportCurrent: () => boolean = () => true) {
     const lifetime = new NativeScreenLifetime(ports.context);
     let retire = () => lifetime.dispose();
     const admitted = () => {
       const account = ports.context.account;
-      return lifetime.current() && account.canManage && !account.account.disabled
+      return viewportCurrent() && lifetime.current() && account.canManage && !account.account.disabled
         && account.account.role === 'owner'
         && account.serverId === lifetime.authority.serverId
         && account.account.id === lifetime.authority.accountId
@@ -51,6 +52,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     }, admitted);
     super({allowed: admitted(), sources: {...service.getSnapshot(), loading: admitted()}});
     this.ports = ports;
+    this.viewportCurrent = viewportCurrent;
     this.lifetime = lifetime;
     this.service = service;
     retire = () => this.dispose();
@@ -65,7 +67,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
 
   private allowed(): boolean {
     const account = this.ports.context.account;
-    return !this.disposed && this.lifetime.current() && account.canManage && !account.account.disabled
+    return !this.disposed && this.viewportCurrent() && this.lifetime.current() && account.canManage && !account.account.disabled
       && account.account.role === 'owner' && account.serverId === this.lifetime.authority.serverId
       && account.account.id === this.lifetime.authority.accountId
       && account.account.primaryProfileId === this.lifetime.authority.profileId;

@@ -19,10 +19,11 @@ type Mode = {kind: 'connection'; source?: RemoteSource} | {kind: 'detail' | 'rea
 
 /** Supported WebDAV cohort only. Settings owns the entry. Unavailable producer flows are not offered. */
 export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
-  const next = useRef(0);
+  const next = useRef(0), currentPorts = useRef(ports);
+  currentPorts.current = ports;
   const [owned, setOwned] = useState<{controller: NativeRemoteSourcesController; ports: NativeSettingsLivePorts; key: number}>();
   useEffect(() => {
-    const controller = new NativeRemoteSourcesController(ports);
+    const controller = new NativeRemoteSourcesController(ports, () => currentPorts.current === ports);
     setOwned({controller, ports, key: ++next.current});
     void controller.load();
     return () => controller.dispose();
