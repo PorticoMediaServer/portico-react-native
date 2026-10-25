@@ -6,6 +6,7 @@ import {presentError} from '../../../../../../packages/client-core/src/presentat
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {AmbientArt, Artwork} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
+import {Icon} from '../../../kit/Icon';
 import {StateView} from '../../../kit/states';
 import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
@@ -46,12 +47,18 @@ function ChapterRows({controller, entries, current, progress, runtime, tv}: {
   return <View style={{marginTop: tv ? 14 : 12}}>
     {entries.map((entry, index) => {
       const number = chapterIndex(entry) ?? index + 1, playing = current === number;
-      return <Focusable key={entry.id} accessibilityRole="button" accessibilityLabel={entry.title} focusKind="row" focusRadius={10}
+      // collections 41: a finished chapter keeps its row but trades its number
+      // for the check and dims. The server sends `watched` only when playback
+      // really passed that chapter's end; nothing here infers it.
+      const finished = entry.watched === true && !playing;
+      return <Focusable key={entry.id} accessibilityRole="button" accessibilityLabel={finished ? `${entry.title}, ${t('title.finished')}` : entry.title} focusKind="row" focusRadius={10}
         onPress={() => {void controller.playChapter(entry).catch(error => runtime.reportError(error));}}
         style={{height: tv ? 72 : 54, paddingHorizontal: tv ? 18 : 4, flexDirection: 'row', alignItems: 'center', gap: tv ? 18 : 12,
           borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.line, .7)}}>
-        <Text style={[browseType(theme, tv ? 22 : 14, 600), {width: tv ? 42 : 24, color: playing ? theme.colors.accentStrong : theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{number}</Text>
-        <Text numberOfLines={1} style={[browseType(theme, tv ? 24 : 15.5, 600), {flex: 1, color: playing ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
+        {finished
+          ? <View style={{width: tv ? 42 : 24, alignItems: 'center'}}><Icon name="i-check" size={tv ? 20 : 15} color={theme.colors.textTertiary}/></View>
+          : <Text style={[browseType(theme, tv ? 22 : 14, 600), {width: tv ? 42 : 24, color: playing ? theme.colors.accentStrong : theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{number}</Text>}
+        <Text numberOfLines={1} style={[browseType(theme, tv ? 24 : 15.5, 600), {flex: 1, color: finished ? theme.colors.textTertiary : playing ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
         {chapterDuration(entry) ? <Text style={[browseType(theme, tv ? 21 : 13.5, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{chapterDuration(entry)}</Text> : null}
         {playing && progress !== undefined ? <View style={{position: 'absolute', left: tv ? 18 : 4, right: tv ? 18 : 4, bottom: 0, height: 2, backgroundColor: alpha(theme.colors.accentStrong, .5)}}>
           <View style={{width: `${Math.max(0, Math.min(1, progress)) * 100}%`, height: 2, backgroundColor: theme.colors.accentStrong}}/>
