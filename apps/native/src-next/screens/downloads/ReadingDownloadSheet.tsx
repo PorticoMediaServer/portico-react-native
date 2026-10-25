@@ -7,7 +7,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import {Focusable} from '../../kit/controls';
-import {BottomSheet} from '../../kit/overlays';
+import {BottomSheet, Popover} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
@@ -43,9 +43,11 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
       && (!requestLifetime || (!requestLifetime.signal.aborted && requestLifetime.isCurrent()))
       && getNativeDownloadSnapshot() === request && context.navigation.getSnapshot().revision === route.revision && context.navigation.getSnapshot().route === route.route;
     const stop = () => {if (!current()) abort.abort();};
+    const closeOnRetire = () => {if (getNativeDownloadSnapshot() === request) closeNativeDownload(request);};
+    requestLifetime?.signal.addEventListener('abort', closeOnRetire);
     const offAuthority = context.subscribeAuthority(stop), offRoute = context.navigation.subscribe(stop);
     const opening: Opening = {current, pending: false, lease, versions: Object.freeze([]), abort, signal,
-      retire: () => {if (!alive) return; alive = false; abort.abort(); linked?.dispose();},
+      retire: () => {if (!alive) return; alive = false; abort.abort(); linked?.dispose(); requestLifetime?.signal.removeEventListener('abort', closeOnRetire);},
       dispose: () => {opening.retire(); if (disposed) return; disposed = true; offAuthority(); offRoute(); offDevice(); client?.dispose(); lease.dispose();}};
     family.active = opening;
     offDevice = lease.device.subscribe(() => {if (current()) setState(value => value.opening === opening ? {...value} : value);});
@@ -114,10 +116,9 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   // primary action then disables instead of silently switching the format.
   const selectedVersion = versions.find(value => value.sourceId === selected) ?? versions.find(ready) ?? versions[0];
   const opening = shown.opening, freeBytes = opening?.lease.device.getSnapshot().freeBytes;
-  return <BottomSheet open testID="native-reading-download-sheet" title={t('action.download')} description={request.title} fitContent
-    width={theme.platform === 'phone' ? undefined : 360}
-    onOpenChange={open => {if (!open) close(shown.opening);}}>
-    <View style={{gap: 12}}>
+  const surface = {open: true as const, title: t('action.download'), description: request.title, testID: 'native-reading-download-sheet',
+    onOpenChange: (open: boolean) => {if (!open) close(shown.opening);}};
+  const body = <View style={{gap: 12}}>
       {!shown.versions && shown.error === undefined && nativePublicationReadsAvailable() && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
       {(!nativePublicationReadsAvailable() || shown.versions && !versions.length) && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}/>}
       {blocked && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{downloadReasonMessage(shown.policy!.policy.reason) || t('downloads.offForProfile')}</Text>}
@@ -142,6 +143,11 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
         <Text style={[theme.type.bodyStrong, {color: theme.colors.ink}]}>{t(shown.busy ? 'downloads.adding' : 'action.download')}</Text>
         <Text style={[theme.type.caption, {color: theme.colors.ink}]}>{downloadBytes(selectedVersion.size)}</Text>
       </Focusable>}
-    </View>
-  </BottomSheet>;
+    </View>;
+  // tablet-read12b: on the expanded width the same real choice opens under the
+  // book's own Download button. The original page lifetime is already linked, and a
+  // replaced route or viewer cannot take the popover over.
+  return request.anchorRef && theme.width >= 1024
+    ? <Popover {...surface} anchorRef={request.anchorRef} placement="bottom-end" offset={8} width={360} showTitle>{body}</Popover>
+    : <BottomSheet {...surface} fitContent width={theme.platform === 'phone' ? undefined : 360}>{body}</BottomSheet>;
 }
