@@ -13,7 +13,7 @@ const galleries = discoverGalleries();
 
 /** This module, including URL handling, is reachable only through App's __DEV__ branch. */
 export function KitHost({shell: Shell}: {shell?: ComponentType}) {
-  const [selection, setSelection] = useState<{gallery?: string} | {serverAddress: string}>();
+  const [selection, setSelection] = useState<{gallery?: string; window?: boolean} | {serverAddress: string}>();
   useEffect(() => {
     let live = true;
     let changed = false;
@@ -23,7 +23,7 @@ export function KitHost({shell: Shell}: {shell?: ComponentType}) {
     return () => {live = false; subscription.remove();};
   }, []);
   if (selection && 'serverAddress' in selection) return <AccountProofHost key={selection.serverAddress} serverAddress={selection.serverAddress}/>;
-  return selection || !Shell ? <Kit key={selection?.gallery ?? ''} initialGallery={selection?.gallery} /> : <Shell />;
+  return selection || !Shell ? <Kit key={selection?.gallery ?? ''} initialGallery={selection?.gallery} presentation={selection?.window ? 'window' : 'catalogue'} /> : <Shell />;
 }
 
 /** Dev-only host. Families render in the same theme, gesture root and safe-area providers. */
