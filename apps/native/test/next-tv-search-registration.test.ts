@@ -10,6 +10,10 @@ import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifeti
 import {NativeSearchDestination} from '../src-next/screens/search/model.ts';
 import {NativeSearchExplore} from '../src-next/screens/search/explore.ts';
 import * as navigationPorts from '../src-next/screens/search/navigation.ts';
+import {defaultI18n} from '../../../packages/i18n/src';
+import * as selectionCore from '../../../packages/client-core/src/selection-model';
+import {selectedItemsLabel} from '../src-next/shell/selection-display';
+import {nativeSearchEntryKey} from '../src-next/screens/search/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -70,7 +74,7 @@ async function setup() {
     subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
     preferences: () => tvPreferences(true), subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
     get home() {return unavailable();}, get events() {return unavailable();}, get appVersion() {return unavailable();}, get serverName() {return unavailable();},
-    get playback() {return unavailable();}, get watch() {return unavailable();}, get account() {return unavailable();}, libraries: () => [],
+    playback: {getSnapshot: () => ({session: undefined}), subscribe: () => () => {}} as NativeShellBootstrapContext['playback'], get watch() {return unavailable();}, get account() {return unavailable();}, libraries: () => [],
   };
   const {createNativeSearchController} = await screenModule(new URL('../src-next/screens/search/controller.ts', import.meta.url), {
     react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, './navigation': navigationPorts, './model': {NativeSearchDestination},
@@ -82,11 +86,22 @@ async function setup() {
     readonly surface: string;
     constructor(options: ConstructorParameters<typeof NativeSearchExplore>[0]) {super(options); this.surface = options.surface;}
   }
+  const {createNativeSearchSelection} = await screenModule(new URL('../src-next/screens/search/selection.tsx', import.meta.url), {
+    react: hooks().react, 'react-native': {View: 'View'},
+    'react-native-safe-area-context': {useSafeAreaInsets: unavailable},
+    '../../../../../packages/i18n/src': {defaultI18n},
+    '../../../../../packages/client-core/src/selection-model': selectionCore,
+    '../../shell/selection-display': {selectedItemsLabel}, '../../kit/selection': {SelectionBar: 'SelectionBar', SelectionPhoneActionBar: 'SelectionPhoneActionBar'},
+    '../../kit/theme': {useTheme: unavailable}, '../destinations/lifetime': {nativeDestinationLifetime},
+    '../native-screen-services': {nativeScreenServices: () => ({requestId: unavailable, reportError: (error: unknown) => errors.push(error)})},
+    './model': {nativeSearchEntryKey},
+  });
   const registry = registryPort;
   await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {
     react: hooks().react, 'react-native': {Platform: {isTV: true}, View: 'View'}, '../../shell/route-registry': registry,
     '../destinations/lifetime': {nativeDestinationLifetime},
     '../destinations/entry-actions': {createNativeEntryActions: () => ({dispose() {}, menuState: {subscribe: () => () => {}, getSnapshot: () => 0}})},
+    './selection': {createNativeSearchSelection},
     './controller': {createNativeSearchController}, './actions': {createNativeSearchActions: () => ({dispose() {}})},
     './navigation': navigationPorts, './explore': {NativeSearchExplore: RecordingExplore},
     './SearchScreen': {SearchScreen: 'SearchScreen'}, './GenreBrowseScreen': {GenreBrowseScreen: 'GenreBrowseScreen'},
