@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -48,7 +48,18 @@ export type NativeSavedResourceProps = Readonly<{
 }>;
 
 type Row = Readonly<{id: string; media: ContentEntry}>;
-type RowMenu = Readonly<{entry: ContentEntry; entryId: string}>;
+/** One row-sheet opening: what it names, the route it belongs to, and the row focus it took
+ * once when it opened, so no later move can pull focus to a row the person has left. */
+type RowMenu = Readonly<{entry: ContentEntry; entryId: string; route: SavedRoute; focus?: 'open' | 'up' | 'down'}>;
+type Command = 'done' | 'failed' | 'busy' | 'stale';
+
+/** The page's membership rows, from whichever snapshot the caller holds: the render and a
+ * command dispatched later must both read the same thing. */
+function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnapshot; personal?: PersonalSavedSnapshot}>): readonly Row[] {
+  return isPlaylist
+    ? (state.saved?.projection?.sections ?? []).flatMap(section => section.entries.flatMap(entry => entry.kind === 'playlist_entry' && !entry.hidden ? [{id: entry.id, media: entry.media}] : []))
+    : (state.personal?.entries ?? []).flatMap(entry => !entry.hidden && entry.media ? [{id: entry.id, media: entry.media}] : []);
+}
 
 /** collections.html 11a–13c and 18–20. The page reads the actual Saved route
  * through its canonical service; commands go back through the same service. */
@@ -57,16 +68,25 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
-  const [pageMenu, setPageMenu] = useState(false), [rowMenu, setRowMenu] = useState<RowMenu>(), [renaming, setRenaming] = useState(false), [deleting, setDeleting] = useState(false);
+  const [pageMenu, setPageMenu] = useState(false), [rowMenuState, setRowMenuState] = useState<RowMenu>(), [renaming, setRenaming] = useState(false), [deleting, setDeleting] = useState(false);
   const [reordering, setReordering] = useState(false), [infoOpen, setInfoOpen] = useState(false), [problem, setProblem] = useState<string>(), [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null), toastId = useRef(0);
+  /** The opening this screen is showing, retired by identity so a late result or a second
+   * press can only ever act on the sheet it came from; `epoch` moves with the route so a
+   * command started on one page cannot report onto the next. */
+  const opening = useRef<RowMenu | undefined>(undefined), flight = useRef<Readonly<{token: object}> | undefined>(undefined);
+  const mounted = useRef(true), epoch = useRef(0), shownRoute = useRef(route);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; opening.current = undefined; flight.current = undefined;};}, []);
   useEffect(() => {void destination.select(route).catch(runtime.reportError);}, [destination, route, runtime]);
-  useEffect(() => {setPageMenu(false); setRowMenu(undefined); setRenaming(false); setDeleting(false); setReordering(false); setProblem('');}, [route]);
+  useEffect(() => {setPageMenu(false); setRenaming(false); setDeleting(false); setReordering(false); setProblem(''); setBusy(false);}, [route]);
   const saved = snapshot.saved as SavedSnapshot | undefined, personal = snapshot.personal as PersonalSavedSnapshot | undefined;
   const playlist = saved?.playlist ?? null, resource = personal?.resource ?? null, isPlaylist = route.view === 'playlist';
-  const rows: readonly Row[] = useMemo(() => isPlaylist
-    ? (saved?.projection?.sections ?? []).flatMap(section => section.entries.flatMap(entry => entry.kind === 'playlist_entry' && !entry.hidden ? [{id: entry.id, media: entry.media}] : []))
-    : (personal?.entries ?? []).flatMap(entry => !entry.hidden && entry.media ? [{id: entry.id, media: entry.media}] : []), [isPlaylist, personal?.entries, saved?.projection]);
+  // A sheet and a command belong to exactly one route. A route change retires both here, at
+  // render, so nothing the old page started survives it by even one frame.
+  if (shownRoute.current !== route) {shownRoute.current = route; epoch.current += 1; opening.current = undefined; flight.current = undefined;}
+  // An opening belongs to the route it was made on: a different page never draws it.
+  const rowMenu = rowMenuState?.route === route ? rowMenuState : undefined;
+  const rows: readonly Row[] = useMemo(() => membershipRows(isPlaylist, snapshot), [isPlaylist, snapshot]);
   const media = rows.map(row => row.media), playable = media.filter(entry => !!entry.playback && entry.available !== false && !entry.missing);
   const count = isPlaylist ? playlist?.entryCount : resource?.entryCount;
   const countText = isPlaylist ? savedItemCount(count) : savedTitleCount(count);
@@ -76,11 +96,26 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const canReorder = reordering || (isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true);
   const visibility = resource?.kind === 'collection' ? savedVisibility(resource) : undefined;
   const report = (error: unknown) => runtime.reportError(error);
-  const run = async (work: () => Promise<unknown>) => {
-    if (busy) return;
+  /** One command at a time, refused synchronously: a held remote OK repeats faster than a
+   * render can disable the row it is on. A result only lands on the page that started it. */
+  const run = async (work: () => Promise<unknown>): Promise<Command> => {
+    if (flight.current) return 'busy';
+    const token = {}, at = epoch.current;
+    flight.current = {token};
     setBusy(true); setProblem('');
-    try {await work(); changed?.();} catch (error) {setProblem(presentError(error, 'saved', {operation: 'save'}).body);} finally {setBusy(false);}
+    const current = () => mounted.current && epoch.current === at && flight.current?.token === token;
+    try {await work(); if (!current()) return 'stale'; changed?.(); return 'done';}
+    catch (error) {if (!current()) return 'stale'; setProblem(presentError(error, 'saved', {operation: 'save'}).body); return 'failed';}
+    finally {if (flight.current?.token === token) {flight.current = undefined; if (mounted.current && epoch.current === at) setBusy(false);}}
   };
+  /** The page as the server last stated it, for a sheet that has outlived a refresh. */
+  const page = () => {
+    const state = destination.getSnapshot();
+    return {rows: membershipRows(isPlaylist, state), playlist: state.saved?.playlist ?? null, resource: state.personal?.resource ?? null};
+  };
+  /** A press acts only from the exact opening that drew it, while this page is on screen. */
+  const openingLive = (menu: RowMenu): boolean =>
+    mounted.current && opening.current === menu && menu.route === route && activation.getSnapshot().visible;
   const play = (shuffle = false) => {
     if (!playable.length) return;
     const entry = shuffle ? playable[Math.floor(Math.random() * playable.length)] : firstPlayable(playable);
@@ -93,8 +128,22 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
       else await destination.mutatePersonal({action: 'pin', pinned: resource!.pinned !== true});
     });
   };
-  const remove = (row: Row) => {
-    setRowMenu(undefined);
+  /** Retires this exact opening. A press from a sheet that has since been replaced or
+   * unmounted can only ever touch the opening it was drawn from. */
+  const closeOpening = (target: RowMenu) => {
+    if (opening.current !== target) return;
+    opening.current = undefined;
+    if (mounted.current) setRowMenuState(current => current === target ? undefined : current);
+  };
+  const remove = (menu: RowMenu) => {
+    if (!openingLive(menu)) return;
+    const live = page(), index = live.rows.findIndex(value => value.id === menu.entryId);
+    const removable = isPlaylist ? live.playlist?.actions.includes('remove') === true
+      : live.resource?.kind === 'collection' && live.resource.role !== 'viewer' && live.resource.actions.includes('entries') === true;
+    // The row, and the action on it, are checked against the page as it is now.
+    if (index < 0 || !removable) {closeOpening(menu); return;}
+    const row = live.rows[index]!;
+    closeOpening(menu);
     void run(async () => {
       if (isPlaylist) {
         await destination.mutateSaved({action: 'remove', entryId: row.id});
@@ -111,10 +160,19 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const id = String(++toastId.current);
     setToast({id, message, action: {label: t('action.undo'), onPress: () => {void undo().then(() => setToast(null)).catch(() => {setToast({id: `${id}-failed`, message: failure});});}}});
   };
-  const move = (row: Row, where: 'up' | 'down' | 'top' | 'bottom') => {
-    setRowMenu(undefined);
-    const ids = rows.map(value => value.id), index = ids.indexOf(row.id);
-    if (index < 0) return;
+  /** collections.html 19: a TV playlist's sheet stays open so Move up and Move down can be
+   * pressed again, and a failed move closes the sheet it was pressed from so the page's own
+   * problem line is read. collections.html 20 leaves a collection's order to the other
+   * clients. */
+  const move = (menu: RowMenu, where: 'up' | 'down' | 'top' | 'bottom') => {
+    if (!openingLive(menu)) return;
+    const keepSheetOpen = theme.isTV && isPlaylist, live = page();
+    const ids = live.rows.map(value => value.id), index = live.rows.findIndex(value => value.id === menu.entryId);
+    const reorderable = isPlaylist ? live.playlist?.actions.includes('reorder') === true
+      : live.resource?.kind === 'collection' && live.resource.actions.includes('reorder') === true;
+    // The membership row and the reorder it asks for are the current page's, not the render's.
+    if (index < 0 || !reorderable) {closeOpening(menu); return;}
+    const row = live.rows[index]!;
     let after: string | undefined;
     if (where === 'up') {if (index === 0) return; after = index === 1 ? '' : ids[index - 2];}
     else if (where === 'down') {if (index === ids.length - 1) return; after = ids[index + 1];}
@@ -131,7 +189,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
           await destination.mutateSaved({action: 'reorder', entryIds: [row.id], afterEntryId: after});
         }
       } else await destination.mutatePersonal({action: 'reorder', entryIds: [row.id], afterEntryId: after});
-    });
+    }).then(result => {if (result === 'failed' && keepSheetOpen) closeOpening(menu);});
   };
   const saveName = (input: {name: string; summary: string; visibility: 'private' | 'server'}) => {
     void run(async () => {
@@ -149,18 +207,39 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   };
   const rowMenuEntries = (menu: RowMenu): readonly MenuEntry[] => {
     const index = rows.findIndex(row => row.id === menu.entryId), last = rows.length - 1;
+    // collections.html 19 draws Move up and Move down only, presses of which keep the sheet
+    // open; collections.html 20 keeps a collection's order off the TV menu entirely. Each
+    // press re-checks the current page before it dispatches, and none of them fire twice.
+    const tvMoves = theme.isTV && isPlaylist, moves = canReorder && (isPlaylist || !theme.isTV);
     return [
-      {id: 'open', label: t('web.saved.goToItem'), icon: 'i-info', onSelect: () => {setRowMenu(undefined); actions.open(menu.entry);}},
-      ...(canReorder ? [
-        {id: 'top', label: t('order.moveTop'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(rows[index]!, 'top')},
-        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(rows[index]!, 'up')},
-        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: index < 0 || index >= last, onSelect: () => move(rows[index]!, 'down')},
-        {id: 'bottom', label: t('order.moveBottom'), icon: 'i-down', disabled: index < 0 || index >= last, onSelect: () => move(rows[index]!, 'bottom')},
+      {id: 'open', label: t('web.saved.goToItem'), icon: 'i-info', onSelect: () => {if (!openingLive(menu)) return; closeOpening(menu); actions.open(menu.entry);}},
+      ...(moves && !tvMoves ? [
+        {id: 'top', label: t('order.moveTop'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(menu, 'top')},
+        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(menu, 'up')},
+        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: index < 0 || index >= last, onSelect: () => move(menu, 'down')},
+        {id: 'bottom', label: t('order.moveBottom'), icon: 'i-down', disabled: index < 0 || index >= last, onSelect: () => move(menu, 'bottom')},
       ] as const : []),
-      ...(media.some(entry => entry === menu.entry) && (isPlaylist ? playlist?.actions.includes('remove') : resource?.kind === 'collection' && resource.role !== 'viewer' && resource.actions.includes('entries'))
-        ? [{id: 'remove', separator: true as const}, {id: 'remove-entry', label: t(isPlaylist ? 'web.saved.removeFromPlaylist' : 'web.saved.removeFromCollection'), icon: 'i-trash' as const, destructive: true, onSelect: () => remove(rows[index]!)}]
+      // A TV sheet keeps its move rows attached while a command runs: disabling the row the
+      // person is on would move focus away from it. The flight refusal above is the guard.
+      ...(moves && tvMoves ? [
+        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: index <= 0, closeOnSelect: false, onSelect: () => move(menu, 'up')},
+        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: index < 0 || index >= last, closeOnSelect: false, onSelect: () => move(menu, 'down')},
+      ] as const : []),
+      // The page's current membership row, not the object captured when the sheet opened: the
+      // refresh after each move replaces the projection's objects while the sheet stays open.
+      ...(index >= 0 && (isPlaylist ? playlist?.actions.includes('remove') : resource?.kind === 'collection' && resource.role !== 'viewer' && resource.actions.includes('entries'))
+        ? [{id: 'remove', separator: true as const}, {id: 'remove-entry', label: t(isPlaylist ? 'web.saved.removeFromPlaylist' : 'web.saved.removeFromCollection'), icon: 'i-trash' as const, destructive: true, disabled: busy, onSelect: () => remove(menu)}]
         : []),
     ];
+  };
+  const openRowMenu = (row: Row) => {
+    const index = rows.findIndex(value => value.id === row.id), last = rows.length - 1;
+    // collections.html 19 opens on Move down; the choice belongs to this one opening, so a
+    // later move never pulls focus back to a row the person has already left.
+    const next: RowMenu = {entry: row.media, entryId: row.id, route,
+      ...(theme.isTV && isPlaylist && canReorder ? {focus: index < last ? 'down' as const : index > 0 ? 'up' as const : 'open' as const} : {})};
+    opening.current = next;
+    setRowMenuState(next);
   };
   const menuItems: readonly MenuEntry[] = (() => {
     const items: MenuEntry[] = [], pinned = playlist?.pinned === true || resource?.pinned === true;
@@ -239,8 +318,6 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               onPress={() => setReordering(value => !value)}>{t(reordering ? 'order.done' : 'order.reorder')}</Button>}
           </View>
           {reordering && !theme.isTV && <Text style={[browseType(theme, 13), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: 10}]}>{t('web.saved.visibleToAll') === '' ? '' : t('order.handle', {title: name})}</Text>}
-          {(isPlaylist ? playlist?.actions.includes('reorder') : resource?.kind === 'collection' && resource.actions.includes('reorder')) && theme.isTV &&
-            <View style={{paddingHorizontal: theme.gutter, paddingTop: 20}}><Text style={[browseType(theme, 22), {color: theme.colors.textTertiary}]}>{t('order.handle', {title: name})}</Text></View>}
           {(!theme.isTV || (!isPlaylist && resource?.kind === 'view')) && <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: theme.gutter, paddingTop: 14}}>
             {!isPlaylist && resource?.kind === 'view' ? <>
               <Chip focusId="saved-sort" icon="i-sort" onPress={() => setInfoOpen(true)}>{viewSortLabel(resource)}</Chip>
@@ -258,7 +335,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             {!isPlaylist && resource?.kind === 'view'
               ? <SavedResourceViewGrid entries={media} runtime={runtime} actions={actions} tv={theme.isTV} windowWidth={theme.isTV ? 1920 : dimensions.width} gutter={theme.gutter}/>
               : rows.map(row => <SavedResourceRow key={row.id} row={row} width={width} runtime={runtime} actions={actions} library={savedLibraryName(libraries, row.media.libraryId)}
-                canReorder={canReorder && reordering} onMore={() => setRowMenu({entry: row.media, entryId: row.id})}/>)}
+                canReorder={canReorder && reordering} onMore={() => openRowMenu(row)}/>)}
             {!!(isPlaylist ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
               <Button variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
             </View>}
@@ -268,10 +345,10 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     </FocusRegion>
     <Menu open={pageMenu} onOpenChange={setPageMenu} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')}
       items={menuItems} testID="saved-resource-page-menu"/>
-    <Menu open={!!rowMenu} onOpenChange={open => {if (!open) setRowMenu(undefined);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
+    <Menu open={!!rowMenu} onOpenChange={open => {if (!open && rowMenu) closeOpening(rowMenu);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
       secondaryTitle={rowMenu ? <View style={{flexDirection: 'row', gap: 8}}>{[t('title.kind', {kind: rowMenu.entry.kind}), savedLibraryName(libraries, rowMenu.entry.libraryId)].filter(Boolean).map(part =>
         <Text key={part} style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{part}</Text>)}</View> : undefined}
-      items={rowMenu ? rowMenuEntries(rowMenu) : []} testID="saved-resource-row-menu"/>
+      items={rowMenu ? rowMenuEntries(rowMenu) : []} initialFocusId={rowMenu?.focus} testID="saved-resource-row-menu"/>
     <SavedNameSheet open={renaming} title={t(isPlaylist ? 'web.saved.renamePlaylist' : resource?.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}
       action={t('action.save')} initialName={name} initialSummary={isPlaylist ? playlist?.summary : resource?.summary} withSummary={isPlaylist ? playlist?.actions.includes('summary') === true : true}
       busy={busy} error={problem || undefined} testID="saved-rename" onClose={() => setRenaming(false)} onSave={saveName}/>
