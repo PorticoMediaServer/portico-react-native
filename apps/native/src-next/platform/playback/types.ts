@@ -36,7 +36,14 @@ export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNull
   /** Real caller lifetime through options/create/adoption. It excludes an old output fence. */
   lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 }>;
+export type NativeChannelGuideOrigin = Readonly<{
+  row: import('../../../../../packages/client-core/src/guide/types').GuideChannelRow;
+  options: import('../../../../../packages/client-core/src/guide/legacy-source').LegacyGuideOptions;
+}>;
 export type NativePlaybackChannelStart = Readonly<{sourceId: string; channelId: string; timezone: string;
+  guide?: NativeChannelGuideOrigin;
+  expectedFence?: import('../../../../../packages/player-core/src').ChannelPlaybackFence;
+  expectedSourceGeneration?: string;
   lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 }>;
 export type NativePlaybackVersionSelection = Readonly<{
@@ -78,6 +85,7 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   authority: PlaybackAuthority; sequence: number; dock: DockState; playback: PlaybackSnapshot;
   fence?: PlaybackFence; subject?: PlaybackSubject; entry?: ContentEntry;
   queue: QueuePlayerState; session?: Session; options?: PlaybackOptions; subtitles?: SubtitleSnapshot;
+  channelGuide?: NativeChannelGuideOrigin;
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: NativePlaybackCapabilities; engine: EngineKind; lease: string;
   effectiveRate: number; supportedRates: readonly number[];

@@ -18,9 +18,11 @@ export function NativeWatchChannelRoute({context, route, title}: {context: Nativ
     const offRoute = context.navigation.subscribe(changed), offAuthority = context.subscribeAuthority(changed);
     setError(undefined);
     if (current()) void context.playback.runtime.startChannel({sourceId: route.sourceId, channelId: route.channelId,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, lifetime: {signal: controller.signal, isCurrent: current}})
+      timezone: route.guide?.options.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, guide: route.guide,
+      expectedFence: route.tune?.fence, expectedSourceGeneration: route.tune?.sourceGeneration,
+      lifetime: {signal: controller.signal, isCurrent: current}})
       .catch(failure => {if (current()) setError(failure);});
     return () => {controller.abort(); offRoute(); offAuthority();};
-  }, [context, route.sourceId, route.channelId, attempt]);
+  }, [context, route, attempt]);
   return error ? title.renderError(error, () => setAttempt(value => value + 1)) : null;
 }

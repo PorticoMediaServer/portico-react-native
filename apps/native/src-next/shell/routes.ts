@@ -19,7 +19,8 @@ export type NativeShellRoute = Readonly<
   | {kind: 'read-series'; libraryId: string; seriesId: string}
   | {kind: 'read-periodical'; libraryId: string; groupId: string; publicationType: 'magazine' | 'newspaper'}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
-  | {kind: 'channel'; sourceId: string; channelId: string}
+  | {kind: 'channel'; sourceId: string; channelId: string; guide?: import('../platform/playback/types').NativeChannelGuideOrigin;
+      tune?: Readonly<{fence: import('../../../../packages/player-core/src').ChannelPlaybackFence; sourceGeneration: string}>}
   | {kind: 'home-see-all'; destination: HomeSeeAll}
   | {kind: 'home-customize'}
   | {kind: 'profiles'; profileId?: string}
@@ -140,6 +141,11 @@ export class NativeShellNavigation {
     this.history.pop();
     this.publish(entry.route, 'restore', entry.destination);
     return true;
+  }
+  /** A zap replaces only the exact channel opening that advertised it. */
+  replaceChannel(expected: NativeRouteSnapshot, route: Extract<NativeShellRoute, {kind: 'channel'}>, expectedAuthority: ShellAuthority): boolean {
+    if (!this.current(expectedAuthority) || this.snapshot !== expected || expected.route.kind !== 'channel' || !this.allows(route)) return false;
+    this.publish(route, 'enter'); return true;
   }
   top(destination: ShellDestination, expectedAuthority: ShellAuthority): boolean {
     if (!this.current(expectedAuthority) || this.snapshot.route.kind !== 'shell' || !sameDestination(destination, this.snapshot.route.destination) || !this.allows(this.snapshot.route)) return false;
