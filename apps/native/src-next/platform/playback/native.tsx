@@ -125,7 +125,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, startVersion: runtime.startVersion, startOffline: runtime.startOffline, selectionPlayback: runtime.selectionPlayback, Surface,
     cataloguePlayback: runtime.cataloguePlayback,
     change: runtime.change, chooseQuality: runtime.chooseQuality, setRate: runtime.setRate, setForcedOnly: runtime.setForcedOnly, subtitleControls: runtime.subtitleControls, readSession: runtime.readSession,
-    onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, retry: runtime.retry, seek: runtime.seek, skip: runtime.skip,
+    onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, retry: runtime.retry, setQueuePolicy: runtime.setQueuePolicy, seek: runtime.seek, skip: runtime.skip,
     previous: runtime.previous, next: runtime.next, queuePlay: runtime.queue.playEntry.bind(runtime.queue), stop: runtime.stop, goLive: runtime.goLive, setSleepTimer: runtime.setSleepTimer, beginRemote: runtime.beginRemote, updateRemote: runtime.updateRemote, dismissRemote: runtime.dismissRemote, continueHere: runtime.continueHere, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,
     captureVideoSnapshot: runtime.captureVideoSnapshot,
     ...(options.openDestinations ? {cast: runtime.cast} : {}),

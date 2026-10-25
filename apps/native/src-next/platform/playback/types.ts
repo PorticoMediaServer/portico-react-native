@@ -1,3 +1,4 @@
+import type {V1QueuePolicyIntent} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {ComponentType} from 'react';
 import type {OfflineEntry} from '../../../platform/offline-downloads';
 import type {NativeOfflinePlaybackDevice} from './offline-playback';
@@ -64,7 +65,7 @@ export type NativePlaybackSettings = Readonly<{
   skips: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
   subtitles: SubtitlePreferences;
 }>;
-export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
+export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queuePolicy?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
 export type NativePlaybackRuntimeSnapshot = Readonly<{
   authority: PlaybackAuthority; sequence: number; dock: DockState; playback: PlaybackSnapshot;
   fence?: PlaybackFence; subject?: PlaybackSubject; entry?: ContentEntry;
@@ -141,6 +142,7 @@ export interface NativePlaybackAdapter {
   replay: (fence: PlaybackFence) => Promise<void>;
   /** Retry the exact failed VOD output at its saved target, preserving choices and intent. */
   retry?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<void>;
+  setQueuePolicy?: (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueuePolicyIntent}>, lifetime: NativePlaybackReadLifetime) => Promise<void>;
   seek: (fence: PlaybackFence, seconds: number) => Promise<void>;
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;
