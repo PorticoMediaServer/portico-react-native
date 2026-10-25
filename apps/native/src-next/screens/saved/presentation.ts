@@ -24,10 +24,13 @@ export function savedViewCount(count: number | undefined): string | undefined {
   return count === undefined ? undefined : t('next.saved.savedViewsCount', {count});
 }
 
-export type SavedVisibilityLine = Readonly<{id: 'server' | 'private'; text: string; icon: IconName; strong: boolean}>;
+export type SavedVisibilityLine = Readonly<{id: 'server' | 'private' | 'shared'; text: string; icon: IconName; strong: boolean}>;
 
-/** A collection's published policy, in the frame's own two words. */
-export function savedVisibility(resource: PersonalResource): SavedVisibilityLine {
+/** A collection's published policy in the frame's own words. `sharedByOther` is the TV wording
+ * for someone else's visible collection; the other clients keep their own line. */
+export function savedVisibility(resource: PersonalResource, sharedByOther = false): SavedVisibilityLine {
+  if (sharedByOther && resource.visibility === 'server' && resource.role !== 'owner')
+    return {id: 'shared', text: t('web.saved.sharedByOwner'), icon: 'i-people', strong: true};
   return resource.visibility === 'server'
     ? {id: 'server', text: t('web.saved.visibleToAll'), icon: 'i-people', strong: true}
     : {id: 'private', text: t('next.selection.onlyYou'), icon: 'i-lock', strong: false};

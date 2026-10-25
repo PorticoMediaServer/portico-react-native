@@ -97,7 +97,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const name = isPlaylist ? playlist?.name : resource?.name;
   const eyebrow = isPlaylist ? savedPlaylistEyebrow : resource ? savedResourceEyebrow(resource) : undefined;
   const canReorder = reordering || (isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true);
-  const visibility = resource?.kind === 'collection' ? savedVisibility(resource) : undefined;
+  const visibility = resource?.kind === 'collection' ? savedVisibility(resource, theme.isTV) : undefined;
   const report = (error: unknown) => runtime.reportError(error);
   /** The page a command started on, as a witness; `still` also knows its command is the one in
    * flight. A completion that lands late — a toast, a sheet closing, Back — can tell it is no
@@ -367,13 +367,20 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               <Button variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
             </View>}
           </View>
+          {/* collections.html 20's note: what a TV cannot change lives on the other clients. */}
+          {theme.isTV && resource?.kind === 'collection' && resource.role === 'owner' && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: theme.gutter, paddingTop: 28}}>
+            <Icon name="i-info" size={22} color={theme.colors.textTertiary}/>
+            <Text style={[browseType(theme, 22), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.saved.native.editElsewhere')}</Text>
+          </View>}
         </>}
       </ScrollView>
     </FocusRegion>
     <Menu open={pageMenu} onOpenChange={setPageMenu} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')}
       items={menuItems} testID="saved-resource-page-menu"/>
     <Menu open={!!rowMenu} onOpenChange={open => {if (!open && rowMenu) closeOpening(rowMenu);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
-      secondaryTitle={rowMenu ? <View style={{flexDirection: 'row', gap: 8}}>{[t('title.kind', {kind: rowMenu.entry.kind}), savedLibraryName(libraries, rowMenu.entry.libraryId)].filter(Boolean).map(part =>
+      secondaryTitle={rowMenu ? <View style={{flexDirection: 'row', gap: 8}}>{[t('title.kind', {kind: rowMenu.entry.kind}), savedLibraryName(libraries, rowMenu.entry.libraryId),
+        // collections.html 19's lead ends with the page the item is in.
+        ...(theme.isTV && name ? [t('web.saved.inList', {name})] : [])].filter(Boolean).map(part =>
         <Text key={part} style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{part}</Text>)}</View> : undefined}
       items={rowMenu ? rowMenuEntries(rowMenu) : []} initialFocusId={rowMenu?.focus} testID="saved-resource-row-menu"/>
     <SavedNameSheet open={renaming} title={t(isPlaylist ? 'web.saved.renamePlaylist' : resource?.kind === 'view' ? 'web.saved.renameView' : 'web.saved.renameCollection')}

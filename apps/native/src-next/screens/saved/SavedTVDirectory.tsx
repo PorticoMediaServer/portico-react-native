@@ -103,7 +103,7 @@ function SavedTVPlaylistTile({card, runtime, onOpen}: {card: PlaylistCard; runti
 }
 
 function SavedTVCollectionTile({resource, runtime, onOpen}: {resource: PersonalResource; runtime: NativeShellRuntime; onOpen: () => void}) {
-  const theme = useTheme(), covers = (resource.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source), visibility = savedVisibility(resource);
+  const theme = useTheme(), covers = (resource.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source), visibility = savedVisibility(resource, true);
   return <CardFrame testID={tileId('collections', resource.id)} focusId={tileId('collections', resource.id)} title={resource.name} width={236} onNavigate={onOpen}>
     {() => <View style={{width: 236}}>
       <View style={{width: 236, height: 236, borderRadius: 14, overflow: 'hidden'}}>
