@@ -19,6 +19,8 @@ import {useTheme} from '../../kit/theme';
 import type {MessageId, MessageValues} from '../../../../../packages/i18n/src';
 import type {NativeScreenLifetime} from './lifetime';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
+import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
+import {Button} from '../../kit/controls';
 
 /** The full catalogue translator; the page passes it down with every other word. */
 export type Translate = (id: MessageId, values?: MessageValues) => string;
@@ -74,6 +76,7 @@ function RemoteControlsPanel({context, lifetime, t}: NativeSettingsPanelDeps) {
   if (!items.length) return null;
   const words: Record<TransportCommand, string> = {pause: t('action.pause'), resume: t('entry.resume'), back: t('player.skipBackSeconds', {seconds: 30}), forward: t('player.skipForwardSeconds', {seconds: 30}), startOver: t('action.startOver')};
   const send = (target: RemotePlaybackControls, what: TransportCommand | 'stop') => {
+    lifetime.assert();
     const work = what === 'stop' ? sessions.stop(target.sessionId) : (async () => {
       const change = (from: Readonly<{revision: string; positionMs: number}>) => sessions.patch(target.sessionId, from.revision, what === 'pause' || what === 'resume' ? {state: what === 'pause' ? 'paused' : 'playing'} : {seek: {positionMs: seekTarget(what, from.positionMs) ?? 0, id: idempotencyKey(() => nativeRequestId())}});
       try {await change(target);} catch (error) {
@@ -90,11 +93,23 @@ function RemoteControlsPanel({context, lifetime, t}: NativeSettingsPanelDeps) {
   ];
   const stateWord = (target: RemotePlaybackControls) => target.state === 'paused' ? t('remote.state.paused') : target.state === 'playing' ? t('remote.state.playing') : t('remote.state.starting');
   return <View testID="settings-panel-remote-controls">
-    {items.map((target, index) => <SettingsRow key={target.sessionId} first={index === 0} testID={`settings-remote-${target.sessionId}`}
+    {items.map((target, index) => {
+      if (theme.isTV) {
+        const offered = transportOffers(target, target.actions);
+        const command = offered.includes('pause') ? 'pause' : offered.includes('resume') ? 'resume' : undefined;
+        const progress = target.durationMs ? t('player.clockOf', {position: clockText(Math.min(target.positionMs, target.durationMs) / 1000), duration: clockText(target.durationMs / 1000)}) : undefined;
+        return <SettingsRow key={target.sessionId} first={index === 0} testID={`settings-remote-${target.sessionId}`}
+          label={target.item?.title ?? t('remote.hiddenTitle')}
+          description={[target.device.name || t('remote.device'), progress].filter(Boolean).join(', ')}
+          value={command ? undefined : stateWord(target)}
+          control={command ? <Button testID={`settings-remote-${target.sessionId}-${command}`} variant="glass" size="small" onPress={() => send(target, command)}>{words[command]}</Button> : undefined}/>;
+      }
+      return <SettingsRow key={target.sessionId} first={index === 0} testID={`settings-remote-${target.sessionId}`}
       label={target.device.name || t('remote.device')}
       description={target.item?.title ?? t('remote.hiddenTitle')}
       value={stateWord(target)}
-      onPress={entries(target).length ? () => setMenu(target) : undefined}/>)}
+      onPress={entries(target).length ? () => setMenu(target) : undefined}/>;
+    })}
     <Text style={[shellType(12.5, 400, 'normal'), {color: theme.colors.textTertiary, paddingHorizontal: 14, paddingVertical: 10}]}>{t('remote.lede')}</Text>
     <Menu open={Boolean(menu)} onOpenChange={open => {if (!open) setMenu(undefined);}} presentation="sheet" testID="settings-remote-menu"
       title={menu ? menu.device.name || t('remote.device') : undefined}
