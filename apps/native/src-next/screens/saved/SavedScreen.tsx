@@ -37,6 +37,8 @@ export type NativeSavedActions = Readonly<{
   nextMyList?: (shape: 'posters' | 'squares', sectionId: string) => Promise<void>;
   /** Real shortcut into Customize Home for one loaded saved view. */
   showOnHome?: (resource: PersonalResource) => void;
+  /** Exact saved definition opened in its real library. */
+  openInLibrary?: (resource: PersonalResource) => void;
 }>;
 export type NativeSavedSelectionPort = Readonly<{
   /** Enter the page's real current selection context without selecting an item. */

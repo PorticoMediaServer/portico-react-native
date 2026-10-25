@@ -72,7 +72,7 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
       if (!current()) return null;
       reconcile();
       const hosts = <>{[...views.values()].map(entry => <SavedRouteHost key={entry.key} entry={entry} runtime={runtime} libraries={context.libraries()}
-        open={open} back={back} changed={changed} showOnHome={state.actions.showOnHome}/>)}</>;
+        open={open} back={back} changed={changed} showOnHome={state.actions.showOnHome} openInLibrary={state.actions.openInLibrary}/>)}</>;
       return <SavedRoutesCanvas>{hosts}</SavedRoutesCanvas>;
     },
     dispose: () => {
@@ -93,10 +93,11 @@ function SavedRoutesCanvas({children}: {children: React.ReactNode}) {
   </View>;
 }
 
-function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnHome}: {
+function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnHome, openInLibrary}: {
   entry: Entry; runtime: NativeShellRuntime; libraries: readonly Library[];
   open: (route: Parameters<typeof openNativeSavedView>[1]) => void; back: () => void; changed: () => void;
   showOnHome?: (resource: import('../../../../../packages/client-core/src/personal-saved').PersonalResource) => void;
+  openInLibrary?: (resource: import('../../../../../packages/client-core/src/personal-saved').PersonalResource) => void;
 }) {
   const active = useSyncExternalStore(entry.view.activation.subscribe, entry.view.activation.getSnapshot);
   const route = useMemo(() => nativeSavedRouteTarget(entry.route), [entry.route]);
@@ -106,7 +107,7 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnH
         summaries={'summaries' in entry.view ? entry.view.summaries : undefined}/>
     : route.view === 'watchlist' || route.view === 'favorites' || route.view === 'history'
       ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed}/>
-      : <SavedResourceScreen {...common} route={route} actions={entry.view.actions} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome}/>;
+      : <SavedResourceScreen {...common} route={route} actions={entry.view.actions} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary}/>;
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: 'transparent'}}>{body}</View>;
 }

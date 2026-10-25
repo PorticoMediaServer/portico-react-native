@@ -13,6 +13,7 @@ import {NativeReadingLibraryScreen} from '../read/ReadingLibrary';
 import {createNativeLibraryPlaySelection} from './play-selection';
 import {createNativeTVLibraryNamingStore, nativeTVLibraryActions, nativeTVNamingPanelId, NativeTVLibrarySurface} from './tv-library';
 import type {NativeTVLibraryNamingStore} from './tv-library';
+import {takeLibrarySavedView} from './saved-view-intent';
 
 export type NativeLibraryRendererPorts = Readonly<{
   activation: (libraryId: string) => NativeDestinationActivationPort;
@@ -46,9 +47,12 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
         return <NativeReadingLibraryScreen key={id} context={context} runtime={runtime} libraryId={id} title={library.name} labels={ports.labels}
           onBack={() => runtime.onDestination({kind: 'libraries'})}/>;
       }
+      const savedIntent = takeLibrarySavedView(id, context.authority());
+      if (savedIntent) retireSelected();
       if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name) {
         retireSelected();
         const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library,
+          ...(savedIntent ? {initial: savedIntent} : {}),
           current: () => current() && context.libraries().some(value => value.id === id && value.kind === library.kind)});
         const actions = typeof ports.actions === 'function' ? ports.actions(destination) : ports.actions;
         selected = {id, kind: library.kind, name: library.name, destination,

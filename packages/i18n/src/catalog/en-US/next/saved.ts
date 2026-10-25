@@ -48,6 +48,7 @@ export const savedMessages = {
   'next.saved.phone.downloading': 'Downloading, {percent}%',
   'next.saved.phone.onThisPhone': 'On this phone, {size}',
   'next.saved.onHome': 'On Home',
+  'next.saved.openInLibrary': 'Open in {library}',
   'next.saved.rightNow': 'right now',
   'next.saved.visibleToEveryone': 'Visible to everyone',
   'next.saved.native.holdRowActions': 'Hold OK on a row for Go to item, Move up, Move down and Remove',

@@ -9,6 +9,7 @@ import {createNativeSavedHubController, createNativeSavedViewController, type Na
 import {createNativeSavedViewSummaryOwner, type NativeSavedViewSummaryOwner} from './view-summary-owner';
 import {createNativeSavedViewRenameController, type NativeSavedViewRenameController} from './rename-view';
 import {askHomeCustomizeView} from '../home/customize-intent';
+import {askLibrarySavedView} from '../library/saved-view-intent';
 
 /** The read ports a retained views-directory route exposes. Disposal stays
  * internal to the parent state, which owns construction and retirement. */
@@ -29,6 +30,13 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
     openDownloads: hub.openDownloads, openPin: hub.openPin, editPins: hub.editPins,
     selectMyList: hub.source.selectMyList, nextMyList: hub.source.nextMyList,
     showOnHome: resource => {if (!current()) return; askHomeCustomizeView(resource); context.navigation.open({kind: 'home-customize'}, context.authority());},
+    openInLibrary: resource => {
+      if (!current() || resource.kind !== 'view' || !resource.definition) return;
+      const library = context.libraries().find(value => value.id === resource.definition!.libraryId);
+      if (!library) return;
+      askLibrarySavedView({libraryId: library.id, authority: context.authority(), definition: resource.definition, resourceId: resource.id});
+      context.navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: library.id}}, context.authority());
+    },
   });
   type View = ReturnType<typeof createView>;
   const views = new Map<NativeSavedRouteTarget, View>(), cleanups: (() => void)[] = [];
