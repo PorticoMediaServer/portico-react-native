@@ -55,20 +55,25 @@ function TVOfflineList({rows, busy, activeId, retryIn, current, onRetry, onRefre
       <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('accounts.session.portico')}</Text>
       <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t('accounts.tvOffline.title')}</Text>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('accounts.tvOffline.body')}</Text>
-      <FocusRegion id="accounts.offline.rows" entry={first ? `retry:${first.id}` : undefined} enabled={!busy} style={{gap: 16}}>
-        {rows.map((row, index) => <View key={row.id} style={{padding: 24, borderRadius: 18, backgroundColor: theme.colors.raised, flexDirection: 'row', alignItems: 'center', gap: 24}}>
-          <Icon name="i-server" size={32} color={theme.colors.textTertiary}/>
-          <View style={{flex: 1, gap: 6}}>
-            <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{row.name}</Text>
-            {row.subtitle && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(row.subtitle.key, row.subtitle.values)}</Text>}
+      <FocusRegion id="accounts.offline.rows" entry={first ? `retry:${first.id}` : undefined} enabled={!busy} style={{gap: 14}}>
+        {rows.map((row, index) => <View key={row.id} style={{height: 112, paddingLeft: 26, paddingRight: 32, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 24,
+          backgroundColor: 'rgba(16, 33, 45, 0.74)', borderWidth: 1.5, borderColor: 'rgba(237, 245, 250, 0.09)', opacity: row.offline ? 0.6 : 1}}>
+          <View style={{width: 68, height: 68, borderRadius: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0, backgroundColor: theme.colors.raisedBright}}>
+            <Icon name="i-server" size={34} color={theme.colors.textTertiary}/>
           </View>
-          {row.owner && <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('accounts.settings.owner')}</Text>}
-          <Button focusId={`retry:${row.id}`} hasTVPreferredFocus={index === 0} disabled={busy} loading={busy && activeId === row.id || undefined}
+          <View style={{flex: 1, gap: 4}}>
+            <Text style={[nativeType({size: 32, weight: 700, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{row.name}</Text>
+            {row.subtitle && <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t(row.subtitle.key, row.subtitle.values)}</Text>}
+          </View>
+          {row.owner && <Text style={[nativeType({size: 20, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale),
+            {color: theme.colors.textSecondary, backgroundColor: 'rgba(7, 16, 24, 0.6)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8}]}>{t('accounts.settings.owner')}</Text>}
+          <Button focusId={`retry:${row.id}`} size="compact" icon="i-retry" iconSize={28} hasTVPreferredFocus={index === 0} disabled={busy} loading={busy && activeId === row.id || undefined}
+            style={{height: 64, paddingHorizontal: 28}} textStyle={{fontSize: 24 * theme.textScale}}
             onPress={() => {if (current() && !busy) onRetry(row.id);}}>{t('web.chooser.tryAgain')}</Button>
         </View>)}
       </FocusRegion>
       {retryIn !== undefined && !busy && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.chooser.checkingAgain', {seconds: retryIn})}</Text>}
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('accounts.tvOffline.help')}</Text>
+      <Text style={[nativeType({size: 22, lineHeight: 33, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 6, maxWidth: 1100}]}>{t('accounts.tvOffline.help')}</Text>
       <View style={{flexDirection: 'row', gap: 24}}>
         <Button variant="text" disabled={busy} onPress={() => {if (current()) onRefresh();}}>{t('accounts.servers.refresh')}</Button>
         <Button variant="text" disabled={busy} onPress={() => {if (current()) onBack();}}>{t('action.back')}</Button>
