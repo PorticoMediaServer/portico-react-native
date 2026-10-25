@@ -6,8 +6,10 @@ import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {openNativeReadingSettings} from '../settings/ReadingSettingsRoute';
 import {isReadingLibraryKind} from './platform';
 import {NativeReadBook} from './read-book-model';
+import {NativeReadPeriodical} from './read-periodical-model';
 import {NativeReadSeries} from './read-series-model';
 import {ReadBookScreen} from './ReadBookScreen';
+import {ReadPeriodicalScreen} from './ReadPeriodicalScreen';
 import {ReadSeriesScreen} from './ReadSeriesScreen';
 
 /** phone-read 3/3c and 4/4c: route-owned book and series destinations. The cache
@@ -18,6 +20,7 @@ import {ReadSeriesScreen} from './ReadSeriesScreen';
  * one existing read route/host. */
 type BookRoute = Extract<NativeShellRoute, {kind: 'read-book'}>;
 type SeriesRoute = Extract<NativeShellRoute, {kind: 'read-series'}>;
+type PeriodicalRoute = Extract<NativeShellRoute, {kind: 'read-periodical'}>;
 
 /** A route may only render while its library is still a current authorized
  * Reading library and the descriptor still carries the same real ids. */
@@ -32,6 +35,11 @@ const bookRouteCurrent = (context: NativeShellBootstrapContext, route: BookRoute
   && typeof route.item.sourceId === 'string' && route.item.sourceId.length > 0;
 const seriesRouteCurrent = (context: NativeShellBootstrapContext, route: SeriesRoute): boolean =>
   !!readingLibrary(context, route.libraryId) && /^[A-Za-z0-9_-]{43}$/.test(route.seriesId);
+const periodicalRouteCurrent = (context: NativeShellBootstrapContext, route: PeriodicalRoute): boolean => {
+  const library = readingLibrary(context, route.libraryId);
+  return !!library && library.kind === 'book' && /^[A-Za-z0-9_-]{43}$/.test(route.groupId)
+    && (route.publicationType === 'magazine' || route.publicationType === 'newspaper');
+};
 
 function retain<T extends {dispose: () => void}>(pages: Map<object, T>, key: object, value: T): void {
   pages.set(key, value);
@@ -112,5 +120,37 @@ export function createNativeReadSeriesRenderer(context: NativeShellBootstrapCont
   return Object.freeze(renderer);
 }
 
+export function createNativeReadPeriodicalRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
+  const lifetime = nativeDestinationLifetime(context);
+  const pages = new Map<PeriodicalRoute, NativeReadPeriodical>();
+  let disposed = false;
+  const current = () => !disposed && lifetime.current();
+  const controllerFor = (route: PeriodicalRoute): NativeReadPeriodical | undefined => {
+    if (!current() || !periodicalRouteCurrent(context, route)) return undefined;
+    const cached = pages.get(route);
+    if (cached) return cached;
+    const page = new NativeReadPeriodical(context, route);
+    retain(pages, route, page);
+    return page;
+  };
+  const renderer: NativeRouteRenderer = {
+    render: (route, runtime) => {
+      if (route.kind !== 'read-periodical') return null;
+      const controller = controllerFor(route);
+      if (!controller) return null;
+      return <ReadPeriodicalScreen controller={controller} route={route} runtime={runtime}
+        onBack={() => {if (current() && context.navigation.getSnapshot().route === route) context.navigation.back(context.authority());}}/>;
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      for (const page of pages.values()) page.dispose();
+      pages.clear();
+    },
+  };
+  return Object.freeze(renderer);
+}
+
 nativeShellRoutes.registerRoute('read-book', createNativeReadBookRenderer);
 nativeShellRoutes.registerRoute('read-series', createNativeReadSeriesRenderer);
+nativeShellRoutes.registerRoute('read-periodical', createNativeReadPeriodicalRenderer);

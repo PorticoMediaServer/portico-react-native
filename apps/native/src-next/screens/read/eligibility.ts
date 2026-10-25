@@ -3,7 +3,7 @@ import {ReadingError, type ReadingClient, type ReadingItem} from '../../../../..
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 export type NativeReadEligibility = Awaited<ReturnType<ReadingClient['versions']>>;
-export type NativeReadNavigationContext = Pick<NativeShellBootstrapContext, 'api' | 'session' | 'current' | 'navigation' | 'authority'>;
+export type NativeReadNavigationContext = Pick<NativeShellBootstrapContext, 'api' | 'session' | 'current' | 'navigation' | 'authority' | 'libraries'>;
 /** The exact route and revision a page was laid out on. A retained page never
  * adopts a later snapshot: every helper and controller refuses a replaced origin. */
 export type NativeReadOrigin = Readonly<{route: NativeShellRoute; revision: number}>;
@@ -104,6 +104,26 @@ export async function openNativeReadSeries(context: NativeReadNavigationContext,
   const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
   try {
     const page = await client.series(target.libraryId, target.seriesId, {limit: 1}, signal).catch(error => {
+      if (error instanceof ReadingError && (error.status === 404 || error.code === 'not_found')) return undefined;
+      throw error;
+    });
+    if (!page?.items.length || !current()) return false;
+    return context.navigation.open(destination, context.authority());
+  } finally {client.dispose();}
+}
+/** A magazine or newspaper group is admitted only for a current book library
+ * whose signed periodical producer returns real issues for this exact group. */
+export async function openNativeReadPeriodical(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; groupId: string; publicationType: 'magazine' | 'newspaper'}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
+  const selected = context.session();
+  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin) || !/^[A-Za-z0-9_-]{43}$/.test(target.groupId)) return false;
+  const library = context.libraries().find(value => value.id === target.libraryId);
+  if (!library || library.kind !== 'book') return false;
+  const destination: NativeShellRoute = {kind: 'read-periodical', libraryId: target.libraryId, groupId: target.groupId, publicationType: target.publicationType};
+  if (!context.navigation.allows(destination)) return false;
+  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId;
+  const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
+  try {
+    const page = await client.periodicalIssues(target.libraryId, target.groupId, target.publicationType, {limit: 1}, signal).catch(error => {
       if (error instanceof ReadingError && (error.status === 404 || error.code === 'not_found')) return undefined;
       throw error;
     });

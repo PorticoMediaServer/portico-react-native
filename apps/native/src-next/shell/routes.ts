@@ -17,6 +17,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'read'; itemId: string; sourceId: string; downloadId?: string; contentsTarget?: ReadingHostContentsTarget}
   | {kind: 'read-book'; libraryId: string; item: ReadingItem}
   | {kind: 'read-series'; libraryId: string; seriesId: string}
+  | {kind: 'read-periodical'; libraryId: string; groupId: string; publicationType: 'magazine' | 'newspaper'}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
   | {kind: 'channel'; sourceId: string; channelId: string}
   | {kind: 'home-see-all'; destination: HomeSeeAll}
@@ -87,7 +88,7 @@ export function nativeDestinationActivation(navigation: NativeShellNavigation, d
 export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
   const route = snapshot.route;
   const libraryId = route.kind === 'title' || route.kind === 'music' || route.kind === 'book' || route.kind === 'audiobook' ? route.entry.libraryId
-    : route.kind === 'read-book' || route.kind === 'read-series' ? route.libraryId : undefined;
+    : route.kind === 'read-book' || route.kind === 'read-series' || route.kind === 'read-periodical' ? route.libraryId : undefined;
   return libraryId && libraries.some(library => library.id === libraryId) ? {kind: 'library', libraryId} : snapshot.destination;
 }
 
