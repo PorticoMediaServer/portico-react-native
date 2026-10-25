@@ -59,6 +59,9 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   // holds and what is left, then the profile's actual reading publications and
   // everything else as two-column lists. Phone and medium keep today's page.
   const expanded = !theme.isTV && dimensions.width >= 1024;
+  // tablet11b draws watching downloads on the left with the rules beside them.
+  // A reading page keeps the full-width lists and rules below (tablet-read12).
+  const rulesBeside = expanded && !empty && readingEntries.length === 0;
   const readingEntry = (entry: OfflineEntry) => {
     const kind = entry.info?.kind ?? entry.kind;
     return kind === 'ebook' || kind === 'comic';
@@ -129,7 +132,8 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
             </View>)}
           </View>
         </View>}
-        {expanded && !empty ? <>
+        {expanded && !empty ? <View style={rulesBeside ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
+          <View style={rulesBeside ? {flex: 1, minWidth: 0} : undefined}>
           {readingEntries.length > 0 && <View testID="downloads-reading" style={{marginTop: 24}}>
             <DownloadsSectionHeading label={t('next.settingsSpec.account.reading.title')} count={readingEntries.length}/>
             <View style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14}}>
@@ -146,14 +150,15 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
                 {group.episodeCount !== undefined && <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: group.episodeCount})}</Text>}
               </View>}
               <View style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14}}>
-                {group.entries.map(entry => <View key={entry.id} style={{width: '50%', paddingHorizontal: 6}}>
+                {group.entries.map(entry => <View key={entry.id} style={{width: rulesBeside ? '100%' : '50%', paddingHorizontal: 6}}>
                   <View style={{borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>{downloadRow(entry, false)}</View>
                 </View>)}
               </View>
             </View>)}
           </View>}
-          <View style={{marginTop: 10}}>{ruleList}{otherNotice}</View>
-        </> : <View>
+          </View>
+          <View style={rulesBeside ? {width: 360} : {marginTop: 10}}>{ruleList}{otherNotice}</View>
+        </View> : <View>
           {!empty && groups.map(group => <View key={group.key}>
             {!!group.title && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 20, marginHorizontal: 20, marginBottom: 8}}>
               <Text accessibilityRole="header" style={[browseType(theme, 13.5, 700), {color: theme.colors.textSecondary}]}>{group.title}</Text>
