@@ -79,7 +79,9 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID 
     rememberedRow.set(queueId, entryId);
   };
   const row = (value: Row) => {
+    const source = artwork?.(value.posterUrl);
     const body = <>
+      {source ? <Artwork source={source} width={44} height={44} style={{borderRadius: 8, overflow: 'hidden', flexShrink: 0}}/> : null}
       <View style={{flex: 1, minWidth: 0, gap: 3}}>
         <Text numberOfLines={1} style={[browseType(theme, value.current ? 16 : 15, 700, -0.01), {color: theme.colors.text}]}>{value.title}</Text>
         {value.detail ? <Text numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary}]}>{value.detail}</Text> : null}
