@@ -1,3 +1,4 @@
+import {linkNativeAbortSignals} from '../../../../platform/abort-signals';
 import React,{useEffect,useLayoutEffect,useState,useSyncExternalStore} from 'react';
 import {ScrollView,Text,View} from 'react-native';
 import {SettingsReportsSource} from '../../../../../../../packages/client-core/src/server-admin/reports-source';
@@ -58,10 +59,10 @@ export function NativeReports({group}:{group:Group}){
   const save=async()=>{
     const captured=held;if(!scope||!captured||!savePort||!current()||scope.dialog!==captured||scope.flight||!source.listed(captured.report))return;
     const flight={};scope.flight=flight;setBusy(true);setError(false);
-    const read=new AbortController(),signal=AbortSignal.any([captured.abort.signal,group.signal,read.signal]);
+    const read=new AbortController(),linked=linkNativeAbortSignals([captured.abort.signal,group.signal,read.signal]),signal=linked.signal;
     const owns=()=>current()&&scope.dialog===captured&&scope.flight===flight&&!signal.aborted&&source.listed(captured.report);
     const off=source.subscribe(()=>{if(!owns())read.abort();});
-    try{if(!owns())return;const report=await source.read(captured.report.id,signal,captured.report);if(!owns()||report.id!==captured.report.id||typeof report.body!=='string')return;const result=await savePort('report',report,signal,owns);if(owns()&&result==='saved')close();}catch{if(owns())setError(true);}finally{off();read.abort();if(scope.flight===flight){scope.flight=undefined;if(current())setBusy(false);}}
+    try{if(!owns())return;const report=await source.read(captured.report.id,signal,captured.report);if(!owns()||report.id!==captured.report.id||typeof report.body!=='string')return;const result=await savePort('report',report,signal,owns);if(owns()&&result==='saved')close();}catch{if(owns())setError(true);}finally{linked.dispose();off();read.abort();if(scope.flight===flight){scope.flight=undefined;if(current())setBusy(false);}}
   };
   const refresh=()=>{if(current()&&!scope?.dialog&&!scope?.flight)void source.load();};
   const records=state.records;

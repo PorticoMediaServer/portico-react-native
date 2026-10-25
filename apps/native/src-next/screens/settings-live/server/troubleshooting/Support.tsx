@@ -1,3 +1,4 @@
+import {linkNativeAbortSignals} from '../../../../platform/abort-signals';
 import type {SupportExport} from '../../../../../../../packages/client-core/src/console';
 import {encodedRoutePath} from '../../../../../../../packages/contracts/src/routes';
 import {diagnosticsSavePort} from '../../../../platform/diagnostics-save';
@@ -30,8 +31,8 @@ function createSupport(context:NativeShellBootstrapContext,reportError:NativeShe
     const captured=downloading,selected=captured&&path.split('?')[0]===encodedRoutePath('get_admin_console_exports_id',{id:encodeURIComponent(captured.ready.id)})?captured:undefined;
     const valid=()=>current()&&!caller?.aborted&&(!selected||!selected.signal.aborted&&selected.isCurrent()&&source.getSnapshot().export===selected.ready&&source.canDownload(selected.ready.id));
     if(!valid()||selected&&method&&method!=='GET')return Promise.reject(screenScopeEnded());
-    const combined=selected?AbortSignal.any([selected.signal,...(caller?[caller]:[])]):caller;
-    return lifetime.request(async signal=>{if(!valid())throw screenScopeEnded();const value=await context.api.request<T>(path,method,body,signal);if(!valid())throw screenScopeEnded();return value;},combined);
+    const linked=selected?linkNativeAbortSignals([selected.signal,caller]):undefined,combined=linked?.signal??caller;
+    return lifetime.request(async signal=>{if(!valid())throw screenScopeEnded();const value=await context.api.request<T>(path,method,body,signal);if(!valid())throw screenScopeEnded();return value;},combined).finally(()=>linked?.dispose());
   }};
   const failure=(error:unknown)=>{if(!terminal(error)||!current())return;const owned=current();source.dispose();lifetime.dispose();if(owned)reportError(error);};
   const source:SettingsSupportSource=new SettingsSupportSource(api,lifetime.authority.serverId,lifetime.authority.profileId,current,failure,nativeChannelOperationId);
@@ -73,11 +74,11 @@ export function NativeSupport({group}:{group:Group}){
   const save=async(ready:SupportExport,snapshot:SupportSnapshot,rendered:Scope)=>{
     if(!scope||scope!==rendered||rendered.source!==source||snapshot!==state||snapshot.export!==ready||source.getSnapshot()!==snapshot||!savePort||!current()||scope.flight||!source.canDownload(ready.id))return;
     const flight={},read=new AbortController();scope.flight=flight;scope.download=read;setBusy(true);setError(false);
-    const signal=AbortSignal.any([read.signal,group.signal]);
+    const linked=linkNativeAbortSignals([read.signal,group.signal]),signal=linked.signal;
     const owns=()=>current()&&scope.flight===flight&&scope.download===read&&!signal.aborted&&source.getSnapshot().export===ready&&source.canDownload(ready.id);
     const off=source.subscribe(()=>{if(!owns())read.abort();});
     const expiry=setTimeout(()=>read.abort(),Math.min(2147483647,Math.max(0,ready.expiresAt-Date.now())));
-    try{if(!owns())return;const bundle=await group.download(ready,signal,owns);if(!owns())return;await savePort('support',bundle,signal,owns);}catch(error){group.failure(error);if(owns())setError(true);}finally{off();clearTimeout(expiry);read.abort();if(scope.download===read)scope.download=undefined;if(scope.flight===flight){scope.flight=undefined;if(current())setBusy(false);}}
+    try{if(!owns())return;const bundle=await group.download(ready,signal,owns);if(!owns())return;await savePort('support',bundle,signal,owns);}catch(error){group.failure(error);if(owns())setError(true);}finally{linked.dispose();off();clearTimeout(expiry);read.abort();if(scope.download===read)scope.download=undefined;if(scope.flight===flight){scope.flight=undefined;if(current())setBusy(false);}}
   };
   const pending=state.pendingExport,parts=pending?.components??draft.parts,paths=pending?.includePaths??draft.paths,window=pending?WINDOWS.find(value=>value.ms===pending.windowMs)?.value??'':draft.window,ready=state.export,skipped=skippedParts();
   const known=new Set<string>(CAPABILITY_ROWS),rows=[...CAPABILITY_ROWS.flatMap(id=>{const found=state.capabilities.find(value=>value.capability===id);if(!found&&CAPABILITY_BEHIND_PRESENCE.some(value=>value===id))return [];return [{id,label:t(LABELS[id]),found}];}),...state.capabilities.filter(value=>!known.has(value.capability)).map(found=>({id:found.capability,label:t('web.capabilities.otherLabel',{id:found.capability}),found}))];
