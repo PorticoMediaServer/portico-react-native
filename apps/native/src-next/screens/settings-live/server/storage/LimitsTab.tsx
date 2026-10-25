@@ -22,9 +22,9 @@ const IDS = ['runtime', 'maintenance', 'logs'] as const;
 /** Settings › Server › Storage & backups › Limits and retention (owner-server.html frame 36a). */
 export function LimitsTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
   const group = useStorageForms(ports, IDS, runtime.reportError);
-  return group ? <Limits key={group.mount} group={group} ports={ports} runtime={runtime} t={t}/> : null;
+  return group ? <Limits key={group.mount} group={group} runtime={runtime} t={t}/> : null;
 }
-function Limits({ports, runtime, t, group}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate; group: StorageForms}) {
+function Limits({runtime, t, group}: {runtime: NativeShellRuntime; t: Translate; group: StorageForms}) {
   const theme = useTheme();
   const {forms, set} = group, state = useStorageSet(group);
   const runtimeState = useFormState<RuntimeSettings, unknown>(forms.runtime);
