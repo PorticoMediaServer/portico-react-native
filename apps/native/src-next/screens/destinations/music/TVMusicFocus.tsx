@@ -64,6 +64,6 @@ export function TVMusicSeek({occupant, onAction, enabled, testID}: {occupant: Do
     accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'increment') adjust(1); else if (event.nativeEvent.actionName === 'decrement') adjust(-1);}}
     {...(host ? {nextFocusLeft: host, nextFocusRight: host} : {})} onFocus={() => {focused.current = true;}} onBlur={() => {focused.current = false;}}
     style={{height: 28, justifyContent: 'center'}}>
-    <View style={{height: 8, borderRadius: 4, backgroundColor: 'rgba(237,245,250,.18)'}}><View style={{width: `${fraction * 100}%`, height: 8, borderRadius: 4, backgroundColor: theme.colors.accentStrong}}/></View>
+    <View style={{height: 8, borderRadius: 8, backgroundColor: 'rgba(237,245,250,.2)'}}><View style={{width: `${fraction * 100}%`, height: 8, borderRadius: 8, backgroundColor: theme.colors.text}}/></View>
   </Focusable>;
 }

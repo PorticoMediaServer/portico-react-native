@@ -20,6 +20,7 @@ import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
 import {NowPlayingQueue} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import {NativeListeningNotice} from './ListeningNotice';
+import {TVNowPlayingScreen} from './TVNowPlayingScreen';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -59,7 +60,12 @@ export type NowPlayingScreenProps = Readonly<{
 const QUEUE_WIDTH = 366;
 const SIDE_BY_SIDE = 700;
 
-export function NowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
+export function NowPlayingScreen(props: NowPlayingScreenProps) {
+  const theme = useTheme();
+  return theme.isTV ? <TVNowPlayingScreen {...props} equalizerCopy={equalizerCopy()}/> : <TouchNowPlayingScreen {...props}/>;
+}
+
+function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
   const focus = useId();
   const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
