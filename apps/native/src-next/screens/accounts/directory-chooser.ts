@@ -6,7 +6,9 @@ export type DirectorySubtitle = Readonly<{
   key: 'web.chooser.current' | 'web.chooser.lastSeen' | 'web.chooser.neverSeen' | 'web.servers.online';
   values?: Readonly<{date: string}>;
 }>;
-export type DirectoryRow = Readonly<{id: string; name: string; owner?: true; subtitle?: DirectorySubtitle; offline: boolean}>;
+export type DirectoryRow = Readonly<{id: string; name: string; owner?: true; subtitle?: DirectorySubtitle; offline: boolean;
+  /** The cached last-seen fact behind the subtitle, kept raw so a surface can draw its own same-day form. */
+  lastSeen?: Readonly<{at: string; recent: boolean}>}>;
 
 /** The phone directory's rows: online first, then last seen, then unknown. Offline rows
  * are dimmed but remain chooseable; a malformed or absent presence renders normally. */
@@ -16,7 +18,7 @@ export function directoryRows(servers: readonly HostedServer[], currentId?: stri
     if (currentId && server.id === currentId) return {...identity, subtitle: {key: 'web.chooser.current'}, offline: false};
     const label = presenceLabel(server.presence, nowMs);
     if (label.kind === 'online') return {...identity, subtitle: {key: 'web.servers.online'}, offline: false};
-    if (label.kind === 'lastSeen') return {...identity,
+    if (label.kind === 'lastSeen') return {...identity, lastSeen: {at: label.lastSeenAt, recent: label.recent},
       subtitle: {key: 'web.chooser.lastSeen', values: {date: defaultI18n.date(label.lastSeenAt, 'dayMonth')}}, offline: true};
     if (label.kind === 'neverSeen') return {...identity, subtitle: {key: 'web.chooser.neverSeen'}, offline: true};
     return {...identity, offline: false};
