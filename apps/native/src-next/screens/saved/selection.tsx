@@ -209,7 +209,7 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     item: entry => ({active: model?.getSnapshot().active ?? false,
       selected: windows.has(JSON.stringify([entry.libraryId, entry.kind, entry.id])) && !!model?.getSnapshot().selectedKeys.includes(windows.get(JSON.stringify([entry.libraryId, entry.kind, entry.id]))!.key),
       onEnter: () => {void pick(entry);}, onToggle: () => {void pick(entry);}}),
-    render: artwork => <SavedSelectionBars store={store} artwork={artwork}/>,
+    render: () => <SavedSelectionBars store={store}/>,
   };
   return Object.freeze({...port, dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
 }
@@ -220,7 +220,7 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
   openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void; destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined};
 
-function SavedSelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
+function SavedSelectionBars({store, artwork}: {store: Store; artwork?: (path?: string) => React.ReactNode}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   const state = store.snapshot();
