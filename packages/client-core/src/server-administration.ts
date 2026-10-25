@@ -238,15 +238,14 @@ export function parseLogPage(raw:unknown):AdministrationPage<LogRecord>&{level:L
 
 /**
  * The administrator TV Troubleshooting list's closed vocabulary. Each code is one
- * exact maintenance action the server records in its own audit trail; the server
- * omits any action outside this list, and this parser skips an unknown code rather
- * than rendering a sentence that would misstate what happened.
+ * exact server-wide maintenance action the server records in its own audit trail;
+ * personal download activity is not part of it, so its timing never reaches an
+ * administrator. The server omits any action outside this list, and this parser
+ * skips an unknown code rather than rendering a sentence that would misstate what
+ * happened.
  */
-export const adminServerEventCodes=['alert.acknowledge',
- 'downloads.cancel','downloads.pause','downloads.prepare','downloads.profile.cache_release',
- 'downloads.profile.revoke','downloads.remove','downloads.resume','downloads.retry',
- 'downloads.revoke','downloads.settings',
- 'job.admit','job.cancel','job.pause','job.resume','job.retry',
+export const adminServerEventCodes=['alert.acknowledge','downloads.settings',
+ 'job.cancel','job.pause','job.resume','job.retry',
  'optimization.cancel','optimization.delete','optimization.request','optimization.retry',
  'schedule.apply','settings.apply'] as const;
 export type AdminServerEventCode=typeof adminServerEventCodes[number];

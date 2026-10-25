@@ -18,17 +18,7 @@ import {createTVServerReader} from './tv-server-reader';
 /** Every code has one catalogue sentence, with no parameter taken from a record. */
 const sentence: Readonly<Record<AdminServerEventCode, MessageId>> = {
   'alert.acknowledge': 'next.tvTroubleshooting.alertAcknowledge',
-  'downloads.cancel': 'next.tvTroubleshooting.downloadCancel',
-  'downloads.pause': 'next.tvTroubleshooting.downloadPause',
-  'downloads.prepare': 'next.tvTroubleshooting.downloadPrepare',
-  'downloads.profile.cache_release': 'next.tvTroubleshooting.downloadProfileCacheRelease',
-  'downloads.profile.revoke': 'next.tvTroubleshooting.downloadProfileRevoke',
-  'downloads.remove': 'next.tvTroubleshooting.downloadRemove',
-  'downloads.resume': 'next.tvTroubleshooting.downloadResume',
-  'downloads.retry': 'next.tvTroubleshooting.downloadRetry',
-  'downloads.revoke': 'next.tvTroubleshooting.downloadRevoke',
   'downloads.settings': 'next.tvTroubleshooting.downloadSettings',
-  'job.admit': 'next.tvTroubleshooting.jobAdmit',
   'job.cancel': 'next.tvTroubleshooting.jobCancel',
   'job.pause': 'next.tvTroubleshooting.jobPause',
   'job.resume': 'next.tvTroubleshooting.jobResume',
@@ -40,7 +30,6 @@ const sentence: Readonly<Record<AdminServerEventCode, MessageId>> = {
   'schedule.apply': 'next.tvTroubleshooting.scheduleApply',
   'settings.apply': 'next.tvTroubleshooting.settingsApply',
 };
-
 /** TV39: the administrator's Troubleshooting page. It shows the latest eligible
  * maintenance events the server records for administrators, one reviewed
  * sentence each, and never a service-log message: full messages stay the
