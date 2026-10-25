@@ -108,6 +108,7 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
           onChangeText={value => forms.connectivity.set(current => ({...current, customCertificatePath: value}))}/>
         <TextField label={t('next.settingsSpec.server.remote.groups.1.rows.0.children.2.label')} description={t('next.settingsSpec.server.remote.groups.1.rows.0.children.2.help')} value={connectivity.customCertificateKeyPath} editable={connectivity.ownAddressEnabled === true}
           onChangeText={value => forms.connectivity.set(current => ({...current, customCertificateKeyPath: value}))}/>
+        {connectivityState.status?.identityCode ? <TextField testID="remote-access-identity-code" label={t('next.settingsSpec.server.remote.groups.1.rows.0.children.4.label')} description={t('next.settingsSpec.server.remote.groups.1.rows.0.children.4.help')} value={connectivityState.status.identityCode} editable={false} style={{fontFamily: 'monospace'}} containerStyle={{opacity: connectivity.ownAddressEnabled === true ? 1 : .5}}/> : null}
         <TextField label={t('web.network.publicPort')} value={String(remote.publicPort)} keyboardType="number-pad"
           onChangeText={value => {const next = Number(value); if (Number.isInteger(next) && next >= 1 && next <= 65535) forms.remote.set(current => ({...current, publicPort: next}));}}/>
         <TextField label={t('web.network.gateway')} description={t('web.network.gatewayHelp')} value={remote.gateway}
