@@ -180,9 +180,9 @@ export class NativeTVMusicController {
   }
   private async loadAlbum(signal: AbortSignal): Promise<void> {
     const libraryId = this.options.entry.libraryId!, capabilitiesPath = browseCapabilitiesPath(libraryId, 'songs');
-    const [capabilities, favorite, similar] = await Promise.all([
+    const [capabilities, favorite] = await Promise.all([
       this.capabilities('songs', signal).catch(error => {throw stageFailure('capabilities', error, signal, diagnose('capabilities', 'GET', capabilitiesPath, error));}),
-      this.favoriteState(signal), this.similar(signal),
+      this.favoriteState(signal),
     ]);
     if (!this.current() || signal.aborted) return;
     const page = await this.browseAll(capabilities, builder => builder.where('memberOf', 'equals', this.options.entry.id).sort('groupOrder', 'asc')
@@ -192,8 +192,13 @@ export class NativeTVMusicController {
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
     const complete = page.complete && page.entries.length === page.total;
     const duration = complete ? page.entries.reduce((sum, entry) => sum + (entry.duration ?? 0), 0) : undefined;
-    this.publish({phase: 'ready', songs: page.entries, songTotal: page.total, ...(duration ? {songDurationSeconds: duration} : {}),
-      similar: similar.filter(entry => entry.kind === 'album' && entry.id !== this.options.entry.id), favorite});
+    this.publish({phase: 'ready', songs: page.entries, songTotal: page.total, ...(duration ? {songDurationSeconds: duration} : {}), favorite});
+    // Recommendations must not prevent the album's own tracks from loading.
+    // A failure still reaches the existing error presenter, retaining the tracks.
+    if (!this.current() || signal.aborted) return;
+    const similar = await this.similar(signal);
+    if (!this.current() || signal.aborted) return;
+    this.publish({similar: similar.filter(entry => entry.kind === 'album' && entry.id !== this.options.entry.id)});
   }
   private async loadArtist(signal: AbortSignal): Promise<void> {
     // The Details producer is secondary: it may arrive after the songs and
