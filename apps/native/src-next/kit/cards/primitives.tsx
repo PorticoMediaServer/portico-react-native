@@ -150,11 +150,11 @@ export function Caption({title, caption, detail, density, titleTextStyle, captio
   </View>;
 }
 
-export function Progress({value, height, paused = false, style}: {value?: number; height?: number; paused?: boolean; style?: StyleProp<ViewStyle>}) {
+export function Progress({value, height, radius = 4, paused = false, style}: {value?: number; height?: number; radius?: number; paused?: boolean; style?: StyleProp<ViewStyle>}) {
   const t = useTheme(), p = cardProgress(value);
   if (p === undefined) return null;
-  return <View pointerEvents="none" style={[{height: height ?? t.spec.card.progress.height[t.platform], overflow: 'hidden', borderRadius: 4, backgroundColor: alpha(t.colors.text, 0.22)}, style]}>
-    <View style={{height: '100%', width: `${p * 100}%`, borderRadius: 4, backgroundColor: paused ? t.colors.textTertiary : t.colors.accentStrong}} />
+  return <View pointerEvents="none" style={[{height: height ?? t.spec.card.progress.height[t.platform], overflow: 'hidden', borderRadius: radius, backgroundColor: alpha(t.colors.text, 0.22)}, style]}>
+    <View style={{height: '100%', width: `${p * 100}%`, borderRadius: radius, backgroundColor: paused ? t.colors.textTertiary : t.colors.accentStrong}} />
   </View>;
 }
 

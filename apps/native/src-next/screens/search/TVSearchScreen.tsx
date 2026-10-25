@@ -179,7 +179,7 @@ export function TVSearchTopResult({entry, group, runtime, actions, selection, di
           {kind && <Text style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
           {caption.map(part => part.id === 'season-count' ? <TVSearchTag key={part.id}>{part.text}</TVSearchTag>
             : <Text key={part.id} style={[browseType(theme, 24, 400), {color: theme.colors.textSecondary}]}>{part.text}</Text>)}
-          {progress !== undefined && progress > 0 && <View style={tvSearchR46.metaProgress}><Progress value={progress}/></View>}</View>
+          {progress !== undefined && progress > 0 && <View style={tvSearchR46.metaProgress}><Progress value={progress} height={6} radius={6}/></View>}</View>
         <Parts parts={text?.detail} style={browseType(theme, 24, 400)}/></View></>}
   </CardFrame>;
 }
