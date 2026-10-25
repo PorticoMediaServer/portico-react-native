@@ -1,6 +1,10 @@
-import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {Platform, View, useWindowDimensions} from 'react-native';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import {Platform, Text, View, useWindowDimensions} from 'react-native';
 import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
+import {isRecommendationRow, notInterestedTarget, setNotInterested} from '../../../../../packages/client-core/src/recommendation-feedback';
+import {Menu, type MenuEntry} from '../../kit/overlays';
+import {Button} from '../../kit/controls';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import {HomeSeeAll} from './HomeSeeAll';
 import {HomeRowFilters} from './HomeRowFilters';
 import {NativeHomeRowController} from './row-controller';
@@ -13,6 +17,7 @@ import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
 import {nativeHomeEntryLifetime} from './entry-lifetime';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 
 type RowRoute = Extract<NativeShellRoute, {kind: 'home-see-all'}>;
 type RowLifetime = Readonly<{route: RowRoute; controller: NativeHomeRowController; abort: AbortController; key: number; labels: ReadonlyMap<string, string>}>;
@@ -73,6 +78,22 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
       source.abort.signal.removeEventListener('abort', abort); off();
     });
   };
+  /** A recommendation's own Not interested mark, and the same field set back to false
+   * with a fresh operation id for Undo. The row is re-read from the server afterwards,
+   * so a title leaves or returns only when the server says so. */
+  const markNotInterested = async (source: RowLifetime, entry: ContentEntry, value: boolean): Promise<boolean> => {
+    if (!current(source)) return false;
+    const bytes = nativeRouteCrypto.random(16);
+    const operationId = Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    try {
+      await setNotInterested({request: (path, method, body, signal) => current(source)
+        ? context.api.request(path, method, body, signal) : Promise.reject(Object.assign(new Error('cancelled'), {name: 'AbortError'}))},
+        {itemId: notInterestedTarget(entry), notInterested: value, serverId: context.authority().serverId, operationId, signal: source.abort.signal});
+      if (!current(source)) return false;
+      void source.controller.load().catch(reportError);
+      return true;
+    } catch (error) {if (current(source)) reportError(error); return false;}
+  };
   return {
     reconcile,
     owns: (route: NativeShellRoute) => rows.has(route as RowRoute),
@@ -88,19 +109,26 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
         void context.playback.start({entry, target: entry.playback, lifetime: operation.lifetime})
           .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);}).finally(operation.dispose);
       }}
-      kindLabel={id => source.labels.get(id)!}/>),
+      onNotInterested={(entry, value) => markNotInterested(source, entry, value)} kindLabel={id => source.labels.get(id)!}/>),
     dispose: () => {alive = false; for (const source of rows.values()) {source.abort.abort(); source.controller.dispose();} rows.clear();},
   };
 }
 
 nativeShellRoutes.registerRoute('home-see-all', createNativeHomeSeeAllRenderer);
 
-function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPlayEntry, kindLabel}: {
+function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPlayEntry, onNotInterested, kindLabel}: {
   source: RowLifetime; runtime: NativeShellRuntime; active: boolean;
   onBack: () => void; onPlay: (shuffle: boolean) => void;
-  onOpen: React.ComponentProps<typeof HomeSeeAll>['onOpen']; onPlayEntry: React.ComponentProps<typeof HomeSeeAll>['onPlayEntry']; kindLabel: (id: string) => string;
+  onOpen: React.ComponentProps<typeof HomeSeeAll>['onOpen']; onPlayEntry: React.ComponentProps<typeof HomeSeeAll>['onPlayEntry'];
+  onNotInterested: (entry: ContentEntry, value: boolean) => Promise<boolean>; kindLabel: (id: string) => string;
 }) {
   const registry = useFocusRegistry(), opener = useRef<FocusSnapshot | undefined>(undefined), release = useRef<(() => void) | undefined>(undefined), shown = useRef(active);
+  const row = useSyncExternalStore(source.controller.subscribe, source.controller.getSnapshot).row;
+  const recommendation = !!row && isRecommendationRow({id: row.id, kind: row.kind});
+  const [chosen, setChosen] = useState<{entry: ContentEntry; anchor: React.RefObject<View | null>}>();
+  const [undo, setUndo] = useState<ContentEntry>();
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => {if (undoTimer.current) clearTimeout(undoTimer.current);}, []);
   const [filters, setFilters] = useState(false);
   useEffect(() => {if (!active) return; const remember = () => {const value = registry.capture(); if (value?.regionId.startsWith('home-see-all:')) opener.current = value;};
     remember(); return registry.subscribe(remember);
@@ -117,8 +145,23 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, opacity: active ? 1 : 0}}>
     <HomeSeeAll controller={source.controller} runtime={runtime} active={active && !filters} onBack={onBack} onPlay={onPlay} onOpen={onOpen} onPlayEntry={onPlayEntry}
+      onMenu={recommendation ? (entry, anchor) => setChosen({entry, anchor}) : undefined}
       onFilters={() => setFilters(true)} kindLabel={kindLabel} onReshuffle={() => {if (active) try {const bytes = nativeRouteCrypto.random(4); const sort = source.controller.getSnapshot().sort;
         if (sort) source.controller.setSort({...sort, seed: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0)});} catch (error) {runtime.reportError(error);}}}/>
     {active && filters && <HomeRowFilters controller={source.controller} runtime={runtime} onClose={() => setFilters(false)}/>}
+    {active && recommendation && chosen && <Menu open items={[{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff' as const,
+      onSelect: () => {const entry = chosen.entry; setChosen(undefined);
+        void onNotInterested(entry, true).then(ok => {if (!ok) return; setUndo(entry);
+          if (undoTimer.current) clearTimeout(undoTimer.current);
+          undoTimer.current = setTimeout(() => setUndo(undefined), 6000);});}}]} title={chosen.entry.displayTitle ?? chosen.entry.title}
+      anchorRef={chosen.anchor} onOpenChange={open => {if (!open) setChosen(undefined);}}/>}
+    {active && undo && <View testID="home-see-all-not-interested" style={{position: 'absolute', left: 0, right: 0, bottom: 120, alignItems: 'center'}}>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, paddingLeft: 18, paddingRight: 8, paddingVertical: 8, borderRadius: 14, backgroundColor: 'rgba(7,16,24,.92)'}}>
+        <Text style={{color: '#edf5fa', fontFamily: 'Manrope-SemiBold', fontSize: 15, fontWeight: '600'}}>{defaultI18n.t('entry.notInterestedDone', {title: undo.displayTitle ?? undo.title})}</Text>
+        <Button variant="glass" size="compact" icon="i-undo" onPress={() => {const entry = undo; setUndo(undefined);
+          if (undoTimer.current) clearTimeout(undoTimer.current);
+          void onNotInterested(entry, false).then(ok => {if (!ok) runtime.reportError(Object.assign(new Error(defaultI18n.t('entry.notInterestedUndoFailed', {title: entry.displayTitle ?? entry.title})), {code: 'not_interested_undo_failed'}));});}}>{defaultI18n.t('action.undo')}</Button>
+      </View>
+    </View>}
   </View>;
 }
