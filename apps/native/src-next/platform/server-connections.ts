@@ -11,6 +11,7 @@ import {
   RouteError,
   routeBase64,
   routeBytes,
+  routeOrigin,
   type RouteCrypto,
 } from '../../../../packages/client-core/src/route-identity.ts';
 import {
@@ -124,6 +125,43 @@ function nativeFetchForIdentity(expected?: string): typeof fetch {return revisio
     return nativeRequest(input, options);
   }
 });}
+/** Root47's credential-free contact never enters certificate settlement, discovery,
+ * route refresh or ordinary connection admission. Only the two canonical public exchanges
+ * at the originally captured origin are permitted; existing native TLS validation remains. */
+export function nativeOwnerRecoveryFetch(capturedOrigin: string, isCurrent: () => boolean): typeof fetch {
+  const origin = routeOrigin(capturedOrigin);
+  if (isAccountAuthority(origin)) throw new RouteError('invalid_address', 'Choose the server address.');
+  const check = (signal?: AbortSignal | null) => {
+    if (!signal || signal.aborted || !isCurrent()) throw new RouteError('cancelled', 'Owner recovery contact cancelled.');
+    if (pendingCertificate(origin)) throw new RouteError('identity_code_needed', 'identity_code_needed');
+  };
+  return async (input, options = {}) => {
+    check(options.signal);
+    const method = options.method ?? 'GET';
+    if (typeof input !== 'string' ||
+        !(input === origin + routePath('prove_network_identity') && method === 'POST' ||
+          input === origin + routePath('get_system') && method === 'GET' && options.body == null))
+      throw new RouteError('invalid_address', 'Owner recovery contact is limited to the captured server.');
+    const headers = new Headers(options.headers);
+    headers.forEach((_value, name) => {
+      if (name !== 'accept' && name !== 'content-type')
+        throw new RouteError('invalid_request', 'Owner recovery contact carries no credentials.');
+    });
+    if (Platform.OS === 'ios') checkApplePlainHttp(input);
+    const response = await nativeRequest(input, {...options, headers, credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'});
+    try {
+      check(options.signal);
+      // The strict path cannot settle an OS-refused leaf or install new native certificate trust.
+      if (certificateTrustAvailable()) {
+        const refused = await nativeCertificatePlatform.refused(origin);
+        check(options.signal);
+        if (refused) throw new RouteError('certificate_untrusted', 'The server certificate is not trusted.');
+      }
+      return response;
+    } catch (error) {void response.body?.cancel().catch(() => {}); throw error;}
+  };
+}
+
 export const nativeNetworkFetch = nativeFetchForIdentity();
 /** Expected identity stays captured for every route probe and authenticated request. */
 export const nativeServerFetch = (serverId: string) => nativeFetchForIdentity(serverId);

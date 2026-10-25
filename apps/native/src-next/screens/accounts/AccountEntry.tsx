@@ -68,6 +68,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const [setupReview, setSetupReview] = useState<SetupReview>();
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
   const retireSetupReview = () => {const ticket = setupReviewTicket.current; setupReviewTicket.current = undefined; ticket?.controller.abort(); ticket?.review?.approval.dispose(); setSetupReview(undefined);};
+  type OwnerRecoveryOpening = {active: boolean; contact?: {open: () => Promise<void>; dispose: () => void}; finish?: () => void};
+  const ownerRecoveryContact = useRef<OwnerRecoveryOpening | undefined>(undefined);
+  const retireOwnerRecoveryContact = () => {
+    const ticket = ownerRecoveryContact.current; ownerRecoveryContact.current = undefined;
+    if (ticket) {ticket.active = false; ticket.contact?.dispose(); ticket.finish?.();}
+  };
   const [resetLocation, setResetLocation] = useState<ResetFileLocation>();
   const ownerResetIntent = useRef<Readonly<{origin: string; serverId: string}> | undefined>(undefined);
   const ownerResetOpening = useRef<{source: NativeServerSignIn; controller: AbortController} | undefined>(undefined);
@@ -155,8 +161,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
-  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
-  useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) stopRetry(); setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
+  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useLayoutEffect(() => {if (stage !== 'servers') retireOwnerRecoveryContact();}, [stage]);
+  useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useLayoutEffect(() => {
     if (stage !== 'address') return;
     const ticket = {active: true}; nearbySource.current = ticket;
@@ -201,10 +208,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
-  const cancelDirectory = () => {retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
+  const cancelDirectory = () => {retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const openAccountWorkspace = (scope: Readonly<{accountId: string; familyId: string}> | undefined, isCurrent: () => boolean) => {
     if (!isCurrent() || busyRef.current || acting.current || adoptingTV.current || !scope) return;
     const session = nativeAccounts.accountCredentials().getSnapshot().session; if (!session) return;
@@ -359,7 +366,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     void (async () => {
       let next: NativeServerSignIn | undefined;
       try {
-        retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); next = operation.current = new NativeServerSignIn();
+        retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); next = operation.current = new NativeServerSignIn();
         const result = await next.connectPortico(value);
         if (!lifetime.current || attempt !== directoryAttempt.current) return;
         if (result.kind !== 'complete') setServer(next.serverDescriptor()); consume(result);
@@ -422,7 +429,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const beginEndedMemberCode = async (openingCurrent: () => boolean, signal: AbortSignal) => {
     const hint = endedSignIn;
     if (Platform.isTV || !hint || hint.signIn !== 'portico' || signal.aborted || !openingCurrent() || !lifetime.current || stageRef.current !== 'ended-sign-in') return;
-    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose();
+    retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose();
     const source = new NativeServerSignIn(nativeAccounts, {expectedTarget: {serverId: hint.serverId, fingerprint: hint.fingerprint}});
     operation.current = source;
     const retire = () => source.dispose(); signal.addEventListener('abort', retire, {once: true});
@@ -471,7 +478,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   };
   const inspect = async (origin = address) => {
     const resetIntent = ownerResetIntent.current, invite = invitationIntent.current;
-    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current, expectedInvitation: invite ? {origin: invite.server, serverId: invite.id, fingerprint: invite.fingerprint, signIn: invite.signIn, expiresAt: invite.expiresAt} : undefined});
+    retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV, expectedTarget: endedTarget.current, expectedInvitation: invite ? {origin: invite.server, serverId: invite.id, fingerprint: invite.fingerprint, signIn: invite.signIn, expiresAt: invite.expiresAt} : undefined});
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
@@ -1094,18 +1101,48 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   }
   if (hostedWaiting && target) {
-    const captured = target, source = operation.current, attempt = directoryAttempt.current;
-    const current = () => lifetime.current && stageRef.current === 'servers' && targetRef.current === captured
-      && operation.current === source && directoryAttempt.current === attempt;
+    const captured = target, source = operation.current, attempt = directoryAttempt.current, scope = accountScope.current;
+    const credentials = !Platform.isTV && scope ? nativeAccounts.accountCredentials() : undefined;
+    const original = Object.freeze({baseUrl: captured.baseUrl, serverId: captured.id, publicKey: captured.publicKey});
+    const current = () => {
+      const live = credentials?.getSnapshot().session;
+      return lifetime.current && stageRef.current === 'servers' && targetRef.current === captured &&
+        operation.current === source && directoryAttempt.current === attempt && (Platform.isTV ||
+        accountScope.current === scope && (!source || source.ownerRecoveryCurrent()) &&
+        captured.baseUrl === original.baseUrl && captured.id === original.serverId && captured.publicKey === original.publicKey &&
+        (!scope || live?.account.id === scope.accountId && live.familyId === scope.familyId));
+    };
     return <StateLayout testID="accounts-hosted-waiting" icon="i-cloud-off" title={t('web.chooser.accountWaitingTitle')}
       body={t('web.chooser.accountWaitingBody', {server: captured.name})} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
       primaryAction={{id: 'check-hosted-now', label: t('web.chooser.checkNow'), loading: busy, disabled: busy, onPress: () => {if (current()) connectDirectory(captured, true);}}}
       secondaryAction={Platform.isTV ? {id: 'choose-another', label: t('web.chooser.otherServer'), onPress: () => {if (current()) chooseAnother();}}
         : {id: 'account-owner-help', label: t('accounts.signIn.cannotUsePortico'), disabled: busy, onPress: () => {
-          if (!current()) return;
-          let origin: string; try {origin = routeOrigin(captured.baseUrl);} catch (failure) {setError(failure); return;}
-          cancelDirectory(); ownerResetIntent.current = Object.freeze({origin, serverId: captured.id}); setAddress(origin); setStage('address');
-          void run(async () => {await inspect(origin);});
+          if (!current() || busyRef.current || acting.current || adoptingTV.current) return;
+          // Without the original authenticated directory lifetime, use ordinary typed entry.
+          // A failed pin is never sent through this fallback or replaced with a newly read key.
+          if (!scope || !source) {cancelDirectory(); setAddress(''); stageRef.current = 'address'; setStage('address'); return;}
+          const accountId = scope.accountId, familyId = scope.familyId;
+          stopRetry(); retireOwnerRecoveryContact();
+          const ticket: OwnerRecoveryOpening = {active: true}; ownerRecoveryContact.current = ticket;
+          const contactCurrent = () => {
+            const live = credentials?.getSnapshot().session;
+            return current() && activeRef.current && ticket.active && ownerRecoveryContact.current === ticket &&
+              accountScope.current === scope && live?.account.id === accountId && live.familyId === familyId;
+          };
+          ticket.finish = () => {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);};
+          acting.current = true; setBusy(true);
+          void (async () => {
+            try {
+              if (!contactCurrent()) return;
+              ticket.contact = NativeServerSignIn.ownerRecoveryContact(original, {accountId, familyId}, contactCurrent);
+              await ticket.contact.open();
+            } catch (failure) {if (contactCurrent()) setError(failure);}
+            finally {
+              if (ownerRecoveryContact.current === ticket) {
+                retireOwnerRecoveryContact();
+              }
+            }
+          })();
         }}}/>;
   }
   if (stage === 'servers' && target && directoryView === 'waiting') return <StateLayout testID="accounts-server-waiting" title={t('web.chooser.waitingTitle', {server: target.name})}
