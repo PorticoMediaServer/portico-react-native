@@ -88,6 +88,8 @@ export function NativeTVGroupPill() {
         </View>)}
         {canClaim && <Button variant="primary" focusId="group-claim-host" hasTVPreferredFocus onPress={() => makeHost(group.viewerMemberId, sheet!)}>
           {t('web.together.becomeHost')}</Button>}
+        {!permissions.canControl && <Text testID="player-group-host-controls" style={[browseType(theme, 18, 600), {color: theme.colors.textTertiary}]}>
+          {t('web.together.pill.hostControls')}</Text>}
       </View>
     </SidePanel>
   </>;
