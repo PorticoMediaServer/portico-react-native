@@ -774,7 +774,12 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       </View>);
   }
   if (stage === 'member-move' && memberMove && moveSnapshot && memberOperation.current === operation.current) {
-    if (moveSnapshot.phase === 'code' || moveSnapshot.phase === 'local') return <PhoneMoveCode controller={memberMove} onBack={back}/>;
+    if (moveSnapshot.phase === 'code' || moveSnapshot.phase === 'local') {
+      const captured = memberMove, source = memberOperation.current;
+      const current = () => !!source && lifetime.current && stageRef.current === 'member-move' && memberMoveRef.current === captured
+        && memberOperation.current === source && operation.current === source;
+      return <PhoneMoveCode controller={captured} isCurrent={current} onBack={back}/>;
+    }
     if (moveSnapshot.phase === 'password') return <PhoneMovePassword controller={memberMove} serverName={server!.name} onBack={back}/>;
     if (moveSnapshot.phase === 'portico') return <PhoneAccountMoveNotice busy={busy || moveSnapshot.busy} state={{kind: 'to-portico', serverName: server!.name,
       onContinue: () => {void run(portico);}, onCreateAccount: () => {void run(createMoveAccount);}}}/>;

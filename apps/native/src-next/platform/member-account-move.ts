@@ -61,6 +61,8 @@ export class NativeMemberAccountMove<Result> {
     if (ports.signal.aborted) this.dispose();
   }
   getSnapshot = () => this.state;
+  /** Read-only eligibility for UI work on this exact immutable issuing operation. */
+  isCurrentOpening = () => this.current(this.epoch);
   takeAcceptedResult = (): Result | undefined => {
     const accepted = this.accepted; this.accepted = undefined;
     return accepted && !this.disposed && accepted.epoch === this.epoch && !this.ports.signal.aborted && accepted.isCurrent()
