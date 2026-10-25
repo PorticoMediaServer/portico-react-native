@@ -47,13 +47,18 @@ function createComposition(context: NativeShellBootstrapContext) {
       render: (route, runtime) => {
         lifetime.assert();
         if (route.kind !== 'server-settings') throw new Error('native_server_settings_route_mismatch');
-        // The TV list currently implements the owner's Libraries page. Administrators
-        // retain the existing real Dashboard; members and secondary profiles fall back.
+        // The drawn TV pages that have a real mounted reader: the owner sees Libraries
+        // and Remote access as well; an administrator sees People and Troubleshooting,
+        // with the Dashboard surface for Dashboard itself. Members and secondary
+        // profiles fall back to their permitted Settings page.
         const allowed = admission();
         const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;
         if (allowed === 'denied') return fallback;
-        if (allowed === 'administrator' || !Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
-        return <NativeTVServerScreen key={route.page ?? 'libraries'} ports={ports} runtime={runtime} initialPage={route.page}/>;
+        if (!Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
+        if (allowed === 'administrator' && !route.page) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
+        const requested = route.page === 'libraries' || route.page === 'remote' || route.page === 'people' || route.page === 'troubleshooting' ? route.page : undefined;
+        const page = allowed === 'owner' ? requested ?? 'libraries' : requested === 'people' || requested === 'troubleshooting' ? requested : 'people';
+        return <NativeTVServerScreen key={page} ports={ports} runtime={runtime} initialPage={page}/>;
       },
       dispose,
     } satisfies NativeRouteRenderer,
