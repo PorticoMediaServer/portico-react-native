@@ -90,7 +90,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   return <View testID="home-see-all" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {artwork && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .26}}><AmbientArt source={runtime.ambient(artwork.backdropUrl ?? artwork.posterUrl)} treatment="hero" visible={active}/></View>}
     <FocusRegion id={gridId} entry="play" enabled={active} style={{flex: 1}}>
-      {(tv || data.error) && <>{header}{toolbar}</>}
+      {(tv || !!data.error) && <>{header}{toolbar}</>}
       {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0))} variant="centered"/> :
         <WindowedGrid header={tv ? undefined : header} stickyHeader={tv ? undefined : toolbar}
           onScrollOffset={tv ? undefined : offset => setCollapsed(headerHeight > 0 && offset >= headerHeight)} collection={controller.collection} getKey={item => item.membershipId} selection={selection}
