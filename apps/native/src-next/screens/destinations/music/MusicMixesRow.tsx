@@ -1,7 +1,8 @@
 import React, {useEffect, useSyncExternalStore} from 'react';
-import {Pressable, ScrollView, Text, View} from 'react-native';
+import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Artwork} from '../../../kit/artwork';
+import {Focusable} from '../../../kit/controls';
 import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
 import type {NativeMusicMixRow, NativeMusicMixesPort} from './mixes';
@@ -14,8 +15,8 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
   row: NativeMusicMixRow; artwork: (path: string | undefined) => React.ComponentProps<typeof Artwork>['source']; width?: number; onPlay: () => void;
 }) {
   const theme = useTheme();
-  return <Pressable accessibilityRole="button" accessibilityLabel={row.name} onPress={onPlay}
-    style={{width, marginRight: 14}}>
+  return <Focusable focusId={`music-mix:${row.id}`} testID={`music-mix:${row.id}`} focusKind="card" focusRadius={12}
+    accessibilityRole="button" accessibilityLabel={row.name} onPress={onPlay} style={{width, marginRight: 14}}>
     <View style={{width, height: width, borderRadius: 12, overflow: 'hidden', backgroundColor: row.tint}}>
       {row.covers.slice(0, 3).map((cover, index) => {
         const source = artwork(cover.posterUrl);
@@ -34,7 +35,7 @@ export function MusicMixCard({row, artwork, width = 186, onPlay}: {
     <Text numberOfLines={2} style={[browseType(theme, 12.5, 500), {marginTop: 8, color: theme.colors.textSecondary}]}>
       {[...row.artists.map(artist => artist.name), ...(row.more ? [t('next.watch.andMore', {count: 1})] : [])].join(', ')}
     </Text>
-  </Pressable>;
+  </Focusable>;
 }
 
 /** Mixes for you: the server's own profile row, absent until it has something real to draw. */
@@ -46,10 +47,10 @@ export function MusicMixesRow({port, artwork, reportError, title = t('music.mixe
   useEffect(() => {if (snapshot.phase === 'idle') void port.load().catch(() => {});}, [port, snapshot.phase]);
   if (snapshot.phase !== 'ready' || !snapshot.rows.length) return null;
   const play = (row: NativeMusicMixRow) => {void port.play(row).catch(error => reportError(error));};
-  return <View testID="music-mixes-row" style={{marginTop: theme.layoutMode === 'phone' ? 28 : 26}}>
-    <Text style={[browseType(theme, 20, 800, -.02), {marginHorizontal: 16, marginBottom: 12, color: theme.colors.text}]}>{title}</Text>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16}}>
-      {snapshot.rows.map(row => <MusicMixCard key={row.id} row={row} artwork={artwork} width={theme.platform === 'tablet' ? 210 : 186} onPlay={() => play(row)}/>)}
+  return <View testID="music-mixes-row" style={{marginTop: theme.isTV ? 30 : theme.layoutMode === 'phone' ? 28 : 26}}>
+    <Text style={[browseType(theme, 20, 800, -.02), {marginHorizontal: theme.isTV ? 96 : 16, marginBottom: 12, color: theme.colors.text}]}>{title}</Text>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.isTV ? 96 : 16}}>
+      {snapshot.rows.map(row => <MusicMixCard key={row.id} row={row} artwork={artwork} width={theme.isTV ? 300 : theme.platform === 'tablet' ? 210 : 186} onPlay={() => play(row)}/>)}
     </ScrollView>
   </View>;
 }
