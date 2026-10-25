@@ -28,7 +28,7 @@ test('members, secondary profiles, disabled accounts and administrators never re
 test('owner reader allows GET only and rejects a response after authority retirement', async () => {
   const lifetime = scope();
   let reads = 0, finish!: (value: unknown) => void;
-  const reader = createTVServerReader({account, api: {request: <T,>() => {reads++; return new Promise(resolve => {finish = resolve;}) as Promise<T>;}}}, lifetime);
+  const reader = createTVServerReader({account, api: {request: <T,>() => {reads++; return new Promise<unknown>(resolve => {finish = resolve;}) as Promise<T>;}}}, lifetime);
   assert.equal(nativeServerAdmission(account, lifetime), 'owner');
   await assert.rejects(reader.request('/v1/admin/libraries', 'POST', {}));
   assert.equal(reads, 0);
