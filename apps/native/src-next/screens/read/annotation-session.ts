@@ -57,6 +57,10 @@ export function nativeAnnotationBridge(options: BridgeOptions): ReadingHostSessi
 
 function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{session: ServerAnnotationSession}>): ReadingHostSession {
   const {session, journal, identity, source, fresh, now = Date.now, onQueued} = options;
+  const sessionSignal = session.signal;
+  const assertCurrent = (signal?: AbortSignal): void => {
+    if (sessionSignal.aborted || signal?.aborted || !fresh()) throw new ReadingError('cancelled');
+  };
   // The bridge projection is always the real session; only the annotation methods differ.
   const base: ReadingHostSession = {manifest: session.manifest, signal: session.signal, headPDF: session.headPDF, readRange: session.readRange,
     readAsset: session.readAsset, page: session.page, progress: session.progress, saveProgress: session.saveProgress,
@@ -64,7 +68,9 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
   /** The server's own updatedAt for each id at the revision the guest last read. */
   let observed: Readonly<{revision: number; updatedAt: ReadonlyMap<string, number>}> | undefined;
   const annotations: ReadingAnnotationPort['annotations'] = async (cursor = '', revision?: number, signal?: AbortSignal) => {
+    assertCurrent(signal);
     const page = await session.annotations(cursor, revision, signal);
+    assertCurrent(signal);
     if (!cursor) observed = {revision: page.revision, updatedAt: new Map(page.entries.map(entry => [entry.id, entry.updatedAt]))};
     else if (observed && observed.revision === page.revision) {
       const updatedAt = new Map(observed.updatedAt);
@@ -74,15 +80,18 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
     return page;
   };
   const mutateAnnotation: ReadingAnnotationPort['mutateAnnotation'] = async (mutation, signal) => {
+    assertCurrent(signal);
     try {
       const saved = await session.mutateAnnotation(mutation, signal);
+      assertCurrent(signal);
       // The server now holds a newer entry than the guest's cached page; a later queued
       // edit must not claim that stale base, so the next write waits for a fresh read.
       observed = undefined;
       return saved;
     } catch (error) {
+      assertCurrent(signal);
       const base = observed;
-      if (!nativeAnnotationQueueable(error) || !base || base.revision !== mutation.expectedRevision || !fresh()) throw error;
+      if (!nativeAnnotationQueueable(error) || !base || base.revision !== mutation.expectedRevision) throw error;
       await journal.enqueue(identity, source, {
         id: mutation.id,
         delete: mutation.operation === 'delete',
@@ -90,7 +99,8 @@ function nativeOnlineAnnotationSession(options: BridgeOptions & Readonly<{sessio
         observedAt: now(),
         baseRevision: mutation.expectedRevision,
         baseUpdatedAt: base.updatedAt.get(mutation.id) ?? 0,
-      }, fresh);
+      }, () => assertCurrent(signal));
+      assertCurrent(signal);
       onQueued?.();
       throw error;
     }

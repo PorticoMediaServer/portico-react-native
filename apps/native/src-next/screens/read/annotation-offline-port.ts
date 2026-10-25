@@ -33,11 +33,16 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
   onQueued?: () => void;
 }>): ReadingHostSession {
   const {session, journal, identity, source, fresh, now = Date.now, onQueued} = options;
+  const sessionSignal = session.signal;
+  const assertCurrent = (signal?: AbortSignal): void => {
+    if (sessionSignal.aborted || signal?.aborted || !fresh()) throw new ReadingError('cancelled');
+  };
   const manifest = Object.freeze({...session.manifest, canAnnotate: true as const});
   const validate = (location: Parameters<typeof validateReadingLocation>[0]) => validateReadingLocation(location, manifest);
   const annotations: ReadingAnnotationPort['annotations'] = async (cursor = '', revision?: number, signal?: AbortSignal) => {
-    if (signal?.aborted || !fresh()) throw new ReadingError('cancelled');
+    assertCurrent(signal);
     const view = await journal.view(identity, source);
+    assertCurrent(signal);
     if (revision !== undefined && revision !== view.revision) throw new ReadingError('conflict');
     // The bridge's own page shape: at most 50 ids above the cursor, with the cursor naming the
     // last id. The local view is bounded, so this is the honest whole set in pages.
@@ -47,13 +52,15 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
       nextCursor: more ? remaining[remaining.length - 1]!.id : ''});
   };
   const mutateAnnotation: ReadingAnnotationPort['mutateAnnotation'] = async (request, signal) => {
-    if (signal?.aborted || !fresh()) throw new ReadingError('cancelled');
+    assertCurrent(signal);
     const captured = captureReadingAnnotationMutation(request, validate);
     const observed = await journal.snapshot(identity);
+    assertCurrent(signal);
     const group = observed?.groups.find(value => value.source.itemId === source.itemId && value.source.sourceId === source.sourceId
       && value.source.sourceRevision === source.sourceRevision);
     const view = await journal.view(identity, source);
-    if (captured.expectedRevision !== view.revision || !fresh()) throw new ReadingError('conflict');
+    assertCurrent(signal);
+    if (captured.expectedRevision !== view.revision) throw new ReadingError('conflict');
     const revision = await journal.localMutate(identity, source, {
       id: captured.id,
       delete: captured.operation === 'delete',
@@ -63,8 +70,10 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
       // when the annotation never came from the server (it only exists locally).
       baseRevision: group?.cache?.revision ?? 0,
       baseUpdatedAt: group?.cache?.entries.find(entry => entry.id === captured.id)?.updatedAt ?? 0,
-    }, captured.expectedRevision, fresh);
+    }, captured.expectedRevision, () => assertCurrent(signal));
+    assertCurrent(signal);
     onQueued?.();
+    assertCurrent(signal);
     return Object.freeze({revision});
   };
   return {manifest, signal: session.signal, headPDF: session.headPDF, readRange: session.readRange, readAsset: session.readAsset,
