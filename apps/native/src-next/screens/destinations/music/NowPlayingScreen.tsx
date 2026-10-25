@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useId, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
@@ -18,6 +18,7 @@ import {browseType} from '../../../kit/browse/presentation';
 import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
 import {NowPlayingQueue} from './NowPlayingQueue';
+import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -58,6 +59,7 @@ const SIDE_BY_SIDE = 700;
 
 export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
+  const focus = useId();
   const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
   // music-plus 6/6b and listening-notices 8: the signal sheet (like the EQ panel) is the top
   // surface while it is open, so Back closes it rather than folding the player, and focus returns
@@ -93,34 +95,36 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
-    {signal ? <View style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></View> : null}
+    {signal ? <MusicFocusRegion id={`${focus}.signal`} entry="music-signal-line" edges={{down: `${focus}.progress`}} style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></MusicFocusRegion> : null}
     {notice ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
       <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
       <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
     </View> : null}
     <View style={{width: '100%', maxWidth: 520, marginTop: 24}}>
-      <GestureDetector gesture={scrub}><View testID={`${testID}-scrubber`} accessibilityRole="adjustable" accessibilityLabel={t('player.queue')}
+      {theme.isTV ? <MusicFocusRegion id={`${focus}.progress`} entry="seek" edges={{up: signal ? `${focus}.signal` : undefined, down: `${focus}.transport`}}>
+        <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel} testID={`${testID}-scrubber`}/>
+      </MusicFocusRegion> : <GestureDetector gesture={scrub}><View testID={`${testID}-scrubber`} accessibilityRole="adjustable" accessibilityLabel={t('player.queue')}
         accessibilityValue={{min: 0, max: Math.round(span), now: Math.round(Math.max(0, Math.min(span, position - (bounds?.start ?? 0))))}}
         onLayout={event => {track.current = event.nativeEvent.layout.width;}}
         style={{height: 28, justifyContent: 'center'}}>
         <View style={{height: 4, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
           <View style={{width: `${fraction * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>
         </View>
-      </View></GestureDetector>
+      </View></GestureDetector>}
       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, position - (bounds?.start ?? 0)))}</Text>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span || p.durationSeconds)}</Text>
       </View>
     </View>
-    <View style={{flexDirection: 'row', alignItems: 'center', gap: 28, marginTop: 20}}>
+    <MusicFocusRegion id={`${focus}.transport`} entry="toggle" orientation="horizontal" edges={{up: `${focus}.progress`}} style={{flexDirection: 'row', alignItems: 'center', gap: 28, marginTop: 20}}>
       <Button testID={`${testID}-previous`} variant="glass" iconOnly icon="i-prev" accessibilityLabel={t('player.previous')}
         disabled={!p.capabilities.previous} onPress={() => act('previous')}/>
-      <Button testID={`${testID}-toggle`} variant="primary" iconOnly icon={playback.playing ? 'i-pause' : 'i-play'}
+      <Button focusId={theme.isTV ? 'toggle' : undefined} testID={`${testID}-toggle`} variant="primary" iconOnly icon={playback.playing ? 'i-pause' : 'i-play'}
         accessibilityLabel={t(playback.playing ? 'action.pause' : 'action.play')}
         disabled={playback.playing ? !p.capabilities.pause : !p.capabilities.play} onPress={() => act(playback.playing ? 'pause' : 'play')}/>
       <Button testID={`${testID}-next`} variant="glass" iconOnly icon="i-next" accessibilityLabel={t('player.next')}
         disabled={!p.capabilities.next} onPress={() => act('next')}/>
-    </View>
+    </MusicFocusRegion>
     <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 26, marginBottom: 24}}>
       {!side && queue ? <Button testID={`${testID}-queue-toggle`} variant={sheet === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"
         accessibilityState={{expanded: sheet === 'queue'}} onPress={() => setSheet(open => open === 'queue' ? null : 'queue')}>{t('player.queue')}</Button> : null}
@@ -134,7 +138,7 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
       {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/> : null}
     </View> : null}
   </View>;
-  return <View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
+  return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
     {p.ambient ? <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: Math.min(height, 720), overflow: 'hidden'}}>
       <AmbientArt source={p.ambient} treatment="title" style={{position: 'absolute', inset: 0}}/>
       <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>
@@ -162,5 +166,5 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
         </View>
       </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>
-  </View>;
+  </View></TVMusicFocus>;
 }
