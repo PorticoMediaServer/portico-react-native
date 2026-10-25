@@ -103,3 +103,22 @@ test('adding an authorized saved view is a draft until Save and refuses retired 
   assert.deepEqual(writes, [{order: ['continue', 'recommended', 'recent', 'view:view/resource'], hidden: [], revision: 7}]);
   controller.dispose();
 });
+
+test('the TV add-saved-view panel returns with the new row held so it moves at once', async () => {
+  const view: PersonalResource = {serverId: 'server', viewerFence: 'saved-domain-fence', id: 'view/resource', kind: 'view', name: 'Actual saved name', summary: 'Actual stored summary',
+    visibility: 'private', revision: 5, role: 'owner', entryCount: 4, actions: ['pin'], status: 'ready', invalidComponents: [], pinned: false, pinRevision: 2, shares: [],
+    definition: {libraryId: 'library', pivot: 'movies', query: null, sort: [{field: 'title', direction: 'asc'}], presentation: 'grid'}};
+  const controller = new NativeHomeCustomizeController({current: () => true, requestId: async () => 'request', savedViews: {serverId: 'server', isCurrent: candidate => candidate === view}, home: {
+    loadLayout: async () => layout(), resetLayout: async () => {}, saveLayout: async () => layout(),
+  }});
+  await controller.load();
+  assert.equal(controller.addSavedView(view, true), true);
+  assert.equal(controller.getSnapshot().rows.at(-1)?.id, 'view:view/resource');
+  assert.equal(controller.getSnapshot().pickedId, 'view:view/resource', 'frame 29 holds the new row');
+  assert.equal(controller.move(-1), true, 'the held row moves without a second pick-up');
+  assert.deepEqual(controller.getSnapshot().rows.map(row => row.id), ['continue', 'recommended', 'view:view/resource', 'recent']);
+  assert.equal(controller.cancelPickup(), true);
+  assert.equal(controller.getSnapshot().pickedId, undefined);
+  assert.equal(controller.getSnapshot().rows.at(-1)?.id, 'view:view/resource', 'Back restores the added row at the end');
+  controller.dispose();
+});
