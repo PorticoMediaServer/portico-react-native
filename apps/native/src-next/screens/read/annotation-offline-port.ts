@@ -1,7 +1,7 @@
 import {ReadingError, type ReadingHostSession} from '../../../../../packages/client-core/src';
 import {captureReadingAnnotationMutation, type ReadingAnnotationContent, type ReadingAnnotationMutation, type ReadingAnnotationPort} from '../../../../../packages/client-core/src/reading-annotations';
 import {validateReadingLocation} from '../../../../../packages/client-core/src/reading';
-import type {NativeAnnotationJournal, NativeAnnotationIdentity, NativeAnnotationSource} from './annotation-journal';
+import {nativeAnnotationFingerprint, type NativeAnnotationJournal, type NativeAnnotationIdentity, type NativeAnnotationSource} from './annotation-journal';
 
 /** Offline annotation authoring for one downloaded publication (P1-READ-OFFLINE-ANNOTATION-SYNC).
  *
@@ -61,15 +61,19 @@ export function nativeOfflineAnnotationSession(options: Readonly<{
     check(signal);
     const group = observed?.groups.find(value => value.source.itemId === source.itemId && value.source.sourceId === source.sourceId
       && value.source.sourceRevision === source.sourceRevision);
+    const cached = group?.cache?.entries.find(entry => entry.id === captured.id);
     const revision = await journal.localMutate(identity, source, {
       id: captured.id,
       delete: captured.operation === 'delete',
       ...(captured.operation === 'delete' ? {} : {content: content(captured)}),
       observedAt: now(),
-      // The server base this edit is really based on; 0 means it exists only locally and the
-      // operation has never been attempted, so an absent entry later still proves nothing was sent.
+      // The captured server base: its revision, the exact entry identity (not a timestamp) and
+      // that the cache was the whole set, so an absent id is evidence and an unchanged one is
+      // proven by content. 0 means it exists only locally and was never put on the wire.
       baseRevision: group?.cache?.revision ?? 0,
-      baseUpdatedAt: group?.cache?.entries.find(entry => entry.id === captured.id)?.updatedAt ?? 0,
+      baseUpdatedAt: cached ? 1 : 0,
+      ...(cached ? {baseFingerprint: nativeAnnotationFingerprint(cached)} : {}),
+      baseComplete: group?.cache?.complete === true,
     }, captured.expectedRevision, guard, signal);
     if (signal?.aborted || !fresh()) throw new ReadingError('cancelled'); // Queued privately, never reported as saved.
     onQueued?.();

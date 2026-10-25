@@ -3,7 +3,7 @@ import type {ReadingAnnotation} from '../../../../../packages/client-core/src/re
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {
-  NativeAnnotationJournal, nativeAnnotationJournalCounts, nativeAnnotationIdentity,
+  NativeAnnotationJournal, nativeAnnotationFingerprint, nativeAnnotationJournalCounts, nativeAnnotationIdentity,
   type NativeAnnotationGroup, type NativeAnnotationIdentity, type NativeAnnotationOperation, type NativeAnnotationResolution,
   type NativeAnnotationUnresolved,
 } from './annotation-journal';
@@ -46,30 +46,39 @@ function sameAnnotation(entry: ReadingAnnotation, content: NativeAnnotationOpera
     && rect.width === wanted[index]!.width && rect.height === wanted[index]!.height);
 }
 
-/** Union by id, last edit wins, with absence treated conservatively:
- * - a lost-ack create is only re-applied when the server set has not advanced since its base;
- * - once the set advanced, an absent id could be our committed create that another device
- *   deleted, so it stays unresolved rather than being reminted under a fresh CAS;
- * - a delete is satisfied by absence (it cannot resurrect anything);
- * - a present entry applies only while it is still exactly the base this edit saw. */
+/** Union by id, last edit wins, proven by content identity and the captured base:
+ * - a present entry applies only when its fingerprint still equals the captured base (or no
+ *   set write happened since the base); a timestamp inequality is never used as identity;
+ * - an absent create applies only when it was never put on the wire with a complete base, or
+ *   when the set did not advance after an attempt (an accepted-then-deleted create is not
+ *   distinguishable then, so it stays unresolved);
+ * - an absent update is a deletion elsewhere and stays unresolved;
+ * - a delete is satisfied by absence and otherwise needs the captured base fingerprint. */
 export function nativeAnnotationDecision(state: PageState, operation: NativeAnnotationOperation): Decision {
   const entry = state.entries.find(value => value.id === operation.id);
+  const current = entry ? nativeAnnotationFingerprint(entry) : undefined;
   if (operation.delete) {
     if (!entry) return {kind: 'resolved'};
-    return entry.updatedAt > operation.baseUpdatedAt ? {kind: 'unresolved', reason: 'server-newer'} : {kind: 'apply'};
+    if (operation.baseFingerprint !== undefined) return current === operation.baseFingerprint ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
+    return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'conflict'};
   }
   if (!operation.content) return {kind: 'resolved'};
+  const wanted = nativeAnnotationFingerprint(operation.content);
   if (state.revision < operation.baseRevision) return {kind: 'unresolved', reason: 'conflict'};
   if (!entry) {
     if (operation.baseUpdatedAt > 0) return {kind: 'unresolved', reason: 'deleted-elsewhere'};
-    // A create that was never put on the wire can only be a fresh, unique id, so absence is
-    // safe. Once attempted, absence after the set advanced may be our own accepted create
-    // that another device deleted; re-creating it would resurrect a real deletion.
-    if (operation.attempted !== true) return {kind: 'apply'};
+    if (operation.attempted === true) {
+      // The set did not advance after the attempt, so the server never accepted it.
+      return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
+    }
+    // Never sent: a client id cannot exist elsewhere, and with an unchanged set the absence
+    // is the base we captured. A complete base makes that true at any later revision.
+    if (operation.baseComplete === true) return {kind: 'apply'};
     return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'deleted-elsewhere'};
   }
-  if (sameAnnotation(entry, operation.content)) return {kind: 'resolved'};
-  return entry.updatedAt > operation.baseUpdatedAt ? {kind: 'unresolved', reason: 'server-newer'} : {kind: 'apply'};
+  if (current === wanted) return {kind: 'resolved'}; // our own committed retry
+  if (operation.baseFingerprint !== undefined) return current === operation.baseFingerprint ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
+  return state.revision === operation.baseRevision ? {kind: 'apply'} : {kind: 'unresolved', reason: 'server-newer'};
 }
 
 export class NativeAnnotationSync {
@@ -163,8 +172,9 @@ export class NativeAnnotationSync {
           try {
             // Evidence first: if the answer is lost, the next pass must not assume the
             // entry was never created.
+            // No mutation may go on the wire without the durable evidence that it did.
             await this.journal.markAttempted(identity, group.source, [operation.id],
-              () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal).catch(() => {});
+              () => {if (!this.fresh(identity, life)) throw new ReadingError('cancelled');}, signal);
             const saved = await session.mutateAnnotation(mutation, signal);
             if (saved.revision !== state.revision + 1) throw new ReadingError('invalid_document');
             state = await this.pages(session, signal);

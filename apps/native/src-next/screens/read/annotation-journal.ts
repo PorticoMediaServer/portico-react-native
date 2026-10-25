@@ -49,8 +49,14 @@ export type NativeAnnotationOperation = Readonly<{
   observedAt: number;
   /** The server annotation-set revision this edit was made against. */
   baseRevision: number;
-  /** The server's `updatedAt` for this id at that base; 0 when it did not exist. */
+  /** Whether the id existed in the captured base; 0 means it did not. The merge no longer uses
+   * a timestamp as identity — the captured fingerprint below is the evidence. */
   baseUpdatedAt: number;
+  /** The exact captured base content, so an unchanged entry is proven by identity, not by
+   * a timestamp that can tie across distinct writes. Absent on records queued before the fix. */
+  baseFingerprint?: string;
+  /** The base page was the whole server set at `baseRevision`; absence is only evidence when true. */
+  baseComplete?: boolean;
   /** A mutation for this operation was actually put on the wire at least once. After an
    * attempt, an absent entry no longer proves the operation was never created. */
   attempted?: boolean;
@@ -116,28 +122,66 @@ const legacyJournalKey = (identity: NativeAnnotationIdentity): string => {
 export const nativeAnnotationIdentity = (viewer: LocalSession['viewer']): NativeAnnotationIdentity =>
   Object.freeze({serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId});
 
-function annotationContent(raw: unknown): ReadingAnnotationContent {
-  if (!object(raw) || typeof raw.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.id) || (raw.kind !== 'bookmark' && raw.kind !== 'highlight')
-    || !text(raw.text, 8192) || !text(raw.note, 4096) || (raw.colour !== '' && raw.colour !== 'yellow' && raw.colour !== 'green' && raw.colour !== 'blue' && raw.colour !== 'pink')
-    || !object(raw.location)) throw new Error('native_annotation_journal_invalid');
-  return raw as ReadingAnnotationContent;
+const annotationId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
+function rectValue(raw: unknown) {
+  if (!object(raw)) throw new Error('native_annotation_journal_invalid');
+  const {x, y, width, height} = raw;
+  if (![x, y, width, height].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1)
+    || (width as number) <= 0 || (height as number) <= 0 || (x as number) + (width as number) > 1 || (y as number) + (height as number) > 1)
+    throw new Error('native_annotation_journal_invalid');
+  return Object.freeze({x: x as number, y: y as number, width: width as number, height: height as number});
 }
-function annotationEntry(raw: unknown): ReadingAnnotation {
+/** Rebuild the canonical immutable content; never cast a stored object. */
+function annotationContent(raw: unknown): ReadingAnnotationContent {
+  if (!object(raw) || !annotationId(raw.id) || (raw.kind !== 'bookmark' && raw.kind !== 'highlight')
+    || !text(raw.text, 8192) || !text(raw.note, 4096)
+    || !['', 'yellow', 'green', 'blue', 'pink'].includes(raw.colour as string) || !object(raw.location)) throw new Error('native_annotation_journal_invalid');
+  const l = raw.location, kind = raw.kind;
+  if (typeof l.progression !== 'number' || !Number.isFinite(l.progression) || l.progression < 0 || l.progression > 1) throw new Error('native_annotation_journal_invalid');
+  let location: ReadingAnnotationContent['location'];
+  if (l.format === 'epub') {
+    if (typeof l.cfi !== 'string' || !l.cfi.startsWith('epubcfi(/') || !l.cfi.endsWith(')') || new TextEncoder().encode(l.cfi).length > 4096
+      || l.pageIndex !== undefined || l.section !== undefined && !text(l.section, 1024)) throw new Error('native_annotation_journal_invalid');
+    location = Object.freeze({format: 'epub', cfi: l.cfi, progression: l.progression, ...(l.section === undefined ? {} : {section: l.section})});
+  } else if (l.format === 'pdf' || l.format === 'cbz') {
+    if (!integer(l.pageIndex, 1_000_000) || l.cfi !== undefined || l.section !== undefined) throw new Error('native_annotation_journal_invalid');
+    location = Object.freeze({format: l.format, pageIndex: l.pageIndex, progression: l.progression});
+  } else throw new Error('native_annotation_journal_invalid');
+  const rects: ReturnType<typeof rectValue>[] = [];
+  if (raw.rects !== undefined) {
+    if (!Array.isArray(raw.rects) || raw.rects.length > 128) throw new Error('native_annotation_journal_invalid');
+    for (const rect of raw.rects) rects.push(rectValue(rect));
+  }
+  const bad = kind === 'bookmark'
+    ? raw.text !== '' || raw.colour !== '' || rects.length > 0
+    : raw.colour === '' || rects.length > 0 && location.format !== 'pdf' || location.format === 'pdf' && rects.length === 0;
+  if (bad) throw new Error('native_annotation_journal_invalid');
+  return Object.freeze({id: raw.id, kind, location, text: raw.text, note: raw.note, colour: raw.colour as ReadingAnnotationContent['colour'],
+    ...(rects.length ? {rects: Object.freeze(rects)} : {})});
+}
+function annotationEntry(raw: unknown, sourceFormat: NativeAnnotationFormat): ReadingAnnotation {
   if (!object(raw) || !integer(raw.createdAt) || !integer(raw.updatedAt) || raw.updatedAt < raw.createdAt) throw new Error('native_annotation_journal_invalid');
-  return Object.freeze({...annotationContent(raw), createdAt: raw.createdAt, updatedAt: raw.updatedAt});
+  const content = annotationContent(raw);
+  if (content.location.format !== sourceFormat) throw new Error('native_annotation_journal_invalid');
+  return Object.freeze({...content, createdAt: raw.createdAt, updatedAt: raw.updatedAt});
 }
 function operation(raw: unknown): NativeAnnotationOperation {
   if (!object(raw) || typeof raw.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(raw.id) || typeof raw.delete !== 'boolean'
     || !integer(raw.observedAt) || !integer(raw.baseRevision) || !integer(raw.baseUpdatedAt)
     || raw.attempted !== undefined && typeof raw.attempted !== 'boolean'
+    || raw.baseFingerprint !== undefined && (typeof raw.baseFingerprint !== 'string' || !/^[0-9a-f]{16}$/.test(raw.baseFingerprint))
+    || raw.baseComplete !== undefined && typeof raw.baseComplete !== 'boolean'
     || raw.unresolved !== undefined && !reason(raw.unresolved)) throw new Error('native_annotation_journal_invalid');
+  const content = raw.delete ? undefined : annotationContent(raw.content);
+  if (content && content.id !== raw.id) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({id: raw.id, delete: raw.delete, observedAt: raw.observedAt, baseRevision: raw.baseRevision, baseUpdatedAt: raw.baseUpdatedAt,
-    ...(raw.attempted === true ? {attempted: true} : {}), ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}),
-    ...(raw.delete ? {} : {content: annotationContent(raw.content)})});
+    ...(raw.attempted === true ? {attempted: true} : {}), ...(raw.baseFingerprint === undefined ? {} : {baseFingerprint: raw.baseFingerprint}),
+    ...(raw.baseComplete === undefined ? {} : {baseComplete: raw.baseComplete}),
+    ...(raw.unresolved === undefined ? {} : {unresolved: raw.unresolved}), ...(content ? {content} : {})});
 }
-function cacheValue(raw: unknown): NativeAnnotationCache {
+function cacheValue(raw: unknown, sourceFormat: NativeAnnotationFormat): NativeAnnotationCache {
   if (!object(raw) || raw.complete !== true || !integer(raw.revision) || !Array.isArray(raw.entries) || raw.entries.length > MAX_CACHE_ENTRIES) throw new Error('native_annotation_journal_invalid');
-  const entries = raw.entries.map(annotationEntry);
+  const entries = raw.entries.map(entry => annotationEntry(entry, sourceFormat));
   if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({revision: raw.revision, entries: Object.freeze(entries), complete: true});
 }
@@ -150,13 +194,16 @@ function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotat
   if (!sameIdentity(raw.identity as NativeAnnotationIdentity, identity)) throw new Error('native_annotation_journal_foreign_profile');
   const groups = raw.groups.map(group => {
     if (!object(group) || !object(group.source) || !Array.isArray(group.operations) || typeof group.source.itemId !== 'string'
-      || typeof group.source.sourceId !== 'string' || typeof group.source.sourceRevision !== 'string' || !format(group.source.format)
+      || typeof group.source.sourceId !== 'string' || typeof group.source.sourceRevision !== 'string'
       || group.localRevision !== undefined && !integer(group.localRevision)) throw new Error('native_annotation_journal_invalid');
+    const sourceFormat = group.source.format;
+    if (!format(sourceFormat)) throw new Error('native_annotation_journal_invalid');
     const operations = group.operations.map(operation);
     if (new Set(operations.map(value => value.id)).size !== operations.length) throw new Error('native_annotation_journal_invalid');
-    const cache = group.cache === undefined ? {} : {cache: cacheValue(group.cache)};
+    for (const value of operations) if (value.content && value.content.location.format !== sourceFormat) throw new Error('native_annotation_journal_invalid');
+    const cache = group.cache === undefined ? {} : {cache: cacheValue(group.cache, sourceFormat)};
     return Object.freeze({source: Object.freeze({itemId: group.source.itemId, sourceId: group.source.sourceId,
-      sourceRevision: group.source.sourceRevision, format: group.source.format}), operations: Object.freeze(operations),
+      sourceRevision: group.source.sourceRevision, format: sourceFormat}), operations: Object.freeze(operations),
       localRevision: (group.localRevision as number | undefined) ?? 0, ...cache});
   });
   const total = groups.reduce((sum, group) => sum + group.operations.length, 0);
@@ -358,7 +405,11 @@ export class NativeAnnotationJournal {
 
   private async add(identity: NativeAnnotationIdentity, source: NativeAnnotationSource, next: Omit<NativeAnnotationOperation, 'unresolved'>,
     assert: (() => void) | undefined, signal: AbortSignal | undefined, bump: boolean, expectLocal?: number): Promise<number> {
-    if (!integer(next.observedAt) || !integer(next.baseRevision) || !integer(next.baseUpdatedAt)) throw new Error('native_annotation_journal_invalid');
+    if (!integer(next.observedAt) || !integer(next.baseRevision) || !integer(next.baseUpdatedAt)
+      || next.baseFingerprint !== undefined && !/^[0-9a-f]{16}$/.test(next.baseFingerprint)
+      || next.baseComplete !== undefined && typeof next.baseComplete !== 'boolean'
+      || next.attempted !== undefined && typeof next.attempted !== 'boolean') throw new Error('native_annotation_journal_invalid');
+    if (!next.delete && annotationContent(next.content).id !== next.id) throw new Error('native_annotation_journal_invalid');
     const operation: NativeAnnotationOperation = next.delete
       ? Object.freeze({id: next.id, delete: true, observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt})
       : Object.freeze({id: next.id, delete: false, content: annotationContent(next.content), observedAt: next.observedAt, baseRevision: next.baseRevision, baseUpdatedAt: next.baseUpdatedAt});
@@ -374,7 +425,9 @@ export class NativeAnnotationJournal {
       const previous = existing?.operations.find(value => value.id === operation.id);
       const merged: NativeAnnotationOperation = previous
         ? Object.freeze({...operation, baseRevision: previous.baseRevision, baseUpdatedAt: previous.baseUpdatedAt,
-            ...(previous.attempted === true ? {attempted: true} : {})})
+            ...(previous.attempted === true ? {attempted: true} : {}),
+            ...(previous.baseFingerprint !== undefined ? {baseFingerprint: previous.baseFingerprint} : {}),
+            ...(previous.baseComplete !== undefined ? {baseComplete: previous.baseComplete} : {})})
         : operation;
       if (at < 0 && groups.length >= MAX_JOURNAL_GROUPS) {
         const spare = groups.findIndex(value => value.operations.length === 0 && value.cache !== undefined);
@@ -400,6 +453,22 @@ export class NativeAnnotationJournal {
     }, assert, signal);
     return revision;
   }
+}
+
+/** Identity of an annotation's content at a moment: merge decisions compare this, never a
+ * timestamp that can tie across distinct writes. */
+export function nativeAnnotationFingerprint(content: ReadingAnnotationContent): string {
+  const rects = (content.rects ?? []).map(rect => [rect.x, rect.y, rect.width, rect.height]);
+  const canonical = JSON.stringify([content.id, content.kind, content.location.format,
+    content.location.format === 'epub' ? [content.location.cfi, content.location.section ?? ''] : content.location.pageIndex,
+    content.location.progression, content.text, content.note, content.colour, rects]);
+  let a = 0x811c9dc5, b = 0x85ebca6b;
+  for (let index = 0; index < canonical.length; index++) {
+    const code = canonical.charCodeAt(index);
+    a = Math.imul(a ^ code, 0x01000193) >>> 0;
+    b = Math.imul(b ^ (code + 0x9e3779b9), 0x01000193) >>> 0;
+  }
+  return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
 }
 
 /** The local view: the complete cached server set overlaid with this device's queued edits.
