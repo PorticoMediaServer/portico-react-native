@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {playerControlsRevealDeadline, resolvePlayerPresentation, type PlayerFold, type PlayerPresentationInput} from '../src-next/platform/layout/player-presentation.ts';
+import {letterboxPlayerPicture, playerControlsRevealDeadline, resolvePlayerPresentation, type PlayerFold, type PlayerPresentationInput} from '../src-next/platform/layout/player-presentation.ts';
 import {createPlatformPostureStore, type PlatformPostureSnapshot} from '../src-next/platform/platformPostureStore.ts';
 
 // Geometry assertions do not establish device continuity or frame fidelity.
@@ -67,8 +67,18 @@ test('full-window panels take the exact right page or tablet-play380pt beside th
   const tablet = resolvePlayerPresentation({...input(1180, 820), panelOpen: true})!;
   assert.deepEqual(tablet.panel, {x: 800, y: 0, width: 380, height: 820});
   assert.deepEqual(tablet.picture, {x: 0, y: 185, width: 800, height: 450});
-  const medium = resolvePlayerPresentation({...input(626, 400), panelOpen: true})!;
-  assert.equal(medium.panel!.width, 380);
+});
+
+test('phone-player3 floats its side panel over the whole picture instead of re-cropping it', () => {
+  for (const [width, height] of [[844, 390], [890, 626], [626, 400]]) {
+    const p = resolvePlayerPresentation({...input(width!, height!), panelOpen: true})!;
+    assert.equal(p.mode, 'full-window');
+    assert.deepEqual(p.surface, {x: 0, y: 0, width: width!, height: height!}, 'the picture keeps playing across the whole window');
+    assert.deepEqual(p.picture, letterboxPlayerPicture({x: 0, y: 0, width: width!, height: height!}));
+    assert.deepEqual(p.panel, {x: width! - 408, y: 12, width: 356, height: height! - 24}, '52 in from the right edge,12 top and bottom');
+    assert.equal(p.controlsHidden, true);
+    assert.equal(p.controls, undefined);
+  }
 });
 
 test('3f keeps the docked state and measured-slot authority through every posture', () => {
