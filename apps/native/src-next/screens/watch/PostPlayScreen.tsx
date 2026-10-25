@@ -24,9 +24,11 @@ export type NativeWatchPostPlayProps = Readonly<{
   onClose: () => void;
   onOpen: (entry: ContentEntry) => void;
   reportError: (error: unknown) => void;
+  /** Phone geometry (phone-player 6): facts left, 85-wide cards right. */
+  compact?: boolean;
 }>;
 
-export function NativeWatchPostPlay({entry, api, scope, requestId, current, artwork, onReplay, onClose, onOpen, reportError}: NativeWatchPostPlayProps) {
+export function NativeWatchPostPlay({entry, api, scope, requestId, current, artwork, onReplay, onClose, onOpen, reportError, compact = false}: NativeWatchPostPlayProps) {
   const theme = useTheme(), t = defaultI18n.t;
   const service = useMemo(() => new DetailService({api, scope, requestId}), [api, scope, requestId]);
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot);
@@ -52,38 +54,43 @@ export function NativeWatchPostPlay({entry, api, scope, requestId, current, artw
       <LinearGradient id="post-scrim" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor="#071018" stopOpacity={.94}/><Stop offset=".55" stopColor="#071018" stopOpacity={.55}/><Stop offset="1" stopColor="#071018" stopOpacity={.2}/></LinearGradient>
       <LinearGradient id="post-foot" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#071018" stopOpacity={.95}/><Stop offset="1" stopColor="#071018" stopOpacity={0}/></LinearGradient>
     </Defs><Rect width="100%" height="100%" fill="url(#post-scrim)"/><Rect width="100%" height="100%" fill="url(#post-foot)"/></Svg>
-    <FocusRegion id="watch-post" orientation="vertical" entry="watch-post-replay" style={{position: 'absolute', left: 96, top: 84, width: 1000}}>
-      <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 24, fontWeight: '600', marginBottom: 16, color: theme.colors.textSecondary}}>{t('player.post.finished')}</Text>
-      <Text numberOfLines={2} style={{fontFamily: 'Manrope-ExtraBold', fontSize: 120, lineHeight: 120, fontWeight: '800', letterSpacing: -3.6, marginBottom: 22, color: theme.colors.text}}>{entry.displayTitle ?? entry.title}</Text>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 26, marginBottom: 18}}>
-        {entry.year !== undefined && <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 24, fontWeight: '800', color: theme.colors.text}}>{defaultI18n.number(entry.year, {useGrouping: false})}</Text>}
-        {runtime && <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 24, fontWeight: '600', color: theme.colors.textSecondary}}>{runtime}</Text>}
+    <FocusRegion id="watch-post" orientation="vertical" entry="watch-post-replay" style={compact
+      ? {position: 'absolute', left: 60, width: 330, top: 0, bottom: 0, justifyContent: 'center'}
+      : {position: 'absolute', left: 96, top: 84, width: 1000}}>
+      <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13.5 : 24, fontWeight: '700', marginBottom: compact ? 0 : 16, color: compact ? theme.colors.textTertiary : theme.colors.textSecondary}}>{t('player.post.finished')}</Text>
+      <Text numberOfLines={2} style={{fontFamily: 'Manrope-ExtraBold', fontSize: compact ? 44 : 120, lineHeight: compact ? 43 : 120, fontWeight: '800',
+        letterSpacing: compact ? -.045 : -3.6, marginTop: compact ? 6 : 0, marginBottom: compact ? 10 : 22, color: theme.colors.text}}>{entry.displayTitle ?? entry.title}</Text>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: compact ? 12 : 26, marginBottom: compact ? 14 : 18}}>
+        {entry.year !== undefined && <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: compact ? 13 : 24, fontWeight: '800', color: theme.colors.text}}>{defaultI18n.number(entry.year, {useGrouping: false})}</Text>}
+        {runtime && <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 24, fontWeight: '600', color: theme.colors.textSecondary}}>{runtime}</Text>}
       </View>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 18}}>
-        <Button focusId="watch-post-replay" testID="watch-post-replay" variant="primary" size="hero" hasTVPreferredFocus icon="i-replay" onPress={onReplay}>{t('player.post.replay')}</Button>
-        <Button focusId="watch-post-close" testID="watch-post-close" variant="glass" size="hero" onPress={onClose}>{t('player.post.close')}</Button>
-      </View>
-      {detail && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 30}}>
-        <Text style={{fontFamily: 'Manrope-Bold', fontSize: 22, fontWeight: '700', marginRight: 10, color: theme.colors.textTertiary}}>{t('player.rateThis')}</Text>
+      {detail && <View style={{flexDirection: 'row', alignItems: 'center', gap: compact ? 0 : 12, marginBottom: compact ? 16 : 0, marginTop: compact ? 0 : 30}}>
+        <Text style={{fontFamily: 'Manrope-Bold', fontSize: compact ? 13.5 : 22, fontWeight: '700', marginRight: compact ? 2 : 10, color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.rateThis')}</Text>
         {[1, 2, 3, 4, 5].map(star => <Focusable key={star} focusId={`watch-post-star-${star}`} testID={`watch-post-star-${star}`} accessibilityRole="button" accessibilityLabel={t('player.rated', {stars: star})}
           accessibilityState={{selected: star <= stars}} onPress={() => rate(star === stars ? null : star * 2)}
-          style={{width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: star <= stars ? 'rgba(92,179,226,.22)' : 'rgba(237,245,250,.1)'}}>
-          <Icon name={star <= stars ? 'i-star-f' : 'i-star'} size={28} color={star <= stars ? theme.colors.accentStrong : theme.colors.textSecondary}/>
+          style={{width: compact ? 32 : 56, height: compact ? 32 : 56, borderRadius: compact ? 8 : 28, alignItems: 'center', justifyContent: 'center', backgroundColor: star <= stars ? 'rgba(92,179,226,.22)' : compact ? 'transparent' : 'rgba(237,245,250,.1)'}}>
+          <Icon name={star <= stars ? 'i-star-f' : 'i-star'} size={compact ? 22 : 28} color={star <= stars ? theme.colors.accentStrong : compact ? theme.colors.textTertiary : theme.colors.textSecondary}/>
         </Focusable>)}
       </View>}
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: compact ? 10 : 18}}>
+        <Button focusId="watch-post-replay" testID="watch-post-replay" variant="primary" size={compact ? 'compact' : 'hero'} hasTVPreferredFocus={!compact} icon="i-replay"
+          style={compact ? {height: 40, paddingHorizontal: 15, borderRadius: 10} : undefined} textStyle={compact ? {fontSize: 14.5, fontWeight: '700'} : undefined} onPress={onReplay}>{t('player.post.replay')}</Button>
+        <Button focusId="watch-post-close" testID="watch-post-close" variant="glass" size={compact ? 'compact' : 'hero'}
+          style={compact ? {height: 40, paddingHorizontal: 15, borderRadius: 10} : undefined} textStyle={compact ? {fontSize: 14.5, fontWeight: '700'} : undefined} onPress={onClose}>{t('player.post.close')}</Button>
+      </View>
     </FocusRegion>
-    {related.length > 0 && <View style={{position: 'absolute', left: 96, right: 96, top: 578}}>
-      <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 30, fontWeight: '800', marginBottom: 18, color: theme.colors.text}}>{t('player.moreLike', {title: entry.displayTitle ?? entry.title})}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 22}}>
+    {related.length > 0 && <View style={compact ? {position: 'absolute', right: 60, width: 370, top: 0, bottom: 0, justifyContent: 'center'} : {position: 'absolute', left: 96, right: 96, top: 578}}>
+      <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: compact ? 15 : 30, fontWeight: compact ? '700' : '800', marginBottom: compact ? 10 : 18, color: theme.colors.text}}>{t('player.moreLike', {title: entry.displayTitle ?? entry.title})}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: compact ? 10 : 22}}>
         <FocusRegion id="watch-post-related" orientation="horizontal" entry={`watch-post-related-${related[0]!.id}`}>
           {related.map(row => <Focusable key={row.id} focusId={`watch-post-related-${row.id}`} testID={`watch-post-related-${row.id}`} accessibilityRole="button" accessibilityLabel={row.title}
-            onPress={() => {if (current()) onOpen(row);}} style={{width: 184}}>
+            onPress={() => {if (current()) onOpen(row);}} style={{width: compact ? 85 : 184}}>
             {({focused}) => <>
-              <View style={{width: 184, height: 276, borderRadius: 12, overflow: 'hidden', backgroundColor: '#0b1822', ...(focused ? {borderWidth: 2, borderColor: theme.colors.focus} : {})}}>
-                <Artwork source={artwork(row.posterUrl)} width={184} height={276}/>
+              <View style={{width: compact ? 85 : 184, height: compact ? 128 : 276, borderRadius: compact ? 8 : 12, overflow: 'hidden', backgroundColor: '#0b1822', ...(focused ? {borderWidth: 2, borderColor: theme.colors.focus} : {})}}>
+                <Artwork source={artwork(row.posterUrl)} width={compact ? 85 : 184} height={compact ? 128 : 276}/>
               </View>
-              <Text numberOfLines={1} style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', marginTop: 10, color: focused ? theme.colors.accentStrong : theme.colors.text}}>{row.title}</Text>
-              {row.year !== undefined && <Text style={{fontFamily: 'Manrope-Medium', fontSize: 20, fontWeight: '500', color: theme.colors.textTertiary}}>{defaultI18n.number(row.year, {useGrouping: false})}</Text>}
+              <Text numberOfLines={1} style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 12 : 22, fontWeight: '600', marginTop: compact ? 7 : 10, color: focused ? theme.colors.accentStrong : theme.colors.text}}>{row.title}</Text>
+              {row.year !== undefined && <Text style={{fontFamily: 'Manrope-Medium', fontSize: compact ? 11.5 : 20, fontWeight: '500', color: theme.colors.textTertiary}}>{defaultI18n.number(row.year, {useGrouping: false})}</Text>}
             </>}
           </Focusable>)}
         </FocusRegion>

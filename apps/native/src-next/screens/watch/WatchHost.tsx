@@ -88,8 +88,10 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // Tabletop controls live below the actual top surface. In book mode edge
   // chrome avoids the crease while transport remains centred in its full pane.
   const chromePane = layout.mode === 'tabletop' ? layout.controls : layout.surface;
-  const postPlay = isTV && bindings.postPlay && !panelOpen && source.playback.phase === 'ended' && !(source.queue.view?.next.available === true)
-    ? bindings.postPlay(context) : undefined;
+  // A title with nothing queued ends on its own card, on the TV and in the phone's
+  // full-window player (phone-player 6); the upright watch page keeps its own page.
+  const postPlay = bindings.postPlay && !panelOpen && (isTV || layout.mode === 'full-window') && source.playback.phase === 'ended'
+    && !(source.queue.view?.next.available === true) ? bindings.postPlay(context) : undefined;
   const content = postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}

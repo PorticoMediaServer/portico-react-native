@@ -146,9 +146,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   });
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (current()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
-  const offered = visible && !state.panel && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
+  // A phone keeps offering Skip and Up next while its controls are down (phone-player 2 and 6).
+  const offered = (visible || !theme.isTV) && !state.panel && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
   const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
-  const visibleOffer = visible && !state.panel && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
+  const visibleOffer = (visible || !theme.isTV) && !state.panel && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
   const skipSegment = (marker: SegmentMarker) => {dismissed.current.add(marker.id); setNotice(undefined); if (current()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
   const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
@@ -207,7 +208,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // tv-player 3 / phone-player 2: the same prompt, notice and offer on a phone,
   // where the controls may be down and the note's line rides its bottom edge.
   const phone = !theme.isTV;
-  const skipOfferNode = !phone && visibleOffer && nextItem ? <NativeUpNextCard item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
+  const skipOfferNode = visibleOffer && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
     countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter} onPlayNow={() => act(playback.next)}
     onWatchCredits={() => {dismissedOffer.current = visibleOffer.id;}} onSkipCredits={() => {if (credits) skipSegment(credits);}}/> : undefined;
   const skipNoticeNode = notice ? <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 28, paddingLeft: phone ? 16 : 30, paddingRight: 6, paddingVertical: phone ? 6 : 16,

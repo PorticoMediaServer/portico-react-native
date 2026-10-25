@@ -122,7 +122,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       subtitleControls={fence => context.playback.subtitleControls?.(fence)} sleep={context.playback.setSleepTimer ? sleepPort() : undefined} style={stylePort()}
       reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo ?? (value => <NativePlaybackInfoPanel context={value} read={screens.readPlaybackInfo} renderError={bindings.title.renderError}/>)} episodes={bindings.episodes}/>,
     content: host => screens.watch.body(host),
-    postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId}
+    postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
       current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
       onClose={() => {if (current()) void context.playback.stop(host.fence).catch(host.runtime.reportError);}} onOpen={entry => {if (current()) bindings.title.navigate(entry);}}
       reportError={host.runtime.reportError}/> : null,
