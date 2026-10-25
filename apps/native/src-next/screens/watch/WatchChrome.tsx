@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
@@ -136,6 +136,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const focus = registry.capture();
   const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null), guideButton = useRef<View>(null);
   const liveGuide = useSyncExternalStore(props.liveGuide?.subscribe ?? noLiveGuideSubscription, props.liveGuide?.getSnapshot ?? emptyLiveGuide);
+  const miniRestoreProof = useMemo(() => props.liveGuide?.restoreProof(liveGuide) ?? (() => false), [props.liveGuide, liveGuide]);
   const miniReturn = useRef<{fence: PlaybackFence; current: () => boolean} | undefined>(undefined);
   const [landing, setLanding] = useState<number>(), [returnAt, setReturnAt] = useState(0), [now, setNow] = useState(() => Date.now());
   const fence = source.fence;
@@ -148,12 +149,12 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     const live = props.liveGuide?.getSnapshot();
     return current() && !(theme.isTV && live?.open && fence && sameFence(live.fence, fence));
   }, [current, theme.isTV, fence, props.liveGuide]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!miniOpen || !fence) return;
-    miniReturn.current = {fence, current: props.liveGuide?.restoreProof() ?? (() => false)};
+    miniReturn.current = {fence, current: miniRestoreProof};
     controls.holdOverlay(fence, true);
     return () => {controls.holdOverlay(fence, false);};
-  }, [miniOpen, fence, controls, props.liveGuide]);
+  }, [miniOpen, fence, controls, miniRestoreProof]);
   useEffect(() => {if (miniOpen && (!visible || state.panel)) props.liveGuide?.close(liveGuide);}, [miniOpen, visible, state.panel, props.liveGuide, liveGuide]);
   // tablet-play4: a swipe down on the picture minimises to the dock, the same
   // thing the chevron does. Taps, horizontal seeks and the equalizer keep
