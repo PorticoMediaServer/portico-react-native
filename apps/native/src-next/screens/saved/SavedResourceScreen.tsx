@@ -370,6 +370,11 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               <Button variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
             </View>}
           </View>
+          {/* collections.html 18's note: on a remote a row's own menu is where it moves or leaves. */}
+          {theme.isTV && isPlaylist && playlist?.actions.includes('remove') === true && playlist.actions.includes('reorder') === true && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: theme.gutter, paddingTop: 28}}>
+            <Icon name="i-hold" size={22} color={theme.colors.textTertiary}/>
+            <Text style={[browseType(theme, 22), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.saved.native.holdRowActions')}</Text>
+          </View>}
           {/* collections.html 20's note: what a TV cannot change lives on the other clients. */}
           {theme.isTV && resource?.kind === 'collection' && resource.role === 'owner' && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: theme.gutter, paddingTop: 28}}>
             <Icon name="i-info" size={22} color={theme.colors.textTertiary}/>

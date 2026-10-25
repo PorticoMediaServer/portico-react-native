@@ -103,7 +103,10 @@ function SavedTVPlaylistTile({card, runtime, onOpen}: {card: PlaylistCard; runti
 }
 
 function SavedTVCollectionTile({resource, runtime, onOpen}: {resource: PersonalResource; runtime: NativeShellRuntime; onOpen: () => void}) {
-  const theme = useTheme(), covers = (resource.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source), visibility = savedVisibility(resource, true);
+  const theme = useTheme(), covers = (resource.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source),
+    visibility = savedVisibility(resource, true),
+    // collections.html 16's tile says the shorter line; the page (20) keeps the fuller one.
+    visibilityText = visibility.id === 'server' ? t('next.saved.visibleToEveryone') : visibility.text;
   return <CardFrame testID={tileId('collections', resource.id)} focusId={tileId('collections', resource.id)} title={resource.name} width={236} onNavigate={onOpen}>
     {() => <View style={{width: 236}}>
       <View style={{width: 236, height: 236, borderRadius: 14, overflow: 'hidden'}}>
@@ -113,7 +116,7 @@ function SavedTVCollectionTile({resource, runtime, onOpen}: {resource: PersonalR
       {!!savedTitleCount(resource.entryCount) && <Text numberOfLines={1} style={[browseType(theme, 20), {color: theme.colors.textTertiary, marginTop: 3}]}>{savedTitleCount(resource.entryCount)}</Text>}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3}}>
         <Icon name={visibility.icon} size={18} color={visibility.strong ? theme.colors.accentStrong : theme.colors.textTertiary}/>
-        <Text numberOfLines={2} style={[browseType(theme, 20, visibility.strong ? 700 : 600), {color: visibility.strong ? theme.colors.accentStrong : theme.colors.textTertiary, flexShrink: 1}]}>{visibility.text}</Text>
+        <Text numberOfLines={2} style={[browseType(theme, 20, visibility.strong ? 700 : 600), {color: visibility.strong ? theme.colors.accentStrong : theme.colors.textTertiary, flexShrink: 1}]}>{visibilityText}</Text>
       </View>
     </View>}
   </CardFrame>;
@@ -134,6 +137,10 @@ function SavedTVViewTile({resource, libraries, runtime, onOpen}: {resource: Pers
         </View>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16}}>
           {!!library && <Text style={[browseType(theme, 20, 700), {color: theme.colors.accentStrong}]}>{library}</Text>}
+          {/* collections.html 17 draws the On Home mark beside the library the view reads. */}
+          {resource.onHome === true && <View style={{paddingVertical: 3, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1.5, borderColor: alpha(theme.colors.text, .28)}}>
+            <Text style={[browseType(theme, 20, 600), {color: theme.colors.text}]}>{t('next.saved.onHome')}</Text>
+          </View>}
         </View>
         {!!resource.summary && <Text numberOfLines={2} style={[browseType(theme, 22, 400, 0, 30.8), {color: theme.colors.textSecondary, marginTop: 6}]}>{resource.summary}</Text>}
         <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 'auto'}}>
@@ -141,6 +148,7 @@ function SavedTVViewTile({resource, libraries, runtime, onOpen}: {resource: Pers
             style={{borderRadius: square ? 6 : 6}} visible priority={index === 0}/>)}
           <View style={{marginLeft: 'auto', flexDirection: 'row', alignItems: 'baseline', gap: 6}}>
             <Text style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{savedTitleCount(resource.entryCount)}</Text>
+            {!!savedTitleCount(resource.entryCount) && <Text style={[browseType(theme, 20, 500), {color: theme.colors.textTertiary}]}>{t('next.saved.rightNow')}</Text>}
           </View>
         </View>
       </View>
