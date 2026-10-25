@@ -79,29 +79,37 @@ export function TVNoServers(props: Props) {
     <ColourBackdrop shape="top"/>
     {joining ? <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingTop: 64, paddingLeft: 200, paddingRight: 96, paddingBottom: 64, gap: 28}}>
       <Button variant="text" disabled={props.busy} onPress={back} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>
+      {/* Frame 36: the ready eyebrow stays, then the invitation's own title and lede at 96. */}
       <View style={{gap: 12}}>
-        <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('services.start.ready')}</Text>
-        <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t('services.start.join')}</Text>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.directJoin.entryBody')}</Text>
+        <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong}]}>{t('services.start.ready')}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 72, lineHeight: 72, weight: 800, tracking: -.045}, theme.textScale), {color: theme.colors.text}]}>{t('accounts.invitation.tvTitle')}</Text>
+        <Text style={[nativeType({size: 26, lineHeight: 37.7, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, maxWidth: 1000}]}>{t('accounts.invitation.tvLede')}</Text>
         {noticeView}
         {props.error}
       </View>
-      <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join']} style={{maxWidth: 1100, gap: 20}}>
-        <TextField focusId="address" label={t('accounts.signIn.address')} value={address} onFocus={() => {if (current()) setField('address');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false}
-          onChangeText={value => {if (owns()) setAddress(value);}}/>
-        <TextField focusId="invitation" label={t('services.start.invitation')} value={invitation} onFocus={() => {if (current()) setField('invitation');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false} autoComplete="off"
-          onChangeText={value => {if (owns()) setInvitation(value);}}/>
-        <NativeTVKeyboard id={`accounts.empty.keyboard.${field}`} value={field === 'address' ? address : invitation}
-          rows={field === 'address' ? addressKeys : invitationKeys} columns={9} width={860} lead={field === 'invitation' ? '0' : undefined} leftRegionId="accounts.empty.fields"
-          // The typed field owns the odd ticket; a completed pending run moves both kinds on.
-          activation={{visible: current() && !props.busy, intent: 'enter', revision: entryRevision * 2 + (field === 'address' ? 0 : 1)}}
-          onChangeText={value => {if (owns()) {if (field === 'address') setAddress(value); else setInvitation(value);}}}/>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.whereBody')}</Text>
-        <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}}>{t('services.start.joinAction')}</Button>
-      </FocusRegion>
-      <View style={{flexDirection: 'row', gap: 24}}>
-        <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
-        <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
+      <View style={{flexDirection: 'row', gap: 100, alignItems: 'flex-start'}}>
+        <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join']} style={{width: 860, gap: 20}}>
+          <TextField focusId="address" label={t('accounts.signIn.address')} value={address} onFocus={() => {if (current()) setField('address');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false}
+            onChangeText={value => {if (owns()) setAddress(value);}}/>
+          <TextField focusId="invitation" label={t('services.start.invitation')} value={invitation} onFocus={() => {if (current()) setField('invitation');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false} autoComplete="off"
+            onChangeText={value => {if (owns()) setInvitation(value);}}/>
+          <NativeTVKeyboard id={`accounts.empty.keyboard.${field}`} value={field === 'address' ? address : invitation}
+            rows={field === 'address' ? addressKeys : invitationKeys} columns={9} width={860} lead={field === 'invitation' ? '0' : undefined} leftRegionId="accounts.empty.fields"
+            // The typed field owns the odd ticket; a completed pending run moves both kinds on.
+            activation={{visible: current() && !props.busy, intent: 'enter', revision: entryRevision * 2 + (field === 'address' ? 0 : 1)}}
+            onChangeText={value => {if (owns()) {if (field === 'address') setAddress(value); else setInvitation(value);}}}/>
+          <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}}>{t('services.start.joinAction')}</Button>
+          <View style={{flexDirection: 'row', gap: 24}}>
+            <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
+            <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
+          </View>
+        </FocusRegion>
+      {/* Frame 36 puts the code help in its own column at 1160, clear of the 860 keyboard. */}
+      <View style={{width: 664, gap: 18}}>
+        <Text accessibilityRole="header" style={[nativeType({size: 36, lineHeight: 'normal', weight: 800, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t('accounts.invitation.tvCodeHelpTitle')}</Text>
+        <Text style={[nativeType({size: 24, lineHeight: 36, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('accounts.invitation.tvCodeHelpBody')}</Text>
+        <Text style={[nativeType({size: 24, lineHeight: 36, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('accounts.invitation.tvCodeHelpPhone')}</Text>
+      </View>
       </View>
     </ScrollView> : <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
