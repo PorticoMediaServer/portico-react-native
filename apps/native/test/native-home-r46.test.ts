@@ -106,7 +106,7 @@ test('the confirmed Appearance card size and backdrop switch reach the drawn Hom
 });
 
 test('a row with nothing under its heading is not drawn at all', async () => {
-  const entry = {id: 'new-movie', libraryId: 'movies', kind: 'movie', title: 'Toy Story 5', playback: {itemId: 'new-movie'}};
+  const entry: ContentEntry = {id: 'new-movie', libraryId: 'movies', kind: 'movie', title: 'Toy Story 5', playback: {itemId: 'new-movie'}};
   const rowDefaults = {viewerFence: 'viewer', endpoint: '/home', privacySensitivity: 'viewer', policyState: 'allowed', priority: 0, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false, total: 0, start: 0, limit: 20, hasMore: false, revision: {catalog: 1, viewer: 1}, nextCursor: ''};
   const rows: HomeRow[] = [
     {...rowDefaults, id: 'continue', kind: 'continue', artworkShape: 'landscape', title: 'Continue Watching', entries: [], nextCursor: ''},
