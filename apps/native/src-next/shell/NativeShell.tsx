@@ -44,6 +44,11 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
   const lastOpenedLibrary = useRef<string | undefined>(undefined);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
+  // A mounted page state may dim the rail while its own copy is the only thing to read. The
+  // lease is the caller's own object, so a stale release can never clear a successor's lease.
+  const [railDim, setRailDim] = useState<Readonly<{retired: boolean}>>();
+  const holdRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(lease), []);
+  const releaseRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(current => current === lease ? undefined : current), []);
   const [homeScrolled, setHomeScrolled] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const sidebarRevision = useRef(0);
@@ -161,13 +166,13 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const notifications = snapshot.account.actions.find(action => action.id === 'notifications');
   const content = <>
     <Animated.View style={[{flex: 1}, sideNavigation ? {paddingLeft: sideWidth} : null, pageStyle]}>
-      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled}/>
+      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled} holdRailDim={holdRailDim} releaseRailDim={releaseRailDim}/>
         : <View style={{flex: 1, paddingBottom: pageBottom}}>
           {runtime.renderDestination(destination, openLibrary)}
         </View>}
     </Animated.View>
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
-    {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
+    {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} dimmed={destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !!railDim && !railDim.retired} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
         {sideNavigation && <MediumRail expanded={layout.kind === 'desktop' && sidebarExpanded} onToggle={layout.kind === 'desktop' ? toggleSidebar : undefined} serverName={snapshot.serverName} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}

@@ -15,10 +15,10 @@ import {useMotion} from '../kit/useMotion';
 import {libraryIcon, visibleLibraries, type ShellAuthority, type ShellDestination} from './model';
 
 type RailEntry = {key: string; label: string; icon: IconName; destination: ShellDestination};
-export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, onProfile, profileRef, onExpandedChange, authority, returnTo}: {
+export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, onProfile, profileRef, onExpandedChange, authority, returnTo, dimmed}: {
   authority: ShellAuthority; returnTo?: FocusAddress; libraries: readonly Library[]; hasLiveTV: boolean; destination: ShellDestination; profile: ProfileOption;
   onNavigate: (destination: ShellDestination) => void; onProfile: () => void;
-  profileRef: React.RefObject<View | null>; onExpandedChange: (expanded: boolean) => void;
+  profileRef: React.RefObject<View | null>; onExpandedChange: (expanded: boolean) => void; dimmed?: boolean;
 }) {
   const theme = useTheme(), motion = useMotion(), spec = theme.spec.navigation.tv;
   const registry = useFocusRegistry();
@@ -68,7 +68,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
       order={[...entries.map(entry => entry.key), 'settings', ids.profile]} edges={{right: returnRegion}} onFocusChange={focusChanged}
       accessibilityLabel={defaultI18n.t('next.home.native.mainNavigation')} style={{flex: 1}}>
     <Animated.View style={[{flex: 1, width: spec.openWidth, paddingLeft: spec.insetLeft, paddingTop: spec.paddingTop, paddingBottom: spec.paddingBottom}, panel]}>
-      <Animated.View style={[{flex: 1}, counter]}>
+      <Animated.View style={[{flex: 1}, counter, dimmed && !open ? {opacity: .5} : null]}>
         <View accessible={false} style={{height: 40, marginLeft: 16, marginBottom: 64}}>
           {open ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 130, height: 30, marginTop: 5}}/> : <RailBrandSymbol/>}
         </View>

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, RefreshControl, Text, View, useWindowDimensions} from 'react-native';
 import Animated, {runOnJS, useAnimatedScrollHandler} from 'react-native-reanimated';
 import {heroSpec} from '@portico/design';
@@ -95,8 +95,9 @@ export function homeContentBottom(theme: Theme, bottomInset: number): number {
 }
 
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
-export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange}: {
+export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange, holdRailDim, releaseRailDim}: {
   runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; heroObscured?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
+  holdRailDim?: (lease: Readonly<{retired: boolean}>) => void; releaseRailDim?: (lease: Readonly<{retired: boolean}>) => void;
 }) {
   const registry = useFocusRegistry();
   const focusRevision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
@@ -121,6 +122,17 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   // The recovery session lives here, at the screen's stable scope, so the service clearing
   // its error for the length of a retry cannot unmount it or restart its schedule.
   const recovery = useTvHomeRecovery({runtime, authority, error: snapshot.error, active: active && foreground, resolved: !!document, enabled: theme.isTV});
+  // states.html 5 dims the rail while the mounted recovery is the only thing to read. The lease
+  // is that recovery's own ticket: it ends with the opening, and a stale release compares
+  // against the current lease, so it can never clear a successor's.
+  const railLease = recovery.visible ? recovery.session?.ticket : undefined;
+  // Committed-layout acquisition and release: the lease is taken only once the recovery is on
+  // screen and dropped in the same layout phase as its removal.
+  useLayoutEffect(() => {
+    if (!railLease) return;
+    holdRailDim?.(railLease);
+    return () => {releaseRailDim?.(railLease);};
+  }, [railLease, holdRailDim, releaseRailDim]);
   const [heroVisible, setHeroVisible] = useState(true), [visibleRows, setVisibleRows] = useState<ReadonlySet<string>>(new Set());
   const [focus, setFocusState] = useState<{rowId: string; entryId: string}>(), [heroFocused, setHeroFocused] = useState(false), [repeating, setRepeating] = useState(false);
   const focusTarget = useRef<typeof focus>(undefined), canAnchor = useRef(false);
