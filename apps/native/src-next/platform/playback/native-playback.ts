@@ -25,6 +25,7 @@
  * control) and downloads (no server session) are not this path's: the controller is never
  * attached to them.
  */
+import {QueueSelectionRegistrations, type QueueSelectionRegistration} from '../../../../../packages/client-core/src/playback-v1/selection-registration';
 import type {PlaybackApi, PlaybackService, PlaybackSession, PlaybackSnapshot, SessionEndInfo} from '../../../../../packages/client-core/src/index';
 import type {PlayerFailureCode} from '../../../../../packages/client-core/src/client-profile';
 import {AutomaticQuality, fixedQualityOf, qualityRequest, type FixedQuality} from '../../../../../packages/client-core/src/playback-v1/choices';
@@ -147,6 +148,8 @@ export class NativePlayback {
   private readonly client: SessionsClient;
   private readonly options: PlaybackOptionsClient;
   private readonly known = new Map<string, Session>();
+  private readonly registrations = new QueueSelectionRegistrations();
+  private readonly selectionAdoptions = new WeakMap<PlaybackSession, {id: string; registration: QueueSelectionRegistration}>();
   private readonly seqs = new Map<string, number>();
   private readonly positions = new Map<string, number>();
   private readonly retired = new Set<string>();
@@ -319,7 +322,7 @@ export class NativePlayback {
     const held = this.controller.getSnapshot().session, service = this.service;
     if (!held || !service) return;
     const before = this.known.get(held.id);
-    if (before !== held) { this.known.set(held.id, held); this.sessionsChanged(); }
+    if (before !== held) { this.registrations.changed(held.id); this.known.set(held.id, held); this.sessionsChanged(); }
     const shown = service.getSnapshot().session;
     if (shown?.id === held.id && held.presentation.generation > shown.generation) service.installPresentation(toPlaybackSession(held, shown.duration));
   }
@@ -329,6 +332,7 @@ export class NativePlayback {
     // This device's own doing (the queue moved on, the title finished) is not news to it, even
     // when the server's notice of it overtakes the answer that carries the next session.
     if (OWN_ENDS.includes(end.reason)) return;
+    this.registrations.changed(sessionId);
     this.known.delete(sessionId);
     for (const l of [...this.endedListeners]) l(sessionId, end);
   }
@@ -394,15 +398,29 @@ export class NativePlayback {
 
   // ── PlaybackApi and the queue player's transport ────────────────────────
 
-  private keep(session: Session): Session {
+  private keep(session: Session, registered?: () => void): Session {
+    this.registrations.changed(session.id);
     this.known.set(session.id, session);
+    registered?.();
     // Bounded: sessions leave by retire, forget and stop; this is the backstop.
     if (this.known.size > 16) this.known.delete(this.known.keys().next().value!);
     this.sessionsChanged();
     return session;
   }
 
+  private captureSelectionRegistration(id: string): QueueSelectionRegistration {
+    const original = this.known.get(id);
+    const unowned = () => this.known.get(id) === original && this.controller.getSnapshot().session?.id !== id;
+    return this.registrations.capture(id, unowned, () => {
+      if (!unowned()) return false;
+      this.registrations.changed(id);
+      if (original) {this.known.delete(id); this.positions.delete(id); this.sessionsChanged();}
+      return true;
+    });
+  }
+
   private dropped(id: string): void {
+    this.registrations.changed(id);
     this.known.delete(id);
     this.positions.delete(id);
     if (this.controller.getSnapshot().session?.id === id) { this.controller.detach(); this.attached = ''; this.lastState = undefined; }
@@ -428,9 +446,17 @@ export class NativePlayback {
     return {
       start,
       duration,
-      adopt: (session: Session, durationSeconds: number) => toPlaybackSession(self.keep(session), durationSeconds),
+      adopt: (session: Session, durationSeconds: number) => {
+        const playback = toPlaybackSession(session, durationSeconds);
+        self.keep(session, () => self.selectionAdoptions.set(playback, {id: session.id, registration: self.captureSelectionRegistration(session.id)}));
+        return playback;
+      },
       retire(id: string) { self.retired.add(id); if (self.retired.size > 64) self.retired.delete(self.retired.values().next().value!); self.dropped(id); },
       forget(id: string) { self.dropped(id); },
+      selectionRegistration(id: string, adopted?: PlaybackSession) {
+        if (adopted) {const own = self.selectionAdoptions.get(adopted); return own?.id === id ? own.registration : undefined;}
+        return self.known.has(id) ? undefined : self.captureSelectionRegistration(id);
+      },
       reportedSeq: (id: string) => self.seqs.get(id) ?? 0,
       session: (id: string) => self.known.get(id),
       async change(id: string, change: SessionChange, durationSeconds: number, context?: SessionChangeContext) {
@@ -451,6 +477,7 @@ export class NativePlayback {
         } else if (!self.retired.has(id)) {
           await self.client.stop(id, self.positions.get(id), signal);
         }
+        self.registrations.changed(id);
         self.known.delete(id);
         self.positions.delete(id);
         self.sessionsChanged();

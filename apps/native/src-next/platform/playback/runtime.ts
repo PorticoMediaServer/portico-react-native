@@ -201,7 +201,8 @@ export class NativePlaybackRuntime {
     this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
     this.queue = new V1QueuePlayer({http: startHttp, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
       transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
-      retireQueuedSelection: session => {if (this.playback.getSnapshot().session?.id !== session.id) this.stopOwnedSession(session.id);},
+      retireQueuedSelection: (session, isUnowned) => this.stopOwnedSession(session.id, undefined, () => isUnowned()
+        && this.playback.getSnapshot().session?.id !== session.id && this.path.controller.getSnapshot().session?.id !== session.id),
       audiobookPreferences: () => this.o.settings().audiobook ?? {skipBackMs:15000,skipForwardMs:30000,resumeRewindMs:0},
       retainQueueIds: () => this.retainedQueueIds()});
     // Video completion remains held for the later player. Music follows the server's real policy.
@@ -257,13 +258,18 @@ export class NativePlaybackRuntime {
     if (this.playback.getSnapshot().session?.id === session.id) return;
     this.stopOwnedSession(session.id);
   }
-  private stopOwnedSession(id: string, positionMs?: number): void {
-    if (!this.authorityMatches() || this.cleanupSessions.has(id)) return;
+  private async stopOwnedSession(id: string, positionMs?: number, isUnowned: () => boolean = () => true): Promise<boolean> {
+    const current = () => {try {return this.authorityMatches() && isUnowned();} catch {return false;}};
+    if (!current() || this.cleanupSessions.has(id)) return false;
     this.cleanupSessions.add(id);
     while (this.cleanupSessions.size > 32) this.cleanupSessions.delete(this.cleanupSessions.values().next().value!);
-    const cleanup = new PlaybackScopeHttp(localV1Http(this.o.api), () => this.authorityMatches());
-    const off = this.o.subscribeAuthority(() => { if (!this.authorityMatches()) cleanup.dispose(); });
-    void new SessionsClient(cleanup, this.o.timers).stop(id, positionMs).catch(() => {}).finally(() => { off(); cleanup.dispose(); });
+    const cleanup = new PlaybackScopeHttp(localV1Http(this.o.api), current);
+    const off = this.o.subscribeAuthority(() => { if (!current()) cleanup.dispose(); });
+    try {
+      await new SessionsClient(cleanup, this.o.timers).stop(id, positionMs);
+      return current();
+    } catch {return false;}
+    finally {off(); cleanup.dispose();}
   }
   private currentAuthority(): boolean { return !this.retired && this.authorityMatches(); }
   private active(): boolean { if (!this.currentAuthority()) { this.dispose(); return false; } return true; }
