@@ -105,13 +105,14 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   useLayoutEffect(() => {
     // Apply suppression/pinning first. Repeated progress and panel close alone
     // cannot issue another fold reveal or extend its three-second deadline.
-    setPresentation({autoHide: layout?.controlsAutoHide ?? false, hiddenByPanel: layout?.controlsHidden ?? false,
+    // states 11 keeps the retained bar up while nothing can play, so it never auto-hides on TV.
+    setPresentation({autoHide: isTV && source.playback.phase === 'error' ? false : layout?.controlsAutoHide ?? false, hiddenByPanel: layout?.controlsHidden ?? false,
       scrubbing: scrubbing === true, focusHeld: focusHeld === true});
     const next = isTV && panelOpen ? 0 : playerControlsRevealDeadline(previous.current, input, Date.now(), deadline.current);
     if (fence && next !== deadline.current && next > 0) controls.revealAfterLayout(fence, next);
     deadline.current = next; previous.current = input;
     presentation?.(layout);
-  }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation, isTV, panelOpen]);
+  }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation, isTV, panelOpen, source.playback.phase]);
   const measuredCurrent = useCallback(() => ({authority: current(), fence: playback.getSnapshot().fence, window: Dimensions.get('window')}), [current, playback]);
   // foldable9: a fold, unfold, turn or panel change re-lays out in one pass and
   // fades the chrome and pages once for 250ms (none with reduced motion). The
@@ -156,6 +157,10 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   else if (failureRef.current?.key !== failureKey) failureRef.current = {key: failureKey,
     failure: Object.freeze({fence, sessionId: source.playback.session?.id, positionSeconds: source.playback.positionSeconds, itemId: source.playback.itemId})};
   // states 11 is the ten-foot state: it is drawn on TV only, and phone keeps its own surface.
+  // The same predicates the module uses to draw a recovery control. The bar points Up
+  // to that region only when the control really exists this render.
+  const failureAction = isTV && !panelOpen && !!failureRef.current && source.playback.phase === 'error'
+    && source.capabilities.retry === true && !!playback.retry && !!fence && sameFence(source.fence, failureRef.current.failure.fence);
   const failed = bindings.failed && isTV && !panelOpen && failureRef.current
     ? bindings.failed(context, failureRef.current.failure, state.visible) : undefined;
   const content = <Animated.View testID="watch-panes" pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
@@ -168,7 +173,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'} tablet={!isTV && Math.min(window.width, window.height) >= 600}
         tabletop={!isTV && layout.mode === 'tabletop' && layout.episodes ? (layout.controls.width < window.width ? 'column' : 'stacked') : undefined}
         bar={!isTV && layout.mode === 'full-window' && window.width >= 1024}
-        tvPanelRight={television?.backdropRight}
+        tvPanelRight={television?.backdropRight} failureAction={failureAction}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
     {panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}

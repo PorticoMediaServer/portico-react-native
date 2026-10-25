@@ -62,6 +62,8 @@ export type NativeWatchChromeProps = Readonly<{
   onPictureInPicture?: (fence: PlaybackFence) => void;
   onCast?: (fence: PlaybackFence) => void;
   onFullWindow?: (fence: PlaybackFence) => void;
+  /** states 11: the failure block drew a real action region this render, so Up can reach it. */
+  failureAction?: boolean;
   /** tv-player/phone-player 5 and 13: the committed plan's one loss note, once per playback. */
   notice?: Readonly<{key: string; value: NativeWatchNotice; shownAt: number}>;
 }>;
@@ -277,6 +279,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   </View>;
   const hint = (index: number, cap: React.ReactNode, text: string) => <View key={text} style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginLeft: index ? 26 : 0}}>{cap}
     <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 20, fontWeight: '600', color: theme.colors.textTertiary}}>{text}</Text></View>;
+  // states 11: while the failure owns the screen the bar's entry is its first real
+  // bottom control, and Up reaches the failure block only when it drew one.
+  const barEntry = theme.isTV && source.playback.phase === 'error' && fence
+    ? fence.kind === 'queue' && fence.showId ? 'watch-option-episodes' : 'watch-option-quality' : 'watch-toggle';
+  const barUp = theme.isTV && source.playback.phase === 'error' && props.failureAction === true;
   // states 11: only the centred transport gives way while nothing can play.
   const transport = source.playback.phase === 'error' && theme.isTV ? null : <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 22 : bar ? 14 : tabletop ? 36 : compact ? 12 : 38}}>
     {queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
@@ -430,7 +437,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           <NativeTVGroupPill onHost={setGroupPillHost} onSheetChange={groupSheetChange}/>
         </FocusRegion>
       </View>}
-      <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
+      <FocusRegion id="watch-controls" orientation="horizontal" entry={barEntry} {...(barUp ? {edges: {up: 'watch-failed'}} : {})} style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
           {theme.isTV && linear && <>{channelMark}<View style={{flexShrink: 1, minWidth: 0}}>

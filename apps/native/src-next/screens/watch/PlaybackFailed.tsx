@@ -7,6 +7,7 @@ import type {PlaybackFence} from '../../../../../packages/player-core/src';
 import {Button} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
+import {FocusRegion} from '../../kit/focus';
 import type {NativeWatchHostContext} from './WatchHost';
 
 /** The exact playback that failed: its fence, session and saved place. A callback
@@ -29,7 +30,8 @@ export function NativePlaybackFailed({context, failure, retry, details, chromeVi
   // states 11 places the block at left 96, top 486 and centres it on its own height.
   const [blockHeight, setBlockHeight] = React.useState(0);
   const position = clockText(failure.positionSeconds);
-  const body = t('next.states.native.tvStoppedBody', {position: position ?? ''});
+  // This snapshot has no sanctioned cause fact, so the words stay neutral about it.
+  const body = t('next.dock.native.stoppedAt', {position: position ?? ''});
   return <View testID="watch-playback-failed" pointerEvents="box-none" style={StyleSheet.absoluteFill}>
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, {backgroundColor: '#03080c8c'}]}/>
     {!chromeVisible && identity && <View pointerEvents="none" style={{position: 'absolute', left: 96, right: 96, top: 72}}>
@@ -49,10 +51,11 @@ export function NativePlaybackFailed({context, failure, retry, details, chromeVi
       <Text accessibilityRole="header" style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 72, lineHeight: 72, fontWeight: '800', letterSpacing: -3.24,
         marginBottom: 24, color: theme.colors.text, textShadowColor: 'rgba(7,16,24,.5)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 30}}>{t('next.states.playbackStopped')}</Text>
       <Text style={{fontSize: 28, lineHeight: 40.6, fontWeight: '400', marginBottom: 28, maxWidth: 900, color: theme.colors.textSecondary}}>{body}</Text>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 18}}>
+      {(retry || details) && <FocusRegion id="watch-failed" orientation="horizontal" edges={{down: 'watch-controls'}}
+        entry={retry ? 'watch-failed-retry' : 'watch-failed-details'} entryPolicy="entry" style={{flexDirection: 'row', alignItems: 'center', gap: 18}}>
         {retry && <Button focusId="watch-failed-retry" testID="watch-failed-retry" icon="i-restart" hasTVPreferredFocus onPress={() => retry(failure)}>{t('next.states.tryAgain')}</Button>}
         {details && <Button focusId="watch-failed-details" testID="watch-failed-details" variant="glass" onPress={() => details(failure)}>{t('next.states.details')}</Button>}
-      </View>
+      </FocusRegion>}
     </View>
   </View>;
 }
