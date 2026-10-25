@@ -124,13 +124,14 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // The confirm belongs to the exact opening it was drawn for. The ref is the synchronous
   // truth (React state is only what this render draws), so a retained close or confirm can
   // never act on a successor, and one flight is held by a ref, not by a rendered flag.
-  type ClearOpening = Readonly<{token: number; scope: string; period: HistoryPeriod; controller: NativeTVSavedController; authority: ShellAuthority; routeRevision: number; historyRevision: number; abort: AbortController}>;
-  const clear = useRef<ClearOpening | undefined>(undefined), clearToken = useRef(0), clearAlive = useRef(true);
+  type ClearScope = Readonly<{scope: string; controller: NativeTVSavedController; authority: ShellAuthority; runtime: NativeShellRuntime; activation: NativeDestinationActivationPort}>;
+  type ClearOpening = ClearScope & Readonly<{period: HistoryPeriod; routeRevision: number; historyRevision: number; abort: AbortController}>;
+  const clear = useRef<ClearOpening | undefined>(undefined), clearAlive = useRef(true);
   // The dialog may close while its command is still running: the pending operation stays tracked
   // here so it can be aborted on a real scope change and so its completion owns only itself.
   const clearFlight = useRef<ClearOpening | undefined>(undefined);
-  const clearPending = useRef(false), clearPendingToken = useRef(0);
-  const [clearOpening, setClearOpening] = useState<ClearOpening>(), [clearing, setClearing] = useState(false);
+  const clearScopeLive = useRef<ClearScope | undefined>(undefined);
+  const [clearOpening, setClearOpening] = useState<ClearOpening>();
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
   // tv-more1: Jump to is drawn only under a title sort, over the titles this page has actually
   // loaded; nothing claims an index for a page it has not read. Every measurement is kept
@@ -204,45 +205,50 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // change: the activation revision is the route proof here, because the destination lifetime
   // only covers the session's authority.
   const clearScope = `${scope}:${period}`;
+  clearScopeLive.current = {scope: clearScope, controller, authority, runtime, activation};
+  const clearCurrent = (target: ClearOpening) => {
+    const live = clearScopeLive.current, route = target.activation.getSnapshot();
+    return clearAlive.current && !target.abort.signal.aborted && target.controller.historyRevision() !== undefined && live?.scope === target.scope
+      && live.controller === target.controller && live.runtime === target.runtime && live.activation === target.activation
+      && sameAuthority(live.authority, target.authority) && sameAuthority(target.runtime.getSnapshot().authority, target.authority)
+      && route.visible && route.revision === target.routeRevision;
+  };
   const retireClear = () => {
     const sheet = clear.current; if (sheet) {sheet.abort.abort(); clear.current = undefined;}
     const flight = clearFlight.current; if (flight) {flight.abort.abort(); clearFlight.current = undefined;}
   };
-  if (clear.current && (replaced || clear.current.scope !== clearScope || !active.visible || clear.current.routeRevision !== active.revision || !sameAuthority(clear.current.authority, authority))) retireClear();
+  const clearOwner = clear.current ?? clearFlight.current;
+  if (clearOwner && !clearCurrent(clearOwner)) retireClear();
+  const clearing = clearFlight.current !== undefined;
   const clearView = clearOpening && clear.current === clearOpening && clearOpening.scope === clearScope && active.visible
     && clearOpening.routeRevision === active.revision && sameAuthority(clearOpening.authority, authority) ? clearOpening : undefined;
   const openClear = () => {
-    if (clearPending.current) return;
+    const live = clearScopeLive.current, route = activation.getSnapshot();
+    if (clearFlight.current || !clearAlive.current || live?.scope !== clearScope || live.controller !== controller
+      || live.runtime !== runtime || live.activation !== activation || !sameAuthority(live.authority, authority)
+      || !route.visible || route.revision !== active.revision) return;
     const historyRevision = controller.historyRevision();
     // Nothing to clear, or already replaced: no confirmation is drawn at all.
     if (historyRevision === undefined || !active.visible) return;
-    const next: ClearOpening = {token: ++clearToken.current, scope: clearScope, period, controller, authority, routeRevision: active.revision, historyRevision, abort: new AbortController()};
+    const next: ClearOpening = {scope: clearScope, period, controller, authority, runtime, activation, routeRevision: route.revision, historyRevision, abort: new AbortController()};
     clear.current?.abort.abort();
     clear.current = next; setClearOpening(next);
   };
   const closeClear = (target: ClearOpening) => {if (clear.current !== target) return; target.abort.abort(); clear.current = undefined; setClearOpening(current => current === target ? undefined : current);};
   const confirmClear = (target: ClearOpening) => {
-    if (clear.current !== target || clearPending.current || target.abort.signal.aborted) return;
-    if (target.controller !== controller || !sameAuthority(target.authority, authority)) return;
-    // The live activation is read at dispatch, not the destination lifetime.
-    const live = activation.getSnapshot();
-    if (!live.visible || live.revision !== target.routeRevision) return;
-    clearPending.current = true; clearPendingToken.current = target.token;
+    if (clear.current !== target || clearFlight.current || !clearCurrent(target)) return;
     // Closing the dialog must not lose the command: the pending operation stays tracked so a real
     // scope change or unmount can still abort it, and its completion owns only itself.
     clear.current = undefined; clearFlight.current = target;
     setClearOpening(current => current === target ? undefined : current);
-    setClearing(true);
-    const own = () => clearAlive.current && clearFlight.current === target && !target.abort.signal.aborted
-      && (() => {const now = activation.getSnapshot(); return now.visible && now.revision === target.routeRevision;})();
+    const own = () => clearFlight.current === target && clearCurrent(target);
     void target.controller.clearHistory({revision: target.historyRevision, period: target.period, signal: target.abort.signal, isCurrent: own})
       .catch(error => {if (own()) runtime.reportError(error);})
       .finally(() => {
         // Only the operation this screen still tracks may release its own pending state.
         if (clearFlight.current !== target) return;
         clearFlight.current = undefined;
-        if (clearPendingToken.current !== target.token) return;
-        clearPendingToken.current = 0; clearPending.current = false; setClearing(false);
+        target.abort.abort();
       });
   };
   /** The exact object this render draws into; a late callback from another scope writes only its
