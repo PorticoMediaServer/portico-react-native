@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
+import * as libraryJump from '../src-next/screens/library/jump.ts';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../src-next/screens/read/platform.ts';
 
 // The phone Library screen's own declared geometry and paint, taken from
@@ -19,7 +20,7 @@ const flatten = (style: any): Record<string, unknown> => Array.isArray(style) ? 
 
 async function libraryScreen(width: number, isTV = false) {
   const host = hooks(), theme = createTheme({width, isTV});
-  const module = await screenModule(new URL('../src-next/screens/library/LibraryScreen.tsx', import.meta.url), {
+  const modules = {
     react: host.react,
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height: 844}),
       StyleSheet: {create: (styles: unknown) => styles, absoluteFill: {position: 'absolute', left: 0, right: 0, top: 0, bottom: 0}}},
@@ -49,6 +50,10 @@ async function libraryScreen(width: number, isTV = false) {
     './LibraryFilters': {LibraryFilters: 'LibraryFilters'},
     './applied-filters': {libraryAppliedFilters: () => []},
     '../read/platform': {hiddenReadingLibraryOnTV, isReadingLibraryKind},
+  };
+  const jumpSheet = await screenModule(new URL('../src-next/screens/library/LibraryJumpSheet.tsx', import.meta.url), modules);
+  const module = await screenModule(new URL('../src-next/screens/library/LibraryScreen.tsx', import.meta.url), {
+    ...modules, './LibraryJumpSheet': jumpSheet, './jump': libraryJump,
   });
   return {theme, module};
 }
