@@ -4,7 +4,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src/index';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {PlaylistCard, PlaylistListFilter} from '../../../../../packages/client-core/src/saved';
-import {Chip, Focusable} from '../../kit/controls';
+import {Focusable} from '../../kit/controls';
 import {AmbientArt, CoverMosaic, MediaArt} from '../../kit/artwork';
 import {CardFrame} from '../../kit/cards/primitives';
 import {FocusRegion, type FocusEdges} from '../../kit/focus';
@@ -14,6 +14,7 @@ import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeSavedViewDestination} from './view-model';
+import {PlaylistToolbar} from './PlaylistToolbar';
 import {savedCollectionCount, savedItemCount, savedLibraryName, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
 
 const t = defaultI18n.t;
@@ -47,20 +48,17 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   const error = snapshot.error ?? saved?.error ?? personal?.error, loading = snapshot.phase === 'loading' && !saved?.projection && !personal?.resources.length;
   const count = view === 'playlists' ? (saved?.projection?.sections[0]?.totalCount ?? playlists.length) : resources.length;
   const countText = view === 'playlists' ? savedItemCount(count) : view === 'collections' ? savedCollectionCount(count) : savedViewCount(count);
-  const selectFilter = (filter: PlaylistListFilter) => select({view: 'playlists', filter, ...(saved?.projection?.query.sort ? {sort: saved.projection.query.sort, direction: saved.projection.query.direction as 'asc' | 'desc'} : {})});
   // collections.html 15-17: the page starts at 200 and ends 96 from the right, so six 236 tiles
   // (34 apart) or three 520 saved-view tiles (32 apart) fit the frame's row exactly.
   const columns = view === 'views' ? {columnGap: 32, rowGap: 36} : {columnGap: 34, rowGap: 44};
   return <FocusRegion id={regionId} orientation="vertical" enabled={enabled} edges={edges} style={{flex: 1}}>
     <View style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight}}>
-      {view === 'playlists' && <>
-        {!!sorts.length && <Chip focusId="tv-saved-sort" icon="i-sort" trailingIcon="i-down" disabled={!enabled} onPress={() => {
-          const current = sorts.find(sort => sort.id === saved?.projection?.query.sort) ?? sorts[0];
-          if (current) select({view: 'playlists', sort: current.id, direction: saved?.projection?.query.direction === 'asc' ? 'desc' : 'asc'});
-        }}>{t('playlists.sort', {field: saved?.projection?.query.sort ?? ''})}</Chip>}
-        {filters.flatMap(filter => filter.options.map(option => <Chip key={`${filter.id}:${option.id}`} focusId={`tv-saved-filter-${option.id}`} disabled={!enabled} count={option.count}
-          selected={(saved?.projection?.query.category ?? 'all') === option.id} onPress={() => selectFilter(option.id as PlaylistListFilter)}>{option.label}</Chip>))}
-      </>}
+      {view === 'playlists' && !!sorts.length && <PlaylistToolbar sorts={sorts} filters={filters} enabled={enabled}
+        value={{sort: saved?.projection?.query.sort ?? sorts[0]?.id ?? '',
+          direction: saved?.projection?.query.direction === 'asc' ? 'asc' : 'desc',
+          filter: (saved?.projection?.query.category ?? 'all') as PlaylistListFilter}}
+        onSelect={next => select({view: 'playlists', ...(next.sort !== undefined ? {sort: next.sort} : {}),
+          ...(next.direction !== undefined ? {direction: next.direction} : {}), ...(next.filter !== undefined ? {filter: next.filter} : {})})}/>}
       <Text style={[browseType(theme, 22), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{countText}</Text>
     </View>
     {error && !loading ? <StateView variant="panel" {...runtime.error(error, () => {void destination.retry().catch(runtime.reportError);})}/>
