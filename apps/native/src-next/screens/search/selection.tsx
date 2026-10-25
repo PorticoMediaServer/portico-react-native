@@ -59,7 +59,9 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   };
   const contains = (group: SearchGroup, entry: SearchEntry) => visible() && source.getSnapshot().groups.some(result =>
     result.id === group && result.status === 'success' && result.items.includes(entry));
-  const pick = async (group: SearchGroup, entry: SearchEntry) => {
+  const pick = async (group: SearchGroup, entry: SearchEntry, batch?: number) => {
+    if (batch === undefined) batchGeneration++;
+    else if (batch !== batchGeneration) return;
     reconcile();
     const currentModel = model;
     if (!currentModel || pending || !leaf(entry) || !contains(group, entry)) return;
@@ -107,11 +109,12 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
       if (!current()) return;
       const registered = windows.get(nativeSearchEntryKey(row.group, row.entry));
       if (registered && currentModel.getSnapshot().selectedKeys.includes(registered.key)) continue;
-      await pick(row.group, row.entry);
+      await pick(row.group, row.entry, batch);
       if (!current()) return;
     }
   };
   const execute = async (action: 'play' | 'playNext' | 'playLater') => {
+    batchGeneration++;
     reconcile();
     const currentModel = model, operation = currentModel?.captureOperation();
     if (!currentModel || !operation || operation.target.mode !== 'explicit' || pending || !visible()) return;
