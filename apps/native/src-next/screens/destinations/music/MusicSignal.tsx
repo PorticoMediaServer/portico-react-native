@@ -16,7 +16,7 @@ export type MusicSignalView = Readonly<{input: MusicSignalInput; path: NativeSig
 
 /** music-plus (MC-8) 3/5: the one line under the title. TV takes the caption size and a
  * chevron; a phone rests on a faint chip because touch has no hover. */
-export function MusicSignalLine({view, onPress}: {view: MusicSignalView; onPress?: () => void}) {
+export function MusicSignalLine({view, onPress, focusRef}: {view: MusicSignalView; onPress?: () => void; focusRef?: React.Ref<View>}) {
   const theme = useTheme(), tv = theme.isTV, path = view.path;
   const colour = path.healthy ? theme.colors.healthy : theme.colors.textTertiary;
   const body = <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 7, minWidth: 0}}>
@@ -27,7 +27,7 @@ export function MusicSignalLine({view, onPress}: {view: MusicSignalView; onPress
   </View>;
   const label = path.accessibleName ?? [path.source, path.state].filter(Boolean).join('. ');
   if (!onPress) return <View accessible accessibilityLabel={label} style={{maxWidth: tv ? 556 : 342}}>{body}</View>;
-  if (tv) return <Focusable focusId="music-signal-line" testID="music-signal-line" accessibilityRole="button" accessibilityLabel={label} focusRadius={10}
+  if (tv) return <Focusable ref={focusRef} focusId="music-signal-line" testID="music-signal-line" accessibilityRole="button" accessibilityLabel={label} focusRadius={10}
     onPress={onPress} style={{maxWidth: 556, paddingVertical: 4, paddingRight: 6}}>{body}</Focusable>;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} testID="music-signal-line"
     style={{maxWidth: 342, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: 'rgba(237,245,250,.07)'}}>{body}</Pressable>;
