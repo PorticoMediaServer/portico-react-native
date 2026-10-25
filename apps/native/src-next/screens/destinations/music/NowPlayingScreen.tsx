@@ -34,6 +34,9 @@ const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title
 export type NowPlayingScreenProps = Readonly<{
   occupant: DockOccupant;
   queue?: QueuePlaybackView;
+  /** The song's own synced lyrics body (the caller owns its reader); drawn as a
+   * tab of the side panel, or under Up next on a narrow window. */
+  lyrics?: React.ReactNode;
   width: number;
   height: number;
   topInset?: number;
@@ -54,9 +57,9 @@ const SIDE_BY_SIDE = 700;
 
 export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing'}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
-  const [queueOpen, setQueueOpen] = useState(false), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
+  const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
-  const wide = width >= SIDE_BY_SIDE, side = wide && !!queue, position = playbackPosition(occupant), bounds = seekBounds(occupant);
+  const wide = width >= SIDE_BY_SIDE, side = wide && !!(queue || lyrics), position = playbackPosition(occupant), bounds = seekBounds(occupant);
   const span = bounds ? Math.max(0, bounds.end - bounds.start) : 0;
   const fraction = bounds && span > 0 ? Math.min(1, Math.max(0, (position - bounds.start) / span)) : 0;
   const act = (type: Parameters<typeof dockCommand>[1]) => {if (commandAllowed(occupant, type)) onAction(dockCommand(occupant, type));};
@@ -104,14 +107,16 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
         disabled={!p.capabilities.next} onPress={() => act('next')}/>
     </View>
     <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 26, marginBottom: 24}}>
-      {!side && queue ? <Button testID={`${testID}-queue-toggle`} variant={queueOpen ? 'primary' : 'glass'} size="small" icon="i-queue"
-        accessibilityState={{expanded: queueOpen}} onPress={() => setQueueOpen(open => !open)}>{t('player.queue')}</Button> : null}
+      {!side && queue ? <Button testID={`${testID}-queue-toggle`} variant={sheet === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"
+        accessibilityState={{expanded: sheet === 'queue'}} onPress={() => setSheet(open => open === 'queue' ? null : 'queue')}>{t('player.queue')}</Button> : null}
+      {!side && lyrics ? <Button testID={`${testID}-lyrics-toggle`} variant={sheet === 'lyrics' ? 'primary' : 'glass'} size="small" icon="i-cc"
+        accessibilityState={{expanded: sheet === 'lyrics'}} onPress={() => setSheet(open => open === 'lyrics' ? null : 'lyrics')}>{t('player.lyrics')}</Button> : null}
       {equalizer.supported ? <Button testID={`${testID}-equalizer`} variant="glass" size="small" icon="i-gauge" accessibilityLabel={t('next.media.eq.title')}
         onPress={() => setPanel('eq')}>{t('next.media.eq.title')}</Button> : null}
       <Button testID={`${testID}-close`} variant="glass" size="small" icon="i-down" accessibilityLabel={t('player.minimize')} onPress={onClose}>{t('action.close')}</Button>
     </View>
-    {!side && queue && queueOpen ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
-      <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/>
+    {!side && sheet ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
+      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/> : null}
     </View> : null}
   </View>;
   return <View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
@@ -127,11 +132,18 @@ export function NowPlayingScreen({occupant, queue, width, height, topInset = 0, 
       {side ? <View style={{flex: 1, flexDirection: 'row'}}>
         <ScrollView contentContainerStyle={{flexGrow: 1, justifyContent: 'center'}} style={{flex: 1, minWidth: 0}} showsVerticalScrollIndicator={false}>{column}</ScrollView>
         <View style={{width: QUEUE_WIDTH, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: 'rgba(9,19,27,.66)'}}>
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 24, paddingBottom: 4}}>
-            <Icon name="i-queue" size={20} color={theme.colors.textSecondary}/>
-            <Text style={[browseType(theme, 20, 800, -0.02), {color: theme.colors.text}]}>{t('player.queue')}</Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 20, paddingBottom: 6}}>
+            {queue && lyrics ? <>
+              <Button testID={`${testID}-tab-queue`} variant={panelTab === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"
+                onPress={() => setPanelTab('queue')}>{t('player.queue')}</Button>
+              <Button testID={`${testID}-tab-lyrics`} variant={panelTab === 'lyrics' ? 'primary' : 'glass'} size="small" icon="i-cc"
+                onPress={() => setPanelTab('lyrics')}>{t('player.lyrics')}</Button>
+            </> : <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+              <Icon name={lyrics ? 'i-cc' : 'i-queue'} size={20} color={theme.colors.textSecondary}/>
+              <Text style={[browseType(theme, 20, 800, -0.02), {color: theme.colors.text}]}>{t(lyrics ? 'player.lyrics' : 'player.queue')}</Text>
+            </View>}
           </View>
-          <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/>
+          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay}/> : lyrics}
         </View>
       </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>
