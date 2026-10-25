@@ -2,7 +2,7 @@ import React from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Focusable} from '../../kit/controls/Focusable';
-import {FocusRegion} from '../../kit/focus';
+import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {useTVBusyEntryRevision} from './entry-revision';
@@ -20,8 +20,13 @@ export type TVIdentityCodeFormProps = Readonly<{
   onSubmit: (code: string) => void;
 }>;
 
-/** Settings › server identity on television: frame 2a's one asking screen. */
-export function TVIdentityCodeForm({server, code, wrong, busy, onChange, onSubmit}: TVIdentityCodeFormProps) {
+/** Settings › server identity on television: frame 2a's one asking screen.
+ * The check runs before the shell owns a focus registry, so this presenter
+ * supplies its own scope, as the front-door screens do. */
+export function TVIdentityCodeForm(props: TVIdentityCodeFormProps) {
+  return <FocusProvider><IdentityCodeForm {...props}/></FocusProvider>;
+}
+function IdentityCodeForm({server, code, wrong, busy, onChange, onSubmit}: TVIdentityCodeFormProps) {
   const theme = useTheme(), t = defaultI18n.t, id = 'tv.identity-code';
   const entryRevision = useTVBusyEntryRevision(busy);
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision}, {regionId: identityCodeEntry.region, childId: identityCodeEntry.child});
@@ -51,7 +56,12 @@ export function TVIdentityCodeForm({server, code, wrong, busy, onChange, onSubmi
       {!busy && <View style={{width: 3, height: 40, borderRadius: 2, marginLeft: 3, backgroundColor: theme.colors.accentStrong}}/>}
     </View>
     {wrong ? <Text accessibilityRole="alert" style={[type(22, 600), {color: theme.colors.danger, marginTop: 10}]}>{t('connection.identity.codeWrong')}</Text> : null}
-    <FocusRegion id={`${id}.keyboard`} enabled={!busy} style={{gap: 10, width: 860, marginTop: 24}}>
+    {/* Frame 2a draws this help line between the field and the keys; it is text,
+        not a control, so the bottom key row ends the keyboard. */}
+    <View style={{marginTop: 22}}>
+      <Text style={[type(22, 600), {color: theme.colors.textTertiary}]}>{t('connection.identity.checkHome')}</Text>
+    </View>
+    <FocusRegion id={`${id}.keyboard`} enabled={!busy} style={{gap: 10, width: 860, marginTop: 44}}>
       {identityCodeRows.map((row, index) => {
         const last = index === identityCodeRows.length - 1, order = last ? [...row, 'space', 'clear'] : row;
         return <FocusRegion key={index} id={`${id}.keyboard.${index}`} entry={row[0]} order={order} orientation="horizontal" enabled={!busy}
@@ -59,11 +69,6 @@ export function TVIdentityCodeForm({server, code, wrong, busy, onChange, onSubmi
           style={{flexDirection: 'row', gap: 10}}>{row.map(value => key(value))}{last && <>{key('space', 2)}{key('clear', 2)}</>}</FocusRegion>;
       })}
     </FocusRegion>
-    {/* Frame 5 draws this as a help line, not a control: it holds no focus, so
-        the bottom key row ends the keyboard. */}
-    <View style={{marginTop: 26}}>
-      <Text style={[type(22, 400), {color: theme.colors.textTertiary}]}>{t('connection.identity.checkHome')}</Text>
-    </View>
   </TVAuthLayout>;
 }
 

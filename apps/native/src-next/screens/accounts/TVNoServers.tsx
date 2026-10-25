@@ -7,12 +7,39 @@ import {NativeTVKeyboard} from '../search/TVKeyboard';
 import {ColourBackdrop} from '../../kit/artwork';
 import {Button, TextField} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
+import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
+import {useTVBusyEntryRevision} from '../../tv/auth/entry-revision';
 
 type Props = {busy: boolean; error?: React.ReactNode; isCurrent: () => boolean; onBack: () => void;
   onJoin: (invitation: string, address: string) => void; onFind: () => void; onRefresh: () => void; onSignOut: () => void; notice?: {title: string; body: string; onRetry?: () => void}};
 const addressKeys = ['abcdef', 'ghijkl', 'mnopqr', 'stuvwx', 'yz1234', '567890', '.:/-_@'].map(row => [...row]);
 const invitationKeys = ['ABCDEF', 'GHIJKL', 'MNOPQR', 'STUVWX', 'YZ1234', '567890', '-_'].map(row => [...row]);
 type Ticket = {live: boolean; scope: object};
+
+/** Frames 35 and 38 draw the start state with focus on Join with an invitation.
+ * A pending directory run disables every control in the door, including that
+ * one, so the door declares its own entry and asks for it again when the run
+ * ends; the parent's `hasTVPreferredFocus` still covers the first mount. */
+function DoorTiles({busy, revision, onJoin, onRefresh}: {busy: boolean; revision: number; onJoin: () => void; onRefresh: () => void}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision}, {regionId: 'accounts.empty.door', childId: 'join'});
+  return <FocusRegion id="accounts.empty.door" entry="join" order={['join', 'refresh']} enabled={!busy}
+    style={{flexDirection: 'row', gap: 40, alignItems: 'flex-start'}}>
+    <View style={{flex: 1, gap: 18, padding: 28, borderRadius: 20, backgroundColor: theme.colors.raised}}>
+      <Button focusId="join" hasTVPreferredFocus disabled={busy} onPress={onJoin}>{t('services.start.join')}</Button>
+      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.joinBody')}</Text>
+      <Button focusId="refresh" variant="text" disabled={busy} onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
+    </View>
+    <View style={{flex: 1, gap: 18, padding: 28, borderRadius: 20, backgroundColor: theme.colors.raised}}>
+      <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.setup')}</Text>
+      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.phoneSetupBody')}</Text>
+      <View accessible accessibilityLabel="https://getportico.tv/download/" style={{padding: 16, alignSelf: 'flex-start', backgroundColor: theme.colors.white, borderRadius: 16}}>
+        <QRCode value="https://getportico.tv/download/" size={220}/>
+      </View>
+      <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary}]}>getportico.tv/download/</Text>
+    </View>
+  </FocusRegion>;
+}
 
 /** Empty authenticated directory only. Joining still uses the parent's original
  * invitation parser, issuer inspection and normal account continuation. */
@@ -21,6 +48,7 @@ export function TVNoServers(props: Props) {
   const theme = useTheme(), t = defaultI18n.t;
   const [joining, setJoining] = useState(false), [address, setAddress] = useState(''), [invitation, setInvitation] = useState('');
   const [field, setField] = useState<'address' | 'invitation'>('address');
+  const entryRevision = useTVBusyEntryRevision(props.busy);
   const draft = useMemo(() => Object.freeze({joining, address, invitation, field}), [joining, address, invitation, field]);
   const latest = useRef(draft); latest.current = draft;
   const scope = useMemo(() => ({isCurrent}), [isCurrent]);
@@ -55,25 +83,13 @@ export function TVNoServers(props: Props) {
           onChangeText={value => {if (owns()) setInvitation(value);}}/>
         <NativeTVKeyboard id={`accounts.empty.keyboard.${field}`} value={field === 'address' ? address : invitation}
           rows={field === 'address' ? addressKeys : invitationKeys} width={500} leftRegionId="accounts.empty.fields"
-          activation={{visible: current() && !props.busy, intent: 'enter', revision: field === 'address' ? 0 : 1}}
+          // The typed field owns the odd ticket; a completed pending run moves both kinds on.
+          activation={{visible: current() && !props.busy, intent: 'enter', revision: entryRevision * 2 + (field === 'address' ? 0 : 1)}}
           onChangeText={value => {if (owns()) {if (field === 'address') setAddress(value); else setInvitation(value);}}}/>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.whereBody')}</Text>
         <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}}>{t('services.start.joinAction')}</Button>
-      </FocusRegion> : <View style={{flexDirection: 'row', gap: 40, alignItems: 'flex-start'}}>
-        <View style={{flex: 1, gap: 18, padding: 28, borderRadius: 20, backgroundColor: theme.colors.raised}}>
-          <Button hasTVPreferredFocus disabled={props.busy} onPress={() => {if (owns()) setJoining(true);}}>{t('services.start.join')}</Button>
-          <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.joinBody')}</Text>
-          <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onRefresh();}}>{t('accounts.servers.refresh')}</Button>
-        </View>
-        <View style={{flex: 1, gap: 18, padding: 28, borderRadius: 20, backgroundColor: theme.colors.raised}}>
-          <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('services.start.setup')}</Text>
-          <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('services.start.phoneSetupBody')}</Text>
-          <View accessible accessibilityLabel="https://getportico.tv/download/" style={{padding: 16, alignSelf: 'flex-start', backgroundColor: theme.colors.white, borderRadius: 16}}>
-            <QRCode value="https://getportico.tv/download/" size={220}/>
-          </View>
-          <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary}]}>getportico.tv/download/</Text>
-        </View>
-      </View>}
+      </FocusRegion> : <DoorTiles busy={props.busy} revision={entryRevision}
+        onJoin={() => {if (owns()) setJoining(true);}} onRefresh={() => {if (current()) props.onRefresh();}}/>}
       <View style={{flexDirection: 'row', gap: 24}}>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
