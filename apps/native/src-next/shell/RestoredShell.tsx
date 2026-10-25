@@ -1,5 +1,9 @@
-import React, {useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {HomeSkeleton, StateView} from '../kit/states';
+import React, {useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import {HomeSkeleton, StateLayout, StateView} from '../kit/states';
+import {CoverFan} from '../kit/artwork';
+import {Focusable} from '../kit/controls';
+import {Icon} from '../kit/Icon';
+import {useTheme} from '../kit/theme';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
 import {createNativeShellBindings} from './assembly';
 import {restoreNativeShellRuntime, type RestoredNativeShellRuntime} from './bootstrap';
@@ -17,17 +21,20 @@ import {nativeInvitationLinks, type NativeInvitationLink} from '../platform/invi
 import {beginNativeInstallation} from '../platform/installation';
 import {createRememberedDownloadsOpening, type RememberedDownloadsOpening} from './remembered-downloads-opening';
 import {RememberedDownloadsScreen, RememberedDownloadsShortcut} from '../screens/downloads/RememberedDownloadsScreen';
-import {View} from 'react-native';
+import {downloadEntryIdentity} from '../screens/downloads/presentation';
+import {Platform, Text, View} from 'react-native';
 import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
 
 /** Restore only the captured canonical server selection; current account entry owns sign-in. */
 export function RestoredShell() {
+  const theme = useTheme();
   const incoming = useSyncExternalStore(nativeInvitationLinks.subscribe, nativeInvitationLinks.getSnapshot, nativeInvitationLinks.getSnapshot);
   useLayoutEffect(() => nativeInvitationLinks.acquire(), []);
   const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'}), [elapsed, setElapsed] = useState(0);
   const [firstLibrary, setFirstLibrary] = useState<string>();
+  const [serverDisplay, setServerDisplay] = useState<{attempt: number; name?: string}>();
   const [showAccounts, setShowAccounts] = useState(false), [retained, setRetained] = useState(false);
   const [downloads, setDownloads] = useState<RememberedDownloadsOpening>();
   type DownloadView = {source: RememberedDownloadsOpening; serial: number};
@@ -128,8 +135,12 @@ export function RestoredShell() {
     });
     void checkSelection();
     const started = Date.now();
-    if (rootCurrent()) {setElapsed(previous => rootCurrent() ? 0 : previous); publishState({phase: 'loading'}); setShowAccounts(previous => rootCurrent() ? false : previous);}
-    if (rootCurrent()) void nativeAccounts.snapshot().then(value => {if (rootCurrent()) setRetained(previous => rootCurrent() ? value.servers.length > 0 : previous);}, () => {});
+    if (rootCurrent()) {setElapsed(previous => rootCurrent() ? 0 : previous); publishState({phase: 'loading'}); setShowAccounts(previous => rootCurrent() ? false : previous); setServerDisplay(previous => rootCurrent() ? {attempt} : previous);}
+    if (rootCurrent()) void nativeAccounts.snapshot().then(value => {if (rootCurrent()) {
+      setRetained(previous => rootCurrent() ? value.servers.length > 0 : previous);
+      const selected = value.servers.find(server => server.id === value.selectedServerId);
+      setServerDisplay(previous => rootCurrent() ? {attempt, ...(selected?.name ? {name: selected.name} : {})} : previous);
+    }}, () => {});
     if (rootCurrent()) clock = setInterval(() => {if (rootCurrent()) setElapsed(previous => rootCurrent() ? Date.now() - started : previous);}, 120);
     if (rootCurrent()) void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, installationOwner: installation, onSessionRenewed: () => {
       if (rootCurrent()) restart();
@@ -153,6 +164,7 @@ export function RestoredShell() {
     onBack={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); renderedRoot?.finishInput?.();}}
     onComplete={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); complete();}}/>;
   const remembered = downloads && root.current?.active && root.current.attempt === attempt && downloads.current() ? downloads : undefined;
+  const serverName = serverDisplay?.attempt === attempt ? serverDisplay.name : undefined;
   const opened = downloadView;
   if (opened && remembered === opened.source && viewOwner.current === opened) return <RememberedDownloadsScreen key={opened.serial} source={opened.source} onBack={() => {
     if (!renderedCurrent() || viewOwner.current !== opened || !opened.source.current()) return; viewOwner.current = undefined;
@@ -172,9 +184,80 @@ export function RestoredShell() {
   if (state.error instanceof NativeSignInEnded) return withDownloads(<AccountEntry downloads={remembered?.entry} key={state.error.hint.serverId + ':' + state.error.hint.familyId} endedSignIn={state.error.hint} onSetupComplete={setupComplete} onComplete={complete} onBack={chooseAccounts}/>);
   if (state.error) {
     const error = presentError(state.error, 'home');
+    // states.html 4 and 7a: compact phones draw the connection and app-update composition.
+    // Identity and sign-in failures were handled above and never reach this branch.
+    if (theme.platform === 'phone' && (error.category === 'offline' || error.category === 'unreachable' || error.category === 'timeout'
+      || error.category === 'unsupported-version')) {
+      return withDownloads(<CompactRecovery presented={error} serverName={serverName} downloads={remembered} onRetry={complete} onChoose={chooseAccounts}/>, false);
+    }
     return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone="error"
       primaryAction={error.action === 'try-again' || error.action === 'refresh' ? {id: 'restore', label: error.actionLabel, onPress: complete} : undefined}
       secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts}}/>);
   }
   return withDownloads(<AccountEntry downloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete}/>);
+}
+
+type RecoveryPresented = ReturnType<typeof presentError>;
+
+/** The drawn "Your downloads still play" row: real retained entries, the root's own opening. */
+function RecoveryDownloads({source}: {source: RememberedDownloadsOpening}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  const subscribe = useCallback((listener: () => void) => {
+    try {return source.current() ? source.device.subscribe(listener) : () => {};} catch {return () => {};}
+  }, [source]);
+  const read = useCallback(() => {try {return source.current() ? source.device.getSnapshot() : undefined;} catch {return undefined;}}, [source]);
+  const snapshot = useSyncExternalStore(subscribe, read);
+  if (!snapshot) return null;
+  const entries = snapshot.entries.filter(entry => {try {
+    return entry.state === 'ready' && ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind ?? entry.info?.kind ?? '')
+      && source.device.playabilityReason(entry) === null;
+  } catch {return false;}});
+  if (!entries.length) return null;
+  const covers = entries.slice(0, 3).flatMap(entry => entry.artworkUrl
+    ? [{uri: entry.artworkUrl, cacheKey: JSON.stringify([downloadEntryIdentity(entry), entry.artworkUrl])}] : []);
+  const first = entries[0]!, more = entries.length - 1;
+  return <Focusable testID="recovery-downloads" accessibilityRole="button" accessibilityLabel={t('next.states.native.downloadsPlay')} focusRadius={14}
+    onPress={() => {if (source.current()) source.entry.open();}}
+    style={{height: 74, width: '100%', marginBottom: 14, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 14,
+      backgroundColor: `${theme.colors.raised}D9`, borderWidth: 1, borderColor: `${theme.colors.text}14`}}>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+      <View style={{width: 64, height: 50}}>{covers.length ? <CoverFan covers={covers} shape="poster" width={64} height={50}/> : null}</View>
+      <View style={{flex: 1}}>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.states.native.downloadsPlay')}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{more > 0
+          ? t('next.states.native.downloadsMore', {title: first.title, count: more}) : first.title}</Text>
+      </View>
+      <Icon name="i-right" size={20} color={theme.colors.textTertiary}/>
+    </View>
+  </Focusable>;
+}
+
+/** states.html 4a and 7a, compact phone only. The server name is the saved display; no version line
+ * is drawn because the restore error carries no real minimum version, and no store button exists
+ * without a real supported update target. */
+function CompactRecovery({presented, serverName, downloads, onRetry, onChoose}: {
+  presented: RecoveryPresented; serverName?: string; downloads?: RememberedDownloadsOpening; onRetry: () => void; onChoose: () => void;
+}) {
+  const t = defaultI18n.t;
+  // The opening can exist with nothing playable on this phone, so the action follows the
+  // entry's own stable availability rather than the opening's presence.
+  const subscribeDownloads = useCallback((listener: () => void) => downloads ? downloads.entry.subscribe(listener) : () => {}, [downloads]);
+  const readDownloads = useCallback(() => downloads ? downloads.entry.getSnapshot().available : false, [downloads]);
+  const downloadsAvailable = useSyncExternalStore(subscribeDownloads, readDownloads);
+  if (presented.category === 'unsupported-version') {
+    return <StateLayout testID="native-recovery-version" icon="i-update" tone="accent" contentTop={286}
+      title={t('next.states.native.updateApp')}
+      body={serverName ? t(Platform.OS === 'ios' ? 'next.states.native.updateIOSBody' : 'next.states.native.updateAndroidBody', {server: serverName}) : presented.body}
+      primaryAction={downloads && downloadsAvailable ? {id: 'downloads', label: t('action.watchDownloads'), icon: 'i-dl',
+        onPress: () => {if (downloads.current() && downloads.entry.getSnapshot().available) downloads.entry.open();}} : undefined}
+      secondaryAction={{id: 'servers', label: t('next.states.switchServer'), onPress: onChoose}}/>;
+  }
+  const offline = presented.category === 'offline';
+  return <StateLayout testID="native-recovery-connection" icon={offline ? 'i-wifioff' : 'i-srvoff'} tone="warning" contentTop={offline ? undefined : 208}
+    title={offline ? t('next.states.offlinePhone') : serverName ? t('next.states.cantReach', {server: serverName}) : t('next.states.cantReachServer')}
+    body={offline ? undefined : t('next.states.cantReachPhoneBody')}
+    beforeActions={downloads ? <RecoveryDownloads source={downloads}/> : undefined}
+    primaryAction={{id: 'retry', label: t('next.states.tryNow'), icon: 'i-retry', onPress: onRetry}}
+    secondaryAction={{id: 'servers', label: t('next.states.switchServer'), onPress: onChoose}}
+    help={offline ? undefined : t('next.states.native.phoneConnectionHelp')}/>;
 }
