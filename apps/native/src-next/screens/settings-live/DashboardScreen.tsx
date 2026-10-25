@@ -64,14 +64,16 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
           {state.sessions.map(session => {
             const fraction = playedFraction(session);
             const identity = nativeDashboardIdentity(session, runtime.text);
-            const location = sessionFactParts({...session, kind: session.kind === 'live' || session.kind === 'channel' ? 'channel' : session.kind === 'audio' ? 'audio' : 'vod', location: session.location === 'other' ? 'unknown' : session.location}, runtime.text).find(fact => fact.id === 'location');
+            const sessionFacts = sessionFactParts({...session, kind: session.kind === 'live' || session.kind === 'channel' ? 'channel' : session.kind === 'audio' ? 'audio' : 'vod', location: session.location === 'other' ? 'unknown' : session.location}, runtime.text);
+            const location = sessionFacts.find(fact => fact.id === 'location');
+            const delivery = sessionFacts.find(fact => fact.id === 'delivery');
             const art = session.item?.art.find(value => value.role === 'backdrop') ?? session.item?.art[0];
             const source = art && runtime.artwork(`/v1/items/${encodeURIComponent(art.id)}/art/${encodeURIComponent(art.kind)}`);
             return <Focusable key={session.id} focusId={session.id} testID={`dashboard-session-${session.id}`} accessibilityRole="text" accessibilityLabel={identity.title} focusKind="row" style={{minHeight: theme.isTV ? 120 : 150, flexDirection: 'row', gap: 22, alignItems: 'center', padding: theme.isTV ? 16 : 12, marginBottom: 8, borderRadius: 18, backgroundColor: theme.colors.raised}}>
               {source && <View style={{width: theme.isTV ? 130 : 110, height: theme.isTV ? 76 : 70, borderRadius: 10, overflow: 'hidden'}}><Artwork source={source}/></View>}
               <View style={{flex: 1, gap: theme.isTV ? 8 : 10}}><Text numberOfLines={1} style={[shellType(theme.isTV ? 26 : 20, 700), {color: theme.colors.text}]}>{identity.title}</Text>
                 {identity.secondary.length > 0 && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>{identity.secondary.map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14), {color: theme.colors.textSecondary, flexShrink: 1}]}>{value}</Text>)}</View>}
-                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 16 : 10}}>{[session.profile || session.user, session.device, location?.text].filter(Boolean).map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14, index === 0 ? 700 : 400), {color: theme.colors.textSecondary}]}>{value}</Text>)}</View>
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 16 : 10}}>{[session.profile || session.user, session.device, location?.text, delivery?.text].filter(Boolean).map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14, index === 0 ? 700 : 400), {color: theme.colors.textSecondary}]}>{value}</Text>)}</View>
               </View>
               {fraction !== undefined && <View style={{width: theme.isTV ? 160 : 80, height: theme.isTV ? 8 : 5, borderRadius: 4, overflow: 'hidden', backgroundColor: theme.colors.line}}><View style={{height: '100%', backgroundColor: theme.colors.accentStrong, width: `${fraction * 100}%`}}/></View>}
             </Focusable>;
