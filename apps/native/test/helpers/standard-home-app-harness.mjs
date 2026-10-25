@@ -127,6 +127,9 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
  export const BackHandler={addEventListener:(_,listener)=>{S.back.add(listener);return{remove:()=>S.back.delete(listener)}}},AccessibilityInfo={isReduceMotionEnabled:async()=>true,addEventListener:()=>({remove(){}}),announceForAccessibility(){}};
+ // Forward fixture-supplied responder events to the actual product callbacks;
+ // this boundary does not simulate native gesture negotiation or movement.
+ export const PanResponder={create:config=>({panHandlers:Object.fromEntries(Object.entries(config).filter(([key])=>key.startsWith('onPanResponder')||key.includes('ShouldSetPanResponder')).map(([key,callback])=>[key.replace('ShouldSetPanResponder','ShouldSetResponder').replace('onPanResponder','onResponder'),callback]))})};
  export const StyleSheet={create:s=>s,flatten:flat,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0},hairlineWidth:1};
  export const Dimensions={get:()=>({width:390,height:844,scale:1,fontScale:1}),addEventListener:()=>({remove(){}})},PixelRatio={get:()=>1,getFontScale:()=>1},useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1});
  export const TVEventHandler={addListener:()=>({remove(){}})},registerCallableModule=()=>{},AppRegistry={registerComponent:(name,factory)=>S.registrations.set(name,factory)},StatusBar=host('StatusBar'),UIManager={hasViewManagerConfig:()=>true},findNodeHandle=node=>node?.tag??null,requireNativeComponent=name=>host(name),useTVEventHandler=()=>{},I18nManager={isRTL:false};
