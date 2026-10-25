@@ -55,6 +55,29 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
           "subtitleRendering" to listOf("text"),
           "chapters" to false))
 
+  /** Music's Match sample rate, this device's own value (smart/strict/off). The listening
+   * owner reads it when it opens a track's audio session; nothing reports a match until the
+   * opened session's rate equals the file's. */
+  @ReactMethod
+  fun setAudioSampleRateMatching(mode: String?, promise: Promise) {
+    main.post {
+      if (invalidated) { promise.reject("bridge_closed", "Playback bridge is closed."); return@post }
+      listening.setSampleRateMatching(PorticoAudioSampleRate.parse(mode))
+      promise.resolve(Arguments.makeNativeMap(listening.audioProcessingFacts(reactApplicationContext)))
+    }
+  }
+
+  @ReactMethod
+  fun audioProcessing(promise: Promise) {
+    main.post {
+      if (invalidated) { promise.reject("bridge_closed", "Playback bridge is closed."); return@post }
+      promise.resolve(Arguments.makeNativeMap(listening.audioProcessingFacts(reactApplicationContext)))
+    }
+  }
+
+  /** The engine's current mode, for a settings row that must not guess. */
+  fun sampleRateMatching(): String = listening.sampleRateMatching()
+
   @ReactMethod fun addListener(eventName: String) {}
 
   @ReactMethod fun removeListeners(count: Double) {}

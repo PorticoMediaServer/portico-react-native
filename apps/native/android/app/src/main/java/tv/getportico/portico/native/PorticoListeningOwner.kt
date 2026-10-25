@@ -255,6 +255,28 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val url = plan["url"] as String
     return if (url.startsWith("/")) HashMap(plan).apply { put("url", origin + url) } else plan
   }
+  // Music Match sample rate (23 Oct ruling): this device's own value. Reviewable WIP for Media: the
+  // mode is held and reported here; the sink configures its delegate at the stage's chosen rate, but
+  // no opened or configured rate is recorded process-wide, so audioProcessingFacts can never answer
+  // sampleRateMatched = true.
+  fun setSampleRateMatching(mode: String) {
+    PorticoAudioSampleRate.mode = PorticoAudioSampleRate.parse(mode)
+  }
+
+
+  fun sampleRateMatching(): String = PorticoAudioSampleRate.mode
+
+  /** The sink's own open facts. The requested rate is read from the presentation the listener is
+   * hearing *now* — the audible plan while a gapless edge drains, the session otherwise — so an
+   * item advance, boundary switch or retire cannot leave a stale rate behind; 0 without an
+   * active owner. The routed device and the opened rate stay unknown until the sink reports
+   * them, and no support, match or physical-rate claim is made here. */
+  fun audioProcessingFacts(context: android.content.Context): Map<String, Any> {
+    val owner = activeOwner
+    val rate = if (owner == null) 0 else num(decodePlan(presentation(heard()))?.get("sampleRate"))?.toInt() ?: 0
+    return PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, rate, null, 0)
+  }
+
   private fun renders(presentation: Map<String, Any?>?): Boolean = PorticoAudioPlan.playable(decodePlan(presentation))
   private fun accepts(presentation: Map<String, Any?>?): Boolean {
     val plan = plan(presentation) ?: return false
