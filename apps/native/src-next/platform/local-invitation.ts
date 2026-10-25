@@ -14,7 +14,7 @@ const cancelled = () => Object.assign(new Error('invitation_retired'), {name: 'A
 /** A memory-only recipient for an already proved, local-sign-in server. */
 export class NativeLocalInvitation<T> {
   static parseEntry(raw: string, address: string): Readonly<{raw: string; server: string; id?: string}> | undefined {
-    const input = raw.trim(), link = parseJoinLink(input);
+    const input = raw, link = parseJoinLink(input);
     if (link) return Object.freeze({raw: input, server: link.server, ...(link.id ? {id: link.id} : {})});
     const shortCode = parseShortInvitationCode(input);
     if (!shortCode) return undefined;
@@ -25,6 +25,7 @@ export class NativeLocalInvitation<T> {
   private readonly client: PeopleInvitationsClient;
   private invitation?: {capability: Capability; preview: PublicInvitation};
   private accepted?: {preview: PublicInvitation; username: string};
+  private shortEntry = false;
   private busy = false;
   constructor(ports: Ports<T>) {
     this.ports = ports;
@@ -38,7 +39,8 @@ export class NativeLocalInvitation<T> {
   private assertCurrent() {if (!this.current() || !this.ports.current()) throw cancelled();}
   async preview(raw: string): Promise<PublicInvitation> {
     this.assertCurrent(); if (this.busy || this.accepted) throw cancelled();
-    const input = raw.trim(), shortCode = parseShortInvitationCode(input), link = shortCode ? undefined : parseJoinLink(input);
+    const input = raw, shortCode = parseShortInvitationCode(input), link = shortCode ? undefined : parseJoinLink(input);
+    this.invitation = undefined; this.shortEntry = !!shortCode;
     if (!shortCode && (!link || link.server !== this.ports.origin || link.id !== undefined && link.id !== this.ports.serverId))
       throw Object.assign(new Error('invitation_incomplete'), {code: 'invitation_incomplete'});
     const capability: Capability = shortCode ? {shortCode} : {code: link!.code};
@@ -68,7 +70,10 @@ export class NativeLocalInvitation<T> {
       return await this.ports.signIn(user, password);
     } catch (error) {this.assertCurrent(); throw error;} finally {this.busy = false;}
   }
-  failure(error: unknown): 'expired' | 'username' | undefined {
+  failure(error: unknown): 'expired' | 'username' | 'unavailable' | undefined {
+    if (this.shortEntry && !this.accepted && (error instanceof InvitationExpired || error instanceof ApiError && (
+      error.status === 410 && error.code === 'invitation_expired'
+      || error.status === 403 && error.code === 'invitation_for_another_account'))) return 'unavailable';
     if (error instanceof InvitationExpired || error instanceof ApiError && error.status === 410 && error.code === 'invitation_expired') return 'expired';
     if (error instanceof ApiError && error.status === 409 && error.code === 'username_taken') return 'username';
     return undefined;
