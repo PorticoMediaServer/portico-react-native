@@ -27,8 +27,9 @@ internal class PorticoRateStage(private val emit: (ByteBuffer, Long, Int) -> Boo
   private var pendingFrames = FloatArray(0)
   private var pendingCount = 0
   private var retained: ByteBuffer? = null
-  private var retainedTime = 0L
-  private var retainedCount = 0
+  private var tail: ByteBuffer? = null
+  private var tailTime = 0L
+  private var tailCount = 0
   private var lastTime = 0L
   private var lastCount = 0
   private var ended = false
@@ -43,8 +44,13 @@ internal class PorticoRateStage(private val emit: (ByteBuffer, Long, Int) -> Boo
     targetRate = when (PorticoAudioSampleRate.parse(mode)) {
       PorticoAudioSampleRate.OFF -> if (preferredRate > 0) preferredRate else sourceRate
       PorticoAudioSampleRate.STRICT -> fileRate.takeIf { it > 0 } ?: sourceRate
-      else -> if (routeTakesFile == true || fileRate <= 0) fileRate.takeIf { it > 0 } ?: sourceRate
-              else if (preferredRate > 0) preferredRate else sourceRate
+      // Smart: the file's rate when the route takes it or the route is unknown (never a guess
+      // that the preferred rate is supported); the preferred rate only on a known refusal.
+      else -> when {
+        fileRate <= 0 -> sourceRate
+        routeTakesFile == false -> if (preferredRate > 0) preferredRate else fileRate
+        else -> fileRate
+      }
     }
     position = 0.0; pendingCount = 0; retained = null; ended = false
     return targetRate
@@ -59,26 +65,38 @@ internal class PorticoRateStage(private val emit: (ByteBuffer, Long, Int) -> Boo
     return produce()
   }
 
-  fun accepted() {retained = null}
+  /** The delegate accepted [buffer]; a retained tail is retired only once, here. */
+  fun accepted(buffer: ByteBuffer? = null) {
+    if (buffer !== null && buffer === tail) {tail = null; ended = true}
+    retained = null
+  }
 
   fun flush() {pendingCount = 0; position = 0.0; retained = null; ended = false}
 
   fun reset() {flush(); sourceRate = 0; targetRate = 0; channels = 0; encoding = 0}
 
-  /** The end-of-stream tail, or null. The sink delivers it before finishing the stream. */
+  /** The end-of-stream tail, or null. It keeps its identity, time and count until the delegate
+   * accepts it; only then does the stream count as ended. */
   fun takeTail(): ByteBuffer? {
-    if (ended || !resampling) return null
-    ended = true
-    val tail = produce(true)
-    return if (tail.hasRemaining()) tail else null
+    if (!resampling) {ended = true; return null}
+    tail?.let { return it }
+    if (ended) return null
+    val produced = produce(true)
+    if (!produced.hasRemaining()) {ended = true; return null}
+    tail = produced; tailTime = lastTime; tailCount = lastCount
+    return produced
   }
+
+  fun tailTimeUs(): Long = tailTime
+  fun tailCountBuffers(): Int = tailCount
 
   private fun copy(input: ByteBuffer) {
     val source = input.duplicate().order(ByteOrder.nativeOrder())
     val frames = if (frame > 0) source.remaining() / frame else 0
     if (frames <= 0) return
-    if (pendingCount + frames > pendingFrames.size) {
-      val grown = FloatArray(maxOf(pendingCount + frames, pendingFrames.size * 2, 1024))
+    val needed = (pendingCount + frames) * channels
+    if (needed > pendingFrames.size) {
+      val grown = FloatArray(maxOf(needed, pendingFrames.size * 2, 1024))
       System.arraycopy(pendingFrames, 0, grown, 0, pendingCount); pendingFrames = grown
     }
     repeat(frames) { for (channel in 0 until channels) pendingFrames[(pendingCount + it) * channels + channel] = read(source) }
@@ -99,7 +117,8 @@ internal class PorticoRateStage(private val emit: (ByteBuffer, Long, Int) -> Boo
       if (at + 1 >= pendingCount) break
       val fraction = (position - at).toFloat()
       for (channel in 0 until channels) {
-        val a = pendingFrames[at * channels + channel], b = pendingFrames[(at + 1) * channels + channel]
+        val a = pendingFrames[at * channels + channel]
+        val b = pendingFrames[(at + 1) * channels + channel]
         outFrames[produced * channels + channel] = a + (b - a) * fraction
       }
       produced++; position += step

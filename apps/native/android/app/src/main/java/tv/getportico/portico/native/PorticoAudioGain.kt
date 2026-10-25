@@ -203,9 +203,11 @@ internal class PorticoMusicPipeline(
 
   fun takeTail(): ByteBuffer? = stage.takeTail()
 
+  fun acceptedTail(buffer: ByteBuffer, accepted: Boolean) {if (accepted) stage.accepted(buffer)}
+
   /** The last presentation time a buffer carried, for the EOS tail. */
-  fun lastPresentationTimeUs(): Long = lastTimeUs
-  fun lastEncodedCount(): Int = lastCount
+  fun tailTimeUs(): Long = stage.tailTimeUs()
+  fun tailCountBuffers(): Int = stage.tailCountBuffers()
 
   fun flush() { queue.clear(); gain.reset(); stage.flush() }
 
@@ -224,8 +226,9 @@ internal class PorticoMusicSink(
   delegate: AudioSink,
   gain: PorticoAudioGain,
   route: () -> PorticoAudioOutput.Route,
+  preferredSampleRate: () -> Int = { 0 },
 ) : ForwardingAudioSink(delegate) {
-  private val pipeline = PorticoMusicPipeline(gain, route)
+  private val pipeline = PorticoMusicPipeline(gain, route, { PorticoAudioSampleRate.mode }, preferredSampleRate)
 
   override fun configure(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
     super.configure(pipeline.configure(format), specifiedBufferSize, outputChannels)
@@ -236,7 +239,6 @@ internal class PorticoMusicSink(
         super.handleBuffer(outgoing, time, count)
       }
 
-  fun drainTail(): Boolean = pipeline.drainTail()
 
   override fun flush() {
     super.flush()
@@ -245,9 +247,14 @@ internal class PorticoMusicSink(
   }
 
   override fun playToEndOfStream() {
-    // Deliver the resampler's retained tail, once, before the delegate finishes the stream.
+    // Deliver the resampler's retained tail; the delegate's finish waits until it accepts it, and
+    // a refusal keeps the same buffer for the next attempt instead of dropping the tail.
     val tail = pipeline.takeTail()
-    if (tail != null) super.handleBuffer(tail, pipeline.lastPresentationTimeUs(), pipeline.lastEncodedCount())
+    if (tail != null) {
+      val accepted = super.handleBuffer(tail, pipeline.tailTimeUs(), pipeline.tailCountBuffers())
+      pipeline.acceptedTail(tail, accepted)
+      if (!accepted) return
+    }
     super.playToEndOfStream()
   }
 
@@ -274,11 +281,17 @@ internal class PorticoMusicSink(
 internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain) : DefaultRenderersFactory(context) {
   override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink {
     val route = { PorticoAudioOutput.route(context) }
+    // The device's own preferred output rate, as the configured fallback — never reported as the
+    // routed device's support.
+    val preferred = {
+      val manager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+      manager?.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 0
+    }
     // Float is the sink's only high-resolution output and the decision is per stream, not per
     // player: with float enabled the delegate uses it exactly when PorticoAudioOutput selects
     // float for this stream, and a 16-bit selection never enters the float path. A build-time
     // route snapshot therefore cannot make a later float selection narrow to 16-bit.
     val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(true).build()
-    return PorticoMusicSink(sink, gain, route)
+    return PorticoMusicSink(sink, gain, route, preferred)
   }
 }
