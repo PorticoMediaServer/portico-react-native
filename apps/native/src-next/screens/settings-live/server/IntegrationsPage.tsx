@@ -1,4 +1,5 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import {useSettingsRequestScope} from '../use-settings-request-scope';
+import React, {useCallback, useEffect, useState} from 'react';
 import {ScrollView, Share, Text, View} from 'react-native';
 import {apiScopes, createApiKey, createWebhook, deleteWebhook, getApiAccessOptions, listApiKeys, listWebhooks, revokeApiKey, type ApiAccessOptions, type ApiCredential, type ApiScope, type Webhook, type WebhookEvent} from '../../../../../../packages/client-core/src/api-access';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
@@ -42,14 +43,15 @@ const scopeLabel = (scope: ApiScope, t: Translate) => t(`api.scope.${scope}` as 
 
 function ApiKeysTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
   const theme = useTheme(), context = ports.context;
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
+  const {api, lifetime} = useSettingsRequestScope(context);
   const [keys, setKeys] = useState<readonly ApiCredential[]>([]), [options, setOptions] = useState<ApiAccessOptions>(), [error, setError] = useState<unknown>();
   const [creating, setCreating] = useState(false), [name, setName] = useState(''), [scopes, setScopes] = useState<readonly ApiScope[]>(['read', 'playback']);
   const [secret, setSecret] = useState<{title: string; value: string}>(), [menu, setMenu] = useState<ApiCredential>(), [revoking, setRevoking] = useState<ApiCredential>(), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
-  const reload = () => {
-    void Promise.all([listApiKeys(api), getApiAccessOptions(api)]).then(([page, access]) => {setKeys(page.items); setOptions(access);}, setError);
-  };
-  useEffect(() => {reload();}, [context]);
+  const reload = useCallback(() => {
+    if (!lifetime.current()) return;
+    void Promise.all([listApiKeys(api), getApiAccessOptions(api)]).then(([page, access]) => {if (lifetime.current()) {setKeys(page.items); setOptions(access); setError(undefined);}}, failure => {if (lifetime.current()) setError(failure);});
+  }, [api, lifetime]);
+  useEffect(() => {reload();}, [reload]);
   const toggle = (scope: ApiScope) => setScopes(current => current.includes(scope) ? current.filter(value => value !== scope) : [...current, scope]);
   const create = () => {
     setBusy(true); setProblem(undefined);
@@ -116,12 +118,15 @@ const eventGroups: readonly {title: MessageId; events: readonly WebhookEvent[]}[
 
 function WebhooksTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
   const theme = useTheme(), context = ports.context;
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
+  const {api, lifetime} = useSettingsRequestScope(context);
   const [hooks, setHooks] = useState<readonly Webhook[]>([]), [error, setError] = useState<unknown>(), [adding, setAdding] = useState(false);
   const [name, setName] = useState(''), [url, setUrl] = useState(''), [events, setEvents] = useState<readonly string[]>(['title.added']), [signing, setSigning] = useState('');
   const [secret, setSecret] = useState<{title: string; value: string}>(), [removing, setRemoving] = useState<Webhook>(), [menu, setMenu] = useState<Webhook>(), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
-  const reload = () => {void listWebhooks(api).then(value => setHooks(value.items), setError);};
-  useEffect(() => {reload();}, [context]);
+  const reload = useCallback(() => {
+    if (!lifetime.current()) return;
+    void listWebhooks(api).then(value => {if (lifetime.current()) {setHooks(value.items); setError(undefined);}}, failure => {if (lifetime.current()) setError(failure);});
+  }, [api, lifetime]);
+  useEffect(() => {reload();}, [reload]);
   const toggle = (event: string) => setEvents(current => current.includes(event) ? current.filter(value => value !== event) : [...current, event]);
   const add = () => {
     setBusy(true); setProblem(undefined);
