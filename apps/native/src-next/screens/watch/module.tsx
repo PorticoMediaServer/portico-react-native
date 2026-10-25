@@ -1,4 +1,4 @@
-import {groupPort} from '../settings-live/group-port';
+import {groupPort, subscribeGroupPort} from '../settings-live/group-port';
 import {nativeDeviceSettings} from '../../platform/device-settings';
 import React from 'react';
 import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
@@ -78,12 +78,16 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   // route/authority replacement, a collapsed watch or disposal — not on phase,
   // source or session changes — and the core fences unrelated intents itself.
   const retries = new Set<{controller: AbortController; route: Readonly<{authority: ReturnType<typeof context.authority>; revision: number}>}>();
-  const expanded = () => context.playback.getSnapshot().dock.local?.expanded === true;
+  const expanded = () => context.playback.getSnapshot().dock.local?.expanded === true
+    && (!Platform.isTV || groupPort()?.playerVisible?.() !== false);
   const abortAll = () => {for (const operation of retries) operation.controller.abort(); retries.clear();};
   // A pending retry belongs to the route it was started under. Collapsing the watch,
   // replacing the route or authority, or disposing the module aborts it; the retry's
   // own phase, source and session changes never do.
   const stopPlayback = context.playback.subscribe(() => {if (!expanded()) abortAll();});
+  // Returning to a Together room hides Watch without stopping its local output.
+  // Its presentation lease still retires the retry that the hidden Watch owned.
+  const stopGroup = Platform.isTV ? subscribeGroupPort(() => {if (!expanded()) abortAll();}) : () => {};
   const stopNavigation = context.navigation.subscribe(() => {
     const route = {authority: context.authority(), revision: context.navigation.getSnapshot().revision};
     for (const operation of [...retries]) {
@@ -231,6 +235,6 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       return screens.watch.back() || group?.closePlayer?.() === true;
     },
     screens,
-    dispose: () => {if (disposed) return; disposed = true; abortAll(); stopPlayback(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
+    dispose: () => {if (disposed) return; disposed = true; abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });
 }
