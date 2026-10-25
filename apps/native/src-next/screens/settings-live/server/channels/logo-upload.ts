@@ -20,7 +20,7 @@ export async function nativeChannelLogoCapability(context:NativeShellBootstrapCo
   const current=()=>lifetime.current()&&nativeStorageOwner(context)&&isCurrent();
   const api={request:<T,>(path:string,method?:string,body?:unknown,caller?:AbortSignal):Promise<T>=>current()?lifetime.request(signal=>context.api.request<T>(path,method,body,signal),caller):Promise.reject(screenScopeEnded())};
   const consoleClient=new ConsoleClient(api,{serverId:lifetime.authority.serverId,viewerId:lifetime.authority.profileId});
-  try{if(!current())throw screenScopeEnded();const registry:unknown=await consoleClient.registry();if(!current())throw screenScopeEnded();if(!object(registry))throw new Error('invalid_channel_logo_capability');const option=registry.channelLogoUpload;if(option===undefined)return false;if(!object(option)||option.base64Multipart!==true||Object.keys(option).some(key=>key!=='base64Multipart'))throw new Error('invalid_channel_logo_capability');return true;}finally{consoleClient.dispose();}
+  try{if(!current())throw screenScopeEnded();const registry:unknown=await consoleClient.registry();if(!current())throw screenScopeEnded();if(!object(registry))throw new Error('invalid_channel_logo_capability');const option=registry.channelLogoUpload;if(option===undefined)return false;if(!object(option)||typeof option.base64Multipart!=='boolean'||Object.keys(option).some(key=>key!=='base64Multipart'))throw new Error('invalid_channel_logo_capability');return option.base64Multipart===true;}finally{consoleClient.dispose();}
 }
 /** Fixed registered owner route over the existing certificate-pinned native transport. */
 export function nativeChannelLogoUpload(context:NativeShellBootstrapContext,lifetime:NativeScreenLifetime,isCurrent:()=>boolean){
