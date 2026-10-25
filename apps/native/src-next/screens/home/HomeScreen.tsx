@@ -7,6 +7,7 @@ import type {HomeChannel, HomeRow} from '../../../../../packages/client-core/src
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {homeCollectionCaption, homeRowPresentation, homeSpotlightModels, homeTitleFactParts} from '../../../../../packages/client-core/src/presentation/home-spotlight';
 import {homeEntryCapabilities} from '../../../../../packages/client-core/src/home-selection';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {programmeFactParts, programmeTimeRange, type FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {ArtworkPlacementContext} from '../../platform/ArtworkPipeline';
@@ -117,7 +118,14 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const crease = medium && posture.status === 'available' && posture.window?.width === windowWidth && posture.window.height === windowHeight
     ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.right > value.bounds.left && value.bounds.right <= windowWidth) : undefined;
   const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
-  const document = authorizedHome(snapshot.document, authority);
+  // states 4b: a page already read may stay on screen only for a positively known
+  // transport failure. A refusal, permission, missing or invalid answer takes the
+  // ordinary full error state instead of stale rows. TV keeps its own recovery.
+  const errorFacts = snapshot.error ? presentError(snapshot.error, 'home') : undefined;
+  const transportFailure = !theme.isTV && errorFacts !== undefined && (errorFacts.category === 'unreachable' || errorFacts.category === 'offline'
+    || errorFacts.category === 'timeout' || errorFacts.category === 'busy');
+  const retainable = theme.isTV || errorFacts === undefined || transportFailure;
+  const document = retainable ? authorizedHome(snapshot.document, authority) : undefined;
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
   // The recovery session lives here, at the screen's stable scope, so the service clearing
   // its error for the length of a retry cannot unmount it or restart its schedule.
