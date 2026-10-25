@@ -30,6 +30,7 @@ class PorticoPackage : ReactPackage {
       PorticoSystemMedia(reactContext),
       PorticoImagePicker(reactContext),
       PorticoSubtitleFiles(reactContext),
+      PorticoDocumentFiles(reactContext),
   ) + (if (BuildConfig.DEBUG) listOf(PorticoLayoutObservation(reactContext)) else emptyList()) + (
       // Downloads belong to phones and tablets, the home-screen rows to televisions: the other
       // kind of device has no such module, and the shared screens hide the feature.

@@ -56,6 +56,20 @@ const source = (v: unknown): LiveSource => {
     diagnostics: diagnostics(v.diagnostics),
   });
 };
+export type UploadPreview = Readonly<{channels: number; programmes: number; names: readonly string[]}>;
+/** The direct live-source preview (an uploaded playlist/guide), not the remote preview. */
+export function parseUploadPreview(v: unknown, serverId: string): UploadPreview {
+  const body = adminResult(v, serverId);
+  if (!object(body.preview)) invalid();
+  const p = body.preview;
+  if (!count(p.channels, 100000) || !count(p.programmes, 10000000) || !Array.isArray(p.names) || p.names.length > 100 || p.names.some(name => !text(name, 256))) invalid();
+  return Object.freeze({channels: p.channels, programmes: p.programmes, names: Object.freeze([...p.names])});
+}
+/** The direct save receipt is the published source row. */
+export function parseLiveSourceReceipt(v: unknown, serverId: string): LiveSource {
+  const body = adminResult(v, serverId);
+  return source(body.source);
+}
 export function parseLiveSources(v: unknown, serverId: string): LiveSources {
   const body = adminResult(v, serverId);
   if (!Array.isArray(body.sources) || !Array.isArray(body.refresh)) invalid();

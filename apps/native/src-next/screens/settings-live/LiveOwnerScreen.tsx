@@ -14,6 +14,8 @@ import type {NativeSettingsLivePorts} from './ports';
 import type {NativeLiveOwnerController} from './live-owner-controller';
 import type {NativeRecordingsController} from './recordings-controller';
 import {AddSourceSheet, DiscoverSheet} from './LiveOwnerSheets';
+import {UploadSourceSheet} from './LiveOwnerUploadSheet';
+import {liveDocumentPicker} from './live-document-picker';
 import {ChannelMapSheet, SourceSettingsSheet} from './LiveOwnerSettingsSheets';
 import {NativeRecordingOwner} from './LiveOwnerRecording';
 import {NativeLibraryChannelsPanel} from './server/LibraryChannelsPanel';
@@ -25,7 +27,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
   const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [tab, setTab] = useState('sources');
-  const [addMenu, setAddMenu] = useState(false), [adding, setAdding] = useState(initialAction === 'add'), [discovering, setDiscovering] = useState(initialAction === 'discover'), [tuner, setTuner] = useState<string>();
+  const [addMenu, setAddMenu] = useState(false), [adding, setAdding] = useState(initialAction === 'add'), [discovering, setDiscovering] = useState(initialAction === 'discover'), [uploading, setUploading] = useState(false), [tuner, setTuner] = useState<string>();
   const addButton = useRef<View | null>(null);
   const [menu, setMenu] = useState<LiveSource>(), [configure, setConfigure] = useState<LiveSource>(), [mapping, setMapping] = useState<LiveSource>(), [remove, setRemove] = useState<LiveSource>();
   const [removing, setRemoving] = useState(false);
@@ -71,7 +73,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
             {state.list && !sources.length && <View testID="live-owner-empty" style={{backgroundColor: theme.colors.raised, borderRadius: 16, padding: 24, alignItems: 'center', gap: 10}}>
               <Text style={[shellType(17, 700), {color: theme.colors.text}]}>{t('web.live.empty.noSourcesTitle')}</Text>
               <Text style={[shellType(13.5), {color: theme.colors.textSecondary, textAlign: 'center', lineHeight: 20}]}>{t('web.liveTv.noSourcesHelp')}</Text>
-              <Button testID="live-owner-empty-add" icon="i-plus" onPress={() => setAdding(true)}>{t('web.liveTv.addSource')}</Button>
+              <Button testID="live-owner-empty-add" icon="i-plus" onPress={() => setAddMenu(true)}>{t('web.liveTv.addSource')}</Button>
             </View>}
             {state.notice && <Text style={[shellType(13), {color: theme.colors.healthy}]}>{state.notice}</Text>}
             {sources.map(source => {
@@ -105,8 +107,10 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
     <Menu open={addMenu} onOpenChange={setAddMenu} title={t('web.liveTv.addSource')} anchorRef={addButton} presentation="sheet" testID="live-owner-add-menu" items={[
       {id: 'remote', icon: 'i-live', label: t('web.liveTv.remoteSource'), description: t('web.liveTv.remoteSourceMeta'), onSelect: () => {setTuner(undefined); setAdding(true);}},
       {id: 'discover', icon: 'i-search', label: t('web.liveTv.discover'), description: t('web.liveTv.discoverMeta'), onSelect: () => setDiscovering(true)},
+      ...(liveDocumentPicker ? [{id: 'upload', icon: 'i-upload' as const, label: t('web.liveTv.upload'), description: t('web.liveTv.uploadMeta'), onSelect: () => setUploading(true)}] : []),
     ]}/>
     <AddSourceSheet controller={controller} runtime={runtime} open={adding} tuner={tuner} onOpenChange={setAdding} onSaved={() => {setAdding(false); void controller.load(true);}}/>
+    <UploadSourceSheet controller={controller} runtime={runtime} open={uploading} onOpenChange={setUploading} onSaved={() => {setUploading(false); void controller.load(true);}}/>
     <DiscoverSheet controller={controller} runtime={runtime} open={discovering} onOpenChange={setDiscovering} onUse={address => {setTuner(address); setAdding(true);}}/>
     <SourceSettingsSheet controller={controller} runtime={runtime} source={configure} sources={sources} open={configure !== undefined} onOpenChange={value => {if (!value) setConfigure(undefined);}} onSaved={() => void controller.load(true)}/>
     <ChannelMapSheet controller={controller} runtime={runtime} source={mapping} open={mapping !== undefined} onOpenChange={value => {if (!value) setMapping(undefined);}}/>

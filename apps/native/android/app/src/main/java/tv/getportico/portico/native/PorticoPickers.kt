@@ -10,6 +10,8 @@ import android.graphics.ImageDecoder
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -21,6 +23,9 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.util.concurrent.Executors
 import tv.getportico.portico.TelevisionDisplay
 
@@ -202,4 +207,149 @@ class PorticoSubtitleFiles(context: ReactApplicationContext) : ReactContextBaseJ
     const val REQUEST = 0x5053
     val FORMATS = setOf("srt", "vtt", "ass", "ssa", "sup", "idx")
   }
+}
+
+/**
+ * `NativeModules.PorticoDocumentFiles.pick(requestId, kind)`: one M3U/M3U8 or XML
+ * file from the system picker as bounded, strictly decoded UTF-8 text. Phones and
+ * tablets only; no path or lasting permission crosses the bridge.
+ */
+class PorticoDocumentFiles(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+  private class Request(val code: Int, val id: String, val kind: String, val activity: Activity, val promise: Promise) {
+    @Volatile var cancelled = false
+    @Volatile var reading = false
+  }
+  private var active: Request? = null
+  @Volatile private var closed = false
+  private val admission = Any()
+  private companion object {
+    // Process-wide, never reused across React module replacement. This range is
+    // disjoint from the image/subtitle pickers and the highlights writer.
+    val codeLock = Any()
+    var nextCode = 0x6000
+    fun allocateCode(): Int? = synchronized(codeLock) {
+      if (nextCode > 0x7fff) null else nextCode++
+    }
+  }
+  private val main = Handler(Looper.getMainLooper())
+
+  private val listener: ActivityEventListener = object : BaseActivityEventListener() {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+      var request: Request? = null
+      synchronized(admission) {
+        if (closed) return
+        request = active ?: return
+        if (request!!.activity !== activity || request!!.code != requestCode || request!!.reading) return
+        request!!.reading = true
+      }
+      val chosen = request ?: return
+      val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
+      if (uri == null) { finish(chosen, null, "cancelled", "File selection cancelled."); return }
+      pickerWork.execute { read(uri, chosen) }
+    }
+  }
+
+  init { context.addActivityEventListener(listener) }
+
+  override fun getName(): String = "PorticoDocumentFiles"
+
+  override fun invalidate() {
+    var request: Request? = null
+    synchronized(admission) {
+      closed = true
+      request = active; active = null
+      request?.cancelled = true
+    }
+    reactApplicationContext.removeActivityEventListener(listener)
+    request?.promise?.resolve(null)
+    super.invalidate()
+  }
+
+  @ReactMethod
+  fun pick(requestId: String, kind: String, promise: Promise) {
+    if (TelevisionDisplay.isTelevision) { promise.reject("document_picker_unavailable", "Choose playlist files on a phone or tablet."); return }
+    if (!requestId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) || (kind != "playlist" && kind != "guide")) { promise.reject("document_request_invalid", "Invalid document request."); return }
+    val activity = reactApplicationContext.currentActivity
+    if (activity == null) { promise.reject("document_picker_unavailable", "Open the app before choosing a file."); return }
+    synchronized(admission) {
+      if (closed) { promise.reject("bridge_closed", "bridge_closed"); return }
+      if (active != null) { promise.reject("document_picker_busy", "Another file is being read."); return }
+      val code = allocateCode()
+      if (code == null) { promise.reject("document_picker_exhausted", "Restart the app before choosing another file."); return }
+      val request = Request(code, requestId, kind, activity, promise); active = request
+      activity.runOnUiThread {
+        synchronized(admission) {
+          // The captured operation alone may register on the captured activity.
+          if (closed || active !== request || request.cancelled) return@runOnUiThread
+          try {
+            activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), request.code)
+          } catch (_: Exception) {
+            active = null; request.cancelled = true
+            promise.reject("document_picker_unavailable", "Open the app before choosing a file.")
+          }
+        }
+      }
+    }
+  }
+
+  @ReactMethod
+  fun cancel(requestId: String, promise: Promise) {
+    if (closed) { promise.resolve(false); return }
+    var request: Request? = null
+    var current = false
+    synchronized(admission) {
+      request = active
+      current = request != null && request!!.id == requestId
+      if (current) { request!!.cancelled = true; active = null }
+    }
+    if (current) request!!.promise.resolve(null)
+    promise.resolve(current)
+  }
+
+  private fun finish(request: Request, result: com.facebook.react.bridge.WritableMap?, code: String?, message: String?) {
+    val accepted = synchronized(admission) {
+      if (closed || active !== request || request.cancelled) false
+      else { active = null; true }
+    }
+    if (!accepted) return
+    if (result != null) request.promise.resolve(result)
+    else request.promise.reject(code ?: "document_file", message ?: "Read failed.")
+  }
+
+  private fun read(uri: Uri, request: Request) {
+    if (closed || request.cancelled) return
+    val context = reactApplicationContext
+    val name = displayName(context, uri)
+    val extension = name.substringAfterLast('.', "").lowercase()
+    val allowed = if (request.kind == "playlist") setOf("m3u", "m3u8") else setOf("xml")
+    if (extension !in allowed) { main.post { finish(request, null, "document_format", if (request.kind == "playlist") "Choose an M3U playlist file." else "Choose an XMLTV guide file.") }; return }
+    val bytes = boundedDocument(context, uri, 16 * 1024 * 1024, request)
+    if (bytes == null || closed || request.cancelled) { if (!closed && !request.cancelled) main.post { finish(request, null, "document_file", "Read failed, the file is empty, or it is larger than 16 MB.") }; return }
+    val text = try {
+      Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes)).toString()
+    } catch (_: CharacterCodingException) {
+      main.post { finish(request, null, "document_encoding", "The file is not valid UTF-8 text.") }; return
+    }
+    if (text.isEmpty()) { main.post { finish(request, null, "document_file", "Read failed, the file is empty, or it is larger than 16 MB.") }; return }
+    val result = Arguments.createMap()
+    result.putString("data", text)
+    result.putString("title", name.take(160))
+    result.putInt("bytes", bytes.size)
+    main.post { finish(request, result, null, null) }
+  }
+
+  private fun boundedDocument(context: Context, uri: Uri, limit: Int, request: Request): ByteArray? = try {
+    context.contentResolver.openInputStream(uri)?.use { input ->
+      val out = ByteArrayOutputStream()
+      val chunk = ByteArray(65536)
+      while (!closed && !request.cancelled && out.size() <= limit) {
+        val read = input.read(chunk, 0, Math.min(chunk.size, limit + 1 - out.size()))
+        if (read <= 0) break
+        out.write(chunk, 0, read)
+      }
+      if (!closed && !request.cancelled && out.size() in 1..limit) out.toByteArray() else null
+    }
+  } catch (_: Exception) { null }
+
 }
