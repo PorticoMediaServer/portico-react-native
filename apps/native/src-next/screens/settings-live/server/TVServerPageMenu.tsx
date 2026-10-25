@@ -18,10 +18,9 @@ const pages: readonly {id: TVServerPage; label: MessageId; icon: React.Component
   {id: 'troubleshooting', label: 'settings.server.troubleshooting', icon: 'i-wrench'},
 ];
 /** Pages the drawn administrator view exposes (frame 39); the owner sees every
- * mounted page. This list never grants a reader authority. */
-// Troubleshooting's log reader is owner-only on the server; it stays off the
-// administrator's menu until an admin-safe producer is approved.
-const administratorPages: ReadonlySet<TVServerPage> = new Set(['dashboard', 'people']);
+ * mounted page. This list never grants a reader authority. Their Troubleshooting
+ * page is the coded event projection, never the owner's message log. */
+const administratorPages: ReadonlySet<TVServerPage> = new Set(['dashboard', 'people', 'troubleshooting']);
 
 /** Only pages with a real mounted reader enter the menu. Admission is still
  * checked by route composition; this list never grants a reader authority. */

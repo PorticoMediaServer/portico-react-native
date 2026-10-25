@@ -64,7 +64,7 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
         <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={audience}/></View>
         <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : page === 'remote' ? 'settings.server.remote' : page === 'people' ? 'settings.server.people' : 'settings.server.troubleshooting')}</Text>
         <FocusRegion key={page} id={rows} orientation="vertical" edges={{left: column}}>
-          {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'troubleshooting' ? <TVTroubleshootingPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
+          {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'troubleshooting' ? <TVTroubleshootingPanel ports={ports} runtime={runtime} lifetime={lifetime} owner={owner}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
           {state.phase === 'loading' && <StateView title={t('status.loading')}/>}
           {state.error && <StateView {...runtime.error(state.error, () => {void service.loadLibraries();})}/>}
           {state.data?.items.map(library => {

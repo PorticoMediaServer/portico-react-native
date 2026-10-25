@@ -114,6 +114,23 @@ export const settingsMessages = {
   'next.tvPeople.daysAgo': '{count, plural, one {# day ago} other {# days ago}}',
   'next.tvPeople.weeksAgo': '{count, plural, one {# week ago} other {# weeks ago}}',
   'next.tvPeople.monthsAgo': '{count, plural, one {# month ago} other {# months ago}}',
+  // TV Troubleshooting, the administrator's page (Root §27): the latest eligible
+  // maintenance events, one reviewed sentence each. Nothing here is built from a
+  // server message or from any field of a record.
+  'next.tvTroubleshooting.title': 'Recent server events',
+  'next.tvTroubleshooting.empty': 'No server events to show.',
+  'next.tvTroubleshooting.alertAcknowledge': 'An alert was acknowledged.',
+  'next.tvTroubleshooting.downloadSettings': 'Download settings were changed.',
+  'next.tvTroubleshooting.jobCancel': 'A background task was cancelled.',
+  'next.tvTroubleshooting.jobPause': 'A background task was paused.',
+  'next.tvTroubleshooting.jobResume': 'A background task resumed.',
+  'next.tvTroubleshooting.jobRetry': 'A background task was retried.',
+  'next.tvTroubleshooting.optimizationCancel': 'A prepared version was cancelled.',
+  'next.tvTroubleshooting.optimizationDelete': 'A prepared version was deleted.',
+  'next.tvTroubleshooting.optimizationRequest': 'A version was prepared.',
+  'next.tvTroubleshooting.optimizationRetry': 'Preparing a version was retried.',
+  'next.tvTroubleshooting.scheduleApply': 'A schedule was applied.',
+  'next.tvTroubleshooting.settingsApply': 'Server settings were applied.',
   'next.settings.peopleTotal': '{total, plural, one {# person} other {# people}}',
   'next.settings.people.inviteTitle': 'Invite someone',
   'next.settings.people.role': 'Role',
