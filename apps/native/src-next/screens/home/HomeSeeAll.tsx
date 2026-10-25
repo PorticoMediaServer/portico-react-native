@@ -69,7 +69,7 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
       </View>;
   const toolbar = <View style={{backgroundColor: collapsed && !tv ? theme.colors.ink : undefined}}>
     {!tv && collapsed && <View style={{paddingHorizontal: theme.gutter, paddingTop: 12, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10}}>
-      <Focusable onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')}><Icon name="i-left" size={20}/></Focusable>
+      <Focusable onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')} style={{flexDirection: 'row', alignItems: 'center', gap: 4}}><Icon name="i-left" size={20}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('next.home.shell.home')}</Text></Focusable>
       <Text numberOfLines={1} accessibilityRole="header" style={[nativeType({size: 17, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flex: 1, color: theme.colors.text}]}>{title}</Text>
     </View>}
     <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
