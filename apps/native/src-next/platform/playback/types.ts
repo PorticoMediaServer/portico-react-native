@@ -31,6 +31,8 @@ import type {NativePlaybackCapacityWait} from './capacity-retry';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
+  /** A group prepares this title paused until its authoritative clock plays. */
+  state?: 'playing' | 'paused';
   /** Real caller lifetime through options/create/adoption. It excludes an old output fence. */
   lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 }>;

@@ -1,3 +1,4 @@
+import {groupPort} from '../settings-live/group-port';
 import {nativeDeviceSettings} from '../../platform/device-settings';
 import React from 'react';
 import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
@@ -223,7 +224,12 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     channel: {render: (route: import('../../shell/routes').NativeShellRoute) => current() && route.kind === 'channel'
       ? <NativeWatchChannelRoute key={JSON.stringify([route.sourceId, route.channelId])} context={context} route={route} title={bindings.title}/> : null},
     renderOverlays: (runtime: NativeShellRuntime) => current() ? bindings.renderOverlays?.(runtime) : null,
-    back: () => current() && screens.watch.back(),
+    back: () => {
+      if (!current()) return false;
+      const group = Platform.isTV ? groupPort() : undefined;
+      if (group?.playerVisible?.() === false) return context.navigation.back(context.authority());
+      return screens.watch.back() || group?.closePlayer?.() === true;
+    },
     screens,
     dispose: () => {if (disposed) return; disposed = true; abortAll(); stopPlayback(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });

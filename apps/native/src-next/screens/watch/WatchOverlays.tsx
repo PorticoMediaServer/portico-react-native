@@ -104,6 +104,9 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   const kindKey = entry.kind === 'movie' ? 'search.kind.movie' : entry.kind === 'show' ? 'search.kind.show' : entry.kind === 'artist' ? 'search.kind.artist' : entry.kind === 'album' ? 'search.kind.album' : undefined;
   const items: MenuEntry[] = [];
   if (playable) items.push({id: 'play', label: t(resuming ? 'entry.resume' : 'entry.play'), icon: 'i-play', onSelect: () => presenters.playEntry(value)});
+  const together = tv ? presenters.togetherActions(value) : undefined;
+  if (together?.watch) items.push({id: 'watch-with-group', label: t('entry.watchWithGroup'), icon: 'i-people', onSelect: () => {void presenters.togetherEntry(value, true).catch(runtime.reportError);}});
+  if (together?.queue) items.push({id: 'add-to-group-queue', label: t('entry.addToGroupQueue'), icon: 'i-queue', onSelect: () => {void presenters.togetherEntry(value, false).catch(runtime.reportError);}});
   // music-plus (MC-9): Start radio sits straight after Play for a song, album or artist.
   if (value.actions?.entry?.startRadio) items.push({id: 'start-radio', label: t('music.startRadio'), icon: 'i-pulse', onSelect: () => presenters.startRadio(value)});
   if (tv && value.actions?.entry?.enqueue) {

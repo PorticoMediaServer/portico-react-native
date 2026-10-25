@@ -1,4 +1,5 @@
-import type {GroupSessionService, GroupSessionSnapshot} from '../../../../../packages/client-core/src/group-session';
+import type {GroupSessionService, GroupSessionSnapshot, GroupEnterLifetime} from '../../../../../packages/client-core/src/group-session';
+import type {Group} from '../../../../../packages/client-core/src/social-playback';
 import type {GroupHostAuthority} from '../../../../../packages/client-core/src/social-playback';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
 
@@ -17,9 +18,14 @@ export class NativeTogetherController extends NativeScreenStore<GroupSessionSnap
   }
   private async action<T>(work: () => Promise<T>): Promise<T> {this.lifetime.assert(); if (this.disposed) throw screenScopeEnded(); const value = await work(); this.lifetime.assert(); if (this.disposed) throw screenScopeEnded(); return value;}
   refresh = () => this.action(() => this.service.refreshDirectory());
-  open = (id: string) => this.action(() => this.service.open(id));
-  create = (name: string, displayName: string, hostAuthority: GroupHostAuthority) => this.action(() => this.service.create({name, displayName, hostAuthority}));
-  join = (code: string, displayName: string) => this.action(() => this.service.join(code, displayName));
+  open = (id: string, lifetime?: GroupEnterLifetime) => this.action(() => this.service.open(id, lifetime));
+  create = (name: string, displayName: string, hostAuthority: GroupHostAuthority, lifetime?: GroupEnterLifetime) => this.action(() => this.service.create({name, displayName, hostAuthority}, lifetime));
+  join = (code: string, displayName: string, lifetime?: GroupEnterLifetime) => this.action(() => this.service.join(code, displayName, lifetime));
+  currentGroup = (original: Group): Group | undefined => {
+    const value = this.getSnapshot();
+    return !this.disposed && this.lifetime.current() && (value.phase === 'live' || value.phase === 'reconnecting')
+      && value.group?.id === original.id && value.group.viewerMemberId === original.viewerMemberId ? value.group : undefined;
+  };
   serverNow = () => this.service.serverNow();
   refreshQueue = () => this.action(() => this.service.refreshQueue());
   transport = (...args: Parameters<GroupSessionService['transport']>) => this.action(() => this.service.transport(...args));

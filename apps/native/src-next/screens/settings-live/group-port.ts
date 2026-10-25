@@ -1,4 +1,5 @@
 import type {GroupSessionSnapshot} from '../../../../../packages/client-core/src/group-session';
+import type {PlaybackFence} from '../../../../../packages/player-core/src';
 
 /**
  * tv-more18: the one live group session the Together route owns, published read-only for the
@@ -14,18 +15,23 @@ export type NativeGroupPort = Readonly<{
   subscribe: (listener: () => void) => () => void;
   /** True while the owning controller still belongs to the live authority and route. */
   current: () => boolean;
+  /** The exact admitted local occurrence, never a same-title identity guess. */
+  matches?: (fence?: PlaybackFence) => boolean;
+  playerVisible?: () => boolean;
+  closePlayer?: () => boolean;
   /** The owner's existing command; the port never sends a group request itself. */
   makeHost: (memberId: string) => Promise<boolean>;
 }>;
 
 let live: NativeGroupPort | undefined;
+let offLive: (() => void) | undefined;
 const listeners = new Set<() => void>();
 const emit = () => {for (const listener of [...listeners]) listener();};
 
 /** Publish the live owner. Returns its retirement; a later owner replaces the slot. */
 export function publishGroupPort(port: NativeGroupPort): () => void {
-  live = port; emit();
-  return () => {if (live === port) {live = undefined; emit();}};
+  offLive?.();live = port;offLive = port.subscribe(emit);emit();
+  return () => {if (live === port) {offLive?.();offLive = undefined;live = undefined;emit();}};
 }
 
 /** The current owner, or null when it is gone or its authority/route has retired. */

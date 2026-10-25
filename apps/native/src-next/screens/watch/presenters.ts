@@ -1,5 +1,5 @@
 import type {ReactNode, RefObject} from 'react';
-import type {View} from 'react-native';
+import {Platform, type View} from 'react-native';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {readFileInfo, type DetailApi, type DetailProjection, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
 import {deletionAllowed, versionDeletionService, type VersionDeletePreview} from '../../../../../packages/client-core/src/administration';
@@ -12,12 +12,14 @@ import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchCapture, NativeWatchMenuActions, NativeWatchMenuEntry, NativeVersionDestination} from './factory';
 import {nativeFileInfoMergeGroups, type NativeFileInfo} from './file-info';
 import type {NativeDiscTitlesController} from './disc-titles-controller';
+import {nativeTogetherSession} from '../settings-live/together-session';
 
 type FileOwner = Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>;
 export type NativeWatchOverlay = Readonly<{
   capture: NativeWatchCapture;
   phase: 'menu' | 'file-pending' | 'file-info' | 'split-pick' | 'split' | 'delete' | 'merge' | 'versions-pending' | 'versions' | 'disc-titles';
   actions?: NativeWatchMenuActions;
+  together?: Readonly<{groupId: string; viewer: string}>;
   destination?: NativeVersionDestination;
   /** The disc's own titles, opened by the owner's menu row. */
   disc?: NativeDiscTitlesController;
@@ -56,6 +58,7 @@ export class NativeWatchPresenters {
   constructor(context: NativeShellBootstrapContext, common: NativeScreenServices) {
     this.context = context; this.common = common;
     this.off = [context.navigation.subscribe(this.invalidate), context.subscribeAuthority(this.invalidate), context.playback.subscribe(this.invalidate)];
+    if (Platform.isTV) this.off.push(nativeTogetherSession(context).subscribe(() => {if (this.value?.phase === 'menu' && !this.value.busy) this.patch(this.value, {});}));
   }
   getSnapshot = () => this.value;
   getMenuEntry = () => this.value?.phase === 'menu' ? this.value.capture.entry : undefined;
@@ -98,7 +101,25 @@ export class NativeWatchPresenters {
     this.menuEntry = actions.entry;
     this.menuOff = actions.entry?.subscribe(this.menuChanged);
     const detail = actions.entry?.current();
-    this.replace({capture, actions, anchorRef, phase: 'menu', confirmation: '', busy: false, candidates: [], ...(detail ? {detail} : {})});
+    const room = Platform.isTV ? nativeTogetherSession(this.context).getSnapshot() : undefined;
+    const together = room?.phase === 'live' && room.group ? {groupId: room.group.id, viewer: room.group.viewerMemberId} : undefined;
+    this.replace({capture, actions, anchorRef, phase: 'menu', confirmation: '', busy: false, candidates: [], together, ...(detail ? {detail} : {})});
+  };
+  togetherActions = (value: NativeWatchOverlay) => {
+    const state = nativeTogetherSession(this.context).getSnapshot(), group = state.phase === 'live' ? state.group : undefined;
+    const valid = this.current(value.capture) && !value.busy && !!value.capture.entry.playback && ['movie', 'episode'].includes(value.capture.entry.kind)
+      && group?.id === value.together?.groupId && group?.viewerMemberId === value.together?.viewer;
+    return {queue: valid && group?.permissions.canManageQueue === true, watch: valid && group?.permissions.canManageQueue === true && group.permissions.canControl};
+  };
+  togetherEntry = async (value: NativeWatchOverlay, watch: boolean) => {
+    const allowed = this.togetherActions(value);
+    if (this.value !== value || !(watch ? allowed.watch : allowed.queue)) return;
+    const target = value.capture.entry.playback!.itemId, pending = this.patch(value, {busy: true});if (!pending) return;
+    const service = nativeTogetherSession(this.context);
+    try {
+      const done = watch ? await service.watch(target) : await service.queueAdd([target]);
+      if (done && this.value === pending && this.current(value.capture)) this.close();
+    } finally {if (this.value === pending) this.patch(pending, {busy: false});}
   };
   playEntry = (value: NativeWatchOverlay) => {
     const entry = value.actions?.entry;

@@ -2,10 +2,10 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 
 import {FlatList, Text, View, type FlatListProps} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {GroupSessionSnapshot} from '../../../../../packages/client-core/src/group-session';
-import {groupTargetPositionUs, type Group, type GroupMember, type GroupQueueEntry} from '../../../../../packages/client-core/src/social-playback';
+import {groupTargetPositionUs, type Group, type GroupMember, type GroupQueueEntry, type GroupTransportCommand} from '../../../../../packages/client-core/src/social-playback';
 import {playbackIdentity} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {Button, Focusable} from '../../kit/controls';
-import {FocusRegion} from '../../kit/focus';
+import {FocusRegion, useOptionalFocusRegistry} from '../../kit/focus';
 import {Banner, Dialog, Menu} from '../../kit/overlays';
 import {Artwork, ProfileFace} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
@@ -14,6 +14,7 @@ import {useTheme} from '../../kit/theme';
 import {sameAuthority} from '../../shell/model';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
+import {groupPort} from './group-port';
 import {Screen, useScreenEntry} from './Screen';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeTogetherController} from './together-controller';
@@ -25,7 +26,7 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   state: GroupSessionSnapshot; group: Group; controller: NativeTogetherController; media: NativeTogetherMedia;
   ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime;
 }) {
-  const theme = useTheme(), t = runtime.text.t;
+  const theme = useTheme(), t = runtime.text.t, focus = useOptionalFocusRegistry();
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const controls = ids.surface('together.room.controls'), queueRegion = ids.surface('together.room.queue'), people = ids.surface('together.room.people'), footer = ids.surface('together.room.footer');
   const playback = useSyncExternalStore(ports.context.playback.subscribe, ports.context.playback.getSnapshot);
@@ -33,7 +34,7 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const queue = state.queue ?? group.queue, entries = queue?.entries ?? [], members = group.members.filter(value => value.state === 'joined');
   const [visible, setVisible] = useState<readonly string[]>(() => entries.slice(0, 4).flatMap(value => value.unavailable || !value.itemId ? [] : [value.itemId]));
   const wanted = JSON.stringify([...new Set([group.timeline.itemId, ...visible].filter(Boolean))]);
-  const [clock, setClock] = useState(controller.serverNow), [bodyHeight, setBodyHeight] = useState(0);
+  const [clock, setClock] = useState(controller.serverNow), [bodyHeight, setBodyHeight] = useState(0), [titleHeight, setTitleHeight] = useState(68.2);
   const [confirm, setConfirm] = useState<'end' | 'leave'>(), [memberMenu, setMemberMenu] = useState<string>(), [queueMenu, setQueueMenu] = useState<string>();
   const cancel = useRef<View>(null), endRef = useRef<View>(null), leaveRef = useRef<View>(null), menuReturn = useRef<View | null>(null);
   const queueRefs = useRef(new Map<string, View>()), memberRefs = useRef(new Map<string, View>());
@@ -47,7 +48,7 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   useEffect(() => {const timer = setInterval(() => setClock(controller.serverNow()), 1000); return () => clearInterval(timer);}, [controller]);
   const currentRead = reads.items[group.timeline.itemId], item = currentRead?.phase === 'ready' ? currentRead.item : undefined;
   const subject = playback.subject, subjectId = subject?.kind === 'channel' ? subject.id : subject?.item.id;
-  const samePlayback = !!playback.fence && sameAuthority(playback.authority, controller.lifetime.authority) && playback.playback.itemId === group.timeline.itemId;
+  const samePlayback = !!playback.fence && groupPort()?.matches?.(playback.fence) === true && sameAuthority(playback.authority, controller.lifetime.authority) && playback.playback.itemId === group.timeline.itemId;
   // Watch is the semantic producer of episode/show numbering. Basic item reads do
   // not contain it; never manufacture S/E numbers or strip an episode title.
   const identity = samePlayback && subject && subjectId === group.timeline.itemId && currentRead?.phase !== 'error' ? playbackIdentity(subject, 'full', runtime.text) : undefined;
@@ -60,12 +61,36 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const canClaimHost = !group.permissions.isHost && (group.permissions as typeof group.permissions & {canClaimHost?: boolean}).canClaimHost === true;
   const entryRegion = showTransport || samePlayback || canClaimHost ? controls : footer, entryChild = canClaimHost ? 'claim-host' : showTransport ? 'transport' : samePlayback ? 'open-player' : 'leave';
   const enter = useScreenEntry({regionId: entryRegion, childId: entryChild}, controller.lifetime.current);
-  const run = (work: () => Promise<unknown>) => {controller.lifetime.assert(); void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
+  const current = () => ports.context.navigation.getSnapshot().route.kind === 'together' ? controller.currentGroup(group) : undefined;
+  useEffect(() => {
+    const port = groupPort();if (!port) return;
+    let wasVisible = port.playerVisible?.() !== false, frame: number | undefined;
+    const off = port.subscribe(() => {
+      const visible = port.playerVisible?.() !== false;
+      if (wasVisible && !visible && current()) frame = requestAnimationFrame(() => {if (current()) focus?.focus({regionId: controls, childId: 'open-player'});});
+      wasVisible = visible;
+    });
+    return () => {off();if (frame !== undefined) cancelAnimationFrame(frame);};
+  }, [ports.context, controller, group.id, group.viewerMemberId, controls, focus]);
+  const run = (work: () => Promise<unknown>, allowed: (live: Group) => boolean = () => true) => {
+    const live = current();if (!live || controller.getSnapshot().busy || !allowed(live)) return;
+    void work().catch(error => {if (current()) runtime.reportError(error);});
+  };
+  const transport = (command: GroupTransportCommand, input: Parameters<NativeTogetherController['transport']>[1] = {}) => run(() => controller.transport(command, input), live =>
+    live.permissions.canControl && (!input.allowUnavailable || live.permissions.isHost)
+    && (!input.entryId || (controller.getSnapshot().queue ?? live.queue)?.entries.some(value => value.entryId === input.entryId && !value.unavailable && !!value.itemId) === true));
+  const transfer = (id: string) => run(() => controller.makeHost(id), live => id === live.viewerMemberId
+    ? !live.permissions.isHost && live.permissions.canClaimHost === true
+    : live.permissions.isHost && live.members.some(value => value.id === id && eligibleHost(value)));
+  const remove = (id: string) => run(() => controller.queueRemove(id), live => live.permissions.canManageQueue
+    && (controller.getSnapshot().queue ?? live.queue)?.entries.some(value => value.entryId === id) === true);
+  const askLeave = () => {const live = current();if (!live) return;if (live.permissions.isHost) setConfirm('leave');else run(() => controller.leave(), value => !value.permissions.isHost);};
   const deadline = playing ? group.host.pauseAt : group.host.endAt;
   const countdown = deadline ? defaultI18n.clock(Math.max(0, Math.ceil((Date.parse(deadline) - clock) / 1000))) : undefined;
   const notice = away ? [t('web.together.hostDropped'), countdown ? t(playing ? 'web.together.pausesIn' : 'web.together.endsIn', {time: countdown}) : undefined].filter(Boolean).join(' ') : state.error;
   const refused = state.refused && group.permissions.isHost && canControl ? state.refused : undefined;
-  const bodyTop = 196 + (notice ? 120 : 0) + (refused ? 84 : 0);
+  const headingExtra = Math.max(0, titleHeight - 68.2);
+  const bodyTop = 196 + headingExtra + (notice ? 120 : 0) + (refused ? 84 : 0);
   const position = Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), clock) / 1000000n);
   const elapsed = item && item.duration > 0 ? t('web.together.positionOf', {position: defaultI18n.clock(position), duration: defaultI18n.clock(item.duration)}) : undefined;
   const fraction = item && item.duration > 0 ? Math.max(0, Math.min(1, position / item.duration)) : undefined;
@@ -82,10 +107,10 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const openQueueMenu = (entry: GroupQueueEntry) => {menuReturn.current = queueRefs.current.get(entry.entryId) ?? null; setQueueMenu(entry.entryId);};
   return <Screen style={{paddingTop: 0}}>
     <Text style={[shellType(24, 700), {position: 'absolute', left: 200, top: 52, color: theme.colors.textSecondary}]}>{t('entry.group.together')}</Text>
-    <Text accessibilityRole="header" style={[shellType(62, 800, 68.2, -.04), {position: 'absolute', left: 200, top: 80, color: theme.colors.text}]}>{group.name}</Text>
-    {notice && <View style={{position: 'absolute', left: 200, right: 96, top: 176}}><Banner message={notice} tone="warning"/></View>}
-    {refused && <View style={{position: 'absolute', left: 200, right: 96, top: notice ? 236 : 176}}><Banner message={t('web.together.refused')} tone="warning"
-      action={{label: t('web.together.goAhead'), onPress: () => run(() => controller.transport(refused.command, {...refused.input, allowUnavailable: true}))}}/></View>}
+    <Text accessibilityRole="header" onLayout={event => setTitleHeight(event.nativeEvent.layout.height)} style={[shellType(62, 800, 68.2, -.04), {right: 96, position: 'absolute', left: 200, top: 80, color: theme.colors.text}]}>{group.name}</Text>
+    {notice && <View style={{position: 'absolute', left: 200, right: 96, top: 176 + headingExtra}}><Banner message={notice} tone="warning"/></View>}
+    {refused && <View style={{position: 'absolute', left: 200, right: 96, top: (notice ? 236 : 176) + headingExtra}}><Banner message={t('web.together.refused')} tone="warning"
+      action={{label: t('web.together.goAhead'), onPress: () => transport(refused.command, {...refused.input, allowUnavailable: true})}}/></View>}
     <View onLayout={event => setBodyHeight(event.nativeEvent.layout.height)} style={{position: 'absolute', left: 200, right: 96, top: bodyTop, bottom: 136, flexDirection: 'row', gap: 96}}>
       <View style={{width: 840}}>
         <View style={{height: 290, borderRadius: 22, overflow: 'hidden', backgroundColor: theme.colors.raised, justifyContent: 'flex-end', paddingHorizontal: 32, paddingBottom: 26}}>
@@ -97,9 +122,9 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
           {fraction !== undefined && <View style={{height: 6, borderRadius: 3, backgroundColor: alpha(theme.colors.text, .2), marginTop: 14, overflow: 'hidden'}}><View style={{height: '100%', width: `${fraction * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>}
         </View>
         <FocusRegion id={controls} entry={showTransport ? 'transport' : 'open-player'} orientation="horizontal" edges={{left: ids.rail, right: people, down: queueRegion}} onLayout={entryRegion === controls ? enter : undefined} style={{height: 72, flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 26}}>
-          {showTransport && <Button focusId="transport" testID="together-transport" disabled={state.busy} icon={playing ? 'i-pause' : 'i-play'} onPress={() => run(() => controller.transport(playing ? 'pause' : 'play'))}>{t(playing ? 'web.together.pauseAll' : 'web.together.playAll')}</Button>}
-          {samePlayback && <Button focusId="open-player" testID="together-open-player" variant="glass" icon="i-tv" onPress={() => {const actual = ports.context.playback.getSnapshot(); if (controller.lifetime.current() && actual.fence && sameAuthority(actual.authority, controller.lifetime.authority) && actual.playback.itemId === group.timeline.itemId) ports.context.playback.open(actual.fence);}}>{t('web.together.openPlayer')}</Button>}
-          {canClaimHost && <Button focusId="claim-host" testID="together-claim-host" hasTVPreferredFocus disabled={state.busy} icon="i-people" onPress={() => run(() => controller.makeHost(group.viewerMemberId))}>{t('web.together.becomeHost')}</Button>}
+          {showTransport && <Button focusId="transport" testID="together-transport" disabled={state.busy} icon={playing ? 'i-pause' : 'i-play'} onPress={() => transport(playing ? 'pause' : 'play')}>{t(playing ? 'web.together.pauseAll' : 'web.together.playAll')}</Button>}
+          {samePlayback && <Button focusId="open-player" testID="together-open-player" variant="glass" icon="i-tv" onPress={() => {const actual = ports.context.playback.getSnapshot(); if (current() && actual.fence && groupPort()?.matches?.(actual.fence) === true && sameAuthority(actual.authority, controller.lifetime.authority) && actual.playback.itemId === group.timeline.itemId) ports.context.playback.open(actual.fence);}}>{t('web.together.openPlayer')}</Button>}
+          {canClaimHost && <Button focusId="claim-host" testID="together-claim-host" hasTVPreferredFocus disabled={state.busy} icon="i-people" onPress={() => transfer(group.viewerMemberId)}>{t('web.together.becomeHost')}</Button>}
           {!canControl && !canClaimHost && <Text style={[shellType(22, 400), {color: theme.colors.textTertiary, marginLeft: 14}]}>{t('web.together.pill.hostControls')}</Text>}
         </FocusRegion>
         <Text style={[shellType(20, 700), {color: theme.colors.textTertiary, marginTop: 40, marginBottom: 12}]}>{t('player.queue')}</Text>
@@ -138,21 +163,21 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
           <Text style={[shellType(20, 700), {color: theme.colors.textTertiary, marginTop: 44, marginBottom: 12}]}>{t('web.together.invite')}</Text>
           <View style={{borderRadius: 20, paddingHorizontal: 32, paddingVertical: 28, backgroundColor: theme.colors.raised}}>
             {validInvite && <><Text style={[shellType(76, 800, 76, .14), {color: theme.colors.text}]}>{validInvite.code.slice(0, 4)} {validInvite.code.slice(4)}</Text><Text style={[shellType(21, 400, 30.45), {color: theme.colors.textTertiary, marginTop: 14, marginBottom: 20}]}>{t('web.together.inviteHelpJoin', {uses: validInvite.maxUses - validInvite.uses, time: defaultI18n.time(validInvite.expiresAt)})}</Text></>}
-            <Button variant="glass" testID="together-new-code" disabled={state.busy} onPress={() => run(() => controller.invite())}>{t(validInvite ? 'web.together.newCode' : 'web.together.getCode')}</Button>
+            <Button variant="glass" testID="together-new-code" disabled={state.busy} onPress={() => run(() => controller.invite(), live => live.permissions.isHost)}>{t(validInvite ? 'web.together.newCode' : 'web.together.getCode')}</Button>
           </View>
         </>}
       </View>
     </View>
     <FocusRegion id={footer} entry="leave" orientation="horizontal" edges={{left: ids.rail, up: queueRegion}} onLayout={entryRegion === footer ? enter : undefined} style={{position: 'absolute', left: 200, bottom: 46, flexDirection: 'row', gap: 18}}>
-      <Button ref={leaveRef} focusId="leave" testID="together-leave" variant="text" textStyle={{color: theme.colors.text}} style={{borderWidth: 1.5, borderColor: alpha(theme.colors.text, .22)}} disabled={state.busy} onPress={() => group.permissions.isHost ? setConfirm('leave') : run(() => controller.leave())}>{t('web.together.leave')}</Button>
+      <Button ref={leaveRef} focusId="leave" testID="together-leave" variant="text" textStyle={{color: theme.colors.text}} style={{borderWidth: 1.5, borderColor: alpha(theme.colors.text, .22)}} disabled={state.busy} onPress={askLeave}>{t('web.together.leave')}</Button>
       {group.permissions.isHost && <Button ref={endRef} testID="together-end" variant="text" textStyle={{color: theme.colors.text}} style={{borderWidth: 1.5, borderColor: alpha(theme.colors.text, .22)}} disabled={state.busy} onPress={() => setConfirm('end')}>{t('web.together.endAll')}</Button>}
     </FocusRegion>
     <Menu testID="together-queue-menu" open={!!queueMenu && !!currentQueue} onOpenChange={open => {if (!open) setQueueMenu(undefined);}} title={currentQueue?.unavailable ? t('web.together.notAvailable') : menuRead?.phase === 'ready' ? menuRead.item.title : undefined} presentation="sideSheet" returnFocusRef={menuReturn} items={currentQueue ? [
-      ...(canControl && !currentQueue.unavailable && currentQueue.itemId ? [{id: 'watch', label: t('web.together.watchThis'), disabled: state.busy, onSelect: () => run(() => controller.transport('load', {entryId: currentQueue.entryId}))}] : []),
-      ...(group.permissions.canManageQueue ? [{id: 'remove', label: t('web.together.removeFromQueue'), disabled: state.busy, onSelect: () => run(() => controller.queueRemove(currentQueue.entryId))}] : []),
+      ...(canControl && !currentQueue.unavailable && currentQueue.itemId ? [{id: 'watch', label: t('web.together.watchThis'), disabled: state.busy, onSelect: () => transport('load', {entryId: currentQueue.entryId})}] : []),
+      ...(group.permissions.canManageQueue ? [{id: 'remove', label: t('web.together.removeFromQueue'), disabled: state.busy, onSelect: () => remove(currentQueue.entryId)}] : []),
     ] : []}/>
-    <Menu testID="together-member-menu" open={!!memberMenu && !!currentMember && group.permissions.isHost && eligibleHost(currentMember)} onOpenChange={open => {if (!open) setMemberMenu(undefined);}} title={currentMember?.private ? t('together.privateViewer') : currentMember?.displayName} presentation="sideSheet" returnFocusRef={menuReturn} items={currentMember && group.permissions.isHost && eligibleHost(currentMember) ? [{id: 'host', label: t('web.together.makeHost'), disabled: state.busy, onSelect: () => run(() => controller.makeHost(currentMember.id))}] : []}/>
-    <Dialog testID="together-confirm" open={!!confirm} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 18}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="text" style={{backgroundColor: alpha(theme.colors.record, .14)}} textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const done = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (done && controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
+    <Menu testID="together-member-menu" open={!!memberMenu && !!currentMember && group.permissions.isHost && eligibleHost(currentMember)} onOpenChange={open => {if (!open) setMemberMenu(undefined);}} title={currentMember?.private ? t('together.privateViewer') : currentMember?.displayName} presentation="sideSheet" returnFocusRef={menuReturn} items={currentMember && group.permissions.isHost && eligibleHost(currentMember) ? [{id: 'host', label: t('web.together.makeHost'), disabled: state.busy, onSelect: () => transfer(currentMember.id)}] : []}/>
+    <Dialog testID="together-confirm" open={!!confirm} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 18}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="text" style={{backgroundColor: alpha(theme.colors.record, .14)}} textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const done = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (done && current()) setConfirm(undefined);}, live => live.permissions.isHost)}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
   </Screen>;
 }
 

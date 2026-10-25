@@ -41,17 +41,24 @@ export type SourceReadPreset='list'|'once'|'everything'|'ask';
  * absolute path the catalog uses for it, and the path inside the source. */
 export type RemoteFolder=Readonly<{name:string;path:string;relative:string;hidden:boolean}>;
 export type RemoteFolderPage=Readonly<{sourceId:string;generation:string;path:string;relative:string;entries:readonly RemoteFolder[];nextCursor:string;truncated:boolean}>;
-/** One library that uses folders from a source, and how many of its folders do. */
-export type SourceLibraryUse=Readonly<{libraryId:string;name:string;kind:string;folders:number}>;
+/** One library that uses folders from a source: the exact count of its enabled
+ * folders from that source, and their stored last completed scan only when all
+ * of them agree on one time. A mixed library omits it; nothing is picked,
+ * averaged or inferred. */
+export type SourceLibraryUse=Readonly<{libraryId:string;name:string;kind:string;folders:number;lastCompleteAt?:string}>;
+/** A source's folder health, published only when every enabled folder agrees
+ * on the same stored code. Absence is not a healthy or idle claim. */
+export type RemoteSourceHealth='ready'|'healthy'|'degraded'|'inventory_running'|'cancelled'|'offline'|'root_changed'|'removing';
 /** One source folder's real active scan: closed state/mode/phase codes and
  * stored counters/timestamps. sourceGeneration/runPolicyRevision are the values
- * the run captured, not proof of the current source or policy. No percentage,
- * job error, path or guess. */
-export type RemoteSourceHealth='ready'|'inventory_running'|'cancelled'|'offline'|'root_changed'|'removing';
+ * the run captured, not proof of the current source or policy. queuedAt is the
+ * job's queue time; no separate scan-start time is stored. completedAt is the
+ * inventory pass completing (analysis may continue); finishedAt is the whole
+ * run. No percentage, job error, path or guess. */
 export type RemoteScanStateCode='queued'|'running'|'paused';
 export type RemoteScanMode='first-import'|'incremental'|'integrity'|'full';
-export type RemoteScanPhase='inventory'|'basic_pending'|'basic_running'|'analysis_enqueue'|'reconciling'|'verifying'|'extras';
-export type RemoteScanState=Readonly<{state:RemoteScanStateCode;mode?:RemoteScanMode;phase?:RemoteScanPhase;sourceGeneration:number;runPolicyRevision:number;processed:number;discovered:number;analyzed:number;warnings:number;startedAt?:string;completedAt?:string;finishedAt?:string}>;
+export type RemoteScanPhase='inventory'|'legacy_inventory'|'basic_pending'|'basic_running'|'analysis_enqueue'|'reconciling'|'sidecars'|'verifying'|'extras';
+export type RemoteScanState=Readonly<{state:RemoteScanStateCode;mode?:RemoteScanMode;phase?:RemoteScanPhase;sourceGeneration:number;runPolicyRevision:number;processed:number;discovered:number;analyzed:number;warnings:number;queuedAt?:string;completedAt?:string;finishedAt?:string}>;
 /** A source's present state: the reads it holds now, when it was last checked,
  * and the libraries its folders went into. Nothing here is estimated. */
 export type RemoteSourceStatus=Readonly<{assignmentFenceSupported?:boolean;sourceId:string;generation:string;state:string;errorCode?:string;rangeSupport:string;lastCheckedAt:string;connectionsInUse:number;playbackReads:number;analysisReads:number;scanIntervalSeconds:number;libraries:readonly SourceLibraryUse[];librariesTruncated:boolean;health?:RemoteSourceHealth;lastCompleteAt?:string;scan?:RemoteScanState;program?:string;programVersion?:string;programRevision?:number;programIncluded?:boolean;remote?:string;backgroundSpeed?:string}>;
@@ -207,7 +214,8 @@ function remoteFolderPage(raw:unknown,id:string):RemoteFolderPage{
 }
 function sourceLibraryUse(raw:unknown):SourceLibraryUse{
  if(!record(raw)||!text(raw.libraryId,256)||!raw.libraryId||!text(raw.name,512)||!text(raw.kind,32)||!integer(raw.folders)||raw.folders<1)invalid();
- return Object.freeze({libraryId:raw.libraryId,name:raw.name,kind:raw.kind,folders:raw.folders});
+ const lastComplete=scanTimestamp(raw.lastCompleteAt);
+ return Object.freeze({libraryId:raw.libraryId,name:raw.name,kind:raw.kind,folders:raw.folders,...(lastComplete?{lastCompleteAt:lastComplete}:{})});
 }
 function sourceAdvanced(raw:unknown):SourceAdvanced{
  if(!record(raw))invalid();
@@ -229,16 +237,22 @@ function sourceAdvancedSettings(raw:unknown,id:string):SourceAdvancedSettings{
 }
 const scanStates:readonly RemoteScanStateCode[]=['queued','running','paused'];
 const scanModes:readonly RemoteScanMode[]=['first-import','incremental','integrity','full'];
-const scanPhases:readonly RemoteScanPhase[]=['inventory','basic_pending','basic_running','analysis_enqueue','reconciling','verifying','extras'];
+const scanPhases:readonly RemoteScanPhase[]=['inventory','legacy_inventory','basic_pending','basic_running','analysis_enqueue','reconciling','sidecars','verifying','extras'];
 function scanTimestamp(value:unknown):string|undefined{
- return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)&&Number.isFinite(Date.parse(value))?value:undefined;
+ if(typeof value!=='string')return undefined;
+ const match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+ if(!match)return undefined;
+ const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]),hour=Number(match[4]),minute=Number(match[5]),second=Number(match[6]),offsetHour=Number(match[8]??0),offsetMinute=Number(match[9]??0);
+ const monthDays=[31,year%4===0&&(year%100!==0||year%400===0)?29:28,31,30,31,30,31,31,30,31,30,31];
+ if(month<1||month>12||day<1||day>monthDays[month-1]||hour>23||minute>59||second>59||offsetHour>23||offsetMinute>59)return undefined;
+ return Number.isFinite(Date.parse(value))?value:undefined;
 }
 const scanBounded=(value:unknown):value is number=>integer(value)&&value<=2**40;
-const sourceHealths:readonly RemoteSourceHealth[]=['ready','inventory_running','cancelled','offline','root_changed','removing'];
+const sourceHealths:readonly RemoteSourceHealth[]=['ready','healthy','degraded','inventory_running','cancelled','offline','root_changed','removing'];
 function remoteScan(raw:unknown):RemoteScanState|undefined{
  if(!record(raw)||!scanStates.includes(raw.state as RemoteScanStateCode)||!scanBounded(raw.sourceGeneration)||!scanBounded(raw.runPolicyRevision)||!scanBounded(raw.processed)||!scanBounded(raw.discovered)||!scanBounded(raw.analyzed)||!scanBounded(raw.warnings))return undefined;
- const started=scanTimestamp(raw.startedAt),completed=scanTimestamp(raw.completedAt),finished=scanTimestamp(raw.finishedAt);
- return Object.freeze({state:raw.state as RemoteScanStateCode,...(scanModes.includes(raw.mode as RemoteScanMode)?{mode:raw.mode as RemoteScanMode}:{}),...(scanPhases.includes(raw.phase as RemoteScanPhase)?{phase:raw.phase as RemoteScanPhase}:{}),sourceGeneration:raw.sourceGeneration,runPolicyRevision:raw.runPolicyRevision,processed:raw.processed,discovered:raw.discovered,analyzed:raw.analyzed,warnings:raw.warnings,...(started?{startedAt:started}:{}),...(completed?{completedAt:completed}:{}),...(finished?{finishedAt:finished}:{})});
+ const queued=scanTimestamp(raw.queuedAt),completed=scanTimestamp(raw.completedAt),finished=scanTimestamp(raw.finishedAt);
+ return Object.freeze({state:raw.state as RemoteScanStateCode,...(scanModes.includes(raw.mode as RemoteScanMode)?{mode:raw.mode as RemoteScanMode}:{}),...(scanPhases.includes(raw.phase as RemoteScanPhase)?{phase:raw.phase as RemoteScanPhase}:{}),sourceGeneration:raw.sourceGeneration,runPolicyRevision:raw.runPolicyRevision,processed:raw.processed,discovered:raw.discovered,analyzed:raw.analyzed,warnings:raw.warnings,...(queued?{queuedAt:queued}:{}),...(completed?{completedAt:completed}:{}),...(finished?{finishedAt:finished}:{})});
 }
 function remoteSourceStatus(raw:unknown,id:string):RemoteSourceStatus{
  if(!record(raw)||raw.sourceId!==id||!text(raw.generation,64)||!raw.generation||!text(raw.state,100)||!text(raw.rangeSupport,32)||!text(raw.lastCheckedAt,64)||!integer(raw.connectionsInUse)||!integer(raw.playbackReads)||!integer(raw.analysisReads)||!integer(raw.scanIntervalSeconds)||!Array.isArray(raw.libraries)||raw.libraries.length>10||typeof raw.librariesTruncated!=='boolean')invalid();

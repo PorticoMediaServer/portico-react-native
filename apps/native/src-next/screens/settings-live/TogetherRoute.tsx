@@ -1,4 +1,5 @@
 import React from 'react';
+import {Platform} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {NativeScreenLifetime} from './lifetime';
@@ -15,7 +16,7 @@ export function createNativeTogetherRenderer(context: NativeShellBootstrapContex
   // tv-more18: the player chrome's group pill reads the live owner through this registration;
   // it is retired with the route/authority, and it exposes only the owner's own snapshot and
   // its own makeHost action — the port sends no group command and keeps no membership copy.
-  const retirePort = publishGroupPort({
+  const retirePort = Platform.isTV ? () => {} : publishGroupPort({
     getSnapshot: () => controller.getSnapshot(),
     subscribe: listener => controller.subscribe(listener),
     current: () => lifetime.current() && context.current(),

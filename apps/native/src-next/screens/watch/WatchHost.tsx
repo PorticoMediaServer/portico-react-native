@@ -1,3 +1,4 @@
+import {groupPort, subscribeGroupPort} from '../settings-live/group-port';
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, View, useWindowDimensions} from 'react-native';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
@@ -63,6 +64,7 @@ type Props = Readonly<{
 }>;
 const noNoticeSubscription = () => () => {};
 const noticesOn = () => true;
+const groupPlayerVisible = () => groupPort()?.playerVisible?.() !== false;
 const positioned = (pane: PlayerRect) => ({position: 'absolute' as const, left: pane.x, top: pane.y, width: pane.width, height: pane.height});
 const rectKey = (pane: PlayerRect | undefined) => pane ? `${pane.x},${pane.y},${pane.width},${pane.height}` : '';
 
@@ -72,11 +74,12 @@ const rectKey = (pane: PlayerRect | undefined) => pane ? `${pane.x},${pane.y},${
 export function NativeWatchHost({authority, current, playback, outlet, runtime, controls, bindings, setPresentation, isTV = false}: Props) {
   const noticesEnabled = useSyncExternalStore(bindings.noticePreferences?.subscribe ?? noNoticeSubscription, bindings.noticePreferences?.getSnapshot ?? noticesOn);
   const source = useSyncExternalStore(playback.subscribe, playback.getSnapshot);
+  const groupVisible = useSyncExternalStore(subscribeGroupPort, groupPlayerVisible, noticesOn);
   const state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
   const window = useWindowDimensions(), posture = usePlatformPosture();
   const local = source.dock.local, fence = source.fence;
   const {scrubbing, focusHeld, presentation} = bindings;
-  const expanded = !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
+  const expanded = (!isTV || groupVisible) && !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
   const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
   const [lossNotice, setLossNotice] = useState<{key: string; value: NativeWatchNotice}>();

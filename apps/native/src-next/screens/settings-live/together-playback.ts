@@ -1,0 +1,115 @@
+import {defaultI18n} from '../../../../../packages/i18n/src';
+import {GroupFollower, type GroupPlayer} from '../../../../../packages/client-core/src/group-session';
+import {contentEntryKind, type ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
+import {encodedRoutePath} from '../../../../../packages/contracts/src/routes';
+import {playbackUserMessage} from '../../../../../packages/client-core/src/playback-messages';
+import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
+import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import {sameAuthority} from '../../shell/model';
+import {nativeTogetherSession} from './together-session';
+import {publishGroupPort} from './group-port';
+
+/** One authority-owned follower on the existing native player. The direct ports
+ * below bypass the viewer-command policy so clock corrections never echo to the room. */
+export function bindNativeTVTogether(context: NativeShellBootstrapContext): () => void {
+  const service = nativeTogetherSession(context), playback = context.playback;
+  const direct = {toggle: playback.toggle, seek: playback.seek, skip: playback.skip, next: playback.next, previous: playback.previous, replay: playback.replay, queuePlay: playback.queuePlay, setRate: playback.setRate, open: playback.open};
+  const presentationListeners = new Set<() => void>();
+  let playerOpen = false;
+  const emitPresentation = () => {for (const listener of [...presentationListeners]) listener();};
+  const playerVisible = () => context.navigation.getSnapshot().route.kind !== 'together' || playerOpen;
+  const closePlayer = () => {if (!context.current() || !playerOpen || context.navigation.getSnapshot().route.kind !== 'together') return false;playerOpen = false;emitPresentation();return true;};
+  let pendingCurrent: (() => boolean) | undefined;
+  let disposed = false, follower: GroupFollower | undefined, pending: AbortController | undefined;
+  let local: {groupId: string; viewer: string; entryId: string; itemId: string; run: number; queueId: string; localEntry: string} | undefined;
+  const room = () => {const state = service.getSnapshot();return context.current() && (state.phase === 'live' || state.phase === 'reconnecting') ? state.group : undefined;};
+  const ownsLocal = () => {if (!context.current()) return false;const actual = playback.getSnapshot();return !!local && sameAuthority(actual.authority, context.authority())
+    && actual.playback.playbackRun === local.run && actual.playback.itemId === local.itemId && actual.fence?.kind === 'queue'
+    && actual.fence.queueId === local.queueId && actual.fence.entryId === local.localEntry;};
+  const matches = (fence?: PlaybackFence) => {
+    const group = room(), actual = playback.getSnapshot();
+    return !!local && !!group && group.id === local.groupId && group.viewerMemberId === local.viewer && group.timeline.currentEntryId === local.entryId
+      && group.timeline.itemId === local.itemId && sameAuthority(actual.authority, context.authority()) && actual.playback.playbackRun === local.run
+      && actual.playback.itemId === local.itemId && actual.fence?.kind === 'queue' && actual.fence.queueId === local.queueId && actual.fence.entryId === local.localEntry
+      && (!fence || sameFence(fence, actual.fence));
+  };
+  const command = async (fence: PlaybackFence, work: () => Promise<unknown>, fallback: () => Promise<void>) => {
+    if (!matches(fence)) {await fallback();return;}
+    const group = room();if (!group) return;
+    if (!group.permissions.canControl) {service.notice(defaultI18n.t('together.hostOnly.playPause'));return;}
+    await work();
+  };
+  playback.open = fence => {if (matches(fence)) {playerOpen = true;emitPresentation();}direct.open(fence);};
+  playback.toggle = fence => command(fence, () => service.transport(playback.getSnapshot().playback.intent === 'playing' ? 'pause' : 'play'), () => direct.toggle(fence));
+  playback.seek = (fence, seconds) => command(fence, () => service.transport('seek', {positionUs: String(Math.round(Math.max(0, seconds) * 1e6))}), () => direct.seek(fence, seconds));
+  playback.skip = (fence, seconds) => command(fence, () => service.transport('seek', {positionUs: String(Math.round(Math.max(0, playback.getSnapshot().playback.positionSeconds + seconds) * 1e6))}), () => direct.skip(fence, seconds));
+  playback.next = fence => command(fence, () => service.transport('next'), () => direct.next(fence));
+  playback.previous = fence => command(fence, () => service.transport('previous'), () => direct.previous(fence));
+  playback.replay = fence => command(fence, () => service.transport('seek', {positionUs: '0'}), () => direct.replay(fence));
+  if (direct.queuePlay) playback.queuePlay = (queueId, entryId, revision) => {
+    const value = playback.getSnapshot();
+    // A device queue occurrence is not a group queue entry. Never translate its
+    // position or ID into another room's queue command.
+    if (value.fence && matches(value.fence)) return Promise.reject(new Error('together_queue_requires_room_entry'));
+    return direct.queuePlay!(queueId, entryId, revision);
+  };
+  playback.setRate = (fence, rate) => {if (matches(fence)) service.notice(defaultI18n.t('together.hostOnly.move'));else direct.setRate(fence, rate);};
+  const player: GroupPlayer = {
+    occurrence: () => matches() && local ? {groupId: local.groupId, entryId: local.entryId} : null,
+    state: () => {const value = playback.getSnapshot().playback;if (!matches()) return {itemId: '', positionSeconds: 0, playing: false, buffering: true, ready: false};return {itemId: matches() ? value.itemId ?? '' : '', positionSeconds: value.positionSeconds,
+      playing: value.phase === 'ready' && value.intent === 'playing', buffering: value.phase === 'starting' || !!value.recovering,
+      ready: matches() && value.phase === 'ready', seeking: !!value.pendingSeek, durationSeconds: value.duration > 0 ? value.duration : undefined};},
+    load(itemId, positionSeconds, playing) {
+      const group = room();if (!group || !group.timeline.currentEntryId || group.timeline.itemId !== itemId || disposed) return;
+      pending?.abort();const abort = new AbortController();pending = abort;
+      const original = {groupId: group.id, viewer: group.viewerMemberId, entryId: group.timeline.currentEntryId, itemId};
+      const current = () => {const live = room();return !disposed && !abort.signal.aborted && pending === abort && live?.id === original.groupId
+        && live.viewerMemberId === original.viewer && live.timeline.currentEntryId === original.entryId && live.timeline.itemId === itemId;};
+      pendingCurrent = current;
+      void (async () => {
+        const item = parseMediaItem(await context.api.request(encodedRoutePath('get_items_id', {id: encodeURIComponent(itemId)}), 'GET', undefined, abort.signal));
+        if (!current()) return;
+        if (item.id !== itemId || !item.available || !contentEntryKind(item.kind)) throw new Error('together_media_unavailable');
+        const entry: ContentEntry = {...item, kind: item.kind, playback: {itemId}};
+        await playback.start({entry, target: {itemId, startSeconds: positionSeconds}, state: playing ? 'playing' : 'paused', lifetime: {signal: abort.signal, isCurrent: current}});
+        if (!current()) return;
+        const value = playback.getSnapshot(), fence = value.fence;
+        if (fence?.kind !== 'queue' || value.playback.itemId !== itemId) return;
+        local = {...original, run: value.playback.playbackRun, queueId: fence.queueId, localEntry: fence.entryId};
+        direct.setRate(fence, Number(group.timeline.rate.numerator) / Number(group.timeline.rate.denominator));
+      })().catch(error => {if (current() && !(error instanceof Error && error.name === 'AbortError')) service.notice(playbackUserMessage(error));});
+    },
+    play() {const value = playback.getSnapshot();if (matches() && value.fence && value.playback.intent !== 'playing') void direct.toggle(value.fence).catch(() => {});},
+    pause() {const value = playback.getSnapshot();if (matches() && value.fence && value.playback.intent === 'playing') void direct.toggle(value.fence).catch(() => {});},
+    seek(seconds) {const value = playback.getSnapshot();if (matches() && value.fence) void direct.seek(value.fence, seconds).catch(() => {});},
+    // This is the existing per-playback choice, not a saved preference. The
+    // native runtime accepts only rates the actual bound engine supports.
+    setRate(rate) {const value = playback.getSnapshot();if (value.fence && (matches() || rate === 1 && ownsLocal())) direct.setRate(value.fence, rate);},
+  };
+  const update = () => {
+    if (disposed) return;
+    const group = room();
+    if (pending && pendingCurrent?.() === false) pending.abort();
+    if (local && (!group || group.id !== local.groupId || group.viewerMemberId !== local.viewer || group.timeline.currentEntryId !== local.entryId || group.timeline.itemId !== local.itemId)) {
+      const value = playback.getSnapshot();
+      if (ownsLocal() && value.fence) {
+        direct.setRate(value.fence, 1);
+        // A private/unavailable next entry cannot leave the old group title playing.
+        // Ending/leaving, however, carries on outside the group as drawn.
+        if (group?.id === local.groupId && group.viewerMemberId === local.viewer && value.playback.intent === 'playing') void direct.toggle(value.fence).catch(() => {});
+      }
+      local = undefined;pending?.abort();
+    }
+    if (group && !follower) {follower = new GroupFollower(service, player);follower.start();}
+    else if (!group && follower) {follower.stop();follower = undefined;pending?.abort();local = undefined;}
+  };
+  const off = service.subscribe(update), offAuthority = context.subscribeAuthority(update);
+  const offNavigation = context.navigation.subscribe(() => {playerOpen = false;emitPresentation();});
+  const retirePort = publishGroupPort({getSnapshot: service.getSnapshot, subscribe: listener => {const off = service.subscribe(listener);presentationListeners.add(listener);return () => {off();presentationListeners.delete(listener);};}, current: () => !disposed && context.current(), matches, playerVisible, closePlayer,
+    makeHost: memberId => {const group = room();const member = group?.members.find(value => value.id === memberId && value.state === 'joined');
+      if (!group || !member || !(group.permissions.isHost && member.role !== 'host' || memberId === group.viewerMemberId && group.permissions.canClaimHost === true)) return Promise.resolve(false);
+      return service.makeHost(memberId);}});
+  update();
+  return () => {disposed = true;pending?.abort();follower?.stop();off();offAuthority();offNavigation();retirePort();presentationListeners.clear();Object.assign(playback, direct);};
+}
