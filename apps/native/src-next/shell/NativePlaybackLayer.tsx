@@ -296,7 +296,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
           {...(listeningPorts ?? {})}
           song={nowPlaying ? {token: song.song, pending: song.pending, favorite: song.favorite} : undefined}
-          onAddToPlaylist={runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence)
+          onAddToPlaylist={theme.isTV && runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence)
             ? () => runtime.listeningPlaylist?.open(nowPlaying.playback.fence) : undefined}
           queuePolicy={runtime.listeningQueuePolicy}
           signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
@@ -304,7 +304,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
             positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}
             onSeek={seconds => {const current = adapter.getSnapshot(); if (current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.seek(current.fence, seconds).catch(runtime.reportError);}}/> : undefined}
           onClose={() => {const current = adapter.getSnapshot(); if (current.dock.local?.expanded && current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.onTransition(adapter.dock.collapse(current.fence)).catch(runtime.reportError);}}/>}
-        {nowPlaying && runtime.listeningPlaylist?.render(runtime)}
+        {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
     {(snapshot.startFailure || snapshot.capacityWait) && (theme.isTV
