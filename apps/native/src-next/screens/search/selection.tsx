@@ -25,7 +25,7 @@ const unavailable = () => Object.assign(new Error('catalogue-selection-unavailab
 export function createNativeSearchSelection(context: NativeShellBootstrapContext, source: NativeSearchDestination,
   activation: NativeDestinationActivationPort) {
   const authority = nativeDestinationLifetime(context), feedback = nativeScreenServices(context);
-  const listeners = new Set<() => void>(), windows = new Map<string, {key: string; item: SelectionItem}>();
+  const listeners = new Set<() => void>(), windows = new Map<string, {key: string; item: SelectionItem; entry: SearchEntry; group: SearchGroup}>();
   let model: SelectionModel | undefined, stopModel: (() => void) | undefined, token = '', revision = 0, disposed = false;
   let pending: AbortController | undefined;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
@@ -67,7 +67,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
       && keyFor(source.getSnapshot().search) === captured && context.navigation.getSnapshot().revision === route && contains(group, entry);
     try {
-      const port = context.playback.cataloguePlayback();
+      const port = context.playback.cataloguePlayback?.();
       const item = await readCatalogueSelectionItem({api: context.api, scope: authority.scope, requestId: feedback.requestId,
         signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl()});
       if (!current()) throw cancelled();
@@ -77,7 +77,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
         start, items: [item]});
       if (!registration.ok) throw unavailable();
       const key = selectionKey(currentModel.getSnapshot().context.scope, item);
-      windows.set(id, {key, item});
+      windows.set(id, {key, item, entry, group});
       const selected = currentModel.toggle(id, key);
       if (!selected.ok) throw unavailable();
     } catch (error) {if (current()) feedback.reportError(error, 'search');}
@@ -106,10 +106,12 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     const queue = action !== 'play';
     const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
       && keyFor(source.getSnapshot().search) === captured && context.navigation.getSnapshot().revision === route
-      && currentModel.isOperationCurrent(operation) && (!queue || queueControl());
+      && currentModel.isOperationCurrent(operation) && operation.target.mode === 'explicit'
+      && operation.target.items.every(pick => [...windows.values()].some(window => window.key === pick.key && contains(window.group, window.entry)))
+      && (!queue || queueControl());
     pending = controller; emit();
     try {
-      const port = context.playback.cataloguePlayback();
+      const port = context.playback.cataloguePlayback?.();
       if (!port || !current()) throw unavailable();
       const target = operation.target;
       const items = (queue ? target.items : target.displayItems).map(value => value.item);
@@ -123,7 +125,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     context.navigation.subscribe(() => {pending?.abort(); reconcile();}), context.playback.subscribe(emit)];
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
-    getSnapshot: () => revision, snapshot: () => model?.getSnapshot(), busy: () => !!pending, queueControl,
+    getSnapshot: () => revision, loadedCount: () => source.getSnapshot().groups.filter(group => group.status === 'success').reduce((count, group) => count + group.items.filter(leaf).length, 0), snapshot: () => model?.getSnapshot(), busy: () => !!pending, queueControl,
     clear: () => {pending?.abort(); model?.clear();}, selectLoaded, execute};
   const port: NativeSearchSelectionPort = {
     register: () => {reconcile(); return () => {};},
@@ -140,7 +142,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
 }
 
 type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number; snapshot(): ReturnType<SelectionModel['getSnapshot']> | undefined;
-  busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>};
+  loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>};
 function SearchSelectionBars({store}: {store: Store}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
@@ -151,7 +153,7 @@ function SearchSelectionBars({store}: {store: Store}) {
   if (state.summary.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()},
     {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
   const props: SelectionBarProps = {count: state.summary.count, selectionLabel: selectedItemsLabel(state.summary),
-    selectAllLabel: defaultI18n.t('next.selection.native.selectAll'), onSelectAll: () => {void store.selectLoaded();}, onCancel: () => {setMenu(null); store.clear();},
+    selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: () => {void store.selectLoaded();}, onCancel: () => {setMenu(null); store.clear();},
     actions, menu, onMenuChange: setMenu, topInset: insets.top,
     onAction: action => {if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}}};
   return <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
