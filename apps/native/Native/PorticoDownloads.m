@@ -862,7 +862,7 @@ static BOOL PorticoPublicationStateName(NSString *name) {
     NSURL *file = [[self extrasFor:ticket.identifier] URLByAppendingPathComponent:name];
     NSError *error = nil;
     NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:file.path error:&error];
-    if (!attributes && [error.domain isEqual:NSCocoaErrorDomain] && error.code == NSFileNoSuchFileError) {resolve(@"");return;}
+    if (!attributes && [error.domain isEqual:NSCocoaErrorDomain] && (error.code == NSFileNoSuchFileError || error.code == NSFileReadNoSuchFileError)) {resolve(@"");return;}
     if (![attributes[NSFileType] isEqual:NSFileTypeRegular]) {reject(@"reading_state_unavailable",@"reading_state_unavailable",nil);return;}
     NSNumber *size = attributes[NSFileSize];
     NSData *raw = size && size.longLongValue <= 1048576 ? [NSData dataWithContentsOfURL:file] : nil;
