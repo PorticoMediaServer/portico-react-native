@@ -12,7 +12,7 @@ import {StateView} from '../../../kit/states';
 import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
-import {ConnectionEditor, DisconnectEditor, ReadingEditor, remoteSourceError} from './RemoteSourceForms';
+import {ConnectionEditor, DisconnectEditor, ReadingEditor, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
 type Mode = {kind: 'connection'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect'; source: RemoteSource};
@@ -53,7 +53,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     onSaved={source => open({kind: 'reading', source})}/>;
   if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
   if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close} onSaved={close}/>;
-  const state = snapshot.sources, blocked = state.busy || state.ambiguous;
+  const state = snapshot.sources, needsReceipt = receiptCheckRequired(state), blocked = state.busy || needsReceipt;
   const recover = async () => {
     setError(undefined);
     try {await controller.recover();}
@@ -64,7 +64,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
   return <ScrollView testID="native-remote-sources" contentContainerStyle={{padding: 20, paddingBottom: 40, gap: 16}}>
     <ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner" variant="phone"/>
     <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{selected?.name ?? t('settings.server.remoteSources')}</Text>
-    {state.ambiguous && <Button disabled={state.busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>}
+    {needsReceipt && <Button disabled={state.busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>}
     {(state.error || error) && <StateView title={error ?? remoteSourceError(t, {code: state.errorCode})} tone="error"/>}
     {selected ? <>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{sourceStateText(t, id => defaultI18n.has(id), selected)}</Text>
