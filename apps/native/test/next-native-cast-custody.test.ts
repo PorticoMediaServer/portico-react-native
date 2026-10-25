@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {castProofKey} from '../../../packages/client-core/src/cast/controller-proof.ts';
 import {CastController, parseCastEvent, type CastCommand} from '../../../packages/client-core/src/cast/index.ts';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
 import {castOffered} from '../src/app/cast-offered.ts';
@@ -13,7 +14,7 @@ const deferred = <T,>() => {
 
 /** Real caller and shared controller; only the native SDK and server IO are held
  * at their public boundaries so the queue event can precede either ACK or status. */
-async function fixture() {
+async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:Promise<void>}={}) {
   const listeners = new Map<string, Set<(value?: any) => void>>();
   const emit = (name: string, value?: unknown) => {for (const listener of [...(listeners.get(name) ?? [])]) listener(value);};
   class Emitter {
@@ -26,11 +27,12 @@ async function fixture() {
   const loaded = deferred<Extract<CastCommand, {type: 'load'}>>(), read = deferred<void>(), cancellation = deferred<void>();
   const receipt = deferred<unknown>(), cancelReceipt = deferred<unknown>();
   const message = (value: unknown) => emit('PorticoCastMessage', value);
-  const bridge = {applicationId: 'APP', available: async () => true, choose() {}};
+  const bridge = {applicationId: 'APP', available: async () => true,current:async()=>options.returning?{deviceName:'TV',deviceId:'sdk_device'}:null, choose() {}};
   const transport = {
     send: async (value: CastCommand) => {
       sent.push(value);
       if (value.type === 'pair') message({type: 'paired', controlToken: 'a'.repeat(48)});
+      if(value.type==='adopt')message({type:'status',attemptId:value.attemptId,itemId:'song',positionSeconds:80,durationSeconds:240,paused:false,audioTracks:[],textTracks:[]});
       if (value.type === 'load') loaded.resolve(value);
       if (value.type === 'status') message({type: 'status', itemId: 'song', positionSeconds: 12, durationSeconds: 240, paused: false});
     },
@@ -55,8 +57,15 @@ async function fixture() {
     updateRemote: async (remote: any) => {if (dock.remote?.id === remote.id) dock = {...dock, remote};},
     dismissRemote: async (id: string) => {if (dock.remote?.id === id) dock = {...dock, remote: null};},
   };
+  const proofScope={serverId:scope.serverId,authority:scope.authority,accountId:scope.accountId,profileId:scope.profileId,senderDeviceId:'device',senderFamilyId:'family'};
+  const proofContext={...proofScope,origin:'https://server.test',publicKey:'a'.repeat(43)};
+  const binding={id:'cct_return',bootstrapId:'cbs_pair',receiverId:'sdk_device',targetId:'cdv_target',targetFamilyId:'target-family',targetGeneration:'1',scope:proofScope};
+  const records=new Map(options.legacy?[[`portico.cast.controller:https://server.test:id:sdk_device`,'a'.repeat(48)]]:[[castProofKey(proofContext,'sdk_device'),JSON.stringify({version:2,context:proofContext,binding,controlToken:'a'.repeat(48)})]]);
+  let current=true;
   const api = {baseUrl: 'https://server.test', request: async (path: string, method?: string, body?: any) => {
     requests.push({path, method, body});
+    if(path==='/v1/cast/controllers/validate'){await options.validation;return {binding,attemptId:body.attemptId,ticket:'b'.repeat(43)};}
+    if(path==='/v1/items/song')return {id:'song',title:'Actual title'};
     if (path === '/v1/cast/configuration') return {applicationId: 'APP'};
     if (path === '/v1/cast/bootstrap' && method === 'POST') return {bootstrap: {id: 'cbs_intent', code: '123456', transfer: {id: 'cbs_intent', state: 'pending'}}};
     if (path === '/v1/cast/bootstrap/cbs_intent' && method === 'GET') {read.resolve(); return receipt.promise;}
@@ -67,11 +76,11 @@ async function fixture() {
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
     '../../../../../packages/client-core/src/cast': {CastController, parseCastEvent},
     '../../../../../packages/player-core/src': {sameFence}, '../../../src/bridge/cast': {castTransport: transport},
-    '../../../src/bridge/cast-controller-storage': {castControllerStorage: {get: () => undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
+    '../../../src/bridge/cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
     '../../../src/app/cast-offered': {castOffered},
   });
-  const session = {sessionFamilyId: 'family', viewer: {...scope, role: 'member'}};
-  const caller = new NativeCastCaller({api, session: () => session, playback: () => adapter, current: () => true, deviceName: () => 'Phone', reportError: (error: unknown) => {throw error;}});
+  const session = {sessionFamilyId: 'family',deviceId:'device',serverIdentity:{publicKey:'a'.repeat(43),fingerprint:'b'.repeat(43)}, viewer: {...scope, role: 'member'}};
+  const caller = new NativeCastCaller({api, session: () => session, playback: () => adapter, current: () => current, deviceName: () => 'Phone', reportError: (error: unknown) => {throw error;}});
   const ready = deferred<void>();
   const off = caller.subscribe(() => {if (caller.getSnapshot().cast.available) ready.resolve();});
   if (!caller.getSnapshot().cast.available) await ready.promise;
@@ -79,7 +88,7 @@ async function fixture() {
   const change = (patch: any) => {snapshot = {...snapshot, ...patch}; if (patch.dock) dock = patch.dock; for (const listener of [...playbackListeners]) listener();};
   const choose = () => emit('PorticoCastSession', {state: 'started', deviceName: 'TV', deviceId: 'sdk_device'});
   const committed = {bootstrap: {transfer: {id: 'cbs_intent', state: 'committed', itemId: 'song', playbackState: 'playing'}}};
-  return {caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
+  return {retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
 }
 
 test('Root42 queue/header event before ACK and original receipt does not cancel the accepted target', async t => {
@@ -123,4 +132,21 @@ test('a changed queue before dispatch still refuses the captured chooser attempt
   assert.equal(f.sent.some(command => command.type === 'load'), false);
   assert.equal(f.effects.length, 0);
   assert.deepEqual(f.snapshot().fence, f.fence);
+});
+
+test('Root50: a native returning caller adopts the validated receiver without a captured local source or retirement effect',async t=>{
+ const f=await fixture({returning:true});t.after(()=>f.caller.dispose());
+ const accepted=deferred<void>(),off=f.caller.subscribe(()=>{if(f.caller.getSnapshot().cast.phase==='casting')accepted.resolve();});
+ if(f.caller.getSnapshot().cast.phase!=='casting')await accepted.promise;off();
+ const state=f.caller.getSnapshot();assert(state.resumed);assert.equal(state.source,undefined);assert.equal(state.cast.acceptedSource,undefined);
+ assert.equal(state.title,'Actual title');assert.equal(state.receiver?.positionSeconds,80);assert.equal(f.effects.length,0);
+ assert.equal(f.sent.some(command=>command.type==='pair'||command.type==='load'||command.type==='stop'),false);
+ assert(f.requests.some(request=>request.path==='/v1/cast/controllers/validate'));
+});
+test('Root50: native legacy proof and a retired viewer never send a retained proof or publish a late receiver',async t=>{
+ const legacy=await fixture({returning:true,legacy:true});t.after(()=>legacy.caller.dispose());
+ await Promise.resolve();assert.equal(legacy.sent.some(command=>command.type==='adopt'),false);assert.equal(legacy.caller.getSnapshot().resumed,undefined);
+ const validation=deferred<void>(),f=await fixture({returning:true,validation:validation.promise});t.after(()=>f.caller.dispose());
+ f.retireViewer();validation.resolve();await new Promise(setImmediate);await new Promise(setImmediate);
+ assert.equal(f.sent.some(command=>command.type==='adopt'),false);assert.equal(f.caller.getSnapshot().cast.itemId,undefined);assert.equal(f.effects.length,0);
 });

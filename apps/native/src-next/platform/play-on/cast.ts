@@ -9,11 +9,11 @@ import {castOffered} from '../../../src/app/cast-offered';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot, PlaybackAuthority} from '../playback/types';
 
 type Device = Readonly<{state: string; deviceName: string; deviceId?: string}>;
-type Bridge = Readonly<{applicationId?: string; available(): Promise<boolean>; choose(): void}>;
+type Bridge = Readonly<{applicationId?: string; available(): Promise<boolean>; current():Promise<Omit<Device,'state'>|null>;choose(): void}>;
 type Source = Readonly<{id: string; adapter: NativePlaybackAdapter; snapshot: NativePlaybackRuntimeSnapshot;
   local: DockPlayback; fence: QueuePlaybackFence; choices: CastChoices}>;
 type Report = Readonly<{itemId: string; positionSeconds: number; durationSeconds: number; paused: boolean}>;
-export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
+export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; resumed?:Readonly<{id:string}>;receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
 export type NativeCastOptions = Readonly<{
   api: Readonly<{baseUrl?: string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
   session: () => LocalSession | undefined; playback: () => NativePlaybackAdapter | undefined;
@@ -43,6 +43,7 @@ export class NativeCastCaller {
   private offPlayback?: () => void;
   private cancelChooser?: () => void;
   private source?: Source;
+  private returning?:Readonly<{id:string;generation:number}>;
   private retired = false;
   private cancelling = false;
   private sequence = 0;
@@ -51,19 +52,35 @@ export class NativeCastCaller {
   private receiver?: Report;
   private idleObserved=false;
   private metadataItem?: string;
+  private readonly descriptions=new Map<string,Readonly<{title:string;posterUrl?:string}>>();
   private state: NativeCastState = Object.freeze({cast: idle});
 
   constructor(private readonly options: NativeCastOptions) {
-    this.session = options.session(); this.authority = options.playback()?.getSnapshot().authority;
+    const session=options.session();this.session=session?Object.freeze({...session,viewer:Object.freeze({...session.viewer}),...(session.serverIdentity?{serverIdentity:Object.freeze({...session.serverIdentity})}:{})}):undefined; this.authority = options.playback()?.getSnapshot().authority;
     let origin = '';
     try {const url = new URL(options.api.baseUrl ?? ''); if (url.protocol === 'https:' && !url.username && !url.password) origin = url.origin;} catch { /* unavailable */ }
     this.origin = origin;
     if (Platform.isTV || !origin || !this.session || !this.authority || !NativeModules.PorticoCast) return;
     this.bridge = NativeModules.PorticoCast as Bridge;
     this.emitter = new NativeEventEmitter(NativeModules.PorticoCast);
-    const bridgeEvents=this.emitter.addListener('PorticoCastSession',()=>{this.bridgeGeneration++;});
+    const bridgeEvents=this.emitter.addListener('PorticoCastSession',(event:Device)=>{
+      const generation=++this.bridgeGeneration;
+      // Existing chooser listeners run first; an explicit start is not adoption.
+      if(event.state==='started'&&!this.cancelChooser)void Promise.resolve().then(()=>this.resume(event,generation));
+    });
     this.offBridge=()=>bridgeEvents.remove();
-    const controller = new CastController({origin, displayName: options.deviceName(), controllerStorage: castControllerStorage,
+    const original=this.session;
+    const controller = new CastController({origin, displayName: options.deviceName(), controllerStorage: castControllerStorage,isCurrent:()=>this.viewerCurrent(),
+      ...(original.serverIdentity&&original.deviceId?{controllerContext:{origin,publicKey:original.serverIdentity.publicKey,serverId:original.viewer.serverId,
+        authority:original.viewer.authority,accountId:original.viewer.accountId,profileId:original.viewer.profileId,senderDeviceId:original.deviceId,senderFamilyId:original.sessionFamilyId}}:{}),
+      describe:async itemId=>{
+        const item=await this.request<{id?:unknown;title?:unknown;posterUrl?:unknown}>(`/v1/items/${encodeURIComponent(itemId)}`,'GET');
+        if(item.id!==itemId||typeof item.title!=='string'||!item.title)return;
+        const title=item.title.slice(0,300);
+        this.descriptions.set(itemId,Object.freeze({title,...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{})}));
+        while(this.descriptions.size>4)this.descriptions.delete(this.descriptions.keys().next().value!);
+        return title;
+      },
       api: {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.request<T>(path, method, body, signal)}});
     this.controller = controller;
     this.offController = controller.subscribe(this.changed);
@@ -75,6 +92,10 @@ export class NativeCastCaller {
         this.cancelling = true; this.cancelChooser?.(); controller.stop();
       }
     });
+    const generation=this.bridgeGeneration;
+    void castControllerStorageReady.then(()=>this.bridge?.current()).then(device=>{
+      if(device&&generation===this.bridgeGeneration)void this.resume(device,generation);
+    },()=>{/* Missing SDK session/proof leaves explicit pairing available. */});
     void Promise.all([this.bridge.available(), this.request<{applicationId?: unknown}>('/v1/cast/configuration')]).then(
       ([available, config]) => {if (this.viewerCurrent()) controller.setAvailable(castOffered(available, config.applicationId, this.bridge?.applicationId));},
       () => {if (this.viewerCurrent()) controller.setAvailable(false);});
@@ -86,7 +107,7 @@ export class NativeCastCaller {
     this.state = Object.freeze({...this.state, ...patch}); for (const listener of [...this.listeners]) listener();
   }
   private viewerCurrent(): boolean {
-    if (this.abort.signal.aborted || !this.options.current() || !sameSession(this.options.session(), this.session) ||
+    if (this.abort.signal.aborted || !this.options.current() || !sameSession(this.options.session(), this.session) || this.options.session()?.deviceId!==this.session?.deviceId || this.options.session()?.serverIdentity?.publicKey!==this.session?.serverIdentity?.publicKey ||
       !authorityMatches(this.options.playback()?.getSnapshot().authority, this.authority)) return false;
     try {return new URL(this.options.api.baseUrl ?? '').origin === this.origin;} catch {return false;}
   }
@@ -112,9 +133,21 @@ export class NativeCastCaller {
       now.session.presentation.generation === source.fence.generation && !!queue && queue.id === source.choices.queue?.queueId &&
       queue.currentEntryId === source.fence.entryId && queue.currentPlaybackId === source.fence.sessionId && queue.revision === source.choices.source?.queueRevision;
   }
+  private async resume(device:Omit<Device,'state'>,generation:number):Promise<void>{
+    const controller=this.controller;
+    if(!controller||!device.deviceId||!this.viewerCurrent()||this.cancelChooser||this.returning||this.state.cast.transferPending||
+      controller.getSnapshot().phase!=='off'||this.source&&!this.retired)return;
+    const returning=Object.freeze({id:`cast_return_${++this.operation}`,generation});this.returning=returning;
+    try{
+      await castControllerStorageReady;
+      if(!this.viewerCurrent()||this.returning!==returning||this.bridgeGeneration!==generation){if(this.returning===returning)this.returning=undefined;return;}
+      const accepted=await controller.adopt(this.transport(device,generation,()=>this.returning===returning));
+      if(!accepted&&this.returning===returning)this.returning=undefined;
+    }catch(error){if(this.returning===returning)this.returning=undefined;if(this.viewerCurrent())this.options.reportError(error);}
+  }
   start = (): void => {
     const controller = this.controller, adapter = this.options.playback();
-    if (!controller || !this.bridge || !this.emitter || !adapter || !this.viewerCurrent() || !this.state.cast.available ||
+    if (!controller || this.returning || !this.bridge || !this.emitter || !adapter || !this.viewerCurrent() || !this.state.cast.available ||
       this.cancelChooser || this.state.cast.transferPending || ['connecting', 'pairing', 'waiting', 'casting'].includes(this.state.cast.phase)) return;
     const snapshot = adapter.getSnapshot();
     if(snapshot.playback.phase!=='ready')return;
@@ -144,29 +177,43 @@ export class NativeCastCaller {
       const device = Object.freeze({deviceName: String(event.deviceName || '').slice(0, 100), ...(event.deviceId ? {deviceId: event.deviceId} : {})});
       void castControllerStorageReady.then(() => {
         if (this.source !== source || this.bridgeGeneration!==bridgeGeneration || !this.precommitSourceCurrent(source) || this.cancelling) {controller.stop(); return;}
-        return controller.start(this.transport(device,source,bridgeGeneration), fence.itemId, meta, snapshot.playback.positionSeconds, source.choices);
+        return controller.start(this.transport(device,bridgeGeneration,()=>this.source===source), fence.itemId, meta, snapshot.playback.positionSeconds, source.choices);
       }).catch(error => {if (this.viewerCurrent()) {this.options.reportError(error); controller.stop();}});
     });
     this.cancelChooser = cancel;
     try {this.bridge.choose();} catch (error) {cancel(); this.options.reportError(error);}
   };
-  private transport(device: Omit<Device, 'state'>,source:Source,generation:number): CastTransport {
-    const current=()=>this.viewerCurrent()&&this.source===source&&this.bridgeGeneration===generation;
+  private transport(device: Omit<Device, 'state'>,generation:number,attempt:()=>boolean): CastTransport {
+    const current=()=>this.viewerCurrent()&&attempt()&&this.bridgeGeneration===generation;
     return {deviceName: device.deviceName, ...(device.deviceId ? {deviceId: device.deviceId} : {}),
       send:message=>current()?castTransport.send(message):Promise.reject(cancelled()),
       onMessage:listener=>castTransport.onMessage(raw=>{
         if(!current())return;
-        const event=parseCastEvent(raw);
-        if(event?.type==='status'){this.idleObserved=!event.itemId;}
-        if(event?.type==='status'&&event.itemId)this.receiver=Object.freeze({itemId:event.itemId,positionSeconds:event.positionSeconds,durationSeconds:event.durationSeconds,paused:event.paused});
+        const previous=this.controller?.getSnapshot(),event=parseCastEvent(raw);
         listener(raw);
+        const accepted=this.controller?.getSnapshot();
+        // Only the shared controller's admitted idle transition is a stopped
+        // fact. No raw SDK item, clock or track is published by this adapter.
+        if(event?.type==='status'&&!event.itemId&&previous?.phase==='casting'&&accepted?.phase==='off'&&!accepted.disclosureRefused){this.idleObserved=true;this.changed();}
       }),
-      onSessionEnd:listener=>{const sub=this.emitter!.addListener('PorticoCastSession',()=>{if(this.source===source&&this.bridgeGeneration!==generation)listener();});return()=>sub.remove();},
+      onSessionEnd:listener=>{const sub=this.emitter!.addListener('PorticoCastSession',()=>{if(attempt()&&this.bridgeGeneration!==generation)listener();});return()=>sub.remove();},
       end:stopReceiver=>{if(current())castTransport.end(stopReceiver);}};
   }
   private changed = (): void => {
     if (!this.viewerCurrent() || !this.controller) return;
-    const cast = this.controller.getSnapshot(), source = this.source, accepted = cast.acceptedSource, expected = source?.choices.source;
+    const cast = this.controller.getSnapshot();
+    if(cast.disclosureRefused){this.receiver=undefined;this.returning=undefined;this.emit({cast,resumed:undefined,receiver:undefined,title:undefined,posterUrl:undefined});return;}
+    if(cast.reported)this.receiver=cast.reported;
+    const returning=this.returning;
+    if(returning&&['off','error','replaced'].includes(cast.phase)&&this.state.resumed){
+      this.returning=undefined;this.receiver=undefined;this.emit({cast,resumed:undefined,receiver:undefined,title:undefined,posterUrl:undefined});return;
+    }
+    if(returning&&cast.phase==='casting'){
+      const display=cast.itemId?this.descriptions.get(cast.itemId):undefined;
+      this.emit({cast,resumed:{id:returning.id},receiver:this.receiver,title:cast.title,posterUrl:display?.title===cast.title?display?.posterUrl:undefined,stopped:false});
+      return;
+    }
+    const source = this.source, accepted = cast.acceptedSource, expected = source?.choices.source;
     if(cast.phase==='casting'&&this.state.cast.phase!=='casting')this.idleObserved=false;
     const stopped=cast.phase==='off'&&!cast.transferPending&&(this.cancelling||this.idleObserved);
     const committed = !!source && !!expected && !!accepted && (['sessionId', 'generation', 'queueId', 'entryId', 'queueRevision'] as const).every(key => expected[key] === accepted[key]);
@@ -196,6 +243,7 @@ export class NativeCastCaller {
       }, error => {if (this.viewerCurrent()) this.options.reportError(error);});
     }
     const phase: RemoteDock['phase'] = cast.phase === 'casting' ? 'playing' : cast.phase === 'off' ? stopped?'stopped':'error' : cast.phase;
+    if(this.options.playback()!==source.adapter)return;
     const current = source.adapter.getSnapshot(), local = current.dock.local;
     // A newer local title is never retired by a late receipt or status update.
     if (local && !sameFence(local.fence, source.fence)) return;
@@ -214,7 +262,7 @@ export class NativeCastCaller {
       case 'allow-takeover': this.controller.answerTakeover(true);return;
       case 'deny-takeover': this.controller.answerTakeover(false);return;
       case 'stop': this.cancelling = true; this.cancelChooser?.(); this.controller.stop(); return;
-      case 'dismiss-remote': if (cast.transferPending) {this.cancelling = true; this.controller.stop(); return;}
+      case 'dismiss-remote': if(this.returning){this.controller.dismiss();this.returning=undefined;this.emit({resumed:undefined});return;}if (cast.transferPending) {this.cancelling = true; this.controller.stop(); return;}
         this.controller.dismiss(); return;
       case 'pause': if (cast.phase === 'casting') this.controller.pause(); return;
       case 'play': case 'resume': if (cast.phase === 'casting') this.controller.play(); return;
@@ -223,7 +271,9 @@ export class NativeCastCaller {
   };
   dismiss = async (): Promise<void> => {
     const source=this.source;
-    if(!source||!this.viewerCurrent())return;
+    if(!this.viewerCurrent())return;
+    if(this.returning){this.controller?.dismiss();this.returning=undefined;this.emit({resumed:undefined});return;}
+    if(!source)return;
     if(this.state.cast.transferPending){this.controls('stop');return;}
     this.controller?.dismiss();
     await source.adapter.dismissRemote?.(source.id);
@@ -247,6 +297,6 @@ export class NativeCastCaller {
   };
   dispose(): void {
     if (this.abort.signal.aborted) return;
-    this.cancelChooser?.(); this.offPlayback?.(); this.offController?.();this.offBridge?.(); this.controller?.dispose(); this.abort.abort(); this.listeners.clear();
+    this.cancelChooser?.(); this.offPlayback?.(); this.offController?.();this.offBridge?.(); this.controller?.dispose(); this.abort.abort();this.descriptions.clear(); this.listeners.clear();
   }
 }

@@ -31,9 +31,10 @@ export function NativePlayOnSheets({controller, artwork, posterUrl, onLinkTV}: N
     <Button variant="glass" onPress={()=>controller.castCommand('deny-takeover')}>{t('cast.takeover.deny')}</Button>
     <Button variant="primary" onPress={()=>controller.castCommand('allow-takeover')}>{t('action.accept')}</Button>
   </Dialog>;
-  const isCast=state.castRemoteOpen&&!!cast?.source;
+  const castRemoteId=cast?.resumed?.id??cast?.source?.id;
+  const isCast=state.castRemoteOpen&&!!castRemoteId;
   const castKnown=!!castReport&&castReport.itemId===castState?.itemId;
-  const remote=isCast&&cast?.source?{id:cast.source.id,device:castState?.deviceName??t('cast.theTV'),title:cast.title,
+  const remote=isCast&&castRemoteId?{id:castRemoteId,device:castState?.deviceName??t('cast.theTV'),title:cast.title,
     positionSeconds:castReport?.positionSeconds??0,durationSeconds:castReport?.durationSeconds??0,
     playing:castState?.phase==='casting'&&castKnown&&!castReport?.paused,stopped:cast?.stopped===true,
     allows:{pause:castState?.phase==='casting'&&castKnown,resume:castState?.phase==='casting'&&castKnown,seek:castState?.phase==='casting'&&castKnown&&(castReport?.durationSeconds??0)>0,stop:castState?.phase!=='off'}}:state.remote;

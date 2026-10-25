@@ -374,7 +374,7 @@ export class NativePlayOn {
   /** The dock's remote commands, always bound to the bar's own remote id. */
   command = async (type: string, positionSeconds?: number, remoteId?: string): Promise<void> => {
     const cast=this.cast.getSnapshot();
-    if(remoteId&&cast.source?.id===remoteId){
+    if(remoteId&&(cast.source?.id===remoteId||cast.resumed?.id===remoteId)){
       if(type==='open-remote')return this.openCastRemote();
       if(type==='continue-here')return this.cast.continueHere();
       if(type==='dismiss-remote')return this.cast.dismiss();
