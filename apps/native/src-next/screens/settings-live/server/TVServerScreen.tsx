@@ -13,8 +13,10 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import {tvFocusIds} from '../../../shell/tv-focus';
 import {publicTVHandoffAddress} from '../../../tv/auth/TVHandoff';
 import {TVRemoteAccessPanel} from './TVRemoteAccessPanel';
+import {TVPeoplePanel} from './TVPeoplePanel';
+import {TVTroubleshootingPanel} from './TVTroubleshootingPanel';
 import {TVServerPageMenu} from './TVServerPageMenu';
-import {createTVServerReader} from './tv-server-reader';
+import {createTVServerReader, nativeServerAdmission} from './tv-server-reader';
 import {NativeScreenLifetime} from '../lifetime';
 import {ownerLibraryCounts, ownerLibraryKind, ownerLibraryState} from '../owner-libraries/presentation';
 import type {NativeSettingsLivePorts} from '../ports';
@@ -22,10 +24,13 @@ import {Screen, useScreenEntry} from '../Screen';
 
 /** TV36: GET-only library directory. No mutation service is exposed to a control.
  * Composition admits only the owner's primary profile; the lifetime fences every read. */
-export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialPage?: 'libraries' | 'remote'}) {
+export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialPage?: 'libraries' | 'remote' | 'people' | 'troubleshooting'}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [page, setPage] = useState<'libraries' | 'remote'>(initialPage);
+  const [page, setPage] = useState<'libraries' | 'remote' | 'people' | 'troubleshooting'>(initialPage);
   const lifetime = useMemo(() => new NativeScreenLifetime(ports.context), [ports]);
+  const admission = nativeServerAdmission(ports.context.account, lifetime);
+  const role: 'owner' | 'administrator' = admission === 'owner' ? 'owner' : 'administrator';
+  const owner = admission === 'owner';
   const service = useMemo(() => new LibraryManagementService({
     api: createTVServerReader(ports.context, lifetime),
     scope: {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])},
@@ -33,7 +38,7 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
   const state = useSyncExternalStore(service.subscribe, service.getSnapshot).directory;
   const ids = useMemo(() => tvFocusIds(lifetime.authority), [lifetime]);
   const column = ids.surface('server.settings.pages'), rows = ids.surface(`server.settings.${page}`);
-  const enter = useScreenEntry({regionId: column, childId: initialPage}, lifetime.current);
+  const enter = useScreenEntry({regionId: column, childId: page}, lifetime.current);
   useEffect(() => {
     const retire = () => service.cancel();
     lifetime.signal.addEventListener('abort', retire, {once: true});
@@ -41,18 +46,19 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
     return () => {lifetime.signal.removeEventListener('abort', retire); service.dispose(); lifetime.dispose();};
   }, [service, lifetime]);
   const address = useMemo(() => {
+    if (page !== 'libraries' && page !== 'remote') return undefined;
     try {return publicTVHandoffAddress(new URL(page === 'libraries' ? '/settings/server-libraries' : '/settings/server-remote', ports.context.api.baseUrl).href);} catch {return undefined;}
   }, [ports, page]);
   return <Screen style={{paddingTop: 56}}>
-    <ServerBand viewerRole="owner" audience="owner"/>
+    <ServerBand viewerRole={role} audience={owner ? 'owner' : 'administrators'}/>
     <View style={{flex: 1, flexDirection: 'row', gap: 80}}>
-      <TVServerPageMenu role="owner" page={page} serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
+      <TVServerPageMenu role={role} page={page} serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
         onSelect={next => {if (next === 'dashboard') ports.context.navigation.open({kind: 'server-dashboard'}, lifetime.authority); else setPage(next);}}/>
       <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
-        <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner"/></View>
-        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : 'settings.server.remote')}</Text>
+        <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={owner ? 'owner' : 'administrators'}/></View>
+        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : page === 'remote' ? 'settings.server.remote' : page === 'people' ? 'settings.server.people' : 'settings.server.troubleshooting')}</Text>
         <FocusRegion key={page} id={rows} orientation="vertical" edges={{left: column}}>
-          {page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
+          {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'troubleshooting' ? <TVTroubleshootingPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
           {state.phase === 'loading' && <StateView title={t('status.loading')}/>}
           {state.error && <StateView {...runtime.error(state.error, () => {void service.loadLibraries();})}/>}
           {state.data?.items.map(library => {
