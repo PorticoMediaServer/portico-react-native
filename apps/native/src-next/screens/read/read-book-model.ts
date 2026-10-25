@@ -1,7 +1,8 @@
-import {ReadingError, type LocalSession, type ReadingClient, type ReadingItem, type ReadingManifest, type ReadingProgress} from '../../../../../packages/client-core/src';
+import {ReadingError, type LocalSession, type ReadingClient, type ReadingItem, type ReadingListMembership, type ReadingManifest, type ReadingProgress, type ReadingReadMark} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
+import {nativeRouteCrypto} from '../../platform/server-connections';
 import {nativeReadOrigin, openNativeRead, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
 
 export type NativeReadVersion = Awaited<ReturnType<ReadingClient['versions']>>['versions'][number];
@@ -13,6 +14,10 @@ export type NativeReadBookState = Readonly<{
   sourceId?: string;
   manifest?: ReadingManifest;
   progress?: ReadingProgress;
+  /** This viewer's real My List membership, when the producer offers it. */
+  listed?: ReadingListMembership;
+  /** This viewer's real read mark, when the producer offers it. */
+  read?: ReadingReadMark;
   error?: unknown;
 }>;
 type BookRoute = Extract<NativeShellRoute, {kind: 'read-book'}>;
@@ -20,6 +25,7 @@ type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
 
 const refused = () => Object.assign(new Error('native_read_book_refused'), {name: 'AbortError', code: 'cancelled'});
 const cancelled = (error: unknown): boolean => error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
+const nextOperationId = (): string => Array.from(nativeRouteCrypto.random(16), byte => byte.toString(16).padStart(2, '0')).join('');
 
 /** The real book page's own projection: the selected version's manifest, saved
  * position and declared contents from one preview session that is closed before
@@ -124,8 +130,16 @@ export class NativeReadBook {
       if (!progress) return;
       const manifest = session.manifest;
       if (manifest.itemId !== this.item.id || manifest.sourceId !== selected.sourceId) throw new ReadingError('invalid_document');
+      // This page's own My List and read mark, when the official producers
+      // offer them. A failed read leaves the control hidden, never invented.
+      const [listed, read] = await Promise.all([
+        client.canUseMyList(this.item.id) ? client.getMyList(this.item.id, signal).catch(() => undefined) : Promise.resolve(undefined),
+        client.canMarkRead(this.item.id) ? client.readMark(this.item.id, signal).catch(() => undefined) : Promise.resolve(undefined),
+      ]);
+      if (flight !== this.flight || !this.current()) return;
       this.selected = selected.sourceId;
-      this.publish({phase: 'ready', versions: versions.versions, sourceId: selected.sourceId, manifest, progress});
+      this.publish({phase: 'ready', versions: versions.versions, sourceId: selected.sourceId, manifest, progress,
+        ...(listed ? {listed} : {}), ...(read ? {read} : {})});
     } catch (error) {
       if (flight !== this.flight || !this.current() || cancelled(error)) return;
       this.publish({phase: 'error', versions: this.state.versions, error});
@@ -142,6 +156,31 @@ export class NativeReadBook {
     await this.load();
   };
   retry = (): Promise<void> => this.load();
+  /** Toggle the exact rendered My List membership. A retained menu cannot act
+   * under a newer ready state or a replaced page. */
+  toggleList = async (membership: ReadingListMembership): Promise<boolean> => {
+    const origin = this.origin, life = this.life;
+    if (this.command || !origin || !life || !this.current() || this.state.phase !== 'ready' || this.state.listed !== membership) return false;
+    const ticket = {};
+    this.command = ticket;
+    try {
+      const next = await this.reading().setMyList(this.item.id, {operationId: nextOperationId(), expectedRevision: membership.revision, listed: !membership.listed}, life.signal);
+      if (this.current() && this.state.phase === 'ready') this.publish({...this.state, listed: next});
+      return true;
+    } finally {if (this.command === ticket) this.command = undefined;}
+  };
+  /** Toggle the exact rendered read mark, with the same retention rule. */
+  toggleRead = async (mark: ReadingReadMark): Promise<boolean> => {
+    const origin = this.origin, life = this.life;
+    if (this.command || !origin || !life || !this.current() || this.state.phase !== 'ready' || this.state.read !== mark) return false;
+    const ticket = {};
+    this.command = ticket;
+    try {
+      const next = await this.reading().setReadMark(this.item.id, {operationId: nextOperationId(), expectedRevision: mark.revision, read: !mark.read}, life.signal);
+      if (this.current() && this.state.phase === 'ready') this.publish({...this.state, read: next});
+      return true;
+    } finally {if (this.command === ticket) this.command = undefined;}
+  };
   /** Only a saved position for this exact source revision of the rendered
    * manifest is a resume; the page passes the manifest it drew. */
   savedProgression = (manifest: ReadingManifest): number | undefined => {
