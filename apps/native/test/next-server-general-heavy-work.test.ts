@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import type {ConsoleClient} from '../../../packages/client-core/src/console';
 import {maintenanceForm, type MaintenanceDocument, type MaintenanceSettings} from '../../../packages/client-core/src/server-admin/server-forms';
 import {patchHeavyWork, readHeavyWork} from '../src-next/screens/settings-live/server/heavy-work';
+import * as heavyWork from '../src-next/screens/settings-live/server/heavy-work';
+import {DraftForm} from '../../../packages/client-core/src/server-admin/draft-form';
+import {settingsRowIndex} from '../../../packages/client-core/src/presentation/settings-spec';
+import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const initial = (): MaintenanceDocument => ({revision: 7, pausedUntilUnixMillis: 0,
   settings: {windows: [
@@ -66,4 +70,30 @@ test('Custom preserves actual heavy window fields and absent producers cannot cr
   assert.equal(readHeavyWork(missing, 'general.heavyWork'), undefined);
   assert.throws(() => patchHeavyWork(missing, 'general.heavyWork', 'overnight'), /Load maintenance settings/);
   assert.deepEqual(missing.windows[0], draft.windows[0]);
+});
+
+test('Custom opens actual overnight fields for editing and Discard restores the stored mode', async () => {
+  const saved = patchHeavyWork(initial().settings, 'general.heavyWork', 'overnight');
+  const form = new DraftForm<MaintenanceSettings, MaintenanceDocument>({load: async () => ({value: saved}), save: async () => {}});
+  await form.load();
+  const host = hooks();
+  const module = await screenModule(new URL('../src-next/screens/settings-live/server/HeavyWorkControls.tsx', import.meta.url), {
+    react: host.react, 'react-native': {View: 'View', Text: 'Text'},
+    '../../../../../../packages/client-core/src/presentation/settings-spec': {settingsRowIndex},
+    '../../../kit/controls/Button': {Button: 'Button'}, '../../../kit/controls/Select': {Select: 'Select'},
+    '../../../kit/shell/visual': {shellType: () => ({})}, '../../../kit/theme': {useTheme: () => ({colors: {text: 'white'}})},
+    './heavy-work': heavyWork,
+  });
+  const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
+  const render = () => host.render(() => module.HeavyWorkControls({form, state: form.getSnapshot(), t: (key: string) => key}));
+  const control = (id: string) => nodes(render()).find(node => node.props.testID === id);
+  try {
+    control('general.heavyWork').props.onValueChange('custom');
+    assert.equal(control('general.heavyWork').props.value, 'custom');
+    assert.equal(control('general.heavyStart').props.disabled, false);
+    assert.equal(control('general.heavyStart').props.value, '60');
+    form.discard();
+    assert.equal(control('general.heavyWork').props.value, 'overnight');
+    assert.equal(control('general.heavyStart').props.disabled, true);
+  } finally {form.dispose();}
 });

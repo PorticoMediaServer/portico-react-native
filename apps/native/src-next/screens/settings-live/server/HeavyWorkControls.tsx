@@ -17,22 +17,25 @@ export function HeavyWorkControls({form, state, t}: {
   t: typeof defaultI18n.t;
 }) {
   const theme = useTheme();
-  const [advanced, setAdvanced] = useState(false), [custom, setCustom] = useState(false);
+  const [advanced, setAdvanced] = useState(false), [customDraft, setCustomDraft] = useState<MaintenanceSettings>();
   const draft = state.draft;
   if (!draft) return null;
   const mode = readHeavyWork(draft, 'general.heavyWork');
   if (mode === undefined) return null;
   // Custom is an editing intent as well as a derived mode: enabling an existing
   // overnight-shaped window must allow its actual fields to be edited unchanged.
-  const editingCustom = mode === 'custom' || custom;
-  const change = (id: HeavyWorkRow, value: unknown) => form.set(current => patchHeavyWork(current, id, value));
+  const editingCustom = mode === 'custom' || customDraft === draft;
+  const change = (id: HeavyWorkRow, value: unknown) => {
+    form.set(current => patchHeavyWork(current, id, value));
+    setCustomDraft(id === 'general.heavyWork' ? value === 'custom' ? form.getSnapshot().draft : undefined : editingCustom ? form.getSnapshot().draft : undefined);
+  };
   const select = (id: HeavyWorkRow, value: unknown, disabled = false) => {
     const row = settingsRowIndex.get(id)!.row;
     return <Select key={id} testID={id} label={t(row.label)} description={row.help ? t(row.help) : undefined}
       value={String(value)} disabled={disabled || state.saving} style={{marginTop: 12}}
       options={(row.control.options ?? []).map(option => ({value: String(option.value), label: t(option.label), description: option.hint ? t(option.hint) : undefined}))}
       onValueChange={next => {
-        if (id === 'general.heavyWork') {setCustom(next === 'custom'); if (next === 'custom') setAdvanced(true);}
+        if (id === 'general.heavyWork' && next === 'custom') setAdvanced(true);
         change(id, next);
       }}/>;
   };
