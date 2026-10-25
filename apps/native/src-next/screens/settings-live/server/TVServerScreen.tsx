@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
+import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {LibraryManagementService} from '../../../../../../packages/client-core/src/library-management';
@@ -12,6 +12,7 @@ import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {tvFocusIds} from '../../../shell/tv-focus';
 import {publicTVHandoffAddress} from '../../../tv/auth/TVHandoff';
+import {TVRemoteAccessPanel} from './TVRemoteAccessPanel';
 import {createTVServerReader} from './tv-server-reader';
 import {NativeScreenLifetime} from '../lifetime';
 import {ownerLibraryCounts, ownerLibraryKind, ownerLibraryState} from '../owner-libraries/presentation';
@@ -22,6 +23,7 @@ import {Screen, useScreenEntry} from '../Screen';
  * Composition admits only the owner's primary profile; the lifetime fences every read. */
 export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t;
+  const [page, setPage] = useState<'libraries' | 'remote'>('libraries');
   const lifetime = useMemo(() => new NativeScreenLifetime(ports.context), [ports]);
   const service = useMemo(() => new LibraryManagementService({
     api: createTVServerReader(ports.context, lifetime),
@@ -29,7 +31,7 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
   }), [ports, lifetime]);
   const state = useSyncExternalStore(service.subscribe, service.getSnapshot).directory;
   const ids = useMemo(() => tvFocusIds(lifetime.authority), [lifetime]);
-  const column = ids.surface('server.settings.pages'), rows = ids.surface('server.settings.libraries');
+  const column = ids.surface('server.settings.pages'), rows = ids.surface(`server.settings.${page}`);
   const enter = useScreenEntry({regionId: column, childId: 'libraries'}, lifetime.current);
   useEffect(() => {
     const retire = () => service.cancel();
@@ -38,8 +40,8 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
     return () => {lifetime.signal.removeEventListener('abort', retire); service.dispose(); lifetime.dispose();};
   }, [service, lifetime]);
   const address = useMemo(() => {
-    try {return publicTVHandoffAddress(new URL('/settings/server-libraries', ports.context.api.baseUrl).href);} catch {return undefined;}
-  }, [ports]);
+    try {return publicTVHandoffAddress(new URL(page === 'libraries' ? '/settings/server-libraries' : '/settings/server-remote', ports.context.api.baseUrl).href);} catch {return undefined;}
+  }, [ports, page]);
   return <Screen style={{paddingTop: 56}}>
     <ServerBand viewerRole="owner" audience="owner"/>
     <View style={{flex: 1, flexDirection: 'row', gap: 80}}>
@@ -50,15 +52,19 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
           <Focusable focusId="dashboard" focusKind="row" accessibilityRole="button" accessibilityLabel={t('next.shell.dashboard')} onPress={() => ports.context.navigation.open({kind: 'server-dashboard'}, lifetime.authority)} style={{minHeight: 50, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 16}}>
             <Icon name="i-pulse" size={24}/><Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t('next.shell.dashboard')}</Text>
           </Focusable>
-          <Focusable focusId="libraries" focusKind="row" accessibilityRole="text" accessibilityState={{selected: true}} accessibilityLabel={t('settings.server.libraries')} style={{minHeight: 50, paddingHorizontal: 20, borderRadius: 14, backgroundColor: `${theme.colors.accent}29`, flexDirection: 'row', alignItems: 'center', gap: 16}}>
+          <Focusable focusId="libraries" focusKind="row" accessibilityRole="button" onPress={() => setPage('libraries')} accessibilityState={{selected: page === 'libraries'}} accessibilityLabel={t('settings.server.libraries')} style={{minHeight: 50, paddingHorizontal: 20, borderRadius: 14, backgroundColor: page === 'libraries' ? `${theme.colors.accent}29` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 16}}>
             <Icon name="i-folder" size={24} color={theme.colors.accentStrong}/><Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t('settings.server.libraries')}</Text>
+          </Focusable>
+          <Focusable focusId="remote" focusKind="row" accessibilityRole="button" onPress={() => setPage('remote')} accessibilityState={{selected: page === 'remote'}} accessibilityLabel={t('settings.server.remote')} style={{minHeight: 50, paddingHorizontal: 20, borderRadius: 14, backgroundColor: page === 'remote' ? `${theme.colors.accent}29` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 16}}>
+            <Icon name="i-globe" size={24}/><Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t('settings.server.remote')}</Text>
           </Focusable>
         </FocusRegion>
       </View>
       <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
         <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner"/></View>
-        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t('settings.server.libraries')}</Text>
-        <FocusRegion id={rows} orientation="vertical" edges={{left: column}}>
+        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : 'settings.server.remote')}</Text>
+        <FocusRegion key={page} id={rows} orientation="vertical" edges={{left: column}}>
+          {page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
           {state.phase === 'loading' && <StateView title={t('status.loading')}/>}
           {state.error && <StateView {...runtime.error(state.error, () => {void service.loadLibraries();})}/>}
           {state.data?.items.map(library => {
@@ -73,6 +79,7 @@ export function NativeTVServerScreen({ports, runtime}: {ports: NativeSettingsLiv
           })}
           {state.canPrevious && <Button focusId="previous" variant="glass" onPress={() => {void service.previousLibraries();}}>{t('web.pager.previous')}</Button>}
           {state.data?.nextCursor && <Button focusId="next" variant="glass" onPress={() => {void service.nextLibraries();}}>{t('web.pager.next')}</Button>}
+          </>}
         </FocusRegion>
         {address && <View style={{flexDirection: 'row', alignItems: 'center', gap: 22, padding: 24, borderRadius: 18, backgroundColor: theme.colors.raised, marginTop: 24}}>
           <View style={{padding: 10, borderRadius: 10, backgroundColor: theme.colors.white}}><QRCode value={address.url} size={100}/></View>
