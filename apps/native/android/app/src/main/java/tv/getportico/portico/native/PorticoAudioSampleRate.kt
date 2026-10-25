@@ -1,27 +1,62 @@
 package tv.getportico.portico.native
 
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioTrack
 
 /**
- * Match sample rate (music-plus 14, 23 Oct ruling: Smart, Strict or Off), this device's own
- * engine value. Reviewable WIP for Media: it resolves the rate the audio session should open at
- * from the routed output's real capabilities, and reports a match only when the opened session
- * actually runs at the source's rate.
+ * Match sample rate (music-plus 14, 23 Oct ruling: Smart, Strict or Off): this device's own
+ * engine value. Reviewable WIP for Media, not a capability claim.
  *
- * Off: the route's own preferred rate, whatever the file is.
- * Smart: the file's rate when the routed device lists it, else the route's preferred rate.
- * Strict: the file's rate; when the route cannot take it the request is reported as unmatched
- * rather than resampled silently.
+ * Facts, kept separate so nothing is promoted:
+ * - The **routed** device is the one the audio session actually opened on
+ *   (`AudioTrack.getRoutedDevice()`), never AudioManager's preferred/optimal properties. Its
+ *   `getSampleRates()` is empty on devices that accept arbitrary rates, which is *support
+ *   unspecified*, not "no rates"; and a routed device that cannot be read is *unknown*, not
+ *   arbitrary.
+ * - The platform's preferred rate (`PROPERTY_OUTPUT_SAMPLE_RATE`) is reported as a separate
+ *   configured/preferred fact, never as the routed device's support.
+ * - A match is only ever `opened rate == source rate`, recorded by the sink after a successful
+ *   open on the current route; `AudioTrack.getSampleRate()` is the configured source rate and
+ *   is *not* proof of the physical output or DAC rate, and no bit-perfect state is inferred.
  *
- * Nothing here claims a match: [facts] answers only from the rates the platform reports.
+ * Smart: the file's rate when the routed device lists it, else the device's preferred rate.
+ * Strict: the file's rate; refused only when the routed device's own list is known and lacks it.
+ * Off: the device's preferred rate, whatever the file is.
  */
 object PorticoAudioSampleRate {
   const val SMART = "smart"
   const val STRICT = "strict"
   const val OFF = "off"
 
-  data class Choice(val requestedRate: Int, val accepted: Boolean, val reason: String)
+  /** The listener's chosen mode and the rate the sink actually opened at, for its current item. */
+  @Volatile var mode: String = SMART
+  @Volatile var openedSampleRate: Int = 0
+  fun resetOpened() { openedSampleRate = 0 }
+
+  /** What the routed device says about itself. Unknown and arbitrary are different facts. */
+  data class RouteFacts(
+      val deviceId: Int,
+      val deviceType: Int,
+      val deviceName: String?,
+      val sampleRates: List<Int>,
+      val ratesKnown: Boolean,
+      val preferredSampleRate: Int,
+  ) {
+    /** Known list that is empty: the device accepts arbitrary rates (AudioDeviceInfo docs). */
+    val ratesArbitrary: Boolean get() = ratesKnown && sampleRates.isEmpty()
+  }
+
+  /** A decision about what to open, split so a valid fallback cannot be read as a refusal. */
+  data class Decision(
+      val requestedSampleRate: Int,
+      /** The sink may open at [requestedSampleRate]. */
+      val canOpen: Boolean,
+      /** Strict only: the routed device is known and cannot take the file's rate. */
+      val refused: Boolean,
+      val reason: String,
+  )
 
   fun parse(mode: String?): String =
       when (mode?.trim()?.lowercase()) {
@@ -30,36 +65,62 @@ object PorticoAudioSampleRate {
         else -> SMART
       }
 
-  /** Rates the routed sink itself reports, highest first. Empty means "unknown", not "none". */
-  fun routeRates(context: Context): List<Int> {
-    val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return emptyList()
-    val native = manager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 0
-    return if (native > 0) listOf(native) else emptyList()
+  private fun preferredRate(context: Context): Int {
+    val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return 0
+    return manager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 0
   }
 
-  fun choose(mode: String, sourceRate: Int, routeRates: List<Int>): Choice {
-    val preferred = routeRates.firstOrNull() ?: 0
-    if (sourceRate <= 0) return Choice(preferred, false, "source-rate-unknown")
-    return when (parse(mode)) {
-      OFF -> Choice(preferred, preferred > 0 && preferred == sourceRate, if (preferred > 0) "route" else "route-unknown")
-      STRICT -> if (routeRates.isEmpty() || routeRates.contains(sourceRate))
-        Choice(sourceRate, true, "file")
-      else Choice(sourceRate, false, "route-cannot-take-file-rate")
-      else -> if (routeRates.isEmpty() || routeRates.contains(sourceRate))
-        Choice(sourceRate, true, "file")
-      else Choice(preferred, preferred > 0 && preferred == sourceRate, "route")
+  /** The routed device the session actually opened on; null means the route is unknown. */
+  fun routeFacts(context: Context, routed: AudioDeviceInfo?): RouteFacts {
+    val preferred = preferredRate(context)
+    if (routed == null) return RouteFacts(-1, 0, null, emptyList(), ratesKnown = false, preferredSampleRate = preferred)
+    val rates = routed.sampleRates?.toList()?.filter { it > 0 }.orEmpty()
+    return RouteFacts(routed.id, routed.type, routed.productName?.toString(), rates, ratesKnown = true, preferredSampleRate = preferred)
+  }
+
+  /** A routed device read from the live track after it opened. */
+  fun routedDevice(track: AudioTrack?): AudioDeviceInfo? =
+      try {track?.routedDevice} catch (_: Throwable) {null}
+
+  fun decide(mode: String, sourceRate: Int, route: RouteFacts): Decision {
+    val parsed = parse(mode)
+    val takesFile = route.ratesKnown && route.sampleRates.isNotEmpty() && sourceRate > 0 && route.sampleRates.contains(sourceRate)
+    val cannotTakeFile = route.ratesKnown && route.sampleRates.isNotEmpty() && sourceRate > 0 && !route.sampleRates.contains(sourceRate)
+    val preferred = route.preferredSampleRate
+    return when (parsed) {
+      OFF -> if (preferred > 0) Decision(preferred, true, false, "preferred")
+             else if (sourceRate > 0) Decision(sourceRate, true, false, "preferred-unknown")
+             else Decision(0, false, false, "no-rate-known")
+      STRICT -> when {
+        sourceRate <= 0 -> Decision(0, false, false, "source-rate-unknown")
+        cannotTakeFile -> Decision(sourceRate, false, true, "route-cannot-take-file-rate")
+        else -> Decision(sourceRate, true, false, if (takesFile) "file" else "file-route-unspecified")
+      }
+      else -> when {
+        sourceRate <= 0 -> Decision(preferred, preferred > 0, false, "source-rate-unknown")
+        route.ratesKnown && (route.ratesArbitrary || takesFile) -> Decision(sourceRate, true, false, "file")
+        route.ratesKnown && cannotTakeFile && preferred > 0 -> Decision(preferred, true, false, "preferred")
+        route.ratesKnown && cannotTakeFile -> Decision(sourceRate, true, false, "preferred-unknown")
+        else -> Decision(sourceRate, true, false, "route-unknown")
+      }
     }
   }
 
-  /** Observed facts for the bridge and the signal path. `matched` is only ever equality. */
-  fun facts(context: Context, mode: String, sourceRate: Int, openedRate: Int): Map<String, Any> {
-    val route = routeRates(context)
+  /** Observed facts for the bridge and the signal path, in the native contract's own names. */
+  fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int): Map<String, Any> {
+    val route = routeFacts(context, routed)
     return mapOf(
         "sampleRateMatching" to parse(mode),
-        "requestedRate" to sourceRate,
-        "routeRate" to (route.firstOrNull() ?: 0),
-        "outputRate" to openedRate,
-        "sampleRateMatched" to (sourceRate > 0 && openedRate > 0 && sourceRate == openedRate),
+        "requestedSampleRate" to sourceRate,
+        "outputSampleRate" to openedSampleRate,
+        "routeDeviceId" to route.deviceId,
+        "routeDeviceType" to route.deviceType,
+        "routeDeviceName" to (route.deviceName ?: ""),
+        "routeSampleRates" to route.sampleRates,
+        "routeRatesKnown" to route.ratesKnown,
+        "routeRatesArbitrary" to route.ratesArbitrary,
+        "preferredSampleRate" to route.preferredSampleRate,
+        "sampleRateMatched" to (sourceRate > 0 && openedSampleRate > 0 && sourceRate == openedSampleRate),
     )
   }
 }
