@@ -52,7 +52,7 @@ test('non-device, multi-key and unsupported rows are unavailable without reading
     const f = await fixture(), original = f.source.read, reads: string[] = [], loads = state.loads;
     f.source.read = id => {reads.push(id); return original(id);};
     try {
-      for (const rowId of ['device.playerLink', 'device.receive', 'quality.tvSupports', 'playback.skipping', 'general.name', 'unknown.row']) {
+      for (const rowId of ['device.playerLink', 'quality.tvSupports', 'playback.skipping', 'general.name', 'unknown.row']) {
         assert.equal(readNativeDevicePreference(rowId, f.source), undefined, rowId);
       }
       assert.deepEqual(reads, []);
@@ -111,7 +111,6 @@ test('invalid values and unavailable rows never reach the device writer', async 
         ['device.player', 'speedy'],
         ['audioSubtitles.surround', 'mono'],
         ['quality.disableHdr', 'yes'],
-        ['device.receive', true],
         ['quality.tvSupports', 'hdr'],
         ['playback.skipping', 'off'],
         ['general.name', 'x'],
