@@ -68,7 +68,7 @@ export function TVNoServers(props: Props) {
     return () => subscription.remove();}, [joining, current, back]);
   return <FocusProvider><View testID="tv-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{padding: 64, gap: 28}}>
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingTop: 64, paddingLeft: 200, paddingRight: 96, paddingBottom: 64, gap: 28}}>
       <Button variant="text" disabled={props.busy} onPress={back} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>
       <View style={{gap: 12}}>
         <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('services.start.ready')}</Text>
