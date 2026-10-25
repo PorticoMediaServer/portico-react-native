@@ -8,6 +8,7 @@ import type {NativeSavedActions} from './SavedScreen';
 import {createNativeSavedHubController, createNativeSavedViewController, type NativeSavedRouteTarget} from './navigation';
 import {createNativeSavedViewSummaryOwner, type NativeSavedViewSummaryOwner} from './view-summary-owner';
 import {createNativeSavedViewRenameController, type NativeSavedViewRenameController} from './rename-view';
+import {askHomeCustomizeView} from '../home/customize-intent';
 
 /** The read ports a retained views-directory route exposes. Disposal stays
  * internal to the parent state, which owns construction and retirement. */
@@ -27,6 +28,7 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
     menuState: entries.menuState, openView: hub.openView, openEntry: entries.open, menuEntry: entries.menu, isMenuOpen: entries.isMenuOpen,
     openDownloads: hub.openDownloads, openPin: hub.openPin, editPins: hub.editPins,
     selectMyList: hub.source.selectMyList, nextMyList: hub.source.nextMyList,
+    showOnHome: resource => {if (!current()) return; askHomeCustomizeView(resource); context.navigation.open({kind: 'home-customize'}, context.authority());},
   });
   type View = ReturnType<typeof createView>;
   const views = new Map<NativeSavedRouteTarget, View>(), cleanups: (() => void)[] = [];

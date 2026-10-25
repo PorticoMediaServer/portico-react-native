@@ -48,6 +48,8 @@ export type NativeSavedResourceProps = Readonly<{
   libraries: readonly Library[];
   back: () => void;
   changed?: () => void;
+  /** Real shortcut into Customize Home for this loaded saved view. */
+  showOnHome?: (resource: PersonalResource) => void;
 }>;
 
 type Row = Readonly<{id: string; media: ContentEntry}>;
@@ -68,7 +70,7 @@ function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnaps
 
 /** collections.html 11a–13c and 18–20. The page reads the actual Saved route
  * through its canonical service; commands go back through the same service. */
-export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed}: NativeSavedResourceProps) {
+export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed, showOnHome}: NativeSavedResourceProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -271,6 +273,8 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const changeableHere = !(theme.isTV && resource);
     if (isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin')) items.push({id: 'pin', label: t(pinned ? 'pins.unpin' : 'pins.pin'),
       icon: pinned ? 'i-bookmark-f' : 'i-bookmark', onSelect: () => {setPageMenu(false); pin();}});
+    if (!theme.isTV && !isPlaylist && resource?.kind === 'view' && resource.onHome !== true && showOnHome) items.push({id: 'showOnHome',
+      label: t('home.customize.showRow', {title: name ?? ''}), icon: 'i-home', onSelect: () => {setPageMenu(false); showOnHome(resource);}});
     if (changeableHere && (isPlaylist ? playlist?.actions.includes('rename') : resource?.actions.includes('update'))) items.push({id: 'rename', label: t('web.saved.rename'),
       icon: 'i-edit', onSelect: () => {setPageMenu(false); setRenaming(true);}});
     if (changeableHere && (isPlaylist ? playlist?.actions.includes('delete') : resource?.actions.includes('delete'))) items.push({id: 'delete',

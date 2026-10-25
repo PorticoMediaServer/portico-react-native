@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PinnedResource} from '../../../../../packages/client-core/src/library-pins';
+import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {SavedEntry, SavedListFilter, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
@@ -34,6 +35,8 @@ export type NativeSavedActions = Readonly<{
   /** The wider My List grid re-reads the real watchlist by server sort/filter/shape. */
   selectMyList?: (route: SavedRoute) => Promise<void>;
   nextMyList?: (shape: 'posters' | 'squares', sectionId: string) => Promise<void>;
+  /** Real shortcut into Customize Home for one loaded saved view. */
+  showOnHome?: (resource: PersonalResource) => void;
 }>;
 export type NativeSavedSelectionPort = Readonly<{
   /** Enter the page's real current selection context without selecting an item. */
