@@ -48,6 +48,7 @@ const t = defaultI18n.t;
 export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 'welcome', initialAddress = ''}: {onBack?: () => void; onComplete: () => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string}) {
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(initialAddress), [username, setUsername] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState('');
+  const [setupAddress, setSetupAddress] = useState('');
   const [setupApprovalURL, setSetupApprovalURL] = useState<string>();
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
@@ -305,7 +306,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
     setServer(value);
     if (value.setupRequired && !Platform.isTV) {
       const checked = await next.prepareSetup();
-      if (lifetime.current && operation.current === next) {setServer(checked); setName(checked.name); setUsername(''); setPassword(''); setSetupPasswordConfirm(''); setStage('setup-choice');}
+      if (lifetime.current && operation.current === next) {setServer(checked); setSetupAddress(next.serverOrigin()); setName(checked.name); setUsername(''); setPassword(''); setSetupPasswordConfirm(''); setStage('setup-choice');}
       return;
     }
     if (value.setupRequired) throw Object.assign(new Error('native_setup_phone_required'), {code: 'access_refused'});
@@ -401,7 +402,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;
-  if (stage === 'setup-choice') return layout(t('accounts.setup.title'), t('accounts.setup.at', {address: new URL(operation.current!.serverOrigin()).host}),
+  if (stage === 'setup-choice') return layout(t('accounts.setup.title'), t('accounts.setup.at', {address: new URL(setupAddress).host}),
     fields(field(t('web.general.serverName'), name, setName), <Text key="sign-in-choice" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.setup.howSignIn')}</Text>),
     server?.hostedConfigured ? action('setup-portico', t('accounts.signIn.continuePortico'), async () => {
       const url = await operation.current!.prepareHostedSetup(name);
