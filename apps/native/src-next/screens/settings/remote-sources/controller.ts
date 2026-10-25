@@ -1,4 +1,8 @@
-import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues, type RcloneSourceDraft, type RcloneTestInput, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
+import {LibraryManagementService} from '../../../../../../packages/client-core/src/library-management';
+import {readLibraryInventoryConfig, saveLibraryFolder} from '../../../../../../packages/client-core/src/server-admin/libraries';
+import type {LibraryContentApi} from '../../../../../../packages/client-core/src/library-content';
+import type {RemoteFolder} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues, type RcloneSourceDraft, type RcloneTestInput, type RcloneTestResult, type SourceAdvancedSettings, type SourceAdvanced} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -99,6 +103,68 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     this.assertAllowed();
     try {if (!guard()) throw screenScopeEnded(); await this.service.configure(id, input, base, guard);}
     finally {if (!this.allowed()) this.dispose();}
+  }
+
+  private assignmentApi(guard: () => boolean): LibraryContentApi {
+    return {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+      this.assertAllowed();
+      if (!guard()) return Promise.reject(screenScopeEnded());
+      return this.lifetime.request(async current => {
+        try {
+          this.assertAllowed();
+          if (!guard()) throw screenScopeEnded();
+          const result = await this.ports.context.api.request<T>(path, method, body, current);
+          this.assertAllowed();
+          if (!guard()) throw screenScopeEnded();
+          return result;
+        } catch (error) {if (terminalRefusal(error)) this.dispose(); throw error;}
+      }, signal);
+    }};
+  }
+
+  libraryAssignment(guard: () => boolean): LibraryManagementService {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return new LibraryManagementService({api: this.assignmentApi(guard), scope: {serverId: this.lifetime.authority.serverId,
+      viewerId: this.lifetime.authority.profileId}, readRetries: 0});
+  }
+
+  async attachFolder(source: RemoteSource, libraryId: string, folder: Pick<RemoteFolder, 'name' | 'path' | 'relative'>, guard: () => boolean): Promise<void> {
+    const fresh = await this.sourceFolders(source, folder.relative ? {path: folder.relative} : {}, guard);
+    if (fresh.path !== folder.path || fresh.relative !== folder.relative) throw screenScopeEnded();
+    const api = this.assignmentApi(guard), scope = {serverId: this.lifetime.authority.serverId, viewerId: this.lifetime.authority.profileId};
+    const config = await readLibraryInventoryConfig(api, scope, libraryId);
+    if (config.sources.some(value => value.path === folder.path && value.enabled)) return;
+    await saveLibraryFolder(api, libraryId, undefined, {name: folder.name, path: folder.path, classification: 'local',
+      followSymlinks: false, intervalSeconds: 21600, expectedRevision: config.revision, acceptReplacement: false});
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+  }
+
+  async validateAssignmentFolders(source: RemoteSource, folders: readonly Pick<RemoteFolder, 'path' | 'relative'>[], guard: () => boolean): Promise<void> {
+    if (!folders.length || folders.length > 64) throw screenScopeEnded();
+    for (const folder of folders) {
+      const fresh = await this.sourceFolders(source, folder.relative ? {path: folder.relative} : {}, guard);
+      if (fresh.path !== folder.path || fresh.relative !== folder.relative) throw screenScopeEnded();
+    }
+  }
+
+  async readAdvanced(source: RemoteSource, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.readAdvanced(source.id, guard);
+    this.assertAllowed();
+    if (!guard() || result.generation !== String(source.generation)) throw screenScopeEnded();
+    return result;
+  }
+
+  async saveAdvanced(settings: SourceAdvancedSettings, values: SourceAdvanced, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.saveAdvanced(settings, values, guard);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
   }
 
   async sourceFolders(source: RemoteSource, options: Readonly<{path?: string; cursor?: string; showHidden?: boolean}>, guard: () => boolean) {

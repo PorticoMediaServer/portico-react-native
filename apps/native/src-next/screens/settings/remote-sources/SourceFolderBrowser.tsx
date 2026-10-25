@@ -5,14 +5,19 @@ import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Switch} from '../../../kit/controls/Switch';
 import {useTheme} from '../../../kit/theme';
+import type {ChosenSourceFolder} from './SourceLibraryAssignment';
 import type {NativeRemoteSourcesController} from './controller';
 import {Page, Problem, remoteSourceError, useAttempt} from './RemoteSourceForms';
 
 /** Saved-source directory producer only; no local filesystem discovery or invented folders. */
-export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel}: {
-  controller: NativeRemoteSourcesController; source: RemoteSource; t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void;
+export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel, onChoose}: {
+  controller: NativeRemoteSourcesController; source: RemoteSource; t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void; onChoose: (folders: readonly ChosenSourceFolder[]) => void;
 }) {
-  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false);
+  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), selectionRevision = useRef(0);
+  const renderedSelection = selectionRevision.current;
+  const [chosen, setChosen] = useState<readonly ChosenSourceFolder[]>([]);
+  const toggle = (folder: ChosenSourceFolder) => {if (!flight.current && current()) {selectionRevision.current++; setChosen(rows => rows.some(row => row.relative === folder.relative)
+    ? rows.filter(row => row.relative !== folder.relative) : rows.length < 64 ? [...rows, folder] : rows);}};
   const [page, setPage] = useState<RemoteFolderPage>(), [hidden, setHidden] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string>();
   const read = async (path = '', showHidden = hidden, more = false) => {
     if (flight.current || !current() || more && (!page?.nextCursor || page.entries.length >= 500)) return;
@@ -33,9 +38,11 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const parent = page?.relative.split('/').slice(0, -1).join('/') ?? '';
-  return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={null}>
+  return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={<Button disabled={busy || !chosen.length} onPress={() => {if (!flight.current && current() && selectionRevision.current === renderedSelection && chosen.length) onChoose(chosen);}}>{t(chosen.length === 1 ? 'next.remoteSources.useOneFolder' : 'next.remoteSources.useFolders', {count: chosen.length})}</Button>}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
     {page && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{page.path}</Text>}
+    {page && <Button variant="glass" disabled={busy} onPress={() => toggle({name: page.relative.split('/').pop() || source.name, path: page.path, relative: page.relative})}>{t(chosen.some(row => row.relative === page.relative) ? 'next.remoteSources.chosen' : 'next.remoteSources.chooseThisFolder')}</Button>}
+    {chosen.map(folder => <Button key={folder.relative} variant="text" disabled={busy} onPress={() => toggle(folder)}>{t('next.remoteSources.removeFolder', {name: folder.name})}</Button>)}
     <Switch checked={hidden} disabled={busy} onCheckedChange={value => {void read(page?.relative ?? '', value);}}>{t('next.remoteSources.showHiddenFolders')}</Switch>
     {!!page?.relative && <Button disabled={busy} variant="text" onPress={() => {void read(parent);}}>{t('next.remoteSources.upOneFolder')}</Button>}
     {busy && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.folderListing')}</Text>}
@@ -43,6 +50,7 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel}
     {page?.entries.map(folder => <View key={folder.relative} style={{gap: 4}}>
       <Button disabled={busy} variant="glass" accessibilityLabel={t('next.remoteSources.openFolder', {name: folder.name})}
         onPress={() => {void read(folder.relative);}}>{folder.name}</Button>
+      <Switch disabled={busy || chosen.length >= 64 && !chosen.some(row => row.relative === folder.relative)} checked={chosen.some(row => row.relative === folder.relative)} onCheckedChange={() => toggle(folder)}>{folder.name}</Switch>
     </View>)}
     {!!page?.nextCursor && page.entries.length < 500 && <Button variant="text" disabled={busy} onPress={() => {void read(page.relative, hidden, true);}}>{t('next.remoteSources.showMoreFolders')}</Button>}
     {(page?.truncated || !!page?.nextCursor && page.entries.length >= 500) && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.folderTruncated')}</Text>}
