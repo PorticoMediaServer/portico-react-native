@@ -78,7 +78,7 @@ export function createNativeLibraryPlaySelection(context: NativeShellBootstrapCo
           while (cursor < entries.length) {
             const index = cursor++;
             items[index] = await readCatalogueSelectionItem({api: context.api, scope: lifetime.scope, requestId: common.requestId,
-              signal: controller.signal, isCurrent: live}, entries[index], {play: true, queue, myList: true, favorite: true, watched: true, playlist: true, collection: true});
+              signal: controller.signal, isCurrent: live}, entries[index], {play: true, queue, myList: true, favorite: true, watched: true, playlist: true, collection: true, edit: true, delete: true});
           }
         }));
         if (!live()) throw cancelled();
