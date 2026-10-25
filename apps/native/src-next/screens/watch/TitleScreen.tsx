@@ -40,6 +40,8 @@ export type NativeTitleScreenProps = Readonly<{
   serverName?: string;
   /** One ordinary Search route seeded with the captured title; absent when no producer exists. */
   search?: (query: string) => void;
+  /** The Home entry's captured Remove from Continue Watching command, when it offered one. */
+  removeContinue?: (signal: AbortSignal) => Promise<boolean>;
   /** A real native download action, absent on a server/device where it is not offered. */
   download?: (entry: ContentEntry) => void;
   /** A registered person route, where the shell has one. */
@@ -83,6 +85,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
   const [seasonsOpen, setSeasonsOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [settingsBusy, setSettingsBusy] = useState(false);
   const [tvFocus, setTvFocus] = useState<{play?: number; episodes?: number; related?: number}>({});
+  const continueController = useRef<AbortController>();
+  const [continueBusy, setContinueBusy] = useState(false), [continueRemoved, setContinueRemoved] = useState(false);
+  useEffect(() => () => continueController.current?.abort(), []);
   const captureTag = (key: keyof typeof tvFocus) => theme.isTV ? (event: LayoutChangeEvent) => {
     const tag = event.target;
     if (typeof tag === 'number' && tag > 0 && tag !== tvFocus[key]) setTvFocus(value => ({...value, [key]: tag}));
@@ -132,6 +137,15 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     {collapsed && showTitle && <Text numberOfLines={1} style={[theme.type.bodyStrong, {flex: 1, textAlign: 'center', color: theme.colors.text}]}>{title}</Text>}
   </View>;
   const header = headerFor(true);
+  const removeContinue = () => {
+    if (!props.removeContinue || continueBusy) return;
+    continueController.current?.abort();
+    const controller = new AbortController(); continueController.current = controller;
+    setContinueBusy(true);
+    void props.removeContinue(controller.signal).then(removed => {if (removed && !controller.signal.aborted) setContinueRemoved(true);})
+      .catch(error => {if (!controller.signal.aborted && (error as {name?: string}).name !== 'AbortError') props.reportError(error);})
+      .finally(() => {if (continueController.current === controller) {continueController.current = undefined; setContinueBusy(false);}});
+  };
   if (loading && !detail && !workspace) return <TitleSkeleton elapsedMs={elapsed} pressed={{title, ...(source ? {art: {source, foreground}} : {})}}
     shell={header} tabs={tabs} playAction={props.watch ? {id: 'toggle', label: t(props.watch.source.playback.intent === 'playing' ? 'action.pause' : 'action.play'), onPress: toggle}
       : snapshot.entry.playback ? {id: 'play', label: t('action.play'), onPress: play} : undefined}/>;
@@ -155,7 +169,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
         <StateLayout testID="watch-title-removed" icon="i-not" contentTop={250} backdropHeight={420}
           title={t('next.states.removed', {title: captured, server: props.serverName})}
           body={t('next.states.removedBody')}
-          primaryAction={props.search ? {id: 'search', label: t('next.states.searchTitle', {title: captured}), icon: 'i-search', onPress: () => props.search?.(captured)} : undefined}/>
+          primaryAction={props.search ? {id: 'search', label: t('next.states.searchTitle', {title: captured}), icon: 'i-search', onPress: () => props.search?.(captured)} : undefined}
+          secondaryAction={props.removeContinue && !continueRemoved ? {id: 'remove-continue', label: t('next.states.removeContinue'), disabled: continueBusy, onPress: removeContinue} : undefined}/>
         {header}
       </View>;
     }

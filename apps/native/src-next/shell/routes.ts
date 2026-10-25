@@ -6,9 +6,10 @@ import type {ReadingItem} from '../../../../packages/client-core/src/reading';
 import {sameAuthority, type ShellAuthority, type ShellDestination} from './model';
 
 /** Descriptors are requests to the registered phase owner, never synthesized screen content. */
+export type NativeContinueWatchingOffer = Readonly<{itemId: string; revision: number}>;
 export type NativeShellRoute = Readonly<
   | {kind: 'shell'; destination: ShellDestination}
-  | {kind: 'title'; entry: ContentEntry}
+  | {kind: 'title'; entry: ContentEntry; continueWatching?: NativeContinueWatchingOffer}
   | {kind: 'music'; entry: ContentEntry}
   | {kind: 'music-discover'}
   | {kind: 'book'; entry: ContentEntry}
@@ -41,13 +42,21 @@ export type NativeShellRoute = Readonly<
   | {kind: 'library-edit-pins' | 'library-settings'; libraryId: string}
 >;
 
-export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.freeze({kind: 'title', entry});
+export const titleRoute = (entry: ContentEntry, continueWatching?: NativeContinueWatchingOffer): NativeShellRoute =>
+  Object.freeze({kind: 'title', entry, ...(continueWatching ? {continueWatching} : {})});
+/** The Home entry's own offer and personal revision, captured with the route; never a new read. */
+type ContinueSource = ContentEntry & {homeActions?: {removeFromContinue?: boolean; state?: {personalRevision?: number}}};
+const continueOffer = (entry: ContentEntry): NativeContinueWatchingOffer | undefined => {
+  const actions = (entry as ContinueSource).homeActions, revision = actions?.state?.personalRevision;
+  return actions?.removeFromContinue === true && typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0
+    ? Object.freeze({itemId: entry.id, revision}) : undefined;
+};
 /** Albums and artists open on their own drawn page on every platform; every other
  * entry keeps the existing title route exactly. */
 export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute =>
   entry.kind === 'album' || entry.kind === 'artist' ? Object.freeze({kind: 'music', entry})
     : entry.kind === 'book' ? Object.freeze({kind: 'book', entry})
-      : entry.kind === 'author' || entry.kind === 'book_series' ? Object.freeze({kind: 'audiobook', entry}) : titleRoute(entry);
+      : entry.kind === 'author' || entry.kind === 'book_series' ? Object.freeze({kind: 'audiobook', entry}) : titleRoute(entry, continueOffer(entry));
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
