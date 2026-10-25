@@ -4,27 +4,42 @@
 #import <TargetConditionals.h>
 
 #if !TARGET_OS_TV
-@interface PorticoHighlightsSave : NSObject <RCTBridgeModule, UIDocumentPickerDelegate>
-@property(nonatomic,copy) NSString *operation;
+@interface PorticoHighlightsOperation : NSObject
+@property(nonatomic,copy) NSString *identifier;
 @property(nonatomic,strong) NSURL *directory;
 @property(nonatomic,strong) UIDocumentPickerViewController *picker;
 @property(nonatomic,copy) RCTPromiseResolveBlock resolve;
 @property(nonatomic,copy) RCTPromiseRejectBlock reject;
+@property(nonatomic) BOOL finished;
+@end
+@implementation PorticoHighlightsOperation @end
+@interface PorticoHighlightsSave : NSObject <RCTBridgeModule, UIDocumentPickerDelegate>
+@property(nonatomic) BOOL closed;
+@property(nonatomic,strong) PorticoHighlightsOperation *operation;
 @end
 @implementation PorticoHighlightsSave
 RCT_EXPORT_MODULE()
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (void)finish:(NSString *)result error:(BOOL)failed {
-  RCTPromiseResolveBlock resolve=self.resolve; RCTPromiseRejectBlock reject=self.reject;
-  NSURL *directory=self.directory;
-  self.resolve=nil; self.reject=nil; self.operation=nil; self.picker=nil; self.directory=nil;
-  // This app-created unique directory is the only filesystem cleanup target.
-  if(directory) [[NSFileManager defaultManager] removeItemAtURL:directory error:nil];
-  if(failed) { if(reject) reject(@"highlights_save_failed",@"Could not save highlights",nil); }
-  else if(resolve) resolve(result);
+// All admission, presentation, terminal and result decisions use the same lock.
+- (void)finish:(PorticoHighlightsOperation *)original result:(NSString *)result error:(BOOL)failed {
+  @synchronized(self) {
+    if(!original||original.finished||self.operation!=original) return;
+    original.finished=YES;
+    RCTPromiseResolveBlock resolve=original.resolve; RCTPromiseRejectBlock reject=original.reject;
+    original.resolve=nil; original.reject=nil;
+    original.picker.delegate=nil;
+    self.operation=nil;
+    // Only the original app-created private directory is a cleanup target.
+    if(original.directory) [[NSFileManager defaultManager] removeItemAtURL:original.directory error:nil];
+    original.directory=nil; original.picker=nil;
+    if(failed) { if(reject) reject(@"highlights_save_failed",@"Could not save highlights",nil); }
+    else if(resolve) resolve(result);
+  }
 }
 RCT_REMAP_METHOD(saveHighlights, saveHighlights:(NSString *)operation name:(NSString *)name markdown:(NSString *)markdown resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  @synchronized(self) {
+  if(self.closed) { reject(@"highlights_unavailable",@"Save unavailable",nil); return; }
   NSRegularExpression *ids=[NSRegularExpression regularExpressionWithPattern:@"^[A-Za-z0-9_-]{32}$" options:0 error:nil];
   NSRegularExpression *names=[NSRegularExpression regularExpressionWithPattern:@"^[A-Za-z0-9 -]{1,64}-highlights\\.md$" options:0 error:nil];
   if(![operation isKindOfClass:NSString.class]||![name isKindOfClass:NSString.class]||![markdown isKindOfClass:NSString.class]||operation.length!=32||name.length>78||markdown.length>4194304||![ids numberOfMatchesInString:operation options:0 range:NSMakeRange(0,operation.length)]||![names numberOfMatchesInString:name options:0 range:NSMakeRange(0,name.length)]||![markdown hasPrefix:@"# Highlights\n"]) { reject(@"invalid_highlights",@"Invalid highlights export",nil); return; }
@@ -34,26 +49,51 @@ RCT_REMAP_METHOD(saveHighlights, saveHighlights:(NSString *)operation name:(NSSt
   NSURL *directory=[[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:[@"portico-highlights-" stringByAppendingString:NSUUID.UUID.UUIDString] isDirectory:YES];
   NSError *error=nil;
   if(![[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:NO attributes:@{NSFileProtectionKey:NSFileProtectionComplete} error:&error]) { reject(@"highlights_save_failed",@"Could not prepare highlights",nil); return; }
-  self.operation=operation; self.directory=directory; self.resolve=resolve; self.reject=reject;
+  PorticoHighlightsOperation *original=[PorticoHighlightsOperation new];
+  original.identifier=operation; original.directory=directory; original.resolve=resolve; original.reject=reject; self.operation=original;
   [directory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
   NSURL *file=[directory URLByAppendingPathComponent:name isDirectory:NO];
-  if(![bytes writeToURL:file options:NSDataWritingAtomic|NSDataWritingFileProtectionComplete error:&error]) { [self finish:nil error:YES]; return; }
+  if(![bytes writeToURL:file options:NSDataWritingAtomic|NSDataWritingFileProtectionComplete error:&error]) { [self finish:original result:nil error:YES]; return; }
   UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForExportingURLs:@[file] asCopy:YES];
-  picker.delegate=self; self.picker=picker;
+  picker.delegate=self; original.picker=picker;
+  if(self.closed||self.operation!=original||original.finished) { [self finish:original result:@"cancelled" error:NO]; return; }
   [presenter presentViewController:picker animated:YES completion:nil];
+  }
 }
-RCT_REMAP_METHOD(cancelHighlights, cancelHighlights:(NSString *)operation) {
-  if(![operation isEqual:self.operation]) return;
-  UIDocumentPickerViewController *picker=self.picker;
-  [picker dismissViewControllerAnimated:YES completion:nil];
-  [self finish:@"cancelled" error:NO];
+RCT_REMAP_METHOD(cancelHighlights, cancelHighlights:(NSString *)identifier) {
+  @synchronized(self) {
+    PorticoHighlightsOperation *original=self.operation;
+    if(!original||![identifier isEqual:original.identifier]) return;
+    [original.picker dismissViewControllerAnimated:YES completion:nil];
+    [self finish:original result:@"cancelled" error:NO];
+  }
 }
-- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller { if(controller==self.picker) [self finish:@"cancelled" error:NO]; }
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+  @synchronized(self) {
+    PorticoHighlightsOperation *original=self.operation;
+    if(controller!=original.picker) return;
+    [self finish:original result:@"cancelled" error:NO];
+  }
+}
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-  if(controller!=self.picker) return;
-  // User destinations are never retained or deleted. OS completion alone reports saved.
-  [self finish:urls.count ? @"saved" : @"cancelled" error:NO];
+  @synchronized(self) {
+    PorticoHighlightsOperation *original=self.operation;
+    if(!original||controller!=original.picker) return;
+    // The OS-owned destination is never retained or deleted.
+    [self finish:original result:!self.closed&&urls.count ? @"saved" : @"cancelled" error:NO];
+  }
 }
-- (void)invalidate { dispatch_async(dispatch_get_main_queue(), ^{ if(self.operation) { [self.picker dismissViewControllerAnimated:NO completion:nil]; [self finish:@"cancelled" error:NO]; } }); }
+- (void)invalidate {
+  // Close admission synchronously even when React invalidates off the main queue.
+  PorticoHighlightsOperation *original;
+  @synchronized(self) { self.closed=YES; original=self.operation; }
+  dispatch_async(dispatch_get_main_queue(), ^{
+    @synchronized(self) {
+      if(!original||self.operation!=original||original.finished) return;
+      [original.picker dismissViewControllerAnimated:NO completion:nil];
+      [self finish:original result:@"cancelled" error:NO];
+    }
+  });
+}
 @end
 #endif
