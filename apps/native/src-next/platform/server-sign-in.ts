@@ -121,6 +121,7 @@ export class NativeServerSignIn {
       const retained = await nativeAppSessions.read(); this.assertCurrent();
       const issued = await initializeServer(api, store, {setupToken: token, name: name.trim(), username: username.trim(), password,
         authMode: 'local', interactive: true}, this.controller.signal);
+      const completed = await store.read();
       // Pending Hosted claims are never sessions. Retain a fresh local grant for
       // cancellation cleanup before any asynchronous snapshot or publication.
       if ('claimRequired' in issued) throw mismatch();
