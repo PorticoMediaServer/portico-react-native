@@ -50,8 +50,11 @@ class PorticoQRScanActivity : Activity(), SurfaceHolder.Callback {
     if (Build.VERSION.SDK_INT >= 33) {
       backCallback = BackApi33.register(this)
     }
-    if (!packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) complete(null, "qr_camera_unavailable")
-    else if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.CAMERA), 1)
+    if (!isAdmitted(requestId)) complete(null)
+    else if (!packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) complete(null, "qr_camera_unavailable")
+    else if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+      if (isAdmitted(requestId)) requestPermissions(arrayOf(Manifest.permission.CAMERA), 1) else complete(null)
+    }
   }
   override fun onResume() { super.onResume(); resumed = true; openCamera() }
   override fun onPause() { resumed = false; closeCamera(); super.onPause() }
@@ -72,6 +75,7 @@ class PorticoQRScanActivity : Activity(), SurfaceHolder.Callback {
       val count = Camera.getNumberOfCameras()
       if (count == 0) { complete(null, "qr_camera_unavailable"); return }
       val id = (0 until count).firstOrNull { Camera.CameraInfo().also { info -> Camera.getCameraInfo(it, info) }.facing == Camera.CameraInfo.CAMERA_FACING_BACK } ?: 0
+      if (!isAdmitted(requestId)) { complete(null); return }
       val opened = Camera.open(id); camera = opened
       val parameters = opened.parameters
       val size = parameters.supportedPreviewSizes.filter { it.width * it.height <= 1280 * 720 }.maxByOrNull { it.width * it.height }
@@ -83,7 +87,9 @@ class PorticoQRScanActivity : Activity(), SurfaceHolder.Callback {
       val info = Camera.CameraInfo(); Camera.getCameraInfo(id, info)
       val rotation = when (windowManager.defaultDisplay.rotation) { Surface.ROTATION_90 -> 90; Surface.ROTATION_180 -> 180; Surface.ROTATION_270 -> 270; else -> 0 }
       val orientation = if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) (360 - (info.orientation + rotation) % 360) % 360 else (info.orientation - rotation + 360) % 360
-      opened.setDisplayOrientation(orientation); opened.setPreviewDisplay(preview.holder); opened.startPreview(); nextFrame(opened, size.width, size.height)
+      opened.setDisplayOrientation(orientation); opened.setPreviewDisplay(preview.holder)
+      if (!isAdmitted(requestId)) { complete(null); return }
+      opened.startPreview(); nextFrame(opened, size.width, size.height)
     } catch (_: Exception) { complete(null, "qr_camera_unavailable") }
   }
   private fun nextFrame(owned: Camera, width: Int, height: Int) {
@@ -110,8 +116,11 @@ class PorticoQRScanActivity : Activity(), SurfaceHolder.Callback {
   private fun closeCamera() { val owned = camera; camera = null; try { owned?.setPreviewCallback(null); owned?.stopPreview() } catch (_: Exception) {} finally { try { owned?.release() } catch (_: Exception) {} } }
   private fun complete(raw: String?, failure: String? = null) {
     if (ended) return
+    val admitted = isAdmitted(requestId)
+    val answer = if (admitted) raw else null
+    val reason = if (admitted) failure else null
     ended = true; release(requestId); closeCamera()
-    setResult(if (raw != null) RESULT_OK else RESULT_CANCELED, Intent().putExtra("requestId", requestId).putExtra("raw", raw).putExtra("failure", failure))
+    setResult(if (answer != null) RESULT_OK else RESULT_CANCELED, Intent().putExtra("requestId", requestId).putExtra("raw", answer).putExtra("failure", reason))
     finish()
   }
   override fun onDestroy() {
@@ -133,6 +142,7 @@ class PorticoQRScanActivity : Activity(), SurfaceHolder.Callback {
     private fun isAdmitted(id: String) = admittedId == id
     @Synchronized private fun release(id: String) { if (admittedId == id) admittedId = null }
     private val instances = ConcurrentHashMap<String, WeakReference<PorticoQRScanActivity>>()
+    fun retireAdmission(id: String) { release(id) }
     fun cancel(id: String) { release(id); instances[id]?.get()?.let { activity -> activity.runOnUiThread { activity.complete(null) } } }
   }
 }

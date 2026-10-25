@@ -28,6 +28,13 @@ Cancel/background/bridge invalidation retires it before it can present. Camera
 session work is serialized, stopped at retirement and never adds an audio input.
 The file is in the iOS target only; no tvOS camera or permission is added.
 
+Both module instances become irrevocably closed synchronously at bridge
+invalidation. Queued starts and permission/presentation/camera/result admission
+recheck that terminal state. Android also revokes its captured ID admission
+synchronously before main-thread camera cleanup; iOS capture work reads the
+original pending ticket plus the atomic module flag. Deferred cleanup retains
+only the captured original pending ticket and never selects a successor.
+
 Neither implementation saves camera images or makes a network request. Native
 failures are a closed code set: qr_busy, qr_cancelled, qr_permission_denied,
 qr_camera_unavailable, qr_too_large, qr_invalid_request. Their error messages
