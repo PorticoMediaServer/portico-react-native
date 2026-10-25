@@ -27,7 +27,7 @@ function Usage({source, runtime, freeBytes, databaseBytes, theme, t}: {source: N
   const rows = [
     freeBytes === undefined ? undefined : {id: 'free', label: t('server.dashboard.freeSpace'), value: defaultI18n.bytes(freeBytes)},
     {id: 'own', label: t('server.dashboard.porticoFiles'), value: defaultI18n.bytes(own)},
-    databaseBytes === undefined ? undefined : {id: 'database', label: t('server.dashboard.database'), value: defaultI18n.bytes(databaseBytes)},
+    databaseBytes === undefined ? undefined : {id: 'database', label: t('server.space.database'), value: defaultI18n.bytes(databaseBytes)},
   ].filter((row): row is {id: string; label: string; value: string} => row !== undefined);
   if (!rows.length) return null;
   return <View style={{marginTop: 36}}>
