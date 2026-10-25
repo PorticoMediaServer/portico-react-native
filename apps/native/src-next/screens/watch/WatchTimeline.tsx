@@ -47,7 +47,7 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
   const current = useCallback(() => {
     const live = playback.getSnapshot();
-    return mounted.current && !!fence && sameFence(live.fence, fence) && !live.retired && !source.retired && (!tv || live.dock.local?.expanded === true);
+    return mounted.current && !!fence && sameFence(live.fence, fence) && !source.retired && (!tv || live.dock.local?.expanded === true);
   }, [fence, playback, source.retired, tv]);
   useEffect(() => {dragging.current = false; setPreview(undefined); onPreview?.(undefined);}, [fence, onPreview]);
   const clearRemotePreview = useCallback(() => {

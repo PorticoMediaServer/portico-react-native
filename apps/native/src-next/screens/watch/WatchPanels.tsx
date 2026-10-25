@@ -218,7 +218,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   if (state.panel !== 'style' && (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info')) body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
     {option('subtitles', 'i-cc', selected.subtitlesOff ? t('player.opt.off') : rows?.subtitles.find(row => row.selected)?.primary)}
     {state.panel === 'subtitles' && well('subtitles', expandedBody)}
-    {style && style.fields.length > 0 && theme.isTV && option('style', 'i-type', styleSummary)}
+    {style && style.fields.length > 0 && theme.isTV && option('style', 'i-subs', styleSummary)}
     {option('audio', 'i-audio', rows?.audio.find(row => row.selected)?.primary)}
     {state.panel === 'audio' && well('audio', expandedBody)}
     {option('quality', 'i-quality', rows?.qualities.find(row => row.selected)?.primary)}
