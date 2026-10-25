@@ -1,8 +1,10 @@
-import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, Dimensions, Platform, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
-import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
+import {ManagedProfilesClient, type ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
+import {IdentityClient} from '../../../../../packages/client-core/src/identity-client';
+import type {ProfileRestrictions, RatingSystem} from '../../../../../packages/client-core/src/identity-restrictions';
 import {HttpHostedApi} from '../../../../../packages/client-core/src';
 import type {SetupPreview} from '../../../../../packages/client-core/src/setup-code';
 import type {TVConsentApprover} from '../../../../../packages/client-core/src/tv-consent';
@@ -16,11 +18,13 @@ import {hostedUrl} from '../../platform/account-authority';
 import {nativeNetworkFetch} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
+import {NativeScreenLifetime} from '../settings-live/lifetime';
+import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
-import {StateLayout} from '../../kit/states';
+import {StateLayout, StateView} from '../../kit/states';
 import {ProfilePicker} from '../../kit/artwork';
-import {Button, Focusable, TextField} from '../../kit/controls';
-import {BottomSheet} from '../../kit/overlays';
+import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
+import {BottomSheet, Dialog} from '../../kit/overlays';
 import {Icon} from '../../kit/Icon';
 import {offlineDownloads, offlineOwnerKey} from '../../../platform/offline-downloads';
 import {useTheme} from '../../kit/theme';
@@ -41,13 +45,73 @@ type Panel = 'servers' | 'add' | 'sign-out-server' | 'sign-out-account' | 'conse
  * remain with their existing owners. Runtime disposal retires every private view below. */
 export function AccountRoute({route, context}: {route: NativeShellRoute; context: NativeShellBootstrapContext}) {
   const back = () => {context.navigation.back(context.authority());};
-  return route.kind === 'profiles' ? <ProfileRoute context={context} onBack={back}/> : <ServersRoute context={context} onBack={back}/>;
+  return route.kind === 'profiles' ? <ProfileRoute context={context} route={route} onBack={back}/> : <ServersRoute context={context} onBack={back}/>;
 }
 
-function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; onBack: () => void}) {
+type ProfileLease = Readonly<{
+  route: NativeShellRoute;
+  revision: number;
+  authority: ShellAuthority;
+  sessionFamilyId: string;
+  accountId: string;
+  profileId: string;
+  lifetime: NativeScreenLifetime;
+  live: {value: boolean};
+  current: () => boolean;
+}>;
+
+const profileAbort = () => Object.assign(new Error('profile_command_retired'), {name: 'AbortError'});
+
+function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapContext; route: NativeShellRoute; onBack: () => void}) {
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [forgotPIN, setForgotPIN] = useState(false), [recovery, setRecovery] = useState<{controller: NativeProfileRecovery; id: string; name: string}>();
+  const [profiles, setProfiles] = useState<readonly ManagedProfile[]>(context.account.profiles);
+  const [edit, setEdit] = useState<{kind: 'rename' | 'pin'; profile: ManagedProfile}>();
+  const [removePin, setRemovePin] = useState<ManagedProfile>(), [forgetProfile, setForgetProfile] = useState<ManagedProfile>(), [limitsProfile, setLimitsProfile] = useState<ManagedProfile>();
+  const [nameDraft, setNameDraft] = useState(''), [pinDraft, setPinDraft] = useState(''), [pinAgain, setPinAgain] = useState('');
+  const [addOpen, setAddOpen] = useState(false), [addName, setAddName] = useState('');
+  const [actionBusy, setActionBusy] = useState(false), [problem, setProblem] = useState(''), [notice, setNotice] = useState('');
+  const [lease, setLease] = useState<ProfileLease>();
+  const activeTicket = useRef<AbortController>();
   const selection = useRef<ReturnType<typeof nativeProfileSelection> | undefined>(undefined), alive = useRef(true), starting = useRef(false);
+  useLayoutEffect(() => {
+    const session = context.session(), lifetime = new NativeScreenLifetime(context), live = {value: true};
+    const authority = Object.freeze({...context.authority()}), snapshot = context.navigation.getSnapshot();
+    const sessionFamilyId = session?.sessionFamilyId ?? '', accountId = context.account.account.id, profileId = session?.viewer.profileId ?? '';
+    const next: ProfileLease = Object.freeze({
+      route, revision: snapshot.revision, authority, sessionFamilyId, accountId, profileId, lifetime, live,
+      current: () => live.value && lifetime.current() && !!sessionFamilyId
+        && context.session()?.sessionFamilyId === sessionFamilyId
+        && context.session()?.viewer.accountId === accountId
+        && context.session()?.viewer.profileId === profileId
+        && context.session()?.viewer.serverId === authority.serverId
+        && context.navigation.getSnapshot().revision === snapshot.revision
+        && context.navigation.getSnapshot().route === snapshot.route,
+    });
+    setLease(next);
+    const retire = () => {live.value = false; lifetime.dispose(); activeTicket.current?.abort();};
+    const stopNav = context.navigation.subscribe(() => {
+      const now = context.navigation.getSnapshot();
+      if (now.revision !== snapshot.revision || now.route !== snapshot.route) retire();
+    });
+    const stopAuth = context.subscribeAuthority(() => {if (!sameAuthority(authority, context.authority())) retire();});
+    return () => {
+      stopNav(); stopAuth(); retire(); setLease(current => current === next ? undefined : current);
+      setEdit(undefined); setAddOpen(false); setRemovePin(undefined); setForgetProfile(undefined); setLimitsProfile(undefined);
+      setPinDraft(''); setPinAgain('');
+    };
+  }, [context, route]);
+  const scopedTransport = (ticket: {lease: ProfileLease; controller: AbortController}) => ({
+    request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+      if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
+      const raw = await ticket.lease.lifetime.request(next => context.api.request<T>(path, method, body, next), ticket.controller.signal);
+      if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
+      return raw;
+    },
+  });
+  const scopedManager = (ticket: {lease: ProfileLease; controller: AbortController}) => new ManagedProfilesClient(scopedTransport(ticket), {authority: 'local', accountId: context.account.account.id, serverId: context.account.serverId});
+  const scopedIdentity = (ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket));
+  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller})), [context, lease]);
   useEffect(() => {alive.current = true; const session = context.session();
     if (session) selection.current = nativeProfileSelection(session.viewer.serverId, session.sessionFamilyId);
     return () => {alive.current = false; selection.current?.dispose();};
@@ -56,6 +120,33 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
+  const active = current ? profiles.find(value => value.id === current.viewer.profileId) : undefined;
+  const manage = context.account.canManage;
+  const runAction = async (work: (clients: {manager: ManagedProfilesClient; identity: IdentityClient}) => Promise<unknown>, message?: string) => {
+    const captured = lease;
+    if (!captured || !captured.current()) return false;
+    const controller = new AbortController(), ticket = {lease: captured, controller};
+    activeTicket.current?.abort();
+    activeTicket.current = controller;
+    const manager = scopedManager(ticket), identity = scopedIdentity(ticket);
+    setActionBusy(true); setProblem(''); setNotice('');
+    try {
+      await work({manager, identity});
+      if (!captured.current() || controller.signal.aborted) return false;
+      const next = await manager.list(controller.signal);
+      if (!captured.current() || controller.signal.aborted) return false;
+      setProfiles(next);
+      if (message) setNotice(message);
+      return true;
+    } catch (failure) {
+      if (controller.signal.aborted || !captured.current() || !alive.current) return false;
+      setProblem(presentError(failure, 'profiles').body); return false;
+    } finally {
+      if (activeTicket.current === controller) activeTicket.current = undefined;
+      if (alive.current) setActionBusy(false);
+    }
+  };
+  const closeEdit = () => {activeTicket.current?.abort(); setEdit(undefined); setPinDraft(''); setPinAgain('');};
   useEffect(() => () => {recovery?.controller.dispose();}, [recovery]);
   const startRecovery = async () => {
     const session = context.session(), target = profile;
@@ -90,7 +181,34 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     } catch (failure) {if (alive.current) setError(failure);}
     finally {starting.current = false;}
   };
-  const back = () => {if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  const back = () => {activeTicket.current?.abort(); setPinDraft(''); setPinAgain(''); if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  const submitRename = () => {
+    const target = edit?.kind === 'rename' ? edit.profile : undefined;
+    if (!target || !nameDraft.trim()) return;
+    void runAction(({manager}) => manager.edit(target, {name: nameDraft.trim()})).then(ok => {if (ok) closeEdit();});
+  };
+  const submitPin = () => {
+    const target = edit?.kind === 'pin' ? edit.profile : undefined;
+    if (!target) return;
+    if (!/^\d{4}$/.test(pinDraft) || pinDraft !== pinAgain) {setProblem(t('profile.pinMismatch')); return;}
+    void runAction(({manager}) => manager.edit(target, {pin: pinDraft}), t('profile.pinSaved', {name: target.name})).then(ok => {if (ok) closeEdit();});
+  };
+  const removePinAction = () => {
+    const target = removePin;
+    if (!target) return;
+    void runAction(({manager}) => manager.edit(target, {pin: ''}), t('profile.pinRemoved', {name: target.name})).then(ok => {if (ok) setRemovePin(undefined);});
+  };
+  const submitAdd = () => {
+    const name = addName.trim();
+    if (!name) return;
+    void runAction(({manager}) => manager.create(name, 'blue'), t('profile.added', {name})).then(ok => {if (ok) {setAddOpen(false); setAddName('');}});
+  };
+  const forgetAction = () => {
+    const target = forgetProfile;
+    if (!target) return;
+    void runAction(({manager}) => manager.forgetTrust(target.id), t('profile.devicesForgotten', {name: target.name})).then(ok => {if (ok) setForgetProfile(undefined);});
+  };
+
   const backRef = useRef(back), busyRef = useRef(busy);
   backRef.current = back; busyRef.current = busy;
   useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busyRef.current) backRef.current(); return true;}); return () => subscription.remove();}, []);
@@ -104,14 +222,137 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     code={pin} onCodeChange={setPin} busy={busy} error={error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text> : undefined}
     onSubmit={value => {void choose(profile.id, value);}} onBack={back}
     onForgotPIN={() => {if (!busy) {setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
-  return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('accounts.profiles.onServer', {server: context.serverName})}
-    beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
-      <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> :
-      <ProfilePicker profiles={context.account.profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
-        selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = context.account.profiles.find(item => item.id === id)!;
-          if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>}
-      {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
-    secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
+  return <>
+    <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
+      beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
+        <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
+        <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
+          selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
+            if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
+        {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={() => {setAddName(''); setProblem(''); setNotice(''); setAddOpen(true);}}>{t('profile.add')}</Button></View> : null}
+        {manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>
+          <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{active.name}{' · '}{t(active.primary ? 'profile.main' : 'profile.current')}</Text>
+          <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => {setNameDraft(active.name); setProblem(''); setNotice(''); setEdit({kind: 'rename', profile: active});}}/>
+            <ProfileActionRow testID="profile-pin" label={t(active.pinRequired ? 'profile.changePin' : 'profile.setPin')} onPress={() => {setPinDraft(''); setPinAgain(''); setProblem(''); setNotice(''); setEdit({kind: 'pin', profile: active});}}/>
+            {active.pinRequired ? <ProfileActionRow testID="profile-remove-pin" label={t('profile.removePin')} onPress={() => {setProblem(''); setNotice(''); setRemovePin(active);}}/> : null}
+            <ProfileActionRow testID="profile-limits" label={t('profile.limits')} description={t('profile.limitsHelp')} onPress={() => {setProblem(''); setNotice(''); setLimitsProfile(active);}}/>
+            <ProfileActionRow testID="profile-forget-devices" label={t('profile.forgetDevices')} onPress={() => {setProblem(''); setNotice(''); setForgetProfile(active);}}/>
+          </View>
+          {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 8}]}>{problem}</Text> : null}
+          {notice ? <Text accessibilityRole="status" style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{notice}</Text> : null}
+        </View> : null}
+        </>}
+        {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
+      secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>
+    <Dialog open={addOpen} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setAddOpen(false);}}} title={t('profile.addTitle')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => {activeTicket.current?.abort(); setAddOpen(false);}}>{t('action.cancel')}</Button><Button loading={actionBusy} disabled={!addName.trim()} onPress={submitAdd}>{t('action.save')}</Button></View>}>
+      <TextField label={t('profile.name')} value={addName} onChangeText={setAddName} maxLength={120} testID="profile-add-name"/>
+    </Dialog>
+    <Dialog open={edit?.kind === 'rename'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.renameTitle', {name: edit?.profile.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button loading={actionBusy} disabled={!nameDraft.trim()} onPress={submitRename}>{t('action.save')}</Button></View>}>
+      <TextField label={t('profile.name')} value={nameDraft} onChangeText={setNameDraft} maxLength={120} testID="profile-rename-name"/>
+    </Dialog>
+    <Dialog open={edit?.kind === 'pin'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.pinTitle', {name: edit?.profile.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button loading={actionBusy} disabled={pinDraft.length !== 4 || pinAgain.length !== 4} onPress={submitPin}>{t('action.save')}</Button></View>}>
+      <TextField label={t('profile.pinChoose')} value={pinDraft} onChangeText={setPinDraft} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-new"/>
+      <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={setPinAgain} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
+    </Dialog>
+    <Dialog open={!!removePin} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setRemovePin(undefined);}}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}/>
+    <Dialog open={!!forgetProfile} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setForgetProfile(undefined);}}} title={t('profile.forgetDevices')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setForgetProfile(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}/>
+    {limitsProfile && lease ? <ProfileLimitsSheet profile={limitsProfile} lease={lease} identityFor={identityForLimits} onClose={() => setLimitsProfile(undefined)} onSaved={() => {setNotice(t('limits.saved', {name: limitsProfile.name})); setLimitsProfile(undefined);}}/> : null}
+  </>;
+}
+
+function ProfileActionRow({label, description, onPress, testID}: {label: string; description?: string; onPress: () => void; testID?: string}) {
+  const theme = useTheme();
+  return <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={description} onPress={onPress} focusKind="row" focusRadius={0}
+    style={{minHeight: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft}}>
+    <View style={{flex: 1}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{label}</Text>{description ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 2}]}>{description}</Text> : null}</View>
+    <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
+  </Focusable>;
+}
+
+type ProfileLimitsOwner = {
+  readonly profile: ManagedProfile;
+  readonly lease: ProfileLease;
+  controller?: AbortController;
+  loadedRevision?: number;
+  retired: boolean;
+};
+
+function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
+  const theme = useTheme();
+  const [owner, setOwner] = useState<ProfileLimitsOwner>();
+  const ownerRef = useRef<ProfileLimitsOwner>();
+  const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
+  const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
+  const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profile.id
+    && candidate.profile.revision === profile.revision && candidate.lease.current();
+
+  useLayoutEffect(() => {
+    const next: ProfileLimitsOwner = {profile, lease, retired: false};
+    const controller = new AbortController();
+    next.controller = controller;
+    ownerRef.current = next;
+    setOwner(next);
+    setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false);
+    const live = () => current(next);
+    const identity = identityFor(controller);
+    Promise.all([identity.restrictions(profile.id, controller.signal), identity.ratingSystems(controller.signal)]).then(([currentRestrictions, list]) => {
+      if (!live() || currentRestrictions.profileId !== next.profile.id) return;
+      next.loadedRevision = currentRestrictions.revision;
+      setRestrictions(currentRestrictions); setSystems(list); setDraft(currentRestrictions);
+    }, failure => {if (live() && !controller.signal.aborted) setError(failure);});
+    return () => {
+      next.retired = true;
+      next.controller?.abort();
+      if (ownerRef.current === next) ownerRef.current = undefined;
+      setOwner(value => value === next ? undefined : value);
+    };
+  }, [identityFor, lease, profile.id, profile.revision]);
+
+  const system = systems?.find(value => value.id === draft?.ratingSystem);
+  const ratingOptions = [{value: '', label: t('limits.noLimit')}, ...(system?.values.map(value => ({value: value.code, label: value.label})) ?? [])];
+  const save = () => {
+    const sheet = owner, currentRestrictions = restrictions, chosen = draft;
+    if (!sheet || !current(sheet) || !currentRestrictions || !chosen || currentRestrictions.profileId !== sheet.profile.id
+      || currentRestrictions.revision !== sheet.loadedRevision || sheet.profile.revision !== profile.revision) return;
+    const controller = new AbortController();
+    sheet.controller?.abort();
+    sheet.controller = controller;
+    setBusy(true); setError(undefined);
+    const identity = identityFor(controller);
+    void identity.saveRestrictions(currentRestrictions, {
+      ratingSystem: chosen.ratingSystem, maximumAgeRating: chosen.maximumAgeRating, allowUnrated: chosen.allowUnrated,
+      allowDownloads: chosen.allowDownloads, allowLiveTv: chosen.allowLiveTv, allowDvr: chosen.allowDvr, allowWatchTogether: chosen.allowWatchTogether,
+    }).then(next => {
+      if (!current(sheet) || controller.signal.aborted || next.profileId !== sheet.profile.id || next.revision <= (sheet.loadedRevision ?? 0)) return;
+      sheet.loadedRevision = next.revision;
+      setRestrictions(next); setDraft(next); setBusy(false); onSaved();
+    }, failure => {
+      if (!current(sheet) || controller.signal.aborted) return;
+      setError(failure); setBusy(false);
+    }).finally(() => {
+      if (sheet.controller === controller) sheet.controller = undefined;
+    });
+  };
+  return <BottomSheet open onOpenChange={open => {if (!open && !busy) onClose();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
+    testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={onClose}>{t('action.cancel')}</Button><Button loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
+    {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
+      {system ? <Select label={t('limits.highestRating')} description={t('limits.highestRatingHelp')} value={draft.maximumAgeRating} options={ratingOptions}
+        onValueChange={value => setDraft(current => current ? {...current, maximumAgeRating: value} : current)}/> : null}
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch checked={draft.allowUnrated} onCheckedChange={value => setDraft(current => current ? {...current, allowUnrated: value} : current)}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
+      <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.allowUnratedHelp')}</Text>
+      <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginTop: 6}]}>{t('limits.features')}</Text>
+      {([['allowDownloads', 'limits.feature.downloads'], ['allowLiveTv', 'limits.feature.liveTv'], ['allowDvr', 'limits.feature.dvr'], ['allowWatchTogether', 'limits.feature.watchTogether']] as const).map(([key, label]) =>
+        <View key={key} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{t(label)}</Text>
+          <Switch checked={draft[key]} onCheckedChange={value => setDraft(current => current ? {...current, [key]: value} : current)}/></View>)}
+      {draft.blockedLabels.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.hiddenLabels', {labels: draft.blockedLabels.join(', ')})}</Text> : null}
+    </View>}
+  </BottomSheet>;
 }
 
 /** Also usable when no selected server can restore: retained servers remain reachable. */
