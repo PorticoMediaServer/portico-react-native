@@ -222,7 +222,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       }};
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
-      startFailurePresentation: Platform.isTV,
+      startFailurePresentation: true,
       captureStartContext: () => {const original = navigation!.getSnapshot();return () => current() && navigation!.getSnapshot() === original;},
       subscribeStartContext: listener => {
         const off = navigation!.subscribe(listener);listeners.add(listener);

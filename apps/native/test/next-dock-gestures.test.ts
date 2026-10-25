@@ -117,7 +117,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock: () => async (command: any) => {actions.push(command);}},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
     './model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)}, './playback': {nativeShellBackTransition: () => undefined},
-    './watch-slot-layout': watchSlotLayout,
+    './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
     './video-snapshot': {NativeVideoSnapshotCapture: class {matches() {return true;} async clear() {} async prepare() {}}},
   });
   const runtime = {reportError: (error: any) => {throw error;}, text: {}, artwork() {}, ambient() {}};
