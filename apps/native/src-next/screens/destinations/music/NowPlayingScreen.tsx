@@ -2,6 +2,8 @@ import React, {useCallback, useEffect, useId, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
+import type {V1QueuePolicyIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import type {PlaybackFence} from '../../../../../../packages/player-core/src';
 import type {MessageId} from '../../../../../../packages/i18n/src';
 import {useSyncExternalStore} from 'react';
 import {nativeEqualizer} from '../../../platform/playback/equalizer';
@@ -22,6 +24,7 @@ import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import {NativeListeningNotice} from './ListeningNotice';
 import {TVNowPlayingScreen} from './TVNowPlayingScreen';
 import type {NativeListeningQueuePolicy} from '../../../shell/listening-queue-policy';
+import type {NativePlaybackReadLifetime} from '../../../platform/playback/types';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -51,6 +54,10 @@ export type NowPlayingScreenProps = Readonly<{
   onQueuePlay?: (queueId: string, entryId: string, revision: string) => void;
   onAddToPlaylist?: () => void;
   queuePolicy?: NativeListeningQueuePolicy;
+  /** The touch opening-and-route lease both guarded controls borrow; TV's own hook owns one. */
+  policyLifetime?: NativePlaybackReadLifetime;
+  /** A retained Try again for the failed output this screen drew, through the adapter's retry port. */
+  retry?: Readonly<{enabled: boolean; run: (fence: PlaybackFence) => void}>;
   onClose: () => void;
   /** music-plus (MC-8): the committed plan plus the engine's own current-song facts. */
   signal?: MusicSignalView;
@@ -68,8 +75,18 @@ export function NowPlayingScreen(props: NowPlayingScreenProps) {
   return theme.isTV ? <TVNowPlayingScreen {...props} equalizerCopy={equalizerCopy()}/> : <TouchNowPlayingScreen {...props}/>;
 }
 
-function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
+function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
+  // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
+  // queue read that follows, never a locally flipped control. A request keeps the exact queue
+  // and revision this screen drew, so a queue that moved on refuses it.
+  const drawnFence = playback.fence, drawnQueue = queue?.queue, lifetime = policyLifetime;
+  const policyReady = !!drawnQueue && drawnFence.kind === 'queue' && !!lifetime && !!queuePolicy?.canApply(drawnFence);
+  const shuffled = !!drawnQueue?.shuffle, repeat = drawnQueue?.repeat ?? 'off';
+  const changePolicy = (intent: V1QueuePolicyIntent) => {
+    if (!policyReady || !drawnQueue || !lifetime || !queuePolicy) return;
+    void queuePolicy.apply(drawnFence, {queueId: drawnQueue.id, expectedRevision: drawnQueue.revision, intent}, lifetime).catch(reportError);
+  };
   const focus = useId();
   const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
   // music-plus 6/6b and listening-notices 8: the signal sheet (like the EQ panel) is the top
@@ -111,6 +128,8 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
       <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
     </View> : null}
+    {retry?.enabled ? <View style={{marginTop: 16}}><Button testID={`${testID}-retry`} variant="primary" icon="i-retry"
+      onPress={() => retry.run(playback.fence)}>{t('next.states.tryAgain')}</Button></View> : null}
     <View style={{width: '100%', maxWidth: 520, marginTop: 24}}>
       {theme.isTV ? <MusicFocusRegion id={`${focus}.progress`} entry="seek" edges={{up: signal ? `${focus}.signal` : undefined, down: `${focus}.transport`}}>
         <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel} testID={`${testID}-scrubber`}/>
@@ -127,7 +146,9 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span || p.durationSeconds)}</Text>
       </View>
     </View>
-    <MusicFocusRegion id={`${focus}.transport`} entry="toggle" orientation="horizontal" edges={{up: `${focus}.progress`}} style={{flexDirection: 'row', alignItems: 'center', gap: 28, marginTop: 20}}>
+    <MusicFocusRegion id={`${focus}.transport`} entry="toggle" orientation="horizontal" edges={{up: `${focus}.progress`}} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: policyReady ? 12 : 28, marginTop: 20}}>
+      {policyReady ? <Button testID={`${testID}-shuffle`} variant={shuffled ? 'primary' : 'glass'} iconOnly icon="i-shuffle"
+        accessibilityLabel={t('next.dock.shuffle')} accessibilityState={{selected: shuffled}} onPress={() => changePolicy({action: 'shuffle', shuffled: !shuffled})}/> : null}
       <Button testID={`${testID}-previous`} variant="glass" iconOnly icon="i-prev" accessibilityLabel={t('player.previous')}
         disabled={!p.capabilities.previous} onPress={() => act('previous')}/>
       <Button focusId={theme.isTV ? 'toggle' : undefined} testID={`${testID}-toggle`} variant="primary" iconOnly icon={playback.playing ? 'i-pause' : 'i-play'}
@@ -135,6 +156,9 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         disabled={playback.playing ? !p.capabilities.pause : !p.capabilities.play} onPress={() => act(playback.playing ? 'pause' : 'play')}/>
       <Button testID={`${testID}-next`} variant="glass" iconOnly icon="i-next" accessibilityLabel={t('player.next')}
         disabled={!p.capabilities.next} onPress={() => act('next')}/>
+      {policyReady ? <Button testID={`${testID}-repeat`} variant={repeat === 'off' ? 'glass' : 'primary'} iconOnly icon="i-repeat"
+        accessibilityLabel={t(repeat === 'off' ? 'next.dock.repeatOff' : repeat === 'all' ? 'next.dock.repeatAll' : 'next.dock.repeatOne')}
+        accessibilityState={{selected: repeat !== 'off'}} onPress={() => changePolicy({action: 'repeat', repeat: repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off'})}/> : null}
     </MusicFocusRegion>
     <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 26, marginBottom: 24}}>
       {!side && queue ? <Button testID={`${testID}-queue-toggle`} variant={sheet === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, Image, Platform, View, useWindowDimensions} from 'react-native';
 import {GestureDetector} from 'react-native-gesture-handler';
 import Animated, {useAnimatedStyle} from 'react-native-reanimated';
@@ -24,6 +24,11 @@ import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlayb
 import {NativeVideoSnapshotCapture} from './video-snapshot';
 import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
+
+const noListeningSubscribe = () => () => {};
+const noListeningNavigation = () => undefined;
+/** The pushed route as identity, for a lease that only belongs to the page that opened it. */
+const listeningRouteKey = (route: Readonly<{kind: string}> | undefined) => route ? JSON.stringify(route) : '';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
 export function NativePlaybackLayer({adapter, runtime, authority, contentInset}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority; contentInset?: number}) {
@@ -61,6 +66,32 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
   const retainedImage = useRef<Readonly<{owner: NativeVideoSnapshotCapture; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const [imageState, setImageState] = useState<Readonly<{image: NativeShellVideoSnapshot; state: 'ready' | 'failed'}>>();
   const touching = useRef(false), moving = useRef(false), alive = useRef(true);
+  // The touch listening surface's guarded controls own a lease over the player opening and the
+  // real pushed page it belongs to. The lease is published only while that surface is open,
+  // aborted when the page or the opening leaves, and renewed on return with fresh handlers.
+  // It never keys on the output fence: a retry's own intentional new output must survive it,
+  // and the core still fences the failed output it replaces.
+  const navigation = runtime.navigation;
+  const navigationState = useSyncExternalStore(navigation?.subscribe ?? noListeningSubscribe, navigation?.getSnapshot ?? noListeningNavigation);
+  const listeningOpen = !theme.isTV && local?.expanded === true && (local.kind === 'music' || local.kind === 'audiobook');
+  const listeningOpenRef = useRef(listeningOpen); listeningOpenRef.current = listeningOpen;
+  // The page this opening belongs to: captured when the surface opens, so a route change aborts
+  // the lease and only returning to that same page renews it (with a fresh controller).
+  const openingRoute = useRef(''), wasListening = useRef(false);
+  if (listeningOpen && !wasListening.current) openingRoute.current = listeningRouteKey(navigationState?.route);
+  else if (listeningOpen && openingRoute.current === '' && navigationState) openingRoute.current = listeningRouteKey(navigationState.route);
+  wasListening.current = listeningOpen;
+  const [listeningLease, setListeningLease] = useState<Readonly<{controller: AbortController; revision: number; authority: ShellAuthority}>>();
+  useLayoutEffect(() => {
+    if (!listeningOpen || !navigation || !navigationState || listeningRouteKey(navigationState.route) !== openingRoute.current) {setListeningLease(undefined); return;}
+    const controller = new AbortController();
+    setListeningLease({controller, revision: navigationState.revision, authority});
+    return () => controller.abort();
+  }, [listeningOpen, navigation, navigationState, authority]);
+  const listeningLifetime = useMemo(() => listeningLease ? {signal: listeningLease.controller.signal,
+    isCurrent: () => alive.current && listeningOpenRef.current && !listeningLease.controller.signal.aborted
+      && sameAuthority(authority, listeningLease.authority) && navigation?.getSnapshot().revision === listeningLease.revision} : undefined,
+    [listeningLease, authority, navigation]);
   const layoutCapture = useRef<number | undefined>(undefined), layoutCaptureRevision = useRef(0);
   const capture = useMemo(() => new NativeVideoSnapshotCapture({capture: (fence, options) => adapter.captureVideoSnapshot(fence, options), reportError: runtime.reportError,
     changed: (owner, image) => {if (alive.current) {
@@ -68,6 +99,15 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
       setPicture(previous => image ? {owner, authority, image} : previous?.owner === owner ? undefined : previous);
     }},
   }), [adapter, authority, runtime]);
+  const listeningPorts = useMemo(() => {
+    const lifetime = listeningLifetime;
+    if (!lifetime) return undefined;
+    return {
+      policyLifetime: lifetime,
+      ...(adapter.retry ? {retry: {enabled: snapshot.capabilities.retry === true,
+        run: (fence: PlaybackFence) => {void adapter.retry!(fence, lifetime).catch(runtime.reportError);}}} : {}),
+    };
+  }, [listeningLifetime, adapter, snapshot.capabilities.retry, runtime]);
   const playOn = runtime.playOn;
   const action = useMemo(() => bindNativeDock(adapter, playOn ? {remote: async command => {await playOn.command(command.type, command.positionSeconds, command.remote.id);}} : {}), [adapter, playOn]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
@@ -206,9 +246,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         {nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') && <NowPlayingScreen occupant={nowPlaying} queue={snapshot.queue?.view ?? undefined} artwork={runtime.artwork}
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
+          {...(listeningPorts ?? {})}
           onAddToPlaylist={theme.isTV && runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence)
             ? () => runtime.listeningPlaylist?.open(nowPlaying.playback.fence) : undefined}
-          queuePolicy={theme.isTV ? runtime.listeningQueuePolicy : undefined}
+          queuePolicy={runtime.listeningQueuePolicy}
           signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
           lyrics={lyricsOffered && lyricsTarget && runtime.lyrics && nowPlaying ? <NowPlayingLyrics read={runtime.lyrics} target={lyricsTarget}
             positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}
