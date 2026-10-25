@@ -143,7 +143,7 @@ export class NativeAnnotationSync {
     const offLife = () => life.signal.addEventListener('abort', stop, {once: true}), offDeadline = () => deadline.signal.addEventListener('abort', stop, {once: true});
     const offLive = () => live?.signal.addEventListener('abort', stop, {once: true});
     offLife(); offDeadline(); offLive();
-    if (life.signal.aborted || deadline.signal.aborted) stop();
+    if (life.signal.aborted || deadline.signal.aborted || live?.signal.aborted === true) stop(); // A prior abort is admitted as aborted.
     const signal = control.signal;
     let client: ReadingClient | undefined, session: NativeAnnotationLivePort | undefined, owned: ReadingSession | undefined;
     const reuse = !!live && !live.signal.aborted && live.manifest.canAnnotate === true

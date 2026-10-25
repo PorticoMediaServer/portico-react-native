@@ -1,5 +1,5 @@
 import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
 import {createReadingHost, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
@@ -46,9 +46,29 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const [state, setState] = useState<Readonly<{url?: string; failed?: boolean}>>({}), [retry, setRetry] = useState(0);
   // Private offline annotation journal and its guarded reconnect merge (offline-annotation-sync).
   const journal = useMemo(() => new NativeAnnotationJournal(), [context]);
-  const annotations = useMemo(() => new NativeAnnotationSync(context, journal, () => callbacks.current.active), [context, journal]);
+  const annotations = useMemo(() => new NativeAnnotationSync(context, journal, () => hostActive() && callbacks.current.active), [context, journal]);
   const quietRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const livePort = useRef<NativeAnnotationLivePort | undefined>(undefined);
+  /** The exact rendered reader identity and activity. Updated during render, so a target,
+   * context or active replacement invalidates journal/transport work immediately — before any
+   * passive cleanup — and the committed scope is retired synchronously by the layout effect. */
+  const rendered = useRef({context, target, active});
+  rendered.current = {context, target, active};
+  const committed = useRef<Readonly<{context: typeof context; target: typeof target}> | undefined>(undefined);
+  const hostActive = () => {
+    const live = rendered.current, scope = committed.current;
+    return !!scope && live.context === scope.context && live.target === scope.target && live.active;
+  };
+  useLayoutEffect(() => {
+    committed.current = {context, target};
+    return () => {
+      // Synchronous retirement on target/context/layout replacement or unmount: no old
+      // bind/migration/cache/transport may stay valid into the next render's passive phase.
+      committed.current = undefined;
+      annotations.stop();
+      journal.unbind();
+    };
+  }, [annotations, context, journal, target]);
   useEffect(() => () => {clearTimeout(quietRetry.current); annotations.stop();}, [annotations]);
   useEffect(() => {
     // Containment: no automatic merge is active before the reviewed corrections land.
@@ -85,11 +105,13 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     const apiCurrent = () => !life.signal.aborted && context.current() && context.session()?.sessionFamilyId === captured.sessionFamilyId;
     const current = () => alive && apiCurrent();
     const client = context.api.reading({viewer: captured.viewer, isCurrent: apiCurrent, signal: life.signal});
-    const authority = context.subscribeAuthority(() => {if (!context.current()) {annotations.stop(); journal.unbind(); life.abort();}});
+    const authority = context.subscribeAuthority(() => {if (!context.current()) {committed.current = undefined; annotations.stop(); journal.unbind(); life.abort();}});
     const offPreferences = preferences.subscribe(() => {if (current()) host.current?.confirm();});
     let disposal: Promise<void> | undefined;
     const dispose = () => {
       if (disposal) return disposal;
+      // The layout scope owns committed retirement; an effect re-run (e.g. retry) only retires
+      // this session's annotation work and lets the same committed scope bind again.
       alive = false; livePort.current = undefined; annotations.stop(); journal.unbind(); authority(); offPreferences(); host.current?.dispose(); host.current = undefined;
       // Explicit close uses the captured current viewer, before local retirement.
       disposal = (async () => {
@@ -115,7 +137,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         // A downloaded publication's queued edits live in that exact download's private
         // lease state; an ordinary session uses the protected record store. Bind before the
         // bridge can accept an edit, and only for this captured profile.
-        await journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session), {current: apiCurrent, signal: life.signal});
+        await journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(session), {current: hostActive, signal: life.signal});
         if (current()) void annotations.flush(livePort.current);
       }
       const initialProgress = await session.progress(life.signal);

@@ -229,15 +229,30 @@ function record(raw: unknown, identity: NativeAnnotationIdentity): NativeAnnotat
     if (entries.length > 64) throw new Error('native_annotation_journal_invalid');
     for (const [key, value] of entries) {if (!text(key, 2048) || !integer(value)) throw new Error('native_annotation_journal_invalid'); tokens[key] = value;}
   }
+  // Legacy records carry no ledger: seed each retained source's floor from its group so a
+  // later removal/eviction cannot reuse a token. Extra keys beyond the bound are not invented;
+  // removal of such a source is refused by the writers instead.
+  for (const group of groups) {
+    const key = sourceKey(group.source);
+    if (key in tokens) tokens[key] = Math.max(tokens[key]!, group.localRevision);
+    else if (Object.keys(tokens).length < LEDGER_LIMIT) tokens[key] = group.localRevision;
+  }
+  if (Object.keys(tokens).length > LEDGER_LIMIT) throw new Error('native_annotation_journal_invalid');
   return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups), tokens: Object.freeze(tokens)});
 }
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 const empty = (identity: NativeAnnotationIdentity): NativeAnnotationRecord => Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze([]), tokens: Object.freeze({})});
 const sourceKey = (source: NativeAnnotationSource) => JSON.stringify([source.itemId, source.sourceId, source.sourceRevision, source.format]);
 const tokenOf = (record: NativeAnnotationRecord | undefined, key: string) => record?.tokens[key] ?? 0;
-const bumpToken = (tokens: Record<string, number>, key: string, floor: number) => {const next = Math.max(floor, tokens[key] ?? 0) + 1; tokens[key] = next; return next;};
+const bumpToken = (tokens: Record<string, number>, key: string, floor: number) => {
+  const next = Math.max(floor, tokens[key] ?? 0) + 1;
+  if (!Number.isSafeInteger(next)) throw new Error('native_annotation_journal_full');
+  tokens[key] = next; return next;
+};
+const LEDGER_LIMIT = 64;
+const ledgerRoom = (tokens: Record<string, number>, key: string) => key in tokens || Object.keys(tokens).length < LEDGER_LIMIT;
 const fit = (record: NativeAnnotationRecord): NativeAnnotationRecord | undefined =>
-  record.groups.length > MAX_JOURNAL_GROUPS || bytes(record) > MAX_RECORD_BYTES ? undefined : record;
+  record.groups.length > MAX_JOURNAL_GROUPS || Object.keys(record.tokens).length > LEDGER_LIMIT || bytes(record) > MAX_RECORD_BYTES ? undefined : record;
 
 /** A throwing guard: the caller's `fresh` is a predicate, and returning false must abort. */
 const guardOf = (assert?: () => void, signal?: AbortSignal, live?: () => boolean) => () => {
@@ -383,7 +398,12 @@ export class NativeAnnotationJournal {
         groups[at] = {...groups[at]!, operations: Object.freeze(operations), cache: groups[at]!.cache ?? group.cache} as NativeAnnotationGroup;
       }
       if (conflict) return {record: raw ?? null, value: undefined};
-      const merged = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)}) as NativeAnnotationRecord;
+      const tokens: Record<string, number> = {};
+      for (const source of [carried!, ...(existing ? [existing] : [])]) for (const [key, value] of Object.entries(source.tokens)) tokens[key] = Math.max(tokens[key] ?? 0, value);
+      for (const group of groups) {const key = sourceKey(group.source); tokens[key] = Math.max(tokens[key] ?? 0, group.localRevision);}
+      if (Object.keys(tokens).length > LEDGER_LIMIT) throw new Error('native_annotation_journal_migration_overflow');
+      const merged: NativeAnnotationRecord = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}),
+        groups: Object.freeze(groups), tokens: Object.freeze(tokens)});
       const total = groups.reduce((sum, value) => sum + value.operations.length, 0);
       if (groups.length > MAX_JOURNAL_GROUPS || total > MAX_JOURNAL_OPERATIONS || bytes(merged) > MAX_RECORD_BYTES)
         throw new Error('native_annotation_journal_migration_overflow');
@@ -426,17 +446,19 @@ export class NativeAnnotationJournal {
       const tokens = {...base.tokens};
       const at = base.groups.findIndex(group => sourceKey(group.source) === wanted);
       if (at < 0) {
-        if (base.groups.length >= MAX_JOURNAL_GROUPS || !(wanted in tokens) && Object.keys(tokens).length >= 64) return base; // Refuse only this cache.
+        if (base.groups.length >= MAX_JOURNAL_GROUPS || !ledgerRoom(tokens, wanted)) return base; // Refuse only this cache.
         const token = bumpToken(tokens, wanted, 0);
-        const next = Object.freeze({...base, groups: Object.freeze([...base.groups, Object.freeze({source: Object.freeze({...source}), operations: Object.freeze([]), localRevision: token, cache})]), tokens: Object.freeze(tokens)}) as NativeAnnotationRecord;
+        const next: NativeAnnotationRecord = Object.freeze({...base, version: ANNOTATION_JOURNAL_VERSION,
+          groups: Object.freeze([...base.groups, Object.freeze({source: Object.freeze({...source}), operations: Object.freeze([]), localRevision: token, cache})]), tokens: Object.freeze(tokens)});
         return fit(next) ?? base;
       }
       const groups = [...base.groups];
       const group = groups[at]!;
       const same = JSON.stringify(group.cache?.entries) === JSON.stringify(cache.entries) && group.cache?.revision === cache.revision;
+      if (!same && !ledgerRoom(tokens, wanted)) return base;
       const token = same ? Math.max(group.localRevision, tokens[wanted] ?? 0) : bumpToken(tokens, wanted, group.localRevision);
       groups[at] = Object.freeze({...group, localRevision: token, cache});
-      const next = Object.freeze({...base, groups: Object.freeze(groups), tokens: Object.freeze(tokens)}) as NativeAnnotationRecord;
+      const next: NativeAnnotationRecord = Object.freeze({...base, version: ANNOTATION_JOURNAL_VERSION, groups: Object.freeze(groups), tokens: Object.freeze(tokens)});
       return fit(next) ?? base; // Too big: keep the previous record untouched.
     }, undefined, signal);
   };
@@ -457,7 +479,14 @@ export class NativeAnnotationJournal {
         });
         const changed = operations.length !== group.operations.length || JSON.stringify(operations) !== JSON.stringify(group.operations);
         return {...group, operations, localRevision: changed ? bumpToken(tokens, wanted, group.localRevision) : group.localRevision} as NativeAnnotationGroup;
-      }).filter(group => group.operations.length > 0 || group.cache !== undefined);
+      }).filter(group => {
+        if (group.operations.length > 0 || group.cache !== undefined) return true;
+        const key = sourceKey(group.source);
+        if (!ledgerRoom(tokens, key)) throw new Error('native_annotation_journal_full'); // Cannot witness the eviction.
+        bumpToken(tokens, key, group.localRevision);
+        return false;
+      });
+      if (Object.keys(tokens).length > LEDGER_LIMIT) throw new Error('native_annotation_journal_full');
       return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups), tokens: Object.freeze(tokens)});
     }, assert, signal);
   };
@@ -480,7 +509,7 @@ export class NativeAnnotationJournal {
         });
         return {...group, operations} as NativeAnnotationGroup;
       });
-      return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups)});
+      return Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(groups), tokens: current.tokens});
     }, assert, signal);
     // The witness for every exact operation must be durable before any wire write.
     if (changed !== refs.length) throw new Error('native_annotation_journal_attempt_missing');
@@ -544,6 +573,10 @@ export class NativeAnnotationJournal {
       if (at < 0 && groups.length >= MAX_JOURNAL_GROUPS) {
         const spare = groups.findIndex(value => value.operations.length === 0 && value.cache !== undefined);
         if (spare < 0) throw new Error('native_annotation_journal_full');
+        const evicted = groups[spare]!;
+        const evictedKey = sourceKey(evicted.source);
+        if (!ledgerRoom(tokens, evictedKey)) throw new Error('native_annotation_journal_full'); // Cannot witness it.
+        bumpToken(tokens, evictedKey, evicted.localRevision); // Advance the evicted source's witness.
         groups.splice(spare, 1); // A cached page, never a person's queued edit.
       }
       const operations = existing ? [...existing.operations.filter(value => value.id !== operation.id), merged] : [merged];
@@ -562,12 +595,15 @@ export class NativeAnnotationJournal {
         const trimmed = groups.map(value => {
           if (value.cache === undefined) return value;
           const key = sourceKey(value.source);
+          if (!ledgerRoom(trimmedTokens, key)) throw new Error('native_annotation_journal_full'); // Cannot witness it.
           return {...value, cache: undefined, localRevision: bumpToken(trimmedTokens, key, value.localRevision)} as NativeAnnotationGroup;
         });
         built = Object.freeze({version: ANNOTATION_JOURNAL_VERSION, identity: Object.freeze({...identity}), groups: Object.freeze(trimmed), tokens: Object.freeze(trimmedTokens)});
       }
       if (bytes(built) > MAX_RECORD_BYTES) throw new Error('native_annotation_journal_full');
-      if (Object.keys(built.tokens).length > 64) throw new Error('native_annotation_journal_full');
+      if (Object.keys(built.tokens).length > LEDGER_LIMIT) throw new Error('native_annotation_journal_full');
+      // A trim may have advanced this source again; report the token actually committed.
+      revision = built.tokens[wanted] ?? revision;
       return built;
     }, assert, signal);
     return revision;
