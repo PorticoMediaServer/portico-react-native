@@ -69,7 +69,9 @@ export class NativeCastCaller {
     this.offController = controller.subscribe(this.changed);
     this.offPlayback = options.playback()?.subscribe(() => {
       if (!this.viewerCurrent()) {this.dispose(); return;}
-      if (this.source && !this.retired && !this.sourceCurrent(this.source) && !this.cancelling) {
+      // A pending intent resolves through the shared controller's original
+      // receipt. Never issue Stop just because its queue header moved first.
+      if (this.source && !this.retired && !this.sourceOccurrenceCurrent(this.source) && !this.cancelling) {
         this.cancelling = true; this.cancelChooser?.(); controller.stop();
       }
     });
@@ -96,9 +98,17 @@ export class NativeCastCaller {
       if (!this.viewerCurrent() || controller.signal.aborted) throw cancelled(); return result;
     } finally {this.abort.signal.removeEventListener('abort', cancel); signal?.removeEventListener('abort', cancel);}
   }
-  private sourceCurrent(source: Source): boolean {
+  private sourceOccurrenceCurrent(source: Source): boolean {
+    // Root42 changes queue custody/header bindings at acceptance, before this
+    // caller necessarily receives its ACK/status receipt. That movement is not
+    // replacement of the still-playing original output. Only its exact runtime
+    // fence (or original viewer/adapter retirement) can cancel this attempt.
+    return this.viewerCurrent() && this.options.playback() === source.adapter &&
+      sameFence(source.adapter.getSnapshot().fence, source.fence);
+  }
+  private precommitSourceCurrent(source: Source): boolean {
     const now = source.adapter.getSnapshot(), queue = now.queue.view?.queue;
-    return this.viewerCurrent() && sameFence(now.fence, source.fence) && now.session?.id === source.fence.sessionId &&
+    return this.sourceOccurrenceCurrent(source) && now.session?.id === source.fence.sessionId &&
       now.session.presentation.generation === source.fence.generation && !!queue && queue.id === source.choices.queue?.queueId &&
       queue.currentEntryId === source.fence.entryId && queue.currentPlaybackId === source.fence.sessionId && queue.revision === source.choices.source?.queueRevision;
   }
@@ -129,11 +139,11 @@ export class NativeCastCaller {
     const sub = this.emitter.addListener('PorticoCastSession', (event: Device) => {
       if (done || this.source !== source) return;
       finish();
-      if (event.state !== 'started' || !this.sourceCurrent(source)) {controller.cancelConnecting(); return;}
+      if (event.state !== 'started' || !this.precommitSourceCurrent(source)) {controller.cancelConnecting(); return;}
       const bridgeGeneration=this.bridgeGeneration;
       const device = Object.freeze({deviceName: String(event.deviceName || '').slice(0, 100), ...(event.deviceId ? {deviceId: event.deviceId} : {})});
       void castControllerStorageReady.then(() => {
-        if (this.source !== source || this.bridgeGeneration!==bridgeGeneration || !this.sourceCurrent(source) || this.cancelling) {controller.stop(); return;}
+        if (this.source !== source || this.bridgeGeneration!==bridgeGeneration || !this.precommitSourceCurrent(source) || this.cancelling) {controller.stop(); return;}
         return controller.start(this.transport(device,source,bridgeGeneration), fence.itemId, meta, snapshot.playback.positionSeconds, source.choices);
       }).catch(error => {if (this.viewerCurrent()) {this.options.reportError(error); controller.stop();}});
     });

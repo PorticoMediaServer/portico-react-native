@@ -1,0 +1,126 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {CastController, parseCastEvent, type CastCommand} from '../../../packages/client-core/src/cast/index.ts';
+import {sameFence} from '../../../packages/player-core/src/index.ts';
+import {castOffered} from '../src/app/cast-offered.ts';
+import {screenModule} from './helpers/screen-harness.mjs';
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => {resolve = done;});
+  return {promise, resolve};
+};
+
+/** Real caller and shared controller; only the native SDK and server IO are held
+ * at their public boundaries so the queue event can precede either ACK or status. */
+async function fixture() {
+  const listeners = new Map<string, Set<(value?: any) => void>>();
+  const emit = (name: string, value?: unknown) => {for (const listener of [...(listeners.get(name) ?? [])]) listener(value);};
+  class Emitter {
+    addListener(name: string, listener: (value?: any) => void) {
+      const held = listeners.get(name) ?? new Set(); held.add(listener); listeners.set(name, held);
+      return {remove: () => held.delete(listener)};
+    }
+  }
+  const sent: CastCommand[] = [], requests: {path: string; method?: string; body?: any}[] = [], effects: any[] = [];
+  const loaded = deferred<Extract<CastCommand, {type: 'load'}>>(), read = deferred<void>(), cancellation = deferred<void>();
+  const receipt = deferred<unknown>(), cancelReceipt = deferred<unknown>();
+  const message = (value: unknown) => emit('PorticoCastMessage', value);
+  const bridge = {applicationId: 'APP', available: async () => true, choose() {}};
+  const transport = {
+    send: async (value: CastCommand) => {
+      sent.push(value);
+      if (value.type === 'pair') message({type: 'paired', controlToken: 'a'.repeat(48)});
+      if (value.type === 'load') loaded.resolve(value);
+      if (value.type === 'status') message({type: 'status', itemId: 'song', positionSeconds: 12, durationSeconds: 240, paused: false});
+    },
+    onMessage: (listener: (value: unknown) => void) => {const sub = new Emitter().addListener('PorticoCastMessage', listener); return () => sub.remove();},
+    end() {},
+  };
+  const scope = {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', controllerId: 'device', controllerEpoch: 'epoch', commandLaneId: 'lane'};
+  const fence = {kind: 'queue', playback: {scope, run: 1}, sessionId: 'original', itemId: 'song', sourceId: 'version', entryId: 'entry', generation: 1};
+  let dock: any = {local: {kind: 'music', fence, queue: null, positionSeconds: 12, playing: true, expanded: false}, remote: null};
+  let snapshot: any = {authority: {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'viewer', viewerFence: 'viewer_1'},
+    fence, dock, playback: {phase: 'ready', positionSeconds: 12, playbackRun: 1, session: {id: 'original', generation: 1}, itemId: 'song'},
+    session: {id: 'original', itemId: 'song', presentation: {generation: 1}, queue: {queueId: 'queue', entryId: 'entry'}},
+    queue: {view: {queue: {id: 'queue', revision: '10', currentEntryId: 'entry', currentPlaybackId: 'original'}}},
+    entry: {id: 'song', kind: 'song', title: 'Actual song', playback: {itemId: 'song'}},
+    subject: {kind: 'music', item: {id: 'song', kind: 'song', title: 'Actual song'}}};
+  const playbackListeners = new Set<() => void>();
+  const adapter = {
+    getSnapshot: () => ({...snapshot, dock}), subscribe: (listener: () => void) => {playbackListeners.add(listener); return () => playbackListeners.delete(listener);},
+    dock: {getSnapshot: () => dock},
+    onTransition: async (transition: any) => {effects.push(...transition.effects);},
+    beginRemote: async (remote: any) => {if (!dock.local || sameFence(dock.local.fence, remote.playback.fence)) dock = {...dock, remote};},
+    updateRemote: async (remote: any) => {if (dock.remote?.id === remote.id) dock = {...dock, remote};},
+    dismissRemote: async (id: string) => {if (dock.remote?.id === id) dock = {...dock, remote: null};},
+  };
+  const api = {baseUrl: 'https://server.test', request: async (path: string, method?: string, body?: any) => {
+    requests.push({path, method, body});
+    if (path === '/v1/cast/configuration') return {applicationId: 'APP'};
+    if (path === '/v1/cast/bootstrap' && method === 'POST') return {bootstrap: {id: 'cbs_intent', code: '123456', transfer: {id: 'cbs_intent', state: 'pending'}}};
+    if (path === '/v1/cast/bootstrap/cbs_intent' && method === 'GET') {read.resolve(); return receipt.promise;}
+    if (path === '/v1/cast/bootstrap/cbs_intent' && method === 'DELETE') {cancellation.resolve(); return cancelReceipt.promise;}
+    throw new Error(`Unexpected request: ${method} ${path}`);
+  }};
+  const {NativeCastCaller} = await screenModule(new URL('../src-next/platform/play-on/cast.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
+    '../../../../../packages/client-core/src/cast': {CastController, parseCastEvent},
+    '../../../../../packages/player-core/src': {sameFence}, '../../../src/bridge/cast': {castTransport: transport},
+    '../../../src/bridge/cast-controller-storage': {castControllerStorage: {get: () => undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
+    '../../../src/app/cast-offered': {castOffered},
+  });
+  const session = {sessionFamilyId: 'family', viewer: {...scope, role: 'member'}};
+  const caller = new NativeCastCaller({api, session: () => session, playback: () => adapter, current: () => true, deviceName: () => 'Phone', reportError: (error: unknown) => {throw error;}});
+  const ready = deferred<void>();
+  const off = caller.subscribe(() => {if (caller.getSnapshot().cast.available) ready.resolve();});
+  if (!caller.getSnapshot().cast.available) await ready.promise;
+  off();
+  const change = (patch: any) => {snapshot = {...snapshot, ...patch}; if (patch.dock) dock = patch.dock; for (const listener of [...playbackListeners]) listener();};
+  const choose = () => emit('PorticoCastSession', {state: 'started', deviceName: 'TV', deviceId: 'sdk_device'});
+  const committed = {bootstrap: {transfer: {id: 'cbs_intent', state: 'committed', itemId: 'song', playbackState: 'playing'}}};
+  return {caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
+}
+
+test('Root42 queue/header event before ACK and original receipt does not cancel the accepted target', async t => {
+  const f = await fixture(); t.after(() => f.caller.dispose());
+  f.caller.start(); f.choose(); const load = await f.loaded.promise;
+  f.change({queue: {view: {queue: {id: 'queue', revision: '11', currentEntryId: 'entry', currentPlaybackId: 'receiver'}}},
+    session: {...f.snapshot().session, id: 'receiver'}});
+  assert.equal(f.sent.some(command => command.type === 'stop'), false);
+  assert.equal(f.requests.some(request => request.method === 'DELETE'), false);
+  assert.equal(f.effects.length, 0, 'header movement alone does not retire the browser/phone stream');
+  assert.deepEqual(f.requests.find(request => request.method === 'POST')?.body.source,
+    {sessionId: 'original', generation: 1, queueId: 'queue', entryId: 'entry', queueRevision: '10'});
+  f.message({type: 'loaded', requestId: load.requestId, itemId: 'song'}); await f.read.promise;
+  assert.equal(f.effects.length, 0, 'receiver ACK still waits for the same authenticated receipt');
+  const accepted = deferred<void>(); const off = f.caller.subscribe(() => {if (f.caller.getSnapshot().cast.phase === 'casting') accepted.resolve();});
+  f.receipt.resolve(f.committed); await accepted.promise; off();
+  assert.equal(f.effects.length, 1); assert.deepEqual(f.effects[0].playback.fence, f.fence);
+  assert.equal(f.requests.filter(request => request.method === 'DELETE').length, 0);
+  assert.equal(f.sent.some(command => command.type === 'stop'), false);
+});
+
+test('a real replacement cancels the original intent, and its late committed receipt cannot retire the replacement', async t => {
+  const f = await fixture(); t.after(() => f.caller.dispose());
+  f.caller.start(); f.choose(); const load = await f.loaded.promise;
+  const replacement = {...f.fence, sessionId: 'later', generation: 2, playback: {...f.fence.playback, run: 2}};
+  f.change({fence: replacement, dock: {...f.snapshot().dock, local: {...f.snapshot().dock.local, fence: replacement}},
+    session: {...f.snapshot().session, id: 'later', presentation: {generation: 2}}});
+  await f.cancellation.promise;
+  assert.equal(f.requests.filter(request => request.method === 'DELETE' && request.path === '/v1/cast/bootstrap/cbs_intent').length, 1);
+  f.message({type: 'loaded', requestId: load.requestId, itemId: 'song'});
+  const resolved = deferred<void>(); const off = f.caller.subscribe(() => {if (!f.caller.getSnapshot().cast.transferPending) resolved.resolve();});
+  f.cancelReceipt.resolve(f.committed); await resolved.promise; off();
+  assert.deepEqual(f.snapshot().fence, replacement);
+  assert.equal(f.effects.length, 0, 'the old receipt never touches the later local output');
+});
+
+test('a changed queue before dispatch still refuses the captured chooser attempt', async t => {
+  const f = await fixture(); t.after(() => f.caller.dispose());
+  f.caller.start(); f.change({queue: {view: {queue: {...f.snapshot().queue.view.queue, revision: '11'}}}}); f.choose();
+  assert.equal(f.requests.some(request => request.method === 'POST'), false);
+  assert.equal(f.sent.some(command => command.type === 'load'), false);
+  assert.equal(f.effects.length, 0);
+  assert.deepEqual(f.snapshot().fence, f.fence);
+});
