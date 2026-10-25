@@ -21,6 +21,7 @@ import type {NativeWatchOutletPort} from './watch-outlet';
 import type {NativePlayOn} from '../platform/play-on/controller';
 import type {NativeListeningPlaylist} from './listening-playlist';
 import type {NativeListeningQueuePolicy} from './listening-queue-policy';
+import type {NativeListeningSongDetail} from './listening-song-detail';
 
 type LibraryMenuWithoutSave<T> = T extends unknown ? Omit<T, 'onSaveView' | 'canSaveView'> : never;
 
@@ -117,6 +118,8 @@ export interface NativeShellRuntime {
   /** The real playlist picker for the current listening song and its playback fence. */
   listeningPlaylist?: NativeListeningPlaylist;
   listeningQueuePolicy?: NativeListeningQueuePolicy;
+  /** The current queue song's own detail/favorite, read from that song's library target. */
+  listeningSongDetail?: NativeListeningSongDetail;
   /** The real pushed route and its revision, bound to the same navigation the routes use.
    * A guarded control captures this when its surface opens and retires when the page leaves. */
   navigation?: Readonly<{subscribe: (listener: () => void) => () => void;
