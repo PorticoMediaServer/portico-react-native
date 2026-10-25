@@ -39,6 +39,7 @@ import {TVOfflineServers} from './TVOfflineServers';
 import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
 import {PhoneMovePassword} from './PhoneMovePassword';
 import {PhoneMoveCode} from './PhoneMoveCode';
+import {EndedMoveCodeAction} from './EndedMoveCodeAction';
 import {DirectoryAccessRefused} from './DirectoryAccessRefused';
 import {directoryAccessRefused, directoryClockSkew, directoryIdentityUnconfirmed} from './directory-refusal';
 import {PhonePINEntry} from './PhonePINEntry';
@@ -56,6 +57,7 @@ const t = defaultI18n.t;
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
 export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
+  const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   type SetupReview = Awaited<ReturnType<NativeServerSignIn['reviewHostedSetup']>>;
@@ -365,6 +367,36 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     memberMoveRef.current = move; memberOperation.current = source;
     setMemberMove(move); setMoveSnapshot(move.getSnapshot()); setStage('member-move');
   };
+  const beginEndedMemberCode = async (openingCurrent: () => boolean, signal: AbortSignal) => {
+    const hint = endedSignIn;
+    if (Platform.isTV || !hint || hint.signIn !== 'portico' || signal.aborted || !openingCurrent() || !lifetime.current || stageRef.current !== 'ended-sign-in') return;
+    retireOwnerReset(); retireSetupReview(); retireRecovery(); operation.current?.dispose();
+    const source = new NativeServerSignIn(nativeAccounts, {expectedTarget: {serverId: hint.serverId, fingerprint: hint.fingerprint}});
+    operation.current = source;
+    const retire = () => source.dispose(); signal.addEventListener('abort', retire, {once: true});
+    const current = () => !signal.aborted && openingCurrent() && lifetime.current && stageRef.current === 'ended-sign-in'
+      && latestEndedHint.current === hint && operation.current === source;
+    let handed = false;
+    try {
+      if (!current()) return;
+      const descriptor = await source.inspect(hint.origin);
+      if (!current()) return;
+      if (!descriptor || descriptor.id !== hint.serverId || descriptor.signIn !== 'local' || descriptor.move !== 'to_local' || descriptor.setupRequired)
+        throw Object.assign(new Error('native_move_identity_changed'), {code: 'identity_mismatch'});
+      const pin = await source.inspectLocalIdentity(); if (!current()) return;
+      await source.confirmLocal(pin); if (!current()) return;
+      source.assertSignInTarget(hint.serverId, hint.fingerprint);
+      const move = await source.createMemberMove('code');
+      if (!current()) {move.dispose(); return;}
+      stopMemberMove(); memberMoveRef.current = move; memberOperation.current = source;
+      signal.removeEventListener('abort', retire); handed = true;
+      setServer(source.serverDescriptor()); setMemberMove(move); setMoveSnapshot(move.getSnapshot());
+      setPassword(''); setCode(''); stageRef.current = 'member-move'; setStage('member-move');
+    } finally {
+      signal.removeEventListener('abort', retire);
+      if (!handed) {source.dispose(); if (operation.current === source) operation.current = undefined;}
+    }
+  };
   const createMoveAccount = async () => {
     const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
     if (!lifetime.current || !memberMoveRef.current) return;
@@ -552,7 +584,10 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
       const result = await source.signInLocal(username, password);
       if (lifetime.current && operation.current === source) {setPassword(''); consume(result);}
     }, !address.trim() || !username.trim() || !password) : action('portico-again', t('accounts.signIn.continuePortico'), portico),
-    <View style={{gap: 12}}>{endedSignIn.signIn === 'local' && <Button variant="text" disabled={busy} onPress={() => {
+    <View style={{gap: 12}}>{!Platform.isTV && endedSignIn.signIn === 'portico' && <EndedMoveCodeAction scope={endedSignIn} busy={busy}
+      isCurrent={() => lifetime.current && stageRef.current === 'ended-sign-in' && latestEndedHint.current === endedSignIn}
+      onStart={(guard, signal) => run(() => beginEndedMemberCode(guard, signal))}/>}
+      {endedSignIn.signIn === 'local' && <Button variant="text" disabled={busy} onPress={() => {
       if (lifetime.current && stageRef.current === 'ended-sign-in') void run(async () => {await Linking.openURL(new URL('/sign-in', endedSignIn.origin).href);});
     }}>{t('auth.forgotPassword')}</Button>}
       <Button variant="text" disabled={busy} onPress={() => {if (lifetime.current && stageRef.current === 'ended-sign-in') {setUsername(''); setPassword(''); reset(); onBack?.();}}}>{t('auth.useDifferentAccount')}</Button>
