@@ -52,7 +52,7 @@ test('native breakpoint and safe area geometry retains the drawn bar and scales 
   assert.deepEqual(phoneHeaderGeometry(24, false), {top: 54, height: 104});
   assert.deepEqual(phoneHeaderGeometry(24, true), {top: 46, height: 96});
   assert.deepEqual(phoneHeaderGeometry(60, false), {top: 60, height: 110});
-  assert.deepEqual(shellLayout(1280, 800, true), {kind: 'tv', panel: 'side', tabs: false, scale: 2 / 3, left: 0, top: 40, width: 1920, height: 1080});
+  assert.deepEqual(shellLayout(1280, 800, true), {kind: 'tv', panel: 'side', tabs: false, rail: false, scale: 2 / 3, left: 0, top: 40, width: 1920, height: 1080});
 });
 
 test('server/account/profile and permission epoch all fence retained component state', () => {
