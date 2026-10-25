@@ -122,7 +122,7 @@ function HomeRowCard({entry, runtime, width, onOpen, onPlay, onMenu, onFocus, on
 /** The drawn phone list row for See all: same activation, play and menu as the poster. */
 function HomeListRow({entry, runtime, width, onOpen, onPlay, onMenu, onFocus, onBlur}: {entry: ContentEntry; runtime: NativeShellRuntime; width: number;
   onOpen: () => void; onPlay?: () => void; onMenu?: (anchor: RefObject<View | null>) => void; onFocus: () => void; onBlur: () => void}) {
-  const anchor = useRef<View>(null), theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle ?? entry.title;
+  const anchor = useRef<View>(null), theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = text.title;
   const square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
   return <CardFrame testID={`home-see-all-list-${encodeURIComponent(entry.id)}`} title={title} width={width} onNavigate={onOpen} onPlay={onPlay}
     onMore={onMenu ? () => onMenu(anchor) : undefined} menuAnchorRef={anchor} onFocus={onFocus} onBlur={onBlur}
