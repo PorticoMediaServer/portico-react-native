@@ -28,6 +28,10 @@ import type {NativeDevicePreferences} from './device-preference-consumer';
 import {setNativeScreenChromeHidden} from '../../shell/chrome';
 import {Screen, useScreenBack, useScreenEntry} from './Screen';
 import {nativeSettingsActionTarget} from './settings-actions';
+import {routePath} from '../../../../../packages/contracts/src/routes';
+import {parseSettingsConfiguration} from '../../../../../packages/client-core/src/settings-configuration';
+import {readSettingsBinding, settingsBinding, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
+import {settingsSpec} from '../../../../../packages/client-core/src/presentation/settings-spec';
 import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
 import {ServerHeader} from '../../kit/shell/ServerIdentity';
 import {alpha} from '../../kit/shell/visual';
@@ -59,6 +63,32 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
   const managesServer = ports.context.account.account.role === 'owner';
+  // quality.awayLimit is the owner's own server limit, read from the same
+  // settings-configuration document the Streaming page reads. The route decides
+  // who may see it; a refusal or an unreadable answer leaves the rows out.
+  const [awayLimit, setAwayLimit] = useState<SettingsBindingValue>();
+  useEffect(() => {
+    if (!managesServer) return;
+    let alive = true;
+    void controller.lifetime.request(next => ports.context.api.request<unknown>(routePath('get_settings_configuration'), 'GET', undefined, next))
+      .then(parseSettingsConfiguration).then(configuration => {
+        const binding = settingsBinding('streaming.awayQuality');
+        const value = binding ? readSettingsBinding(binding, {configuration}) : undefined;
+        if (alive && controller.lifetime.current()) setAwayLimit(value);
+      }).catch(() => {});
+    return () => {alive = false;};
+  }, [controller, managesServer, ports]);
+  // The status uses the Away from home row's own labels for the ladder rung;
+  // a value no option names stays hidden rather than printing a raw code.
+  const awayLimitLabel = useMemo(() => {
+    const code = awayLimit && typeof awayLimit.effective === 'string' ? awayLimit.effective : undefined;
+    if (!code) return undefined;
+    const page = settingsSpec.find(value => value.id === 'quality' && value.scope === 'account');
+    const row = page?.sections.flatMap(section => section.rows).find(value => value.id === 'quality.remote');
+    const control = row && 'control' in row ? row.control : undefined;
+    const choice = control && control.type === 'choice' ? control.choices.find(value => String(value.value) === code) : undefined;
+    return choice ? t(choice.label, choice.labelValues) : undefined;
+  }, [awayLimit, t]);
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
@@ -223,7 +253,9 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     if (showEqualizer && !equalizer.ready && !nativeEqualizer.getSnapshot().pending) void nativeEqualizer.refresh().catch(runtime.reportError);
   }, [showEqualizer, equalizer.ready, runtime.reportError]);
   const showSafeMode = theme.isTV && page.id === 'quality' && nativeSafeModeAvailable(devicePreferences);
-  const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId), ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : [])]);
+  const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId),
+    ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : []),
+    ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', 'settings-away-limit-change'] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
     if (row.kind === 'composite' && row.storage === 'device') {void devicePreferences.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
@@ -283,7 +315,11 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
             : choiceList ? <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={choiceList.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)}))} onValueChange={next => {const choice = choiceList.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}} disabled={state.busy}/>
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
-      })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}</View>
+      })}{showEqualizer && section.id === 'sound' && <SettingsRow testID="settings-equalizer" label={t('next.media.eq.title')} scope={t('settings.thisDevice')} value={equalizer.ready && equalizer.value ? t(equalizer.value.on ? 'next.settings.on' : 'next.settings.off') : undefined} onPress={() => {controller.lifetime.assert(); ports.context.navigation.open({kind: 'settings-equalizer'}, ports.context.authority());}}/>}
+      {section.id === 'limits' && awayLimitLabel ? <>
+        <SettingsRow testID="settings-away-limit" label={t('next.settingsSpec.account.quality.groups.0.rows.3.label')} description={t('next.settingsSpec.account.quality.groups.0.rows.3.help')} value={awayLimitLabel}/>
+        <SettingsRow testID="settings-away-limit-change" label={t('next.settingsSpec.account.quality.groups.0.rows.3.children.0.label')} onPress={() => choose('streaming')}/>
+      </> : null}</View>
     </View>{managementURL && section.id === 'who' && <ManagementCard url={managementURL} text={runtime.text}/>}</React.Fragment>)}
     {pageSections.some(section => section.advanced) && <Button testID="settings-advanced" variant="glass" size="small" trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>}
   </FocusRegion>
