@@ -28,7 +28,7 @@ type EngineModule = NativeListeningBridge & {
   features?: unknown;
   purgeAudioCache?: () => Promise<unknown>;
 };
-type NativeSurfaceProps = ViewProps & {lease: string; surfaceActive?: boolean};
+type NativeSurfaceProps = ViewProps & {lease: string; surfaceActive?: boolean; pictureInPictureRequest?: number; pictureInPictureBinding?: unknown};
 const views: Partial<Record<EngineKind, HostComponent<NativeSurfaceProps>>> = {};
 function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
 function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
@@ -43,6 +43,8 @@ export type NativePlaybackFactoryOptions = Omit<NativePlaybackRuntimeOptions, 'n
 export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryOptions): NativePlaybackAdapter & {runtime: NativePlaybackRuntime} {
   const native = NativeModules[names.native.module] as EngineModule | undefined;
   const requestId = NativeModules.PorticoRuntime?.playbackRequestId as undefined | (() => string);
+  // The real platform feature, not a form factor: a device without it never offers the tool.
+  const pipSupported = (NativeModules.PorticoRuntime as {getConstants?: () => Record<string, unknown>} | undefined)?.getConstants?.().pictureInPictureSupported === true;
   if (!native || !requestId || !viewAvailable(names.native.view)) throw new Error(serviceText('player.nativeHandoverFailed'));
   const mpv = NativeModules[names.mpv.module] as EngineModule | undefined;
   const mpvAvailable = !!mpv && moduleConstants(mpv).available === true && viewAvailable(names.mpv.view);
@@ -86,9 +88,11 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     bearer: () => options.session()?.accessToken ?? '', id: requestId,
     subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
   }) : undefined;
+  // The engine views emit the PiP state they answered; a television offers none.
+  const pictureEvents: {remove: () => void}[] = [];
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const} : {}), ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
-    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
+  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const} : {}), ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), ...(pipSupported ? {pictureInPictureControls: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); for (const event of pictureEvents) event.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
       const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
       const plan = planEngineOf(session, known), snapshot = runtime.getSnapshot();
@@ -98,6 +102,13 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
         requiredSubtitleRendering: requiredSubtitleRendering(snapshot.subtitles?.plan, known), nativeSubtitleRendering: nativeFeatures.subtitleRendering});
     }}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
+  if (pipSupported) {
+    // Each engine answers for itself: a producer that is not the active engine cannot
+    // speak for the current picture, even under the same lease.
+    const admitFrom = (engine: 'native' | 'mpv') => (fact: unknown) => {if (runtime.getSnapshot().engine === engine) runtime.admitPictureInPicture(fact);};
+    pictureEvents.push(new NativeEventEmitter(native as never).addListener('PorticoPictureInPicture', admitFrom('native')));
+    if (mpvAvailable) pictureEvents.push(new NativeEventEmitter(mpv as never).addListener('PorticoMpvPictureInPicture', admitFrom('mpv')));
+  }
   const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
 
   /** The only new component is a native-module view bridge; all player chrome belongs later. */
@@ -118,7 +129,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     // as well, including close before the asynchronous lease release completes.
     // Keep this host/ref/owner stable; expanded -> docked does not revoke it.
     return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
-      {...(Platform.OS === 'android' ? {surfaceActive: producerActive} : {})}
+      {...(Platform.OS === 'android' ? {surfaceActive: producerActive, pictureInPictureRequest: state.pictureInPicture?.request ?? 0, pictureInPictureBinding: state.pictureInPicture?.binding ?? null} : {})}
       style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0}} />;
   }
   return {

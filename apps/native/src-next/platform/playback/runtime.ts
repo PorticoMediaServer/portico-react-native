@@ -41,9 +41,16 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativeExternalPresentationLifetime, NativePlaybackReadLifetime, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
+/** The retained binding a native view reports, compared field by field. */
+const sameBindingFact = (fact: unknown, binding: NativeBinding): boolean => {
+  if (fact === null || typeof fact !== 'object' || Array.isArray(fact)) return false;
+  const raw = fact as Record<string, unknown>;
+  return raw.lease === binding.lease && raw.intentId === binding.intentId && raw.sessionId === binding.sessionId
+    && raw.generation === binding.generation && raw.itemId === binding.itemId;
+};
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
 const audioKind = (kind: string | undefined) => kind === 'song' || kind === 'track' || kind === 'audiobook_file' || kind === 'audiobook';
 const kindOf = (kind: string | undefined): 'video' | 'music' | 'audiobook' => kind === 'song' || kind === 'track' ? 'music' : kind === 'audiobook_file' || kind === 'audiobook' ? 'audiobook' : 'video';
@@ -108,6 +115,12 @@ export class NativePlaybackRuntime {
   private externalEpoch = 0;
   private pictureRequests = 0;
   private pictureBinding?: NativeBinding;
+  /** The one request the retained view is serving, from issue to its own terminal;
+   * `pictureLeave` is the later request that may end an active one (coming back). */
+  private pictureAttempt?: Readonly<{request: number; state: 'pending' | 'active'}>;
+  private pictureLeave?: number;
+  /** The last state the native view reported for that attempt. */
+  private pictureState: NativePictureInPictureState = 'idle';
   private fonts?: SubtitleFonts | 'pending';
   private fontsKey?: string;
   private forcedImage?: {fence: PlaybackFence; path: string; epoch: number; controller: AbortController; mixed?: boolean};
@@ -265,7 +278,7 @@ export class NativePlaybackRuntime {
   private routeChanged(): void {
     if (!this.active()) return;
     const route = this.o.api.getRouteSnapshot();
-    if (route && route.phase !== 'ready') {this.cancelSnapshot(); this.externalPresentationBinding = null; this.pictureBinding = undefined; this.externalController?.abort();}
+    if (route && route.phase !== 'ready') {this.cancelSnapshot(); this.externalPresentationBinding = null; this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle'; this.externalController?.abort();}
     this.coordinator.setConnection(!route || route.phase === 'ready');
     if (route && route.phase !== 'ready') this.publish();
   }
@@ -279,7 +292,7 @@ export class NativePlaybackRuntime {
 
   private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
-    this.externalController?.abort(); this.pictureBinding = undefined;
+    this.externalController?.abort(); this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle';
     this.offlineLifetimeOff?.(); this.offlineLifetimeOff = undefined;
     this.startController?.abort();
     for (const controller of [...this.selectionControllers]) {
@@ -899,7 +912,7 @@ export class NativePlaybackRuntime {
   private selectSource(key: string): void {
     this.cancelSnapshot();
     this.clearForcedImage();
-    this.externalPresentationBinding = undefined; this.pictureBinding = undefined;
+    this.externalPresentationBinding = undefined; this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle';
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
     this.sourceController?.abort();
     this.subtitleOff?.(); this.subtitleOff = undefined;
@@ -1086,7 +1099,8 @@ export class NativePlaybackRuntime {
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
-      ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
+      ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
+        ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
       capabilities: Object.freeze({queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
@@ -1363,11 +1377,67 @@ export class NativePlaybackRuntime {
   /** True acknowledges a fenced retained-view request, never that PiP started. */
   requestPictureInPicture = async (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime): Promise<boolean> => {
     if (!this.o.pictureInPictureControls) return false;
+    // One attempt at a time, like the retained view, and a press the view could not
+    // serve is a true no-op: nothing is issued, published or handed to native, so a
+    // starting attempt is never retagged by its counter.
+    if (!this.pictureRequestAllowed()) return false;
     const pending = this.prepareExternalPresentation(fence, lifetime), epoch = this.externalEpoch;
     const binding = await pending, ready = this.snapshot.externalPresentationBinding;
     if (!binding || !ready || !this.active() || epoch !== this.externalEpoch || lifetime.signal.aborted || !lifetime.isCurrent()
       || !sameNativePresentation(binding, ready) || this.pictureRequests >= Number.MAX_SAFE_INTEGER) return false;
-    this.pictureRequests++; this.pictureBinding = binding; this.publish(); return true;
+    // A racing call may have issued while this one prepared.
+    if (!this.pictureRequestAllowed()) return false;
+    this.pictureRequests++;
+    this.pictureBinding = binding;
+    if (this.pictureAttempt?.state === 'active') this.pictureLeave = this.pictureRequests;
+    else {this.pictureAttempt = Object.freeze({request: this.pictureRequests, state: 'pending'}); this.pictureState = 'idle';}
+    this.publish(); return true;
+  };
+
+  /** A pending attempt owns the request counter, and an active one already holds its
+   * single leaving request; in both cases another press asks for nothing new. */
+  private pictureRequestAllowed(): boolean {
+    const attempt = this.pictureAttempt;
+    return !attempt || attempt.state === 'active' && this.pictureLeave === undefined;
+  }
+
+  /** The native view's own report about a request it was handed. Admitted only for
+   * the current lease and that request, so a replaced surface or a stale answer
+   * cannot claim the picture; `unavailable` may also arrive before any request. */
+  admitPictureInPicture = (fact: unknown): boolean => {
+    if (!this.o.pictureInPictureControls || this.retired) return false;
+    if (fact === null || typeof fact !== 'object' || Array.isArray(fact)) return false;
+    const raw = fact as {lease?: unknown; request?: unknown; requestId?: unknown; binding?: unknown; state?: unknown};
+    const state = raw.state === 'started' || raw.state === 'restore' || raw.state === 'stopped' || raw.state === 'unavailable' ? raw.state : undefined;
+    if (!state || typeof raw.lease !== 'string' || !raw.lease || raw.lease !== this.coordinator.getSnapshot()) return false;
+    // Apple names the request `requestId`; Android names it `request`. Both are the
+    // number the view was handed, and 0 means the view answered without being asked.
+    const named = typeof raw.requestId === 'number' ? raw.requestId : raw.request;
+    const requested = typeof named === 'number' && Number.isSafeInteger(named) && named > 0 ? named : 0;
+    const attempt = this.pictureAttempt;
+    if (state === 'unavailable') {
+      // An engine or device that cannot start may say so before anything was
+      // asked; a live window is never cleared by anyone else's answer, and an
+      // attempt is only ended by its own request.
+      if (attempt?.state === 'active') return false;
+      if (requested === 0 ? this.pictureAttempt !== undefined || this.pictureRequests > 0 : attempt?.request !== requested) return false;
+    } else {
+      // Started, restore and stopped must name this attempt (or the later request
+      // that asks to come back from an active one), carry its own complete
+      // binding, and only move in one direction.
+      const ready = this.snapshot.externalPresentationBinding;
+      if (!this.pictureBinding || !ready || !sameNativePresentation(this.pictureBinding, ready)) return false;
+      if (!attempt || !sameBindingFact(raw.binding, this.pictureBinding)) return false;
+      const owns = requested === attempt.request || (attempt.state === 'active' && requested !== 0 && requested === this.pictureLeave);
+      if (!owns) return false;
+      if (state === 'started' ? attempt.state !== 'pending' || requested !== attempt.request : attempt.state !== 'active') return false;
+    }
+    this.pictureState = state;
+    if (state === 'started' && attempt) this.pictureAttempt = Object.freeze({request: attempt.request, state: 'active'});
+    // Its own terminal only: the attempt and the request that may end it both retire.
+    if (state === 'stopped' || state === 'unavailable') {this.pictureAttempt = undefined; this.pictureLeave = undefined;}
+    this.publish();
+    return true;
   };
 
   change = async (fence: PlaybackFence, choice: PlaybackChoices): Promise<void> => {

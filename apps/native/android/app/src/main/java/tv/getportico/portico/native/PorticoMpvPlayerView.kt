@@ -81,7 +81,7 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
   fun setPictureInPictureRequest(value: Int) {
     if (value == request) return
     request = value
-    PorticoMpvPlaybackModule.pictureInPicture(Arguments.createMap().apply { putString("lease", lease); putString("state", "unavailable") })
+    PorticoMpvPlaybackModule.pictureInPicture(Arguments.createMap().apply { putString("lease", lease); putInt("request", value); putString("state", "unavailable") })
   }
 
   private fun leased(controller: PorticoMpvController?): Boolean = controller != null && lease.isNotEmpty() && lease == controller.lease

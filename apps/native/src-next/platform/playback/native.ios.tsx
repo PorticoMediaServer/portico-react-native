@@ -41,6 +41,7 @@ export type NativePlaybackFactoryOptions = Omit<NativePlaybackRuntimeOptions, 't
 export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryOptions): NativePlaybackAdapter & {runtime: NativePlaybackRuntime} {
   const native = NativeModules[names.native.module] as EngineModule | undefined;
   const requestId = NativeModules.PorticoRuntime?.playbackRequestId as undefined | (() => string);
+  const pipSupported = (NativeModules.PorticoRuntime as {getConstants?: () => Record<string, unknown>} | undefined)?.getConstants?.().pictureInPictureSupported === true;
   if (!native || !requestId || !viewAvailable(names.native.view)) throw new Error(serviceText('player.nativeHandoverFailed'));
   // One host component for this adapter lifetime. Presentation changes only its bounds.
   const SurfaceView = appleSurfaceView ??= requireNativeComponent<NativeSurfaceProps>(names.native.view);
@@ -81,10 +82,12 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const offlineDevice = !Platform.isTV && offlineDownloads.getSnapshot().supported
     && typeof NativeModules.PorticoDownloads?.localFile === 'function' ? options.offlineDevice ?? offlineDownloads : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, pictureInPictureControls: true, engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
-    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
+  runtime = new NativePlaybackRuntime({...options, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, ...(pipSupported ? {pictureInPictureControls: true as const} : {}), engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); pictureEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'native' ? nativeTransport : undefined, choose: () => 'native'}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
+  // The retained view reports what actually started, stopped or was unavailable.
+  const pictureEvent = pipSupported ? emitter.addListener('PorticoPictureInPicture', (fact: unknown) => {runtime.admitPictureInPicture(fact);});
   const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
 
   /** The only new component is a native-module view bridge; all player chrome belongs later. */

@@ -16,7 +16,7 @@ test('Apple retained view receives only the runtime request counter and exact bi
   const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.ios.tsx', import.meta.url), {
     react: h.react,
     'react-native': {
-      NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'request'}},
+      NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'request', getConstants: () => ({pictureInPictureSupported: true})}},
       NativeEventEmitter: class {addListener() {return {remove() {}};}},
       Platform: {OS: 'ios', isTV: false, Version: 27}, UIManager: {hasViewManagerConfig: () => true},
       requireNativeComponent: (name: string) => {hosts.push(name);return name;}, findNodeHandle: () => 17,
@@ -39,7 +39,7 @@ test('Apple retained view receives only the runtime request counter and exact bi
     authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'}),
     settings: () => ({engine: 'native'}), subscribeSettings: () => () => {},
   });
-  assert.equal(captured.pictureInPictureControls, true, 'installed retained-view port, not device/AVKit support');
+  assert.equal(captured.pictureInPictureControls, true, 'the platform reports support, so the retained-view port is installed');
   const props = {expandedBounds: {x: 0, y: 0, width: 800, height: 450}, docked: false, subtitlesVisible: true, surfaceActive: true};
   const render = () => h.render(() => adapter.Surface(props));
   const idle = render();
