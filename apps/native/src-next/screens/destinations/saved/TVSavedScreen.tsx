@@ -9,6 +9,7 @@ import {Button, Chip, Focusable} from '../../../kit/controls';
 import {PosterCard, SquareCard} from '../../../kit/cards';
 import {Dialog, Menu} from '../../../kit/overlays';
 import {StateView} from '../../../kit/states';
+import {FocusRegion} from '../../../kit/focus';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
@@ -73,7 +74,7 @@ function historyLine(entry: ContentEntry): string {
 function Empty({tab, browseHome}: {tab: Tab; browseHome: () => void}) {
   const copy = emptyFor[tab];
   const body = [t(copy.body), tab === 'watchlist' ? t('saved.holdHint') : ''].filter(Boolean).join(' ');
-  return <StateView variant="centered" title={t(copy.title)} body={body} primaryAction={{id: 'browse-home', label: t('saved.browseHome'), onPress: browseHome}}/>;
+  return <StateView testID="saved-empty" variant="centered" title={t(copy.title)} body={body} primaryAction={{id: 'browse-home', label: t('saved.browseHome'), onPress: browseHome}}/>;
 }
 
 function HistoryRow({entry, updatedAt, positionSeconds, completed, runtime, actions, openEntry}: {
@@ -116,6 +117,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [clearOpen, setClearOpen] = useState(false);
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
+  const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const run = useCallback((work: Promise<unknown>) => {void work.catch(runtime.reportError);}, [runtime]);
   const started = useRef(false);
   useEffect(() => {if (started.current) return; started.current = true; run(controller.select(tab, {sort, filter, period})); run(controller.summary());}, [controller, filter, period, run, sort, tab]);
@@ -134,15 +136,15 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const squares = (tab === 'watchlist' || tab === 'favorites' ? snapshot.squares?.sections.flatMap(section => section.entries) ?? [] : [])
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
-  const card = (entry: ContentEntry) => <PosterCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
+  const card = (entry: ContentEntry) => <PosterCard key={entry.id} testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
-  const square = (entry: ContentEntry) => <SquareCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
+  const square = (entry: ContentEntry) => <SquareCard key={entry.id} testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;
   const directoryView = tab === 'playlists' || tab === 'collections' || tab === 'views' ? tab : undefined;
-  const body = snapshot.phase === 'error' ? <StateView variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
+  const body = snapshot.phase === 'error' ? <StateView testID="saved-error" variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
     : snapshot.phase !== 'ready' ? null
       : tab === 'history' ? (snapshot.entries.length ? <View>
         {snapshot.entries.map((row, index) => {const day = dayLabel(row.updatedAt, runtime.text.locale), previous = index ? dayLabel(snapshot.entries[index - 1]?.updatedAt, runtime.text.locale) : undefined;
@@ -165,24 +167,24 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
           enabled regionId={ids.savedGrid} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
-      </View> : <>
+      </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 200, paddingTop: 24}}>
         {tab !== 'history' ? <>
-          <Button ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
-          <Button ref={filterAnchor} variant="glass" icon="i-filter" size="compact" onPress={() => setFilterOpen(true)} accessibilityLabel={t('filter.title')}>{t('filter.title')}</Button>
+          <Button focusId="saved-sort" ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
+          <Button focusId="saved-filter" ref={filterAnchor} variant="glass" icon="i-filter" size="compact" onPress={() => setFilterOpen(true)} accessibilityLabel={t('filter.title')}>{t('filter.title')}</Button>
           <View style={{width: 1.5, height: 40, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-          {filters.map(value => <Chip key={value.id} selected={filter === value.id} onPress={() => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}>{t(value.label)}</Chip>)}
+          {filters.map(value => <Chip focusId={`saved-filter-${value.id}`} key={value.id} selected={filter === value.id} onPress={() => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}>{t(value.label)}</Chip>)}
         </> : <>
           <Button variant="glass" icon="i-sort" size="compact" disabled accessibilityLabel={t('saved.sort')}>{t('web.saved.sort.recent')}</Button>
-          {periods.map(value => <Chip key={value} selected={period === value} onPress={() => {setPeriod(value); run(controller.select(tab, {sort, filter, period: value}));}}>
+          {periods.map(value => <Chip focusId={`saved-period-${value}`} key={value} selected={period === value} onPress={() => {setPeriod(value); run(controller.select(tab, {sort, filter, period: value}));}}>
             {value === '30d' || value === '90d' ? t('web.saved.days', {count: value === '30d' ? 30 : 90}) : t(periodLabel[value])}
           </Chip>)}
-          <Button variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={() => setClearOpen(true)}>{t('web.saved.clearHistory')}</Button>
+          <Button focusId="saved-clear-history" variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={() => setClearOpen(true)}>{t('web.saved.clearHistory')}</Button>
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
       <View style={{paddingHorizontal: 200, paddingTop: 38, minHeight: 520}}>{body}</View>
-      </>}
+      </FocusRegion>}
     </ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
