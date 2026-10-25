@@ -16,6 +16,7 @@ import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
 import {NativeListeningNotice} from '../screens/destinations/music/ListeningNotice';
 import {NativePlayOnSheets} from '../screens/watch/PlayOnSheets';
+import {useListeningSong} from './use-listening-song';
 import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
 import {nativeEqualizer} from '../platform/playback/equalizer';
 import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects';
@@ -265,6 +266,14 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
   const dockedLocal = snapshot.dock.local;
   const nowPlaying = presentation && dockedLocal?.expanded === true && (dockedLocal.kind === 'music' || dockedLocal.kind === 'audiobook')
     && sameFence(dockedLocal.fence, presentation.fence) ? currentOccupant(adapter.dock, snapshot.dock, {local: presentation}) : null;
+  // The song's Detail token lives only for this listening opening and fence: the issued read and
+  // its one command use the layer's own route/page lifetime, never a later occupant's.
+  const songCurrent = useCallback(() => {
+    if (!listeningLifetime || !nowPlaying) return false;
+    const current = adapter.getSnapshot();
+    return listeningLifetime.isCurrent() && !!current.fence && sameFence(current.fence, nowPlaying.playback.fence);
+  }, [adapter, listeningLifetime, nowPlaying]);
+  const song = useListeningSong(runtime.listeningSongDetail, nowPlaying?.playback.fence, listeningLifetime, songCurrent);
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
       <PlayerMorph controller={morph} fence={pictureFence} docked={docked} fullFrame={fullFrame} dockFrame={dockSlot ?? fullFrame}
@@ -286,7 +295,8 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
           width={width} height={height} topInset={insets.top} bottomInset={insets.bottom} onAction={command => {void action(command).catch(runtime.reportError);}}
           onQueuePlay={adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined}
           {...(listeningPorts ?? {})}
-          onAddToPlaylist={theme.isTV && runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence)
+          song={nowPlaying ? {token: song.song, pending: song.pending, favorite: song.favorite} : undefined}
+          onAddToPlaylist={runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence)
             ? () => runtime.listeningPlaylist?.open(nowPlaying.playback.fence) : undefined}
           queuePolicy={runtime.listeningQueuePolicy}
           signal={signal} notice={snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined} reportError={runtime.reportError}
@@ -294,7 +304,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
             positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}
             onSeek={seconds => {const current = adapter.getSnapshot(); if (current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.seek(current.fence, seconds).catch(runtime.reportError);}}/> : undefined}
           onClose={() => {const current = adapter.getSnapshot(); if (current.dock.local?.expanded && current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.onTransition(adapter.dock.collapse(current.fence)).catch(runtime.reportError);}}/>}
-        {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
+        {nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
     {(snapshot.startFailure || snapshot.capacityWait) && (theme.isTV

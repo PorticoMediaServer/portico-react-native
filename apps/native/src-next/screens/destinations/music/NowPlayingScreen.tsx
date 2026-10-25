@@ -20,11 +20,13 @@ import {browseType} from '../../../kit/browse/presentation';
 import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
 import {NowPlayingQueue, nowPlayingQueueEntry, nowPlayingQueueWindow} from './NowPlayingQueue';
+import {ListeningSongActions} from './ListeningSongActions';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import {NativeListeningNotice} from './ListeningNotice';
 import {TVNowPlayingScreen} from './TVNowPlayingScreen';
 import type {NativeListeningQueuePolicy} from '../../../shell/listening-queue-policy';
 import type {NativePlaybackReadLifetime} from '../../../platform/playback/types';
+import type {NativeListeningSong} from '../../../shell/listening-song-detail';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -62,6 +64,8 @@ export type NowPlayingScreenProps = Readonly<{
   playOn?: Readonly<{enabled: boolean; open: (fence: PlaybackFence) => void}>;
   /** The guarded queue edit for loaded upcoming rows, bound to the fence this screen drew. */
   queueEdit?: Readonly<{enabled: boolean; lease?: object; apply: (fence: PlaybackFence, intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
+  /** The current song's issued Detail token and its one favorite ticket; touch only. */
+  song?: Readonly<{token?: NativeListeningSong; pending: boolean; favorite: (token: NativeListeningSong, value: boolean) => void}>;
   onClose: () => void;
   /** music-plus (MC-8): the committed plan plus the engine's own current-song facts. */
   signal?: MusicSignalView;
@@ -79,7 +83,7 @@ export function NowPlayingScreen(props: NowPlayingScreenProps) {
   return theme.isTV ? <TVNowPlayingScreen {...props} equalizerCopy={equalizerCopy()}/> : <TouchNowPlayingScreen {...props}/>;
 }
 
-function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
+function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
   // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
@@ -139,6 +143,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
+    {song ? <ListeningSongActions song={song.token} pending={song.pending} favorite={song.favorite} addToPlaylist={onAddToPlaylist} title={p.identity.title}/> : null}
     {signal ? <MusicFocusRegion id={`${focus}.signal`} entry="music-signal-line" edges={{down: `${focus}.progress`}} style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></MusicFocusRegion> : null}
     {retry?.enabled ? <View style={{marginTop: 16}}><Button testID={`${testID}-retry`} variant="primary" icon="i-retry"
       onPress={() => retry.run(playback.fence)}>{t('next.states.tryAgain')}</Button></View> : null}
