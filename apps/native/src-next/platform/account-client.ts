@@ -6,14 +6,16 @@ const cancelled = () => Object.assign(new Error('native_account_cancelled'), {na
 
 /** Account passwords, factors and provider completions use the redirect-refusing native
  * transport. This factory performs no request; only an explicit account action contacts it. */
-export function createNativeAccountClient(origin: string, binding: string): HostedAccountClient {
+export function createNativeAccountClient(origin: string, binding: string, isCurrent: () => boolean = () => true, ownsResult: () => boolean = () => false): HostedAccountClient {
+  // Already-issued session results stay with the canonical credential coordinator,
+  // so cancellation can retire its fresh family instead of losing cleanup custody.
   const transport: AccountTransport = async (path, method, body, signal, token, completion) => {
     const controller = new AbortController(), abort = () => controller.abort();
     signal?.addEventListener('abort', abort, {once: true});
     if (signal?.aborted) abort();
     const timeout = setTimeout(abort, 15000);
     try {
-      if (controller.signal.aborted) throw cancelled();
+      if (controller.signal.aborted || !isCurrent()) throw cancelled();
       const response = await nativeNetworkFetch(origin + path, {
         method, signal: controller.signal,
         headers: {'Content-Type': 'application/json', 'X-Portico-Continuation': binding,
@@ -21,9 +23,9 @@ export function createNativeAccountClient(origin: string, binding: string): Host
           ...(completion ? {'X-Portico-Completion': completion} : {})},
         ...(body === undefined ? {} : {body: JSON.stringify(body)}),
       });
-      if (controller.signal.aborted) throw cancelled();
+      if (controller.signal.aborted || !isCurrent() && !ownsResult()) throw cancelled();
       const raw = await response.text();
-      if (controller.signal.aborted) throw cancelled();
+      if (controller.signal.aborted || !isCurrent() && !ownsResult()) throw cancelled();
       if (raw.length > 262144) throw Object.assign(new Error('native_account_response_too_large'), {code: 'invalid_response'});
       let value: unknown;
       try {value = raw ? JSON.parse(raw) : undefined;}
@@ -35,7 +37,7 @@ export function createNativeAccountClient(origin: string, binding: string): Host
           typeof error.message === 'string' ? error.message : 'native_account_request_failed', error.retryable === true || response.status >= 500);
       }
       return value;
-    } finally {clearTimeout(timeout); signal?.removeEventListener('abort', abort);}
+    } catch (error) {if (!isCurrent() && !ownsResult()) throw cancelled(); throw error;} finally {clearTimeout(timeout); signal?.removeEventListener('abort', abort);}
   };
   return new HostedAccountClient(origin, 'native', transport, binding);
 }
