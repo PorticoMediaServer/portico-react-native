@@ -1,6 +1,6 @@
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, Platform, Text, View} from 'react-native';
-import {ReceiverHost} from '../../../../../packages/client-core/src/remote-playback';
+import {ReceiverHost, type ReceiverSnapshot} from '../../../../../packages/client-core/src/remote-playback';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -14,7 +14,7 @@ import {Button} from '../../kit/controls';
 import {Dialog} from '../../kit/overlays';
 import {NativeScreenLifetime} from './lifetime';
 
-const off = Object.freeze({phase: 'off'} as const);
+const off: ReceiverSnapshot = Object.freeze({phase: 'off'});
 const noSubscribe = () => () => {};
 const getOff = () => off;
 
@@ -95,8 +95,8 @@ export function NativeTVReceiver({context, runtime}: {context: NativeShellBootst
     }).catch(error => {if (current()) runtime.reportError(error);});
     return () => {ticket.abort.signal.removeEventListener('abort', cancelTicket); cancelTicket(); activity.remove(); playbackOff(); receiver?.dispose(); setOwned(value => value?.ticket === ticket ? undefined : value);};
   }, [context, enabled, runtime, ticketCurrent]);
-  const state = useSyncExternalStore(host?.subscribe ?? noSubscribe, host?.getSnapshot ?? getOff);
-  const asking = 'asking' in state ? state.asking : undefined;
+  const state = useSyncExternalStore<ReceiverSnapshot>(host?.subscribe ?? noSubscribe, host?.getSnapshot ?? getOff);
+  const asking = state.asking;
   const decide = (decision: 'accept' | 'decline') => {
     if (!host || !owned || !ticketCurrent(owned.ticket) || !asking || !context.current() || !nativeDeviceSettings(context).read('receiveFromDevices') || AppState.currentState !== 'active' || host.getSnapshot().asking !== asking) return;
     void host.decide(asking, decision).catch(error => {if (ticketCurrent(owned.ticket)) runtime.reportError(error);});
