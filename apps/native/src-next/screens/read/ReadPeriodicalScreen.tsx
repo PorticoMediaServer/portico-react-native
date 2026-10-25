@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useSyncExternalStore} from 'react';
+import React, {useLayoutEffect, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
@@ -7,6 +7,7 @@ import type {ReadingPeriodicalIssue, ReadingYearChoice} from '../../../../../pac
 import {Artwork, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
+import {Menu} from '../../kit/overlays';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme, type Theme} from '../../kit/theme';
@@ -137,6 +138,7 @@ function NewspaperEditions({state, theme, runtime, onOpen, onMonth, onDate, onMo
   state: NativeReadPeriodicalState; theme: Theme; runtime: NativeShellRuntime;
   onOpen: (issue: ReadingPeriodicalIssue) => void; onMonth: (month: string) => void; onDate: (date: string) => void; onMonths: () => void;
 }) {
+  const [dateOpen, setDateOpen] = useState(false);
   if (!state.selectedMonth) return null;
   const geometry = calendarMonth(defaultI18n, state.selectedMonth);
   if (!geometry) return null;
@@ -156,11 +158,21 @@ function NewspaperEditions({state, theme, runtime, onOpen, onMonth, onDate, onMo
         onPress={() => onMonth(newer)} style={{width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center'}}>
         <Icon name="i-right" size={18} color={theme.colors.textSecondary}/>
       </Focusable> : null}
+      {state.days.length ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.goToDate')} focusKind="chip"
+        onPress={() => setDateOpen(true)} style={{marginLeft: 'auto', height: 34, paddingHorizontal: 12, borderRadius: 9, justifyContent: 'center',
+          backgroundColor: alpha(theme.colors.text, .08)}}>
+        <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.textSecondary}]}>{t('next.reader.goToDate')}</Text>
+      </Focusable> : null}
       {state.archiveCursor ? <Focusable accessibilityRole="button" accessibilityLabel={t('action.showMore')} focusKind="row"
-        onPress={onMonths} style={{marginLeft: 'auto', height: 36, paddingHorizontal: 12, justifyContent: 'center'}}>
+        onPress={onMonths} style={{height: 36, paddingHorizontal: 12, justifyContent: 'center'}}>
         <Text style={[browseType(theme, 13, 700), {color: theme.colors.accentStrong}]}>{t('action.showMore')}</Text>
       </Focusable> : null}
     </View>
+    {/* The drawn Go to a date chip lists only the month's own canonical day
+        choices, so the calendar never offers a day the server did not publish. */}
+    <Menu open={dateOpen} onOpenChange={setDateOpen} title={t('next.reader.goToDate')}
+      items={state.days.map(day => ({id: day.value, label: calendarDate(defaultI18n, day.value), selected: day.value === state.selectedDate,
+        onSelect: () => {setDateOpen(false); onDate(day.value);}}))}/>
     <View style={{paddingHorizontal: 20}}>
       <View style={{flexDirection: 'row', marginBottom: 6}}>
         {geometry.weekdays.map(label => <Text key={label} style={[browseType(theme, 11.5, 600), {flex: 1, textAlign: 'center', color: theme.colors.textTertiary}]}>{label}</Text>)}
