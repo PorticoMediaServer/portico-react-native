@@ -1,5 +1,5 @@
 import {deletionAllowed, parseDeletePreview, parseDeleteResult, type DeletePreview, type DeleteResult} from '../../../../../packages/client-core/src/administration';
-import {fetchBulkMetadataPreview, metadataPreviewTargets, type BulkMetadataPreview, type BulkMetadataPreviewTarget} from '../../../../../packages/client-core/src/home-selection';
+import {fetchBulkMetadataPreview, metadataPreviewTargets, type BulkMetadataPreview, type BulkMetadataPreviewTarget} from '../../../../../packages/client-core/src/home-selection/index';
 import type {HomeApi} from '../../../../../packages/client-core/src/home';
 import {validBulkEdit, validateBulkReceipt, type BulkEdit, type BulkReceipt} from '../../../../../packages/client-core/src/metadata-bulk';
 import type {BulkChanges, BulkFieldValue, BulkResultView} from '../../kit/selection';
@@ -166,10 +166,10 @@ export class NativeBulkMedia {
     for (const spec of preview.schema) {
       const change = changes[spec.field];
       if (!change) continue;
-      if ('add' in change || 'remove' in change) {
-        const list = {...('add' in change ? {add: change.add} : {}), ...('remove' in change ? {remove: change.remove} : {})};
-        if (spec.field === 'genres') genres = list; else lists[spec.field] = list;
-      } else if ('value' in change) fields[spec.field] = {value: change.value};
+      if ('value' in change) {fields[spec.field] = {value: change.value}; continue;}
+      // The other variant is the list edit; narrowing on the value variant keeps add/remove typed.
+      const list = {add: change.add, remove: change.remove};
+      if (spec.field === 'genres') genres = list; else lists[spec.field] = list;
     }
     if (!Object.keys(fields).length && !Object.keys(lists).length && !genres) return {base: {}, edits: []};
     const base: Omit<BulkEdit, 'operationId' | 'targets'> = {...(Object.keys(fields).length ? {fields} : {}), ...(Object.keys(lists).length ? {lists} : {}), ...(genres ? {genres} : {}), lockEdited};
