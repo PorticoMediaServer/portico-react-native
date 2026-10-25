@@ -94,7 +94,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     {!state.pickedId && <Button focusId="add-view" variant="text" icon="i-plus" disabled={state.pending || !!state.pickedId} onPress={() => {if (views) setChoosing(true); onAddView();}}>{copy.addView}</Button>}
   </ScrollView>;
   const footer = choosing || state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={controller.keepEditing}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
-    <Button focusId="reset" variant="glass" disabled={state.pending || !!state.pickedId} onPress={() => setReset(true)}>{copy.reset}</Button>
+    <Button focusId="reset" variant="glass" disabled={state.pending || !!state.pickedId} onPress={() => setReset(true)}>{i18n.t('action.resetToDefault')}</Button>
     <Button focusId="save" disabled={state.pending || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
   const body = choosing && views ? views.loading ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} i18n={i18n} firstRef={firstView}
@@ -126,5 +126,5 @@ export function HomeSavedViewChoices({views, i18n, onChoose, firstRef, summary}:
       <View style={{width: theme.isTV ? 52 : 36, height: theme.isTV ? 52 : 36, borderRadius: theme.isTV ? 13 : 9, alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.text}1A`}}><Icon name="i-filter" size={theme.isTV ? 28 : 20} color={theme.colors.textSecondary}/></View><View style={{flex: 1}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{view.name}</Text>
       {!!detail && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{detail}</Text>}</View>
-    </Focusable>;})}{!eligible.length && <View style={{paddingVertical: 24}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{i18n.t('next.home.noViewsTitle')}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 8}]}>{i18n.t('next.home.noViewsBody')}</Text></View>}</ScrollView>;
+    </Focusable>;})}{!eligible.length && <View style={{paddingVertical: 24}}><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{i18n.t('home.customize.noViews')}</Text></View>}</ScrollView>;
 }
