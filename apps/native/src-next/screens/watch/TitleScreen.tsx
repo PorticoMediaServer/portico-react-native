@@ -101,7 +101,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const leftWidth = twoPane ? divider - rail : viewport.width, rightWidth = twoPane ? viewport.width - divider : viewport.width;
   const bodyWidth = props.watch?.width ?? (twoPane ? rightWidth : viewport.width);
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), titlePlay = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
-  const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
+  const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0), [pinnedWidth, setPinnedWidth] = useState(0);
   // Each sheet owns the exact page and host it opened on, and the settings sheet
   // also owns its ticket. A callback only ever acts for the sheet it was rendered
   // with, so a superseded save can never close or borrow a successor's sheet.
@@ -149,9 +149,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const backdrop = workspace?.show.backdropUrl ?? detail?.item.backdropUrl ?? snapshot.entry.backdropUrl;
   const source = props.ambient(backdrop), foreground = props.artwork(backdrop);
   const selectedTab = snapshot.place.tab;
-  const tabs = <Tabs testID="watch-title-tabs" value={selectedTab} onValueChange={value => controller.tab(value as NativeTitleTab)} items={[
-    ...(show ? [{value: 'episodes', label: t('title.episodes')}] : []), {value: 'related', label: t('next.controls.moreLikeThis')}, {value: 'details', label: t('title.details')},
-  ]} contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, justifyContent: centered ? 'center' : undefined}}/>;
+  const tabItems = [...(show ? [{value: 'episodes', label: t('title.episodes')}] : []), {value: 'related', label: t('next.controls.moreLikeThis')}, {value: 'details', label: t('title.details')}];
+  const tabs = <Tabs testID="watch-title-tabs" value={selectedTab} onValueChange={value => controller.tab(value as NativeTitleTab)} items={tabItems}
+    contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, justifyContent: centered ? 'center' : undefined}}/>;
   const play = () => {void controller.play().catch(props.reportError);};
   const toggle = () => {const watch = props.watch, fence = watch?.source.fence;
     if (watch && fence && !watch.source.retired && sameFence(watch.playback.getSnapshot().fence, fence)) void watch.playback.toggle(fence).catch(props.reportError);
@@ -212,6 +212,29 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const duration = detail?.item.duration ?? snapshot.entry.duration;
   const startOver = detail?.actions.some(action => action.id === 'start_over' && action.enabled && action.playback);
   const remainingTitle = duration !== undefined && progress !== undefined ? durationText(Math.max(0, duration - progress), text.t) : undefined;
+  // tablet7: once the hero is scrolled away, one solid bar carries Back, the title,
+  // the pivots, Resume and the round My List. It draws over the page's own sticky
+  // pivot strip (which stays in place and is hidden from assistive tech meanwhile),
+  // so the scroll composition, anchors and every lease above are untouched.
+  const pinned = collapsed && !theme.isTV && !props.watch && (wide || centered);
+  const pinnedBar = pinned ? <View testID="watch-title-pinned-bar" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 56, zIndex: 11,
+    flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, backgroundColor: theme.colors.ink, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}
+    onLayout={event => setPinnedWidth(event.nativeEvent.layout.width)}>
+    <Button testID="watch-title-back" variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={props.back}/>
+    <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 18, fontWeight: '800', color: theme.colors.text, minWidth: 0, flexShrink: 1,
+      maxWidth: pinnedWidth ? Math.max(96, Math.min(260, Math.round(pinnedWidth * 0.24))) : 180}]}>{title}</Text>
+    <View style={{width: 1, height: 24, backgroundColor: theme.colors.line}}/>
+    <View style={{flexShrink: 1, flexGrow: 1, minWidth: 0}}><Tabs testID="watch-title-bar-tabs" value={selectedTab} onValueChange={value => controller.tab(value as NativeTitleTab)} items={tabItems}
+      style={{flexShrink: 1, flexGrow: 1, minWidth: 0}}
+      contentContainerStyle={{paddingHorizontal: 0, justifyContent: 'flex-start', borderBottomWidth: 0}}/></View>
+    <View style={{marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0}}>
+      {playback && <Button testID="watch-title-bar-play" variant="primary" size="compact" icon="i-play" onPress={play} style={{height: 40}}>
+        {primaryCode ? t('title.resumeEpisode', {code: primaryCode.text}) : t(resuming ? 'entry.resume' : 'entry.play')}</Button>}
+      {myList && <Button testID="watch-title-bar-my-list" variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly
+        accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}/>}
+    </View>
+  </View> : undefined;
+
   const playMenu = theme.isTV ? () => props.more(snapshot.entry, titlePlay) : undefined;
   const contentRating = workspace?.show.contentRating ?? detail?.facts?.contentRating ?? snapshot.entry.contentRating;
   // tv.html frame 3 and tv-detail frame 1 draw one comma genre group, and the
@@ -475,9 +498,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
     }} scrollEventThrottle={32}>
       {!episodesOnly && heroNode}
-      <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
+      <View accessibilityElementsHidden={pinned} importantForAccessibility={pinned ? 'no-hide-descendants' : 'auto'}
+        style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
       {bodyNode}
-    </ScrollView>}{header}
+    </ScrollView>}{pinnedBar ?? header}
     {!theme.isTV && <NativeSeasonsSheet open={!!seasonsSheet} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}}
       seasons={snapshot.seasons} total={workspace?.seasonTotalCount ?? snapshot.seasons.length} selectedId={workspace?.selected.seasonId ?? null}
       onSelect={id => {const lease = seasonsSheet; closeSeasons(); if (lease) void controller.season(id, lease).catch(props.reportError);}}
