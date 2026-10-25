@@ -17,6 +17,8 @@ import {Button} from '../../kit/controls';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {nativeScreenServices} from '../native-screen-services';
+import {NativeDestinationPicker} from '../destinations/DestinationPicker';
+import {NativeLoadedDestinations} from '../search/loaded-destinations';
 import {nativeLibraryEntryKey, type NativeLibraryDestination} from './model';
 import type {NativeLibrarySelectionPort} from './LibraryScreen';
 import {createNativeLibraryPlaySelection} from './play-selection';
@@ -28,8 +30,8 @@ type RegisteredWindow = Readonly<{id: string; first: number; entries: readonly C
  *
  * Toggling works on the genuine entries the grid registers, and every action the
  * bar offers is one the canonical Detail projection enables for *every* pick:
- * Play, Add to queue, My List, Favorites and Watched. Edit, delete, download and
- * the playlist/collection pickers have no executor on this surface, so their
+ * Play, Add to queue, My List, Favorites, Watched and the playlist/collection
+ * pickers. Edit, delete and download have no executor on this surface, so their
  * capabilities stay false and the bar never draws them.
  *
  * Select all is deliberately absent. It means the whole result (select.html #5),
@@ -42,6 +44,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   let disposed = false, revision = 0, entering = false, token = '';
   let producer: Producer | undefined, stopModel: (() => void) | undefined;
   let pending: AbortController | undefined, queued: string | undefined;
+  let destinations: NativeLoadedDestinations | undefined, destinationKind: 'playlist' | 'collection' | undefined;
+  let destinationController: AbortController | undefined, stopDestinations: (() => void) | undefined;
   let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, personalCurrent: (() => boolean) | undefined, personalToken = 0;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const visible = () => !disposed && lifetime.current() && activation.getSnapshot().visible;
@@ -51,7 +55,10 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     const now = source.getSnapshot();
     return now.phase === 'ready' && now.collection ? JSON.stringify([now.library.id, now.tab.id, now.revision, now.queryRevision]) : '';
   };
+  const closeDestinations = () => {destinationController?.abort(); destinationController = undefined; stopDestinations?.(); stopDestinations = undefined;
+    destinations?.dispose(); destinations = undefined; destinationKind = undefined;};
   const reset = () => {
+    closeDestinations();
     pending?.abort(); pending = undefined; personalCurrent = undefined; personalToken++;
     if (personal) {personal.dispose(); personal = undefined;}
     stopModel?.(); stopModel = undefined;
@@ -162,6 +169,22 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     catch (error) {if (live()) services.reportError(error, 'library');}
     finally {emit();}
   };
+  // The drawn picker (#25/#26) is the same bounded destination controller Saved
+  // and Search mount: it owns eligibility, the chosen destination, the completed
+  // prefix, its retry and each receipt.
+  const openDestination = (kind: 'playlist' | 'collection') => {
+    const current = producer, state = current?.model.getSnapshot();
+    if (!current || !state?.active || !state.selectedKeys.length || destinations || pending || !visible()) return;
+    const pickedEntries = entriesFor(state.selectedKeys);
+    if (pickedEntries.length !== state.selectedKeys.length) return;
+    const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current && !!current.model.getSnapshot().active;
+    destinationController = controller;
+    destinations = new NativeLoadedDestinations({api: context.api, scope: lifetime.scope, requestId: services.requestId, signal: controller.signal, isCurrent: live}, pickedEntries);
+    destinationKind = kind;
+    stopDestinations = destinations.subscribe(emit);
+    void destinations.load(kind).catch(error => {if (live()) services.reportError(error, 'library');});
+    emit();
+  };
   const retryPersonal = async () => {
     if (!personal || !personalCurrent?.() || personal.service.getSnapshot().busy) return;
     try {await personal.service.retry();} catch (error) {if (personalCurrent?.()) services.reportError(error, 'library');}
@@ -169,7 +192,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, snapshot, loadedCount: () => loaded().length, personal: () => personal?.service.getSnapshot(),
     personalBusy: () => !!personal?.service.getSnapshot().busy, resultsToken: () => personalToken,
-    busy: () => !!pending || !!personal?.service.getSnapshot().busy, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal};
+    busy: () => !!pending || !!personal?.service.getSnapshot().busy, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal,
+    destination: () => destinations, destinationKind: () => destinationKind, openDestination, closeDestinations};
   // useSyncExternalStore compares snapshots by identity: one layout object per
   // revision, never a fresh object on every read.
   let layoutVersion = -1, layoutSnapshot: LayoutSelection | undefined;
@@ -202,7 +226,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     item: entry => ({active: entering || !!snapshot()?.active,
       selected: !!keyOf(entry) && selectedKeys().includes(keyOf(entry)!),
       onToggle: () => toggle(nativeLibraryEntryKey(entry)), onEnter: () => toggle(nativeLibraryEntryKey(entry))}),
-    render: () => <LibrarySelectionBars store={store}/>,
+    render: (artwork?: (path?: string) => React.ReactNode) => <LibrarySelectionBars store={store} artwork={artwork ?? (() => null)}/>,
   };
   const off = [activation.subscribe(() => {if (!visible()) reset(); emit();}), context.subscribeAuthority(() => {reset(); emit();})];
   return Object.freeze({...port, dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
@@ -213,9 +237,11 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   personalBusy(): boolean; resultsToken(): number;
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched'): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; active(): boolean; queueControl(): boolean; clear(): void;
-  execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>};
+  execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
+  destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
+  openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void};
 
-function LibrarySelectionBars({store}: {store: Store}) {
+function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   // Hooks stay above the inactive return so a bar that leaves the tree cannot change hook order.
@@ -228,15 +254,18 @@ function LibrarySelectionBars({store}: {store: Store}) {
   if (summary?.every.queue && store.queueControl()) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
   if (summary?.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
   if (summary?.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
+  if (summary?.every.playlist) actions.push({id: 'playlist', disabled: store.busy()});
+  if (summary?.every.collection) actions.push({id: 'collection', disabled: store.busy()});
   if (summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
   if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
-  const personal = store.personal();
+  const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind();
   const props: SelectionBarProps = {count: summary?.count ?? 0, selectionLabel: summary ? selectedItemsLabel(summary) : undefined,
     onCancel: () => {setMenu(null); store.clear();}, actions, menu, onMenuChange: setMenu,
     fourthSlot: summary && selectionFourthAction(summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {
       if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}
       else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action);}
+      else if (action === 'playlist' || action === 'collection') {setMenu(null); store.openDestination(action);}
     }};
   // These handlers run later, so they re-read the live operation instead of the
   // render's own: a retired result set must never clear a successor's selection.
@@ -262,5 +291,8 @@ function LibrarySelectionBars({store}: {store: Store}) {
       ? <SidePanel testID="library-selection-results" open onOpenChange={closeResults} showClose={false} dismissOnBack={!store.personalBusy()}
         title={title} width={640} topInset={0} initialFocusRef={failed ? retryRef : doneRef} footer={footer}>{rows}</SidePanel>
       : <Dialog open title={title} onOpenChange={closeResults} footer={footer}>{rows}</Dialog>)}
+    {destination && destinationKind && <NativeDestinationPicker controller={destination} kind={destinationKind} open
+      selectionLabel={summary ? selectedItemsLabel(summary) : ''} count={summary?.count ?? 0} artwork={artwork}
+      onOpenChange={open => {if (!open && !destination.snapshot().busy) store.closeDestinations();}}/>}
   </>;
 }

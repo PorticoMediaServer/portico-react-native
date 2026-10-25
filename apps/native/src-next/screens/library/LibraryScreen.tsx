@@ -9,7 +9,7 @@ import {browseToolbarModel} from '../../../../../packages/client-core/src/presen
 import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
-import {AmbientArt} from '../../kit/artwork';
+import {AmbientArt, Artwork} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, ViewToggle, type BrowseLabels} from '../../kit/browse';
@@ -55,7 +55,8 @@ export type NativeLibrarySelectionPort = Readonly<{
   getSnapshot: () => LayoutSelection;
   register: (source: NativeLibrarySnapshot, entries: readonly ContentEntry[], first: number, last: number) => () => void;
   item: (entry: ContentEntry) => CardSelection;
-  render: () => ReactNode;
+  /** The picker's rows take the screen's own real artwork resolver; nothing is drawn without one. */
+  render: (artwork?: (path?: string) => ReactNode) => ReactNode;
 }>;
 export type NativeLibraryScreenProps = Readonly<{
   destination: NativeLibraryDestination;
@@ -421,7 +422,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const rightGutter = list ? 16 : theme.isTV ? 72 : tabletGeometry ? tabletGeometry.rightGutter : 26;
   const columns = list ? 1 : theme.isTV ? 7 : tablet ? tabletGeometry!.columns : 3;
   return <View style={{flex: 1}}>
-    {selection && selected?.active ? selection.render() : <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
+    {selection && selected?.active ? selection.render(path => {const art = path ? runtime.artwork(path) : undefined;
+      return art ? <Artwork source={art} width={48} height={48}/> : undefined;}) : <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filtersOpen} docked={dockedFilters}
         canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}
         onFilters={onFilters}
