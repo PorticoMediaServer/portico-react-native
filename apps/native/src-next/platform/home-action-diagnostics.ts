@@ -2,6 +2,7 @@ import {
   routePattern,
   type RouteId,
 } from '../../../../packages/contracts/src/routes';
+import type {RouteProbeFailure} from '../../../../packages/client-core/src/route-connection';
 
 // Only fixed protocol names cross this boundary. Dynamic route parameters, query
 // strings, native request IDs and request/response payloads never enter a record.
@@ -102,12 +103,20 @@ const classes = new Set([
   'ContractError',
   'RequestTimeoutError',
 ]);
+// Keep probe observations narrower than generic error reports: no status, stack or message.
+const probeCodes = new Set<RouteProbeFailure['code']>([
+  'invalid_address', 'invalid_identity', 'invalid_response', 'identity_mismatch', 'invalid_signature', 'invalid_routes',
+  'route_stale', 'clocks_disagree', 'insecure_context', 'authentication_required', 'access_denied', 'rate_limited',
+  'route_unavailable', 'certificate_unverified', 'certificate_untrusted', 'cancelled', 'other',
+]);
+const probeNames = new Set<RouteProbeFailure['name']>(['RouteError', 'Error', 'TypeError', 'SyntaxError', 'ReferenceError', 'RangeError', 'AbortError', 'unknown']);
 const origins = new Set([
   'home-card',
   'home-assembly',
   'assembly-error',
   'restore-error',
   'route-memory',
+  'route-probe',
   'home-registration',
   'artwork-error',
   'native-http',
@@ -266,6 +275,12 @@ export function createHomeActionDiagnostics(
       } catch {
         /* passive */
       }
+    },
+    probeFailure(failure: RouteProbeFailure): void {
+      try {
+        const {code, name} = failure;
+        write('route-probe', {operation: 'report-error', code: probeCodes.has(code) ? code : 'other', class: probeNames.has(name) ? name : 'unknown'});
+      } catch { /* A diagnostic observer never changes the original probe outcome. */ }
     },
     error(origin: ErrorOrigin, error: unknown, componentStack?: unknown): void {
       try {

@@ -271,6 +271,7 @@ export async function browseNearby(
 const nativeEnvironment = {
   fetcher: nativeNetworkFetch,
   crypto: nativeRouteCrypto,
+  onProbeFailure: homeActionDiagnostics.probeFailure,
   discover: async (signal: AbortSignal) =>
     (await browseNearby('servers', signal)) as readonly DiscoveryRoute[],
 };
