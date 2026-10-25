@@ -299,7 +299,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     return value !== undefined && row.enableWhen.in.includes(value);
   };
   const engine = useSyncExternalStore(devicePreferences.subscribe, () => devicePreferences.read('playerEngine'));
-  const hasDevicePlayer = theme.isTV && Platform.OS === 'android' && page.id === 'device' && engine !== undefined;
+  const hasDevicePlayer = Platform.OS === 'android' && page.id === 'device' && engine !== undefined;
   const pageSections: SettingsPage['sections'] = hasDevicePlayer ? [...page.sections, {id: 'device-player', advanced: true, title: 'next.settingsSpec.account.device.advanced.groups.3.title', rows: [
     {kind: 'composite', id: 'playerEngine', storage: 'device', scope: 'device', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.label', control: {type: 'choice', choices: [
       {value: 'automatic', label: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.label'},
