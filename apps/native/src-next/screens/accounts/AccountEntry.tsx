@@ -16,6 +16,7 @@ import {ProfilePicker} from '../../kit/artwork';
 import {useTheme} from '../../kit/theme';
 import {nativeAccounts} from '../../platform/accounts';
 import {NativeServerSignIn} from '../../platform/server-sign-in';
+import {HostedSignInUnavailable} from '../../platform/hosted-sign-in-unavailable';
 import {NativePorticoSignIn} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
@@ -70,6 +71,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   };
   const targetRef = useRef(target), activeRef = useRef(appActive), retryEpoch = useRef(0), remainingRetry = useRef(20);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const directoryConnectRef = useRef<(value: HostedServer, automatic?: boolean) => void>(() => {});
   const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
@@ -213,13 +215,17 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
         if (!lifetime.current || attempt !== directoryAttempt.current) return;
         if (result.kind !== 'complete') setServer(next.serverDescriptor()); consume(result);
       } catch (failure) {
-        if (lifetime.current && attempt === directoryAttempt.current) setError(failure);
+        if (lifetime.current && attempt === directoryAttempt.current) {
+          if (failure instanceof HostedSignInUnavailable) {retryDelay.current = Math.max(retryDelay.current, failure.retryAfterSeconds); remainingRetry.current = retryDelay.current; setRetryIn(remainingRetry.current);}
+          setError(failure);
+        }
       } finally {
         if (!lifetime.current) acting.current = false;
         else if (attempt === directoryAttempt.current) {acting.current = false; setBusy(false);}
       }
     })();
   };
+  directoryConnectRef.current = connectDirectory;
   const chooseAnother = () => cancelDirectory();
   const startTV = async (kind: 'local' | 'portico') => {
     setTVKind(kind); setTVState({phase: 'idle'});
@@ -327,7 +333,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   };
   const submitTVFactor = async (value: string) => {
     if (factorKind.current === 'portico') {await account.current!.factor(value); await directory();}
-    else consume(await operation.current!.completeSecondFactor(value));
+    else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(value) : operation.current!.completeSecondFactor(value)));
   };
   const field = (label: string, value: string, change: (next: string) => void, secure = false, credential?: 'username' | 'password') => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure}
     textContentType={credential} autoComplete={credential === 'password' ? 'current-password' : credential} autoCapitalize="none" autoCorrect={false} editable={!busy}/>;
@@ -337,8 +343,9 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   const failure = error ? presentError(error, stage === 'profile-pin' ? 'profiles' : 'sign-in') : undefined;
   const status = failure && !failure.silent ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
   const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
+  const hostedWaiting = stage === 'servers' && !!target && error instanceof HostedSignInUnavailable;
   useEffect(() => {
-    if (stage !== 'servers' || !target || directoryView !== 'waiting' || busy || !appActive) return;
+    if (stage !== 'servers' || !target || (directoryView !== 'waiting' && !hostedWaiting) || busy || !appActive) return;
     const attempt = directoryAttempt.current, epoch = ++retryEpoch.current, capturedTarget = target;
     const current = () => lifetime.current && retryEpoch.current === epoch && directoryAttempt.current === attempt
       && stageRef.current === 'servers' && targetRef.current === capturedTarget && activeRef.current
@@ -347,12 +354,13 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       if (!current()) return;
       const seconds = remainingRetry.current;
       setRetryIn(seconds);
-      if (seconds <= 0) {retryDelay.current = nextRetryDelay(retryDelay.current); connectDirectory(capturedTarget, true); return;}
+      if (seconds <= 0) {retryDelay.current = nextRetryDelay(retryDelay.current); directoryConnectRef.current(capturedTarget, true); return;}
       retryTimer.current = setTimeout(() => {if (!current()) return; remainingRetry.current -= 1; tick();}, 1000);
     };
     tick();
-    return () => {if (retryEpoch.current === epoch) stopRetry();};
-  }, [stage, target, directoryView, busy, appActive]);
+    const stopOwnedRetry = () => {if (retryEpoch.current === epoch) stopRetry();};
+    return stopOwnedRetry;
+  }, [stage, target, directoryView, hostedWaiting, busy, appActive]);
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
     requirement={requiredSetup.requirement} url={new URL('/settings/profile', requiredSetup.serverOrigin).href} busy={busy}
@@ -413,7 +421,7 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else if (memberFactorOperation.current && memberFactorOperation.current === operation.current) {
       const result = await memberFactorOperation.current.completeMemberMoveFactor(code); memberFactorOperation.current = undefined; stopMemberMove(); consume(result);
-    } else consume(await operation.current!.completeSecondFactor(code));
+    } else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(code) : operation.current!.completeSecondFactor(code)));
     setCode('');
   }, !code));
   if (stage === 'portico') return layout(t('accounts.signIn.portico'), t('auth.accountLead'), options?.password ? fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')) : undefined,
@@ -473,6 +481,10 @@ export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 
       primaryAction={{id: 'try-again', label: t('web.chooser.tryAgain'), loading: busy, onPress: () => connectDirectory(target, true)}}
       secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   }
+  if (hostedWaiting && target) return <StateLayout testID="accounts-hosted-waiting" icon="i-cloud-off" title={t('web.chooser.accountWaitingTitle')}
+    body={t('web.chooser.accountWaitingBody', {server: target.name})} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
+    primaryAction={{id: 'check-hosted-now', label: t('web.chooser.checkNow'), loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}
+    secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
   if (stage === 'servers' && target && directoryView === 'waiting') return <StateLayout testID="accounts-server-waiting" title={t('web.chooser.waitingTitle', {server: target.name})}
     body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
     primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
