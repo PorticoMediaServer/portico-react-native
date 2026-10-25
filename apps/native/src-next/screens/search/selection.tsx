@@ -21,6 +21,8 @@ import {nativeSearchEntryKey, type NativeSearchDestination} from './model';
 import type {NativeSearchSelectionPort} from './types';
 import {NativeLoadedDestinations} from './loaded-destinations';
 import {NativeDestinationPicker} from '../destinations/DestinationPicker';
+import {NativeBulkMedia} from '../destinations/bulk-media';
+import {BulkEditor, DeleteMediaDialog} from '../../kit/selection';
 
 const leaf = (entry: SearchEntry): entry is ContentEntry => ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind);
 const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
@@ -39,7 +41,9 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   let personalController: AbortController | undefined, personalCurrent: (() => boolean) | undefined;
   let destinations: NativeLoadedDestinations | undefined, destinationKind: 'playlist' | 'collection' | undefined;
   let destinationController: AbortController | undefined, stopDestinations: (() => void) | undefined;
+  let bulk: NativeBulkMedia | undefined, bulkController: AbortController | undefined, stopBulk: (() => void) | undefined;
   const closePersonal = () => {personalController?.abort(); personalController = undefined; stopPersonal?.(); stopPersonal = undefined; personal?.dispose(); personal = undefined; personalCurrent = undefined;};
+  const closeBulk = () => {bulkController?.abort(); bulkController = undefined; stopBulk?.(); stopBulk = undefined; bulk?.dispose(); bulk = undefined;};
   const closeDestinations = () => {destinationController?.abort(); destinationController = undefined; stopDestinations?.(); stopDestinations = undefined;
     destinations?.dispose(); destinations = undefined; destinationKind = undefined;};
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
@@ -51,7 +55,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     return role === undefined || role === 'local';
   };
   const reset = () => {
-    batchGeneration++; closePersonal(); closeDestinations();
+    batchGeneration++; closePersonal(); closeDestinations(); closeBulk();
     stopPlayback?.(); stopPlayback = undefined;
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
     model?.dispose(); model = undefined; windows.clear(); token = ''; emit();
@@ -91,7 +95,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
       observePlayback();
       const port = context.playback.cataloguePlayback?.();
       const item = await readCatalogueSelectionItem({api: context.api, scope: authority.scope, requestId: feedback.requestId,
-        signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl(), myList: true, favorite: true, watched: true});
+        signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl(), myList: true, favorite: true, watched: true, edit: true, delete: true});
       if (!current()) throw cancelled();
       const groups = source.getSnapshot().groups, sectionOrder = groups.findIndex(result => result.id === group);
       const start = groups[sectionOrder].items.indexOf(entry);
@@ -206,6 +210,23 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     void destinations.load(kind).catch(error => {if (current()) feedback.reportError(error, 'search');});
     emit();
   };
+  /** One admin dialog at a time, over exactly the selected leaves and the captured view fence. */
+  const openAdmin = (kind: 'edit' | 'delete') => {
+    if (!model || !visible() || pending || personal || destinations || bulk) return;
+    const state = model.getSnapshot();
+    if (!state.active || !state.selectedKeys.length) return;
+    const selected = [...windows.values()].filter(window => state.selectedKeys.includes(window.key)).flatMap(window => leaf(window.entry) ? [window.entry] : []);
+    if (selected.length !== state.selectedKeys.length) return;
+    const captured = token, currentModel = model, route = context.navigation.getSnapshot().revision, fence = state.context.scope.privacyFence;
+    const controller = new AbortController();
+    const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
+      && context.navigation.getSnapshot().revision === route && currentModel.getSnapshot().active;
+    bulkController = controller;
+    bulk = new NativeBulkMedia({api: context.api, scope: authority.scope, requestId: feedback.requestId, signal: controller.signal, isCurrent: current, fence}, selected);
+    stopBulk = bulk.subscribe(emit);
+    void (kind === 'edit' ? bulk.openEditor() : bulk.openDelete()).catch(error => {if (current()) feedback.reportError(error, 'detail');});
+    emit();
+  };
   let lastQueueControl: boolean | undefined;
   const queueChanged = () => {
     const next = queueControl();
@@ -224,7 +245,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), personal: () => personal?.service.getSnapshot(), busy: () => !!pending || !!personal?.service.getSnapshot().busy, queueControl,
     clear: () => {if (personal?.service.getSnapshot().busy || destinations?.snapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); closeDestinations(); model?.clear(); emit();}, selectLoaded, execute, applyPersonal, retryPersonal,
-    openDestination, closeDestinations, destination: () => destinations, destinationKind: () => destinationKind};
+    openDestination, closeDestinations, destination: () => destinations, destinationKind: () => destinationKind, openAdmin, closeBulk, bulk: () => bulk};
   const port: NativeSearchSelectionPort = {
     register: () => {reconcile(); return () => {};},
     item: (group, entry) => {
@@ -243,7 +264,8 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   personal(): ReturnType<ReturnType<typeof createCataloguePersonalSelection>['service']['getSnapshot']> | undefined;
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched'): Promise<void>; retryPersonal(): Promise<void>;
   loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
-  openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void; destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined};
+  openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void; destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
+  openAdmin(kind: 'edit' | 'delete'): void; closeBulk(): void; bulk(): NativeBulkMedia | undefined};
 function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
