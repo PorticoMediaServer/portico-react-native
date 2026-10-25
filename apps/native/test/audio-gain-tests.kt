@@ -1,66 +1,192 @@
 package tv.getportico.portico.native
 
 import androidx.media3.common.C
-import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Run in the Android unit-test runtime with Media3 1.10.1 on the classpath. */
+/** Run in the Android unit-test runtime with Media3 1.10.1 on the classpath. Authored negatives. */
 fun main() {
-  val processor = PorticoAudioGain()
-  processor.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
-  processor.flush(AudioProcessor.StreamMetadata.DEFAULT)
-  processor.target = 2f
-  val input = ByteBuffer.allocateDirect(4800 * 4).order(ByteOrder.nativeOrder())
-  repeat(4800) { input.putShort(4000); input.putShort(-4000) }
-  input.flip(); processor.queueInput(input)
-  val output = processor.output.order(ByteOrder.nativeOrder())
-  check(output.remaining() == 4800 * 4)
-  val samples = ShortArray(9600) { output.short }
-  check(samples[8000].toInt() == 8000 && samples[8001].toInt() == -8000)
-  check(samples[0].toInt() in 4000..4010)
-  processor.target = 32f
-  processor.flush(AudioProcessor.StreamMetadata.DEFAULT)
-  val loud = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder()).putShort(20000).putShort(-20000)
-  loud.flip(); processor.queueInput(loud)
-  val limited = processor.output.order(ByteOrder.nativeOrder())
-  check(limited.short.toInt() == 32767 && limited.short.toInt() == -32768)
-  processor.reset()
+  // Unity in one encoding is the same object: no copy, no rounding, a byte-exact pass.
+  val unity = PorticoAudioGain()
+  val stereo = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder())
+  for (sample in shortArrayOf(4000, -4000, 1, -1, 0, 0)) stereo.putShort(sample)
+  stereo.flip()
+  check(unity.apply(stereo, C.ENCODING_PCM_16BIT, C.ENCODING_PCM_16BIT, 2, 48000) === stereo)
 
-  // 24-bit decoded audio is gained, then honestly narrowed when no output advertises 24-bit.
-  val down = PorticoAudioGain()
-  down.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_24BIT))
-  down.target = 2f
-  down.flush(AudioProcessor.StreamMetadata.DEFAULT)
-  val packed = ByteBuffer.allocateDirect(6).order(ByteOrder.nativeOrder())
-  for (sample in listOf(0x200000, -0x200000)) {
-    packed.put((sample and 0xFF).toByte()); packed.put((sample shr 8 and 0xFF).toByte()); packed.put((sample shr 16 and 0xFF).toByte())
+  // Amplification on 24-bit packed audio keeps the source precision and clips at full scale.
+  val loud = PorticoAudioGain()
+  loud.target = 2f
+  loud.reset()
+  val packed = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder())
+  for (sample in listOf(0x200000, -0x200000, 0x7FFFFF, -0x800000)) put24(packed, sample)
+  packed.flip()
+  val scaled = loud.apply(packed, C.ENCODING_PCM_24BIT, C.ENCODING_PCM_24BIT, 2, 48000).order(ByteOrder.nativeOrder())
+  check(scaled.remaining() == 12)
+  check(read24(scaled) == 0x400000 && read24(scaled) == -0x400000)
+  check(read24(scaled) == 0x7FFFFF && read24(scaled) == -0x800000)
+  check(packed.position() == 0) // the decoder's buffer is never consumed by gain
+
+  // Float clips at full scale instead of wrapping.
+  val floats = PorticoAudioGain()
+  floats.target = 2f
+  floats.reset()
+  val stream = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder()).putFloat(0.25f).putFloat(0.75f)
+  stream.flip()
+  val copied = floats.apply(stream, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 2, 48000).order(ByteOrder.nativeOrder())
+  check(copied.float == 0.5f && copied.float == 1f)
+
+  // A float profile is the only honest high-resolution target: configure tells the delegate the
+  // format the gain actually produces, and a refused buffer is retried as the same object.
+  val floatRoute = PorticoAudioOutput.Route(
+      listOf(PorticoAudioOutput.Device("dac", listOf(PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 96000, 2)))), true)
+  val gain = PorticoAudioGain().also { it.target = 2f; it.reset() }
+  val pipeline = PorticoMusicPipeline(gain) { floatRoute }
+  val configured = pipeline.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
+  check(configured.pcmEncoding == C.ENCODING_PCM_FLOAT)
+
+  val handed = ByteBuffer.allocateDirect(18).order(ByteOrder.nativeOrder())
+  for (sample in listOf(0x200000, -0x200000, 0x400000, -0x400000, 0, 0)) put24(handed, sample)
+  handed.flip()
+  val handedEnd = handed.limit()
+  check(!pipeline.handle(handed, 1000L, 1) { _, _, _ -> false })
+  val retried = pipeline.handle(handed, 1000L, 1) { outgoing, _, _ ->
+    check(outgoing.position() == 0 && outgoing.limit() == 24)
+    check(readFloat(outgoing) == 0.5f)
+    true
   }
-  packed.flip(); down.queueInput(packed)
-  val narrowed = down.output.order(ByteOrder.nativeOrder())
-  check(narrowed.remaining() == 4 && narrowed.short.toInt() == 16384 && narrowed.short.toInt() == -16384)
-  down.reset()
+  check(retried)
+  check(handed.position() == handedEnd)
 
-  // A device that advertises float keeps a unity float stream byte for byte.
-  val floatDevice = PorticoAudioOutput.Device("usb dac", setOf(C.ENCODING_PCM_FLOAT), setOf(48000), setOf(2))
-  val pure = PorticoAudioGain { listOf(floatDevice) }
-  pure.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_FLOAT))
-  pure.target = 1f
-  pure.flush(AudioProcessor.StreamMetadata.DEFAULT)
-  val floats = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder()).putFloat(0.25f).putFloat(-0.25f)
-  floats.flip(); pure.queueInput(floats)
-  val copied = pure.output.order(ByteOrder.nativeOrder())
-  check(copied.remaining() == 8 && copied.float == 0.25f && copied.float == -0.25f)
-  pure.reset()
+  // A partial consume keeps the same object: the retry sees the delegate's own position, and a
+  // gain change between the refusal and the retry cannot rebuild or rescale it.
+  val partialGain = PorticoAudioGain().also { it.target = 2f; it.reset() }
+  val partial = PorticoMusicPipeline(partialGain) { floatRoute }
+  partial.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
+  val partialInput = ByteBuffer.allocateDirect(18).order(ByteOrder.nativeOrder())
+  for (sample in listOf(0x200000, -0x200000, 0x400000, -0x400000, 0, 0)) put24(partialInput, sample)
+  partialInput.flip()
+  var partialObject: ByteBuffer? = null
+  check(!partial.handle(partialInput, 2000L, 1) { outgoing, _, _ ->
+    partialObject = outgoing
+    outgoing.position(outgoing.position() + 4)
+    false
+  })
+  partialGain.target = 4f
+  check(partial.handle(partialInput, 2000L, 1) { outgoing, _, _ ->
+    check(outgoing === partialObject)
+    check(outgoing.position() == 4)
+    true
+  })
+  check(partialInput.position() == partialInput.limit())
 
-  // The intersection itself: advertised precision is used, everything else falls to 16-bit.
-  val unity16 = PorticoAudioOutput.choose(listOf(floatDevice), 48000, 2, C.ENCODING_PCM_16BIT, true)
-  check(unity16.encoding == C.ENCODING_PCM_16BIT && unity16.bitPerfect && unity16.reason == "unity-passthrough")
-  val device24 = PorticoAudioOutput.Device("dac", setOf(C.ENCODING_PCM_24BIT), setOf(96000), setOf(2))
-  val gained24 = PorticoAudioOutput.choose(listOf(device24), 96000, 2, C.ENCODING_PCM_24BIT, false)
-  check(gained24.encoding == C.ENCODING_PCM_24BIT && !gained24.bitPerfect && gained24.reason == "gain-applied")
-  val narrowed24 = PorticoAudioOutput.choose(emptyList(), 96000, 2, C.ENCODING_PCM_24BIT, true)
-  check(narrowed24.encoding == C.ENCODING_PCM_16BIT && !narrowed24.bitPerfect && narrowed24.reason == "device-16bit-only")
-  val converted24 = PorticoAudioOutput.choose(listOf(floatDevice), 48000, 2, C.ENCODING_PCM_24BIT, true)
-  check(converted24.encoding == C.ENCODING_PCM_FLOAT && !converted24.bitPerfect && converted24.reason == "device-convert")
+  // Reconfiguring while the delegate still holds a buffer is refused before any source changes.
+  val guardedConfigure = PorticoMusicPipeline(PorticoAudioGain()) { floatRoute }
+  guardedConfigure.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
+  val pendingInput2 = ByteBuffer.allocateDirect(6).order(ByteOrder.nativeOrder())
+  put24(pendingInput2, 0x200000); put24(pendingInput2, -0x200000)
+  pendingInput2.flip()
+  check(!guardedConfigure.handle(pendingInput2, 5L, 1) { _, _, _ -> false })
+  var refused = false
+  try {
+    guardedConfigure.configure(format(C.ENCODING_PCM_16BIT, 48000, 2))
+  } catch (_: IllegalStateException) {
+    refused = true
+  }
+  check(refused)
+  check(guardedConfigure.handle(pendingInput2, 5L, 1) { outgoing, _, _ ->
+    check(outgoing.position() == 0)
+    true
+  })
+
+  // PCM8 and any unknown encoding are refused before a byte can reach a 16-bit delegate.
+  val unsupported = PorticoMusicPipeline(PorticoAudioGain()) { floatRoute }
+  check(unsupported.delegateFormat(format(C.ENCODING_PCM_8BIT, 48000, 2)) == null)
+  check(unsupported.delegateFormat(format(12345, 48000, 2)) == null)
+  var pcm8Refused = false
+  try {
+    unsupported.configure(format(C.ENCODING_PCM_8BIT, 48000, 2))
+  } catch (_: IllegalArgumentException) {
+    pcm8Refused = true
+  }
+  check(pcm8Refused)
+  var gainRefused = false
+  try {
+    PorticoAudioGain().apply(ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder()), C.ENCODING_PCM_8BIT, C.ENCODING_PCM_16BIT, 2, 48000)
+  } catch (_: IllegalArgumentException) {
+    gainRefused = true
+  }
+  check(gainRefused)
+
+  // A different retry identity while a buffer is still pending is a broken contract, not a reset.
+  val guarded = PorticoMusicPipeline(gain) { floatRoute }
+  guarded.configure(format(C.ENCODING_PCM_24BIT, 96000, 2))
+  val held = ByteBuffer.allocateDirect(6).order(ByteOrder.nativeOrder())
+  put24(held, 0x200000)
+  put24(held, -0x200000)
+  held.flip()
+  guarded.handle(held, 10L, 1) { _, _, _ -> false }
+  var rejected = false
+  try {
+    guarded.handle(held, 11L, 1) { _, _, _ -> true }
+  } catch (_: IllegalStateException) {
+    rejected = true
+  }
+  check(rejected)
+
+  // A 24-bit-only profile has no capable delegate path: the pipeline narrows to 16-bit honestly.
+  val integerRoute = PorticoAudioOutput.Route(
+      listOf(PorticoAudioOutput.Device("dac", listOf(PorticoAudioOutput.Profile(C.ENCODING_PCM_24BIT, 96000, 2)))), true)
+  val narrowing = PorticoMusicPipeline(PorticoAudioGain()) { integerRoute }
+  check(narrowing.configure(format(C.ENCODING_PCM_24BIT, 96000, 2)).pcmEncoding == C.ENCODING_PCM_16BIT)
+
+  // The route is read per configure, so a new device is reflected without rebuilding the player.
+  var route = integerRoute
+  val reconfiguring = PorticoMusicPipeline(PorticoAudioGain()) { route }
+  check(reconfiguring.configure(format(C.ENCODING_PCM_24BIT, 96000, 2)).pcmEncoding == C.ENCODING_PCM_16BIT)
+  route = floatRoute
+  check(reconfiguring.configure(format(C.ENCODING_PCM_24BIT, 96000, 2)).pcmEncoding == C.ENCODING_PCM_FLOAT)
+
+  // Exact float passthrough at unity; integer high-resolution never claims 24-bit output.
+  val exactFloat = PorticoAudioOutput.choose(floatRoute, 96000, 2, C.ENCODING_PCM_FLOAT, true)
+  check(exactFloat.encoding == C.ENCODING_PCM_FLOAT && exactFloat.bytePassthrough && exactFloat.bitPerfect)
+  val converted = PorticoAudioOutput.choose(floatRoute, 96000, 2, C.ENCODING_PCM_24BIT, true)
+  check(converted.encoding == C.ENCODING_PCM_FLOAT && !converted.bitPerfect && converted.reason == "device-float")
+  val integerOnly = PorticoAudioOutput.choose(integerRoute, 96000, 2, C.ENCODING_PCM_24BIT, true)
+  check(integerOnly.encoding == C.ENCODING_PCM_16BIT && !integerOnly.bitPerfect && integerOnly.reason == "device-16bit")
+
+  // Profiles are per combination: 16-bit at 192 kHz plus 24-bit at 48 kHz is not 24-bit at 192 kHz.
+  val split = PorticoAudioOutput.Device("split",
+      listOf(PorticoAudioOutput.Profile(C.ENCODING_PCM_16BIT, 192000, 2), PorticoAudioOutput.Profile(C.ENCODING_PCM_24BIT, 48000, 2)))
+  val fabricated = PorticoAudioOutput.choose(PorticoAudioOutput.Route(listOf(split), true), 192000, 2, C.ENCODING_PCM_24BIT, true)
+  check(fabricated.encoding == C.ENCODING_PCM_16BIT && !fabricated.bitPerfect && fabricated.reason == "device-16bit")
+
+  // No unambiguous route is the conservative floor, never an inferred hardware claim.
+  val two = PorticoAudioOutput.Route(listOf(floatRoute.devices.first(), split), false)
+  val unknown = PorticoAudioOutput.choose(two, 96000, 2, C.ENCODING_PCM_24BIT, true)
+  check(unknown.encoding == C.ENCODING_PCM_16BIT && unknown.reason == "route-unknown" && !unknown.bitPerfect)
+  val unknown16 = PorticoAudioOutput.choose(two, 48000, 2, C.ENCODING_PCM_16BIT, true)
+  check(unknown16.bytePassthrough && !unknown16.bitPerfect && unknown16.reason == "route-unknown")
+
+  // A float-only device does not upgrade a 16-bit stream, and capability alone is not bit perfect.
+  val sixteen = PorticoAudioOutput.choose(floatRoute, 96000, 2, C.ENCODING_PCM_16BIT, true)
+  check(sixteen.encoding == C.ENCODING_PCM_16BIT && sixteen.bytePassthrough && !sixteen.bitPerfect)
 }
+
+private fun format(encoding: Int, rate: Int, channels: Int): Format =
+    Format.Builder().setSampleMimeType(MimeTypes.AUDIO_RAW).setPcmEncoding(encoding)
+        .setSampleRate(rate).setChannelCount(channels).build()
+
+private fun put24(buffer: ByteBuffer, sample: Int) {
+  buffer.put((sample and 0xFF).toByte())
+  buffer.put((sample shr 8 and 0xFF).toByte())
+  buffer.put((sample shr 16 and 0xFF).toByte())
+}
+
+private fun read24(input: ByteBuffer): Int {
+  val raw = (input.get().toInt() and 0xFF) or ((input.get().toInt() and 0xFF) shl 8) or ((input.get().toInt() and 0xFF) shl 16)
+  return if (raw and 0x800000 != 0) raw - 0x1000000 else raw
+}
+
+private fun readFloat(input: ByteBuffer): Float = input.order(ByteOrder.nativeOrder()).float

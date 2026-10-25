@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
-import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -14,66 +12,51 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Music gain belongs in decoded PCM: ExoPlayer volume is attenuation only.
+ * Music gain applied to the decoder's own PCM, before the sink converts anything.
  *
- * A listening player decodes at the file's own precision, so this stage reads 16-bit, 24-bit
- * packed, 32-bit integer and float PCM. Its output encoding is the device intersection from
- * [PorticoAudioOutput]: the source's own precision when the routed device advertises it, otherwise
- * 16-bit, so no precision is claimed that the sink cannot take. An unchanged unity stream at the
- * same encoding is copied byte for byte, keeping a bit-perfect path bit perfect. Ramped or
- * amplified audio is clipped at the encoding's own full scale. Nothing here resamples, mixes or
- * reorders channels.
+ * Media3's `DefaultAudioSink` cannot carry a user gain stage at high precision: with float output
+ * it replaces the processor chain entirely, and without float output it converts to 16-bit before
+ * the chain. So gain runs on the buffer the renderer hands the sink, in the decoder's encoding,
+ * and converts to the encoding [PorticoAudioOutput] selected for this device and stream. An
+ * unchanged unity stream at one encoding is returned untouched, keeping a bit-exact pass; ramped
+ * or amplified audio is rounded per sample and clipped at the target's full scale. Nothing here
+ * resamples, mixes or reorders channels, and [input] is never consumed.
  */
-internal class PorticoAudioGain(
-    private val capabilities: () -> List<PorticoAudioOutput.Device> = { emptyList() },
-) : BaseAudioProcessor() {
+internal class PorticoAudioGain {
   @Volatile var target = 1f
   private var level = 1f
   private var goal = 1f
   private var remaining = 0
   private var step = 0f
 
-  override fun onConfigure(input: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-    if (input.encoding !in PorticoAudioOutput.ENCODINGS) throw AudioProcessor.UnhandledAudioFormatException(input)
-    val choice = PorticoAudioOutput.choose(
-        capabilities(), input.sampleRate, input.channelCount, input.encoding, target == 1f)
-    // Stay active at unity so a change of gain never has to recreate the sink.
-    return if (choice.encoding == input.encoding) input
-    else AudioProcessor.AudioFormat(input.sampleRate, input.channelCount, choice.encoding)
-  }
+  /** Begins a new stream at the current target, without a ramp from the previous one. */
+  fun reset() { level = target; goal = target; remaining = 0 }
 
-  override fun queueInput(input: ByteBuffer) {
-    val source = inputAudioFormat
-    val sink = outputAudioFormat
-    if (source.bytesPerFrame <= 0) { input.position(input.limit()); return }
-    input.order(ByteOrder.nativeOrder())
-    val frames = input.remaining() / source.bytesPerFrame
-    if (frames <= 0) { input.position(input.limit()); return }
-    val output = replaceOutputBuffer(frames * sink.bytesPerFrame).order(ByteOrder.nativeOrder())
+  fun apply(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int): ByteBuffer {
+    require(PorticoAudioOutput.supports(sourceEncoding) && PorticoAudioOutput.supports(targetEncoding)) {
+      "unsupported pcm encoding"
+    }
+    val sourceFrame = PorticoAudioOutput.bytesPerSample(sourceEncoding) * channelCount
+    val targetFrame = PorticoAudioOutput.bytesPerSample(targetEncoding) * channelCount
+    if (sourceFrame <= 0 || targetFrame <= 0 || input.remaining() < sourceFrame) return input
     val wanted = target.takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 1f
     if (wanted != goal) {
-      goal = wanted; remaining = (source.sampleRate / 50).coerceAtLeast(1)
+      goal = wanted
+      remaining = (sampleRate / 50).coerceAtLeast(1)
       step = (goal - level) / remaining
     }
-    if (level == 1f && goal == 1f && source.encoding == sink.encoding) {
-      // Unity at one encoding keeps the decoded bytes exactly as they arrived.
-      output.put(input)
-      output.flip()
-      return
-    }
-    while (input.remaining() >= source.bytesPerFrame) {
+    if (level == 1f && goal == 1f && sourceEncoding == targetEncoding) return input
+    val source = input.duplicate().order(ByteOrder.nativeOrder())
+    val frames = source.remaining() / sourceFrame
+    if (frames <= 0) return input
+    val out = ByteBuffer.allocateDirect(frames * targetFrame).order(ByteOrder.nativeOrder())
+    repeat(frames) {
       if (remaining > 0) { level += step; if (--remaining == 0) level = goal }
-      repeat(source.channelCount) {
-        val scaled = readSample(input, source.encoding) * level
-        writeSample(output, sink.encoding, scaled)
-      }
+      repeat(channelCount) { writeSample(out, targetEncoding, readSample(source, sourceEncoding) * level) }
     }
-    // A trailing partial frame cannot be written; drop it rather than leave input unread.
-    input.position(input.limit())
-    output.flip()
+    out.flip()
+    return out
   }
-
-  override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) { level = target; goal = target; remaining = 0 }
 
   private fun readSample(input: ByteBuffer, encoding: Int): Float = when (encoding) {
     C.ENCODING_PCM_16BIT -> input.short / 32768f
@@ -104,17 +87,167 @@ internal class PorticoAudioGain(
   }
 }
 
+/**
+ * Holds one transformed buffer across sink retries.
+ *
+ * `AudioSink.handleBuffer` may return false without consuming the buffer, and the next attempt
+ * must pass the same buffer with the same timestamp and access count. A different identity while
+ * one is still held is a broken contract, so it is rejected rather than silently replacing a
+ * buffer the delegate still owns; only [clear] (flush or reset) retires one. On acceptance the
+ * original decoder buffer is advanced to the end it had when it was handed over.
+ */
+internal class PorticoGainQueue(private val gain: PorticoAudioGain) {
+  private var pending: ByteBuffer? = null
+  private var pendingInput: ByteBuffer? = null
+  private var pendingTime = 0L
+  private var pendingCount = 0
+  private var pendingEnd = 0
+
+  fun hasPending(): Boolean = pending != null
+
+  fun bufferFor(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int,
+                presentationTimeUs: Long, encodedAccessUnitCount: Int): ByteBuffer {
+    val held = pending
+    if (held != null) {
+      check(pendingInput === input && pendingTime == presentationTimeUs && pendingCount == encodedAccessUnitCount) {
+        "audio sink retried a different buffer while one was still pending"
+      }
+      return held
+    }
+    // Cache every submission, including a unity buffer that is handed on unchanged: the delegate
+    // must see the same object again if it refuses it, whatever the gain target becomes meanwhile.
+    val scaled = gain.apply(input, sourceEncoding, targetEncoding, channelCount, sampleRate)
+    pending = scaled
+    pendingInput = input
+    pendingTime = presentationTimeUs
+    pendingCount = encodedAccessUnitCount
+    pendingEnd = input.limit()
+    return scaled
+  }
+
+  fun accepted() {
+    pendingInput?.position(pendingEnd)
+    clear()
+  }
+
+  fun clear() {
+    pending = null
+    pendingInput = null
+    pendingTime = 0
+    pendingCount = 0
+    pendingEnd = 0
+  }
+}
+
+/**
+ * The listening pipeline: gain plus the device format decision, kept separate from the sink
+ * adapter so the retry and reconfigure behaviour is testable without a Media3 delegate.
+ */
+internal class PorticoMusicPipeline(
+  private val gain: PorticoAudioGain,
+  private val route: () -> PorticoAudioOutput.Route,
+) {
+  private val queue = PorticoGainQueue(gain)
+  private var sourceEncoding = C.ENCODING_PCM_16BIT
+  private var targetEncoding = C.ENCODING_PCM_16BIT
+  private var channels = 0
+  private var sampleRate = 0
+
+  /** What the delegate must be configured with: the format the gain actually produces. */
+  fun configure(format: Format): Format {
+    // The delegate must be idle: a buffer it still holds belongs to the previous stream and must
+    // not be discarded by a reconfiguration. Media3 flushes before configuring, so this is misuse.
+    check(!queue.hasPending()) { "configure while a buffer is still pending" }
+    val source = if (format.pcmEncoding != Format.NO_VALUE) format.pcmEncoding else C.ENCODING_PCM_16BIT
+    // Only the four paths this stage converts are accepted; anything else is refused before a
+    // single byte reaches the delegate, which would otherwise misread it at the target encoding.
+    require(PorticoAudioOutput.supports(source)) { "unsupported pcm encoding" }
+    sourceEncoding = source
+    channels = format.channelCount
+    sampleRate = format.sampleRate
+    gain.reset()
+    targetEncoding = PorticoAudioOutput.targetEncoding(route(), sampleRate, channels, sourceEncoding)
+    return converted(format, sourceEncoding)
+  }
+
+  fun handle(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int,
+             deliver: (ByteBuffer, Long, Int) -> Boolean): Boolean {
+    val outgoing = queue.bufferFor(buffer, sourceEncoding, targetEncoding, channels, sampleRate,
+        presentationTimeUs, encodedAccessUnitCount)
+    if (!deliver(outgoing, presentationTimeUs, encodedAccessUnitCount)) return false
+    queue.accepted()
+    return true
+  }
+
+  /** The format the delegate would actually receive for [format], or null when it is unsupported. */
+  fun delegateFormat(format: Format): Format? {
+    val source = if (format.pcmEncoding != Format.NO_VALUE) format.pcmEncoding else C.ENCODING_PCM_16BIT
+    if (!PorticoAudioOutput.supports(source)) return null
+    val target = PorticoAudioOutput.targetEncoding(route(), format.sampleRate, format.channelCount, source)
+    return if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
+  }
+
+  fun flush() { queue.clear(); gain.reset() }
+
+  fun reset() { queue.clear(); gain.reset() }
+
+  private fun converted(format: Format, source: Int, target: Int = targetEncoding): Format =
+      if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
+}
+
+/**
+ * The listening sink: the pipeline above, then the standard sink. The decoder's encoding is
+ * remembered from [configure], so gain works on real high-resolution samples before media3
+ * converts them, and the delegate is configured with the format the gain actually produces.
+ */
+internal class PorticoMusicSink(
+  delegate: AudioSink,
+  gain: PorticoAudioGain,
+  route: () -> PorticoAudioOutput.Route,
+) : ForwardingAudioSink(delegate) {
+  private val pipeline = PorticoMusicPipeline(gain, route)
+
+  override fun configure(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
+    super.configure(pipeline.configure(format), specifiedBufferSize, outputChannels)
+  }
+
+  override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean =
+      pipeline.handle(buffer, presentationTimeUs, encodedAccessUnitCount) { outgoing, time, count ->
+        super.handleBuffer(outgoing, time, count)
+      }
+
+  override fun flush() {
+    super.flush()
+    pipeline.flush()
+  }
+
+  override fun reset() {
+    super.reset()
+    pipeline.reset()
+  }
+
+  override fun getFormatSupport(format: Format): Int {
+    if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return AudioSink.SINK_FORMAT_UNSUPPORTED
+    val delegate = pipeline.delegateFormat(format) ?: return AudioSink.SINK_FORMAT_UNSUPPORTED
+    return super.getFormatSupport(delegate)
+  }
+
+  override fun supportsFormat(format: Format): Boolean {
+    if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return false
+    val delegate = pipeline.delegateFormat(format) ?: return false
+    return super.supportsFormat(delegate)
+  }
+}
+
 /** Only listening players use this sink; video keeps its normal output format and passthrough. */
 internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain) : DefaultRenderersFactory(context) {
   override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink {
-    // Float only where the output device advertises it; a device that cannot play float is never
-    // told it is receiving float. The gain stage keeps the source's own precision either way.
-    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(PorticoAudioOutput.prefersFloat(context))
-        .setAudioProcessors(arrayOf(gain)).build()
-    // Encoded output would bypass gain, including on HDMI routes. Music always reaches PCM.
-    return object : ForwardingAudioSink(sink) {
-      override fun getFormatSupport(format: Format): Int = if (format.sampleMimeType == MimeTypes.AUDIO_RAW) super.getFormatSupport(format) else AudioSink.SINK_FORMAT_UNSUPPORTED
-      override fun supportsFormat(format: Format): Boolean = format.sampleMimeType == MimeTypes.AUDIO_RAW && super.supportsFormat(format)
-    }
+    val route = { PorticoAudioOutput.route(context) }
+    // Float is the sink's only high-resolution output and the decision is per stream, not per
+    // player: with float enabled the delegate uses it exactly when PorticoAudioOutput selects
+    // float for this stream, and a 16-bit selection never enters the float path. A build-time
+    // route snapshot therefore cannot make a later float selection narrow to 16-bit.
+    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(true).build()
+    return PorticoMusicSink(sink, gain, route)
   }
 }

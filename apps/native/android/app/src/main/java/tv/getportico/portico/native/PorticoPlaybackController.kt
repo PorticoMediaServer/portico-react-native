@@ -457,7 +457,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     // A transport stream is searched further for the time asked for, so a seek in one lands.
     // MP3 and ADTS files whose seek index has been read are placed by it (PorticoSeekIndex).
     val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))
-    val gain = if (listening) PorticoAudioGain { PorticoAudioOutput.devices(context) } else null
+    val gain = if (listening) PorticoAudioGain() else null
     val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else DefaultRenderersFactory(context)
     val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http), extractors))
