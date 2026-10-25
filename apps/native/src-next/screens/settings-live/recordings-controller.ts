@@ -1,5 +1,6 @@
 import {DVRClient, type DeletePreview, type DVRPage, type DVRSummary, type DVRView, type Occurrence, type Recording, type RecordingDetail, type RecordingDraft, type RecordingGroups, type RecordingOptions, type RecordingRule, type RecordingStorage, type RuleConfig, type RulePreview, type StoragePolicy} from '../../../../../packages/client-core/src/dvr';
 import type {ChannelApi} from '../../../../../packages/client-core/src/channel-guide';
+import type {DVRCommandLifetime} from '../../../../../packages/client-core/src/dvr';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
 
 export type NativeRecordingQuery = Readonly<{view: DVRView; cursor?: string; sort?: 'recent' | 'title' | 'oldest'; group?: string}>;
@@ -68,20 +69,41 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   private async read<T>(work: () => Promise<T>): Promise<T> {this.assert(); const result = await work(); this.assert(); if (this.getSnapshot().accessDenied) throw screenScopeEnded(); return result;}
   detail = (id: string, after?: string): Promise<RecordingDetail> => this.read(() => this.service.detail(id, after));
   deletePreview = (recording: Recording): Promise<DeletePreview> => this.read(() => this.service.deletePreview(recording));
-  async act<T>(work: (service: NativeRecordingService) => Promise<T>): Promise<Readonly<{value: T}> | undefined> {
+  private requireCommand(lifetime?: DVRCommandLifetime): void {
+    if (lifetime && (!this.current() || lifetime.signal.aborted || !lifetime.isCurrent())) throw screenScopeEnded();
+  }
+  async act<T>(work: (service: NativeRecordingService) => Promise<T>, lifetime?: DVRCommandLifetime): Promise<Readonly<{value: T}> | undefined> {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
+    this.requireCommand(original);
     this.assert();
     if (this.getSnapshot().busy || this.getSnapshot().accessDenied) return undefined;
     this.publish({...this.getSnapshot(), busy: true, error: undefined});
     try {
+      this.requireCommand(original);
       const value = await this.read(() => work(this.service));
+      this.requireCommand(original);
       // A receipt is the success boundary. Refreshing another current view never changes
       // the mutation's expectedRevision or creates a replacement retry request id.
-      void this.load(); void this.loadFacts();
+      // A Watch command returns its real receipt to that opening. Do not start
+      // an unscoped refresh that could adopt into a replacement route; the DVR
+      // screen keeps its ordinary authoritative reads when entered.
+      if (!original) {void this.load(); void this.loadFacts();}
+      this.requireCommand(original);
       return {value};
-    } catch (error) {if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), error}); return undefined;}
+    } catch (error) {
+      this.requireCommand(original);
+      if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), error});
+      this.requireCommand(original);
+      if (original) throw error;
+      return undefined;
+    }
     finally {if (this.current()) this.publish({...this.getSnapshot(), busy: false});}
   }
-  schedule = (draft: RecordingDraft, options: RecordingOptions) => this.act(service => service.schedule(draft, options));
+  schedule = (draft: RecordingDraft, options: RecordingOptions, lifetime?: DVRCommandLifetime) => {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
+    this.requireCommand(original);
+    return this.act(service => service.schedule(draft, options, original), original);
+  };
   cancel = (recording: Recording) => this.act(service => service.cancel(recording));
   keep = (recording: Recording) => this.act(service => service.keep(recording));
   remove = (recording: Recording, preview: DeletePreview) => this.act(service => service.delete(recording, preview));
