@@ -29,6 +29,8 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const chromeHidden = useSyncExternalStore(subscribeNativeScreenChrome, nativeScreenChromeHidden);
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
+  /** The sidebar's own breakpoint, captured so the hook reads a plain value. */
+  const wideSidebar = dimensions.width >= 1024;
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {const remember = () => {const saved = registry.capture();
@@ -69,7 +71,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     };
   }, [runtime]);
   useEffect(() => {
-    if (theme.isTV || dimensions.width < 1024) return;
+    if (theme.isTV || !wideSidebar) return;
     const lifetime = {}, authority = {...snapshot.authority}, revision = sidebarRevision.current;
     sidebarLifetime.current = lifetime;
     const valid = () => sidebarLifetime.current === lifetime && current() && sameAuthority(authority, runtime.getSnapshot().authority);
@@ -77,7 +79,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       if (valid() && revision === sidebarRevision.current) setSidebarExpanded(value);
     }, error => {if (valid()) runtime.reportError(error);});
     return () => {if (sidebarLifetime.current === lifetime) sidebarLifetime.current = undefined;};
-  }, [current, runtime, snapshot.authority, theme.isTV, dimensions.width >= 1024]);
+  }, [current, runtime, snapshot.authority, theme.isTV, wideSidebar]);
   const toggleSidebar = () => {
     const lifetime = sidebarLifetime.current, authority = {...snapshot.authority};
     const valid = () => !!lifetime && sidebarLifetime.current === lifetime && current() && sameAuthority(authority, runtime.getSnapshot().authority);
