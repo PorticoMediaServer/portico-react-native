@@ -124,6 +124,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-controls' && focus.childId === 'watch-seek';
   const [groupPillHost, setGroupPillHost] = useState<number | undefined>(undefined);
   const groupSheetChange = useCallback((open: boolean) => {if (fence) controls.holdOverlay(fence, open);}, [controls, fence]);
+  const exitSeekPreview = useCallback(() => {toggle.current?.requestTVFocus?.();}, []);
   // tv-player 3: the prompt offers the segment the viewer is in, and an unattended
   // skip leaves a six-second note whose Undo goes back to where the skip happened.
   const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
@@ -364,7 +365,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
         {theme.isTV && <View style={{position: 'absolute', left: 96 + (props.edgeInsets?.left ?? 0), right: 96 + (props.edgeInsets?.right ?? 0), bottom: 80}}>
-          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} tv focused={seekFocused} nextFocusUp={groupPillHost} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} tv focused={seekFocused} nextFocusUp={groupPillHost} onExitPreview={exitSeekPreview} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
           {landing === undefined && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 30, marginTop: 10}}>
             <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
             {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 22, marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}
@@ -378,7 +379,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                 </Focusable>
               : <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>}
           </View>}
-          {seekFocused
+          {seekFocused && landing !== undefined
             ? <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center'}}>
               {hint(0, keycap('', ['i-left', 'i-right']), t('player.hint.move'))}
               {hint(1, keycap(t('player.hint.hold')), t('player.hint.faster'))}

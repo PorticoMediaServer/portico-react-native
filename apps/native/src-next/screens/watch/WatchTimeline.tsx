@@ -27,6 +27,8 @@ type Props = Readonly<{
   focused?: boolean;
   /** The live group pill's native host while one is drawn, so TV Up from the seek reaches it. */
   nextFocusUp?: number;
+  /** Down leaves the preview and restores the transport after its hosts remount. */
+  onExitPreview?: () => void;
   /** The landing time while the bar is being moved, for the TV key hints. */
   onPreview?: (seconds: number | undefined) => void;
   /** Live: the retained window's live edge. The stretch behind it is what the
@@ -35,7 +37,7 @@ type Props = Readonly<{
 }>;
 
 /** Actual time/window only. Scrub commits on lift; absent trickplay never becomes invented imagery. */
-export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge, nextFocusUp}: Props) {
+export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge, nextFocusUp, onExitPreview}: Props) {
   const theme = useTheme(), fence = source.fence, width = useRef(0), dragging = useRef(false);
   const [preview, setPreview] = useState<number>();
   const previewRef = useRef<number | undefined>(undefined), seekRef = useRef<View>(null), mounted = useRef(false);
@@ -62,6 +64,11 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   useLayoutEffect(() => {if (tv) setSeekHost(findNodeHandle(seekRef.current) ?? undefined);}, [tv]);
   useTVEventHandler(event => {
     if (!tv || !focused || !enabled || !fence || !current() || !source.capabilities.seek || !(span > 0) || event.eventKeyAction === 1) return;
+    if (event.eventType === 'down' && previewRef.current !== undefined) {
+      clearRemotePreview();
+      requestAnimationFrame(() => {if (current()) onExitPreview?.();});
+      return;
+    }
     const left = event.eventType === 'left' || event.eventType === 'longLeft';
     const right = event.eventType === 'right' || event.eventType === 'longRight';
     if (!left && !right) return;
