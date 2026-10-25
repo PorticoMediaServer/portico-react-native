@@ -13,6 +13,7 @@ import {NativeTogetherScreen} from './TogetherScreen';
 import {createNativeServerDashboardRenderer, createNativeSettingsRenderer} from './SettingsRoute';
 import {nativeSettingsRequestId} from './settings-ports';
 import type {NativeSettingsLivePorts, NativeSettingsLiveRenderers} from './ports';
+import {publishNativeLiveWatchPort} from './watch-port';
 
 export type {NativeSettingsLivePorts, NativeSettingsLiveRenderers} from './ports';
 export {NativeScreenLifetime} from './lifetime';
@@ -31,12 +32,13 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const live = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone, {port: nativeGuideMemory(context.session()?.viewer, lifetime), reportError: error => nativeScreenServices(context).reportError(error)});
   const recordings = createNativeRecordingsController(lifetime, api, ports.dvrRequestId);
   const owner = new NativeLiveOwnerController(lifetime, api, () => [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join(''));
+  const releaseWatch = publishNativeLiveWatchPort(context, lifetime, {recordings, live, owner, requestId: ports.dvrRequestId});
   const together = new NativeTogetherController(lifetime, ports.together);
   const togetherMedia = new NativeTogetherMedia(lifetime, api);
   const settings = createNativeSettingsRenderer(context);
   const serverDashboard = createNativeServerDashboardRenderer(context);
   let disposed = false, releaseAuthority = () => {};
-  const dispose = () => {if (disposed) return; disposed = true; releaseAuthority(); settings.dispose?.(); serverDashboard.dispose?.(); owner.dispose(); live.dispose(); recordings.dispose(); together.dispose(); togetherMedia.dispose(); lifetime.dispose();};
+  const dispose = () => {if (disposed) return; disposed = true; releaseWatch(); releaseAuthority(); settings.dispose?.(); serverDashboard.dispose?.(); owner.dispose(); live.dispose(); recordings.dispose(); together.dispose(); togetherMedia.dispose(); lifetime.dispose();};
   releaseAuthority = context.subscribeAuthority(() => {if (!lifetime.current()) dispose();});
   return {
     settings,
