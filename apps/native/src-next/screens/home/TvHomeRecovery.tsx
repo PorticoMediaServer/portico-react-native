@@ -30,7 +30,7 @@ export function TvHomeRecovery({session, onRetryNow, onSwitchServer, connectionF
   return <>
     <StateLayout icon="i-srvoff" tone="warning" testID="tv-home-recovery"
       title={session.presented.title} body={session.presented.body}
-      retry={{progress, label, detail}}
+      retry={{progress: progress ?? null, label, detail}}
       primaryAction={{id: 'retry', label: t('next.states.tryNow'), icon: 'i-retry', hasTVPreferredFocus: true, onPress: () => onRetryNow(session.ticket)}}
       secondaryAction={onSwitchServer ? {id: 'switch-server', label: t('next.states.switchServer'), icon: 'i-server', onPress: () => onSwitchServer(session.ticket)} : undefined}
       detailsAction={{id: 'details', label: t('next.states.details'), ref: opener, accessibilityState: {expanded: details}, onPress: () => {if (!ticket.retired) setDetailsTicket(ticket);}}}/>
