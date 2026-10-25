@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {AppState, BackHandler, Linking, NativeModules, Platform, TVEventControl, Text, View} from 'react-native';
+import {AppState, BackHandler, Linking, NativeModules, Platform, Share, TVEventControl, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
@@ -31,6 +31,7 @@ import {PhoneOwnerReset} from './PhoneOwnerReset';
 import type {ResetFileLocation} from '../../../../../packages/client-core/src/account-reset';
 import {PhoneSetupApproval} from './PhoneSetupApproval';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
+import {PhoneNoServers} from './PhoneNoServers';
 import {PhoneAccountMoveNotice} from './PhoneAccountMoveNotice';
 import {PhoneMovePassword} from './PhoneMovePassword';
 import {PhoneMoveCode} from './PhoneMoveCode';
@@ -74,7 +75,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
-  const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'failed'>('idle');
+  const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
   const [memberMove, setMemberMove] = useState<MemberMove>(), [moveSnapshot, setMoveSnapshot] = useState<MemberMoveSnapshot>();
   const memberMoveRef = useRef<MemberMove | undefined>(undefined), memberOperation = useRef<NativeServerSignIn | undefined>(undefined), memberFactorOperation = useRef<NativeServerSignIn | undefined>(undefined);
   const stopMemberMove = () => {memberMoveRef.current?.dispose(); memberMoveRef.current = undefined; memberOperation.current = undefined; setMemberMove(undefined); setMoveSnapshot(undefined);};
@@ -223,7 +224,7 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
         typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
         !Number.isSafeInteger(value.policyRevision) || value.policyRevision < 0) || new Set(out.items.map(value => value.id)).size !== out.items.length)
         throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
-      setServers(out.items); setDirectoryList('idle');
+      setServers(out.items); setDirectoryList('ready');
     } catch (failure) {
       if (!current()) return;
       const presentation = presentError(failure, 'portico-account');
@@ -724,6 +725,22 @@ export function AccountEntry({onBack, onComplete, onSetupComplete, onStageChange
     body={t('web.chooser.waitingBody')} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
     primaryAction={{id: 'check-now', label: t('web.chooser.checkNow'), loading: busy, onPress: () => connectDirectory(target, true)}}
     secondaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), onPress: chooseAnother}}/>;
+  if (!Platform.isTV && stage === 'servers' && directoryList === 'ready' && servers.length === 0) {
+    const source = operation.current, attempt = directoryAttempt.current, scope = accountScope.current;
+    const current = () => !!scope && lifetime.current && stageRef.current === 'servers' && operation.current === source
+      && directoryAttempt.current === attempt && accountScope.current === scope
+      && nativeAccounts.accountCredentials().getSnapshot().session?.account.id === scope?.accountId
+      && nativeAccounts.accountCredentials().getSnapshot().session?.familyId === scope?.familyId;
+    return <PhoneNoServers busy={busy} error={status} onBack={() => {if (current()) back();}}
+      onFind={() => {if (!current() || busyRef.current) return; cancelDirectory(); setAddress(''); setPassword(''); setCode(''); stageRef.current = 'address'; setStage('address');}}
+      onRefresh={() => {if (current()) void run(directory);}}
+      onShare={() => {if (!current() || busyRef.current) return; void run(async () => {
+        if (!current()) return;
+        // Public distribution page only: never share an account, invitation or setup URL.
+        await Share.share({message: 'https://getportico.tv/download/'});
+      });}}
+      onSignOut={() => {if (current() && !busyRef.current) {stageRef.current = 'account-sign-out'; setStage('account-sign-out');}}}/>;
+  }
   if (stage === 'servers') return layout(t('portico.landing.pickTitle'), servers.length ? t('accounts.session.portico') : t('web.hostedAccount.noServersBody'),
     <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{directoryRows(server && server.signIn === 'portico' ? servers.filter(value => value.id === server.id) : servers).map(row => {
       const value = servers.find(item => item.id === row.id)!;
