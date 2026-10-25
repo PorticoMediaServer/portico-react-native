@@ -52,8 +52,8 @@ function PorticoAccountPanel({context, t}: NativeSettingsPanelDeps) {
 
 function PrivacyNotePanel({t}: NativeSettingsPanelDeps) {
   const theme = useTheme();
-  return <View style={{paddingHorizontal: 14, paddingVertical: 12}}>
-    <Text testID="settings-panel-privacy-note" style={[shellType(13, 400, 'normal'), {color: theme.colors.textTertiary}]}>{t('pref.note.privacy.ownerSeesPlays')}</Text>
+  return <View style={theme.isTV ? {paddingLeft: 24, marginBottom: 26} : {paddingHorizontal: 14, paddingVertical: 12}}>
+    <Text testID="settings-panel-privacy-note" style={[shellType(theme.isTV ? 22 : 13, 400, theme.isTV ? 33 : 'normal'), {color: theme.colors.textTertiary}]}>{t('pref.note.privacy.ownerSeesPlays')}</Text>
   </View>;
 }
 
