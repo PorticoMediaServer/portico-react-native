@@ -24,7 +24,7 @@ import {nativeDestinationFocusIds, type NativeDestinationActivationPort} from '.
 import type {NativeSavedViewDestination} from './view-model';
 import {homeCardText} from '../home/model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
-import {exactDurationSeconds, firstPlayable, personalMosaic, playlistEntryMosaic, savedDuration, savedItemCount, savedLibraryName, savedPlaylistEyebrow,
+import {exactDurationSeconds, personalMosaic, playlistEntryMosaic, savedDuration, savedItemCount, savedLibraryName, savedPlaylistEyebrow,
   savedResourceEyebrow, savedTitleCount, savedViewConditionCount, savedVisibility, savedVisibilityHelp} from './presentation';
 
 const t = defaultI18n.t;
@@ -33,6 +33,8 @@ export type NativeSavedEntryActions = Readonly<{
   menuState?: NativeEntryMenuState;
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
+  /** The real page owner plays the entire named resource as one server queue. */
+  playResource?: (shuffle?: boolean) => Promise<void>;
   menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
 }>;
@@ -90,8 +92,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   // An opening belongs to the route it was made on: a different page never draws it.
   const rowMenu = rowMenuState?.route === route ? rowMenuState : undefined;
   const rows: readonly Row[] = useMemo(() => membershipRows(isPlaylist, snapshot), [isPlaylist, snapshot]);
-  const media = rows.map(row => row.media), playable = media.filter(entry => !!entry.playback && entry.available !== false && !entry.missing);
+  const media = rows.map(row => row.media);
   const count = isPlaylist ? playlist?.entryCount : resource?.entryCount;
+  const canPlayResource = !!actions.playResource && (count ?? 0) > 0 && (isPlaylist || resource?.status === 'ready');
   const countText = isPlaylist ? savedItemCount(count) : savedTitleCount(count);
   const duration = exactDurationSeconds(media), artwork = isPlaylist ? playlistEntryMosaic((saved?.projection?.sections ?? []).flatMap(section => section.entries).filter((entry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry')) : personalMosaic(resource);
   const name = isPlaylist ? playlist?.name : resource?.name;
@@ -127,9 +130,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const openingLive = (menu: RowMenu): boolean =>
     mounted.current && opening.current === menu && menu.route === route && activation.getSnapshot().visible;
   const play = (shuffle = false) => {
-    if (!playable.length) return;
-    const entry = shuffle ? playable[Math.floor(Math.random() * playable.length)] : firstPlayable(playable);
-    if (entry) actions.play(entry);
+    if (!canPlayResource || !actions.playResource) return;
+    const playResource = actions.playResource;
+    void run(() => playResource(shuffle));
   };
   const pin = () => {
     if (isPlaylist ? !playlist : !resource) return;
@@ -329,11 +332,11 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{savedVisibilityHelp(resource)}</Text>
           </View>}
           <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 10, paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 14}}>
-            <Button testID="saved-play" focusId="saved-play" variant="primary" icon="i-play" disabled={!playable.length}
+            <Button testID="saved-play" focusId="saved-play" variant="primary" icon="i-play" disabled={busy || !canPlayResource}
               onPress={() => play()} style={theme.isTV ? undefined : {height: 48, flex: 1}}>{t(theme.isTV && resource?.kind === 'collection' ? 'next.cards.playAll' : 'action.play')}</Button>
             {/* collections.html 18/20 draw Shuffle and Pin as labelled glass buttons, and More as
                 a 72 by 14-radius square: the kit's hero glass button is that geometry already. */}
-            <Button testID="saved-shuffle" focusId="saved-shuffle" variant="glass" icon="i-shuffle" iconOnly={!theme.isTV} disabled={playable.length < 2} onPress={() => play(true)}
+            <Button testID="saved-shuffle" focusId="saved-shuffle" variant="glass" icon="i-shuffle" iconOnly={!theme.isTV} disabled={busy || !canPlayResource || (count ?? 0) < 2} onPress={() => play(true)}
               accessibilityLabel={t('title.shuffle')} style={theme.isTV ? undefined : {width: 48, height: 48, borderRadius: 24}}>{t('title.shuffle')}</Button>
             <Button testID="saved-pin" focusId="saved-pin" variant="glass" icon={playlist?.pinned || resource?.pinned ? 'i-bookmark-f' : 'i-bookmark'} iconOnly={!theme.isTV} disabled={busy || !(isPlaylist ? playlist?.actions.includes('pin') : resource?.actions.includes('pin'))}
               onPress={pin} accessibilityLabel={t(playlist?.pinned || resource?.pinned ? 'pins.unpin' : 'pins.pin')}

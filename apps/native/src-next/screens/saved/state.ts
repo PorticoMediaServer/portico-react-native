@@ -34,6 +34,34 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
     const controller = createNativeSavedViewController(context, target, common.requestId);
     const entryActions = createNativeEntryActions(context, {current: () => current() && controller.activation.getSnapshot().visible,
       contains: controller.source.contains, subscribe: controller.source.subscribe});
+    let resourcePlay: Readonly<{abort: AbortController; current: () => boolean}> | undefined;
+    const checkPlay = () => {if (resourcePlay && !resourcePlay.current()) resourcePlay.abort.abort();};
+    const playOff = [controller.source.subscribe(checkPlay), context.navigation.subscribe(checkPlay), context.subscribeAuthority(checkPlay)];
+    /** Play the named server resource as one ordered queue. A loaded preview is never its
+     * membership: the server snapshots every eligible occurrence, including later pages. */
+    const playResource = async (shuffle = false): Promise<void> => {
+      if (!current() || !controller.activation.getSnapshot().visible || resourcePlay) return;
+      const port = context.playback.cataloguePlayback?.();
+      if (!port) throw Object.assign(new Error('native_saved_playback_unavailable'), {code: 'unavailable'});
+      const source = controller.source.getSnapshot(), route = source.route;
+      const resource = route?.view === 'playlist' ? source.saved?.playlist : route?.view === 'resource' ? source.personal?.resource : undefined;
+      if (source.phase !== 'ready' || !resource || 'status' in resource && resource.status !== 'ready') return;
+      const revision = context.navigation.getSnapshot().revision, abort = new AbortController();
+      const isCurrent = () => {
+        if (abort.signal.aborted || !current() || !controller.activation.getSnapshot().visible || context.navigation.getSnapshot().revision !== revision) return false;
+        const next = controller.source.getSnapshot();
+        const loaded = route?.view === 'playlist' ? next.saved?.playlist : next.personal?.resource;
+        return next.phase === 'ready' && !!loaded && loaded.id === resource.id && loaded.revision === resource.revision
+          && loaded.serverId === resource.serverId && loaded.viewerFence === resource.viewerFence && (!('status' in loaded) || loaded.status === 'ready');
+      };
+      const operation = {abort, current: isCurrent}; resourcePlay = operation;
+      try {
+        await port.playSegments([{
+          source: route?.view === 'playlist' ? {container: {kind: 'playlist', id: resource.id}} : {saved: {id: resource.id}},
+          ...(shuffle ? {order: {mode: 'shuffle' as const}} : {}),
+        }], {signal: abort.signal, isCurrent});
+      } finally {if (resourcePlay === operation) resourcePlay = undefined;}
+    };
     const pageView = target.kind === 'saved-view' ? target.view : undefined;
     const owner = pageView?.view === 'views'
       ? createNativeSavedViewSummaryOwner(context, controller.source, () => !disposed && lifetime.current() && retained(target))
@@ -68,8 +96,8 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
       if (!current()) return Promise.resolve();
       void owner?.start();
       return controller.load();
-    }, ...(summaries ? {summaries} : {}), rename: openRename, actions: entryActions,
-    dispose: () => {rename?.controller.dispose(); rename = undefined; owner?.dispose(); entryActions.dispose(); controller.dispose();}});
+    }, ...(summaries ? {summaries} : {}), rename: openRename, actions: Object.freeze({...entryActions, playResource}),
+    dispose: () => {resourcePlay?.abort.abort(); resourcePlay = undefined; playOff.forEach(off => off()); rename?.controller.dispose(); rename = undefined; owner?.dispose(); entryActions.dispose(); controller.dispose();}});
   }
   const dispose = () => {
     if (disposed) return;
