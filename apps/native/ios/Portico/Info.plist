@@ -75,6 +75,8 @@
 		<string>_portico-player._tcp</string>
 		<string>_googlecast._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan a QR code you choose. Camera images stay on this device.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Portico looks for servers, TVs and Google Cast devices on your network. Without it, addresses and TV codes still work.</string>
 	<key>NSUserActivityTypes</key>
