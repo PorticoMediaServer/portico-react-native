@@ -126,6 +126,12 @@ export class NativeWatchPresenters {
     if (!entry?.goToArtist || value.busy || !this.current(value.capture)) return;
     this.close(); entry.goToArtist();
   };
+  selectEntry = (value: NativeWatchOverlay) => {
+    const select = value.actions?.select;
+    if (!select || this.value !== value || value.phase !== 'menu' || value.busy || !this.current(value.capture)) return;
+    try {select();}
+    finally {if (this.value === value) this.close();}
+  };
   showDetails = (value: NativeWatchOverlay) => {
     const entry = value.actions?.entry;
     if (!entry?.details || value.busy || !this.current(value.capture)) return;

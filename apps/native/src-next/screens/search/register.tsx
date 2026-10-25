@@ -49,7 +49,8 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
         const showing = context.navigation.getSnapshot().route;
         if (visible(route) || showing.kind === 'search-genres' && all.get(showing)?.explore === explore && visible(showing)) openNativeSearchGenre(context, genre);
       }});
-      roots.set(route, {route, key: ++sequence, search, explore, selection: createNativeSearchSelection(context, search.source, search.activation), actions: createNativeSearchActions(context, search.source, search.activation)});
+      const selection = createNativeSearchSelection(context, search.source, search.activation);
+      roots.set(route, {route, key: ++sequence, search, explore, selection, actions: createNativeSearchActions(context, search.source, search.activation, selection)});
     }
     for (const route of routes) {
       if (route.kind === 'search-genre' && !genres.has(route)) {

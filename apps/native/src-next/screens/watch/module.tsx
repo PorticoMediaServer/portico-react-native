@@ -19,7 +19,7 @@ import {NativeWatchChannelRoute} from './ChannelRoute';
 import {createNativeWatchPanelNames} from './panel-names';
 
 export type NativeWatchEntryMenu = Readonly<{
-  open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>) => Promise<void>;
+  open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void) => Promise<void>;
   isOpen: (entry: ContentEntry) => boolean;
   subscribe: (listener: () => void) => () => void;
 }>;
@@ -89,7 +89,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     authority, current: context.authority, isCurrent: current, subscribeCurrent: context.subscribeAuthority,
     navigation: context.navigation, playback: context.playback, watch: context.watch, isTV: Platform.isTV, player});
   const entryMenu: NativeWatchEntryMenu = Object.freeze({
-    open: (entry, entryCurrent, anchorRef) => current() ? screens.menu(entry, entryCurrent, anchorRef) : Promise.resolve(),
+    open: (entry, entryCurrent, anchorRef, select) => current() ? screens.menu(entry, entryCurrent, anchorRef, select) : Promise.resolve(),
     isOpen: entry => {
       if (!current()) return false;
       const actual = bindings.title.menu?.getSnapshot();

@@ -52,12 +52,12 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
       void context.playback.start({entry, target: entry.playback, lifetime: {signal: operation.abort.signal, isCurrent}})
         .catch(error => {if (isCurrent()) common.reportError(error, 'detail');}).finally(() => {pending.delete(operation);});
     },
-    menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => {
+    menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void) => {
       if (!current(entry)) return;
       const captured = context.navigation.getSnapshot().revision, port = borrowMenu();
       if (!port) {common.reportError(Object.assign(new Error('native_watch_menu_unavailable'), {code: 'unavailable'}), 'detail'); return;}
       const entryCurrent = () => current(entry) && context.navigation.getSnapshot().revision === captured;
-      void port.open(entry, entryCurrent, anchorRef).catch(error => {if (entryCurrent()) common.reportError(error, 'detail');});
+      void port.open(entry, entryCurrent, anchorRef, select ? () => {if (entryCurrent()) select();} : undefined).catch(error => {if (entryCurrent()) common.reportError(error, 'detail');});
     },
     isMenuOpen: (entry: ContentEntry) => current(entry) && nativeWatchEntryMenu(context)?.isOpen(entry) === true,
     dispose: () => {

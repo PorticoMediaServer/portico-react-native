@@ -8,7 +8,7 @@ import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeEntryActions} from '../destinations/entry-actions';
 import {nativeScreenServices} from '../native-screen-services';
 import type {NativeSearchDestination} from './model';
-import type {NativeSearchActions} from './types';
+import type {NativeSearchActions, NativeSearchSelectionPort} from './types';
 
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
 
@@ -16,7 +16,7 @@ const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'per
  * borrowed media action is retired whenever that generation is replaced, even
  * for the same query/fence and even if the producer retained an entry object. */
 export function createNativeSearchActions(context: NativeShellBootstrapContext, source: NativeSearchDestination,
-  activation: NativeDestinationActivationPort): NativeSearchActions & Readonly<{canMenu: (entry: SearchEntry, group: SearchGroup) => boolean; dispose: () => void}> {
+  activation: NativeDestinationActivationPort, selection?: NativeSearchSelectionPort): NativeSearchActions & Readonly<{canMenu: (entry: SearchEntry, group: SearchGroup) => boolean; dispose: () => void}> {
   const lifetime = nativeDestinationLifetime(context), common = nativeScreenServices(context);
   let disposed = false, generation = -1, revision = 0;
   let borrowed: ReturnType<typeof createNativeEntryActions> | undefined, offMenu: (() => void) | undefined;
@@ -63,7 +63,12 @@ export function createNativeSearchActions(context: NativeShellBootstrapContext, 
     },
     play: (entry, group) => {if (media(entry) && contains(entry, group)) borrowed?.play(entry);},
     menu: (entry: SearchEntry, group: SearchGroup, anchor?: RefObject<View | null>) => {
-      if (media(entry) && contains(entry, group)) borrowed?.menu(entry, anchor);
+      if (!media(entry) || !contains(entry, group)) return;
+      const captured = source.getSnapshot().search.generation;
+      const select = selection?.item(group, entry);
+      borrowed?.menu(entry, anchor, select ? () => {
+        if (current() && source.getSnapshot().search.generation === captured && contains(entry, group)) selection?.item(group, entry)?.onEnter();
+      } : undefined);
     },
     isMenuOpen: (entry, group) => media(entry) && contains(entry, group) && borrowed?.isMenuOpen(entry) === true,
     dispose: () => {if (disposed) return; disposed = true; offSource(); offMenu?.(); borrowed?.dispose(); borrowed = undefined; listeners.clear();},

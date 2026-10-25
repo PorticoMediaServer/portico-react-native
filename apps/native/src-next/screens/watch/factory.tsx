@@ -54,7 +54,7 @@ export type NativeWatchMenuEntry = Readonly<{
   details?: () => void;
   dispose: () => void;
 }>;
-export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; entry?: NativeWatchMenuEntry}>;
+export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry}>;
 export type NativeVersionDestination = NativeVersionChooserController;
 export type NativeWatchFactoryPorts = Readonly<{
   api: HttpLocalApi;
@@ -184,7 +184,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     if (fresh) publishVersions(captured, fresh, failedVersionId);
   };
 
-  const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>): Promise<void> => {
+  const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void): Promise<void> => {
     const captured = capture(entry, entryCurrent);
     if (!captured) return;
     // A failed options read must not replace the independent real File info action.
@@ -236,7 +236,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       dispose: () => {detail?.dispose(); detail = undefined;},
     }) : undefined;
     if (detail && !current(captured)) {detail.dispose(); return;}
-    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {})}, anchorRef);
+    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {

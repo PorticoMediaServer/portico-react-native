@@ -117,6 +117,7 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (value.actions?.differentVersion) items.push({id: 'different-version', label: t('next.overlays.differentVersion'), icon: 'i-film', onSelect: () => {void presenters.differentVersion(value);}});
   items.push({id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}});
   if (tv && value.actions?.entry?.goToArtist) items.push({id: 'go-to-artist', label: t('next.watch.goToArtist'), icon: 'i-person', onSelect: () => presenters.goToArtist(value)});
+  if (value.actions?.select) items.push({id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => presenters.selectEntry(value)});
   if (value.actions?.entry?.details) items.push({id: 'details', label: t('title.details'), icon: 'i-page', onSelect: () => presenters.showDetails(value)});
   return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}
