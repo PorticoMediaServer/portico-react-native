@@ -18,6 +18,7 @@ import java.util.UUID
  */
 class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(context) {
   private val publications = PorticoPublicationReads()
+  private val publicationState = PorticoDownloadCenter.PublicationStateRegistry()
   /** Cover-page temp files this very module created; opaque handle -> private cache file. */
   private val coverImages = mutableMapOf<String, File>()
   private val coverLock = Any()
@@ -55,6 +56,7 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     retired.forEach { it.delete() }
     // Transfers belong to the process and go on; only the listener goes.
     PorticoDownloadCenter.post {
+      PorticoDownloadCenter.publicationStateInvalidate(publicationState)
       if (PorticoDownloadCenter.onChanged === changed) PorticoDownloadCenter.onChanged = null
     }
     super.invalidate()
@@ -101,6 +103,24 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
       }
     }
   }
+
+  @ReactMethod
+  fun publicationStateOpen(handle: String?, identifier: String?, generation: String?, expected: String?, promise: Promise) = PorticoDownloadCenter.post {
+    if (!invalidated && PorticoDownloadCenter.publicationStateOpen(publicationState, handle, identifier, generation, expected)) promise.resolve(null)
+    else promise.reject("reading_retired", "reading_retired")
+  }
+  @ReactMethod
+  fun publicationStateRead(handle: String, name: String, promise: Promise) = PorticoDownloadCenter.post {
+    try { check(!invalidated); promise.resolve(PorticoDownloadCenter.publicationStateRead(publicationState, handle, name)) }
+    catch (_: Exception) { promise.reject("reading_retired", "reading_retired") }
+  }
+  @ReactMethod
+  fun publicationStateWrite(handle: String, name: String, json: String, promise: Promise) = PorticoDownloadCenter.post {
+    try { check(!invalidated); PorticoDownloadCenter.publicationStateWrite(publicationState, handle, name, json); promise.resolve(null) }
+    catch (_: Exception) { promise.reject("reading_state_write_failed", "reading_state_write_failed") }
+  }
+  @ReactMethod
+  fun publicationStateClose(handle: String?) = PorticoDownloadCenter.post { PorticoDownloadCenter.publicationStateClose(publicationState, handle) }
 
   @ReactMethod
   fun writeExtra(identifier: String?, name: String?, text: String?, promise: Promise) = PorticoDownloadCenter.post {
