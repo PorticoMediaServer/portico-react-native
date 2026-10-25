@@ -218,6 +218,8 @@ function startVirtualDevice() {
   if (process.env.PORTICO_VEGA_GUI !== '1') args.push('--gui-off');
   if (process.env.PORTICO_VEGA_GL_ACCEL === '0') args.push('--gl-accel-off');
   vega(args);
+  // SDK 0.24 may exit zero after its boot deadline and leave no usable guest.
+  if (!virtualDeviceRunning() || !deviceArchitecture()) fail('The Vega virtual device did not become ready.');
 }
 
 /**

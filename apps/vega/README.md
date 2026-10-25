@@ -74,6 +74,12 @@ Checks: `npx tsc --noEmit` (this app and the shared sources together), `npx tsc 
   and `vda` a fork of `adb`, with the same default ports, so each tool sees (and may stop) the
   other's devices. The script starts the virtual device on port 5701 (`PORTICO_VEGA_DEVICE_PORT`)
   and talks to it through its own device-tool server on port 5039 (`PORTICO_VEGA_ADB_PORT`).
+- **mini-1 display/capture.** SDK 0.24's `--gui-off` mode produced all-black screenshots of
+  both stock Home and Portico on this host. The stock Home screen renders and the script's
+  screenshot works with `PORTICO_VEGA_GUI=1 DISPLAY=:<isolated-display>` on an owned Xvfb
+  process (`Xvfb -displayfd 3 -screen 0 1920x1080x24 -nolisten tcp -noreset`). Keep that display
+  alive for the whole Vega window; stop the exact Vega instance before stopping Xvfb. This
+  setup preserves the saved instance and isolated ports; it does not establish app parity.
 - **Headless graphics.** `PORTICO_VEGA_GL_ACCEL=0 node scripts/vega.mjs device start` selects the
   SDK's supported `--gl-accel-off` backend. This is an opt-in diagnostic/setup option; it does
   not reset the saved device or change Android's bridge server.
