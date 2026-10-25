@@ -69,6 +69,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   // stage, so a retained Submit or a late refusal cannot mark a successor form.
   const [usernameUnavailable, setUsernameUnavailable] = useState(false);
   const [registerOpening, setRegisterOpening] = useState<Readonly<{source: NativePorticoSignIn; owner: {live: boolean}}>>();
+  // The provider completion's opening: the exact transaction this form was drawn for.
+  const [providerOpening, setProviderOpening] = useState<Readonly<{transaction: IdentityTransaction; source: NativePorticoSignIn; owner: {live: boolean}; life: AbortController}>>();
   type SetupReview = Awaited<ReturnType<NativeServerSignIn['reviewHostedSetup']>>;
   const [setupReview, setSetupReview] = useState<SetupReview>();
   const setupReviewTicket = useRef<{source: NativeServerSignIn; controller: AbortController; review?: SetupReview} | undefined>(undefined);
@@ -133,8 +135,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
   // An opaque revision, advanced by every editable register field (the password
   // included), so a Submit drawn against an older draft cannot send its old values.
-  const registerOpeningRef = useRef(registerOpening), registerDraftRev = useRef(0);
-  registerOpeningRef.current = registerOpening;
+  const registerOpeningRef = useRef(registerOpening), providerOpeningRef = useRef(providerOpening), registerDraftRev = useRef(0);
+  registerOpeningRef.current = registerOpening; providerOpeningRef.current = providerOpening;
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
@@ -191,6 +193,16 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setRegisterOpening(Object.freeze({source, owner}));
     return () => {owner.live = false;};
   }, [stage]);
+  // One provider completion opening per drawn transaction, carrying the source it was
+  // drawn with and its own lifetime; retired synchronously with its stage.
+  useLayoutEffect(() => {
+    if (stage !== 'provider' || !transaction) {setProviderOpening(undefined); return;}
+    const source = account.current;
+    if (!source) {setProviderOpening(undefined); return;}
+    const owner = {live: true}, life = new AbortController();
+    setProviderOpening(Object.freeze({transaction, source, owner, life}));
+    return () => {owner.live = false; life.abort();};
+  }, [stage, transaction]);
   useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
   useLayoutEffect(() => {
     if (stage !== 'address') return;
@@ -1099,13 +1111,34 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       }, !username || !name || !password || !email));
   }
   if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
-  if (stage === 'provider') return layout(t('accounts.signIn.portico'), undefined, fields(
-    transaction?.needsUsername && field(t('auth.username'), username, setUsername), transaction?.needsUsername && field(t('auth.yourName'), name, setName),
-    transaction?.mfaRequired && field(t('auth.verificationCode'), code, setCode), !transaction?.contactVerified && field(t('auth.email'), email, setEmail)),
-    action('provider-complete', t('action.continue'), async () => {
-      if (!transaction?.contactVerified) {const challenge = await account.current!.sendContact(email); contact.current = challenge.challengeId; setMasked(challenge.maskedAddress); setCode(''); setStage('contact');}
-      else {await account.current!.finishProvider(username || undefined, name || undefined, code || undefined); await directory();}
-    }));
+  if (stage === 'provider') {
+    // The transaction this form was drawn for and the draft it shows; both must still
+    // be live before any completion or proof refresh and again after the answer.
+    const opening = providerOpening, tx = transaction, revision = registerDraftRev.current;
+    // The exact source is part of the opening, so a retained form can never borrow a
+    // successor source; the predicate and its signal travel into the completion port.
+    const live = () => lifetime.current && stageRef.current === 'provider' && !!opening && !!tx
+      && opening.owner.live && providerOpeningRef.current === opening && opening.transaction === tx
+      && account.current === opening.source && registerDraftRev.current === revision;
+    const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
+    return layout(t('accounts.signIn.portico'), undefined, fields(
+      tx?.needsUsername && field(t('auth.username'), username, edit(setUsername)), tx?.needsUsername && field(t('auth.yourName'), name, edit(setName)),
+      tx?.mfaRequired && field(t('auth.verificationCode'), code, edit(setCode)), !tx?.contactVerified && field(t('auth.email'), email, edit(setEmail))),
+      action('provider-complete', t('action.continue'), async () => {
+        const source = opening?.source;
+        if (!opening || !source || !live()) return;
+        if (!tx?.contactVerified) {
+          const challenge = await source.sendContact(email);
+          if (!live()) return;
+          contact.current = challenge.challengeId; setMasked(challenge.maskedAddress); setCode(''); setStage('contact');
+        } else {
+          await source.finishProvider(username || undefined, name || undefined, code || undefined,
+            {signal: opening.life.signal, isCurrent: live});
+          if (!live()) return;
+          await directory();
+        }
+      }));
+  }
   if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(field(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
     await account.current!.verifyContact(contact.current!, code); setTransaction(value => value && {...value, contactVerified: true}); setCode(''); setStage('provider');
   }, !code));
