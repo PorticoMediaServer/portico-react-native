@@ -5,6 +5,7 @@ import {SettingsRow} from '../../kit/shell';
 import {StateView} from '../../kit/states';
 import type {NativeSettingsPanelDeps} from './settings-panels';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {DeviceReportRow} from './DeviceReportRow';
 
 /** Installation facts already supplied by bootstrap; no guessed version or device name. */
 export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: NativeSettingsPanelDeps & {runtime: NativeShellRuntime}) {
@@ -31,5 +32,6 @@ export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: Nat
     {versionError !== undefined && <StateView {...runtime.error(versionError, () => setRetry(value => value + 1))}/>}
     <SettingsRow testID="settings-open-licenses" label={t('licenses.title')} value={t('next.settingsSpec.account.device.groups.5.rows.3.control.label')} onPress={() => {lifetime.assert(); openRoute({kind: 'licenses'});}}/>
     {!Platform.isTV && <SettingsRow testID="settings-device-help" label={t('next.settingsSpec.account.device.groups.5.rows.4.label')} value={helpAddress} onPress={help}/>}
+    <DeviceReportRow context={context} lifetime={lifetime} t={t} runtime={runtime} openRoute={openRoute}/>
   </View>;
 }
