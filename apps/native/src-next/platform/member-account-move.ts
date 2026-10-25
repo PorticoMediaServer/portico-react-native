@@ -75,12 +75,15 @@ export class NativeMemberAccountMove<Result> {
     this.state = Object.freeze({...this.state, ...patch});
     for (const listener of [...this.listeners]) listener();
   }
+  private fresh(session: LocalSession) {
+    return session.viewer.serverId === this.ports.pin.serverId && session.installationId === this.ports.installationId
+      && session.sessionFamilyId !== this.ports.retainedAppFamilyId
+      && session.sessionFamilyId !== this.ports.operationAccountFamilyId();
+  }
   private async retireFresh(session: LocalSession) {
     // The canonical client supplies only the freshly returned grant. Protect
     // both pre-existing families even if the server returns a confused answer.
-    if (session.viewer.serverId !== this.ports.pin.serverId || session.installationId !== this.ports.installationId
-      || session.sessionFamilyId === this.ports.retainedAppFamilyId
-      || session.sessionFamilyId === this.ports.operationAccountFamilyId()) return;
+    if (!this.fresh(session)) return;
     await this.ports.retireLateGrant(session);
   }
   private async command(work: (epoch: number, signal: AbortSignal, client: MemberAccountMoveClient) => Promise<void>) {
@@ -134,6 +137,8 @@ export class NativeMemberAccountMove<Result> {
     try {
       await this.fence(epoch, hosted);
       if (!this.current(epoch, hosted)) throw cancelled();
+      if (result.kind === 'signed-in' && !this.fresh(result.session))
+        throw new CodedError('identity_mismatch', 'The account move did not issue a fresh session.');
       handedOff = true;
       const adopted = await this.ports.adopt(result);
       // Once handed off, only that normal operation owns grant cleanup. Do
