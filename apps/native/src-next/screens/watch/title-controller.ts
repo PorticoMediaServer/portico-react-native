@@ -1,7 +1,8 @@
 import {DetailService, type DetailApi, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
-import {ShowWorkspaceService, saveShowSettings, type ShowSettings} from '../../../../../packages/client-core/src/show-workspace';
+import {ShowWorkspaceService, saveShowSettings, type ShowSettings, type ShowWorkspaceData} from '../../../../../packages/client-core/src/show-workspace';
 import {getContainerState, setContainerState} from '../../../../../packages/client-core/src/container-state';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import type {NativeShellPlaybackAdapter} from '../../shell/playback';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {NativeTitleMemory, type NativeTitleAnchor, type NativeTitleTab} from './title-memory';
@@ -17,7 +18,19 @@ export type NativeTitleControllerOptions = Readonly<{
   subscribeCurrent: (listener: () => void) => () => void;
   requestId: () => Promise<string>;
   playback: Pick<NativeShellPlaybackAdapter, 'start'>;
+  /** The exact host this page was rendered under: the layout's route revision, or
+   * the playing session's fence. A retained page whose host has moved refuses its
+   * settings, season and filter writes. */
+  host?: () => NativeTitlePageHost | undefined;
+  /** Fires when the route or the playback source changes, so a write in flight
+   * from a page that has left is aborted on the wire. */
+  subscribeHost?: (listener: () => void) => () => void;
 }>;
+
+/** Immutable identity of the page on screen, from the layout's own facts. */
+export type NativeTitlePageHost = Readonly<{revision?: number; fence?: PlaybackFence}>;
+/** One sheet's or control's page: the rendered workspace plus its exact host. */
+export type NativeTitlePageLease = Readonly<{page: ShowWorkspaceData; host: NativeTitlePageHost}>;
 
 /** Real lazy title/show services, retained independently of full-window/docked presentation. */
 export class NativeTitleController {
@@ -31,6 +44,9 @@ export class NativeTitleController {
   private readonly options: NativeTitleControllerOptions;
   private listeners = new Set<() => void>();
   private off: (() => void)[] = [];
+  /** Owner-settings writes still on the wire, each with the lease it belongs to. */
+  private saves = new Set<Readonly<{request: AbortController; lease: NativeTitlePageLease}>>();
+  private readonly offHost: () => void;
   private retired = false;
   private snapshot: ReturnType<NativeTitleController['read']>;
   private opened = false;
@@ -44,8 +60,23 @@ export class NativeTitleController {
       current: () => this.current() && !this.retired, play: (entry, target) => this.options.playback.start({entry, target})});
     this.snapshot = this.read();
     this.off = [this.detail.subscribe(this.changed), this.workspace.subscribe(this.changed), options.subscribeCurrent(() => {if (!this.current()) this.dispose();})];
+    this.offHost = options.subscribeHost?.(() => {for (const save of this.saves) if (!this.hostOf(save.lease)) save.request.abort();}) ?? (() => {});
   }
   private current(): boolean {return !this.retired && sameAuthority(this.options.authority, this.options.current());}
+  /** The exact page and host a control was drawn under, captured once. */
+  pageLease = (): NativeTitlePageLease | undefined => {
+    const page = this.workspace.getSnapshot().data, host = this.options.host?.();
+    return page && host ? Object.freeze({page, host}) : undefined;
+  };
+  private hostOf(lease: NativeTitlePageLease): boolean {
+    const host = this.options.host?.();
+    if (!host || host.revision !== lease.host.revision) return false;
+    return host.fence === undefined ? lease.host.fence === undefined
+      : !!lease.host.fence && sameFence(host.fence, lease.host.fence);
+  }
+  private onLease(lease: NativeTitlePageLease): boolean {
+    return this.current() && this.hostOf(lease) && this.workspace.getSnapshot().data === lease.page;
+  }
   private read() {
     const workspace = this.retired ? undefined : this.workspace.getSnapshot(), data = workspace?.data;
     if (workspace?.phase === 'ready' && data && data !== this.ingested) {
@@ -80,9 +111,10 @@ export class NativeTitleController {
   };
   tab = (tab: NativeTitleTab): void => {if (this.current()) {this.memory.select({tab}); this.changed();}};
   remember = (anchor: NativeTitleAnchor): void => {if (this.current()) {this.memory.remember(anchor); this.snapshot = this.read();}};
-  season = async (id: string): Promise<void> => {
+  /** A season pick belongs to the page it was drawn on: a replaced page refuses. */
+  season = async (id: string, lease?: NativeTitlePageLease): Promise<void> => {
     const data = this.workspace.getSnapshot().data;
-    if (!this.current() || !data || !this.snapshot.seasons.some(season => season.id === id)) return;
+    if (!this.current() || !data || lease && !this.onLease(lease) || !this.snapshot.seasons.some(season => season.id === id)) return;
     await this.workspace.select({libraryId: data.scope.libraryId, showId: data.show.id, selectedSeasonId: id, playState: this.memory.getSnapshot().hideWatched ? 'unplayed' : 'all'});
     if (!this.current() || this.workspace.getSnapshot().data?.selected.seasonId !== id) return;
     this.memory.select({seasonId: id}); this.changed();
@@ -94,9 +126,10 @@ export class NativeTitleController {
     if (!this.current() || this.workspace.getSnapshot().data?.selected.group !== id) return;
     this.memory.select({group: id}); this.changed();
   };
-  hideWatched = async (value: boolean): Promise<void> => {
+  /** The whole-season filter, asked for by the page the switch was drawn on. */
+  hideWatched = async (value: boolean, lease?: NativeTitlePageLease): Promise<void> => {
     const data = this.workspace.getSnapshot().data;
-    if (!this.current() || !data) return;
+    if (!this.current() || !data || lease && !this.onLease(lease)) return;
     await this.workspace.select({libraryId: data.scope.libraryId, showId: data.show.id,
       ...(data.selected.seasonId ? {selectedSeasonId: data.selected.seasonId} : data.selected.group ? {group: data.selected.group} : {}), playState: value ? 'unplayed' : 'all'});
     if (!this.current() || this.workspace.getSnapshot().phase !== 'ready' || this.workspace.getSnapshot().route?.playState !== (value ? 'unplayed' : 'all')) return;
@@ -121,14 +154,26 @@ export class NativeTitleController {
   };
   moreEpisodes = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextEpisodes();};
   moreSeasons = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextSeasons();};
-  /** Owner show settings: the server owns the revision; the page reloads after it. */
-  saveSettings = async (settings: ShowSettings): Promise<void> => {
-    const data = this.workspace.getSnapshot().data;
-    if (!this.current() || !data) return;
-    await saveShowSettings(this.options.api, data.scope.libraryId, data.show.id, settings);
-    if (!this.current()) return;
-    await this.workspace.refresh();
-    this.changed();
+  /** Owner show settings, bound to the exact page and host the sheet opened on.
+   * A replaced page, a left route or session, or a retirement refuses the write;
+   * a host that moves mid-write aborts it on the wire. */
+  saveSettings = async (lease: NativeTitlePageLease, settings: ShowSettings): Promise<boolean> => {
+    if (!this.onLease(lease)) return false;
+    const data = lease.page;
+    const request = new AbortController(), entry = Object.freeze({request, lease});
+    this.saves.add(entry);
+    const api = {request: <T,>(path: string, method?: string, body?: unknown) => this.options.api.request<T>(path, method, body, request.signal)};
+    try {
+      await saveShowSettings(api, data.scope.libraryId, data.show.id, settings);
+      // Its page is still the one on screen: a refresh or replacement that happened
+      // meanwhile is never overwritten or refreshed again from this write.
+      if (!this.current() || request.signal.aborted || !this.hostOf(lease) || this.workspace.getSnapshot().data !== lease.page) return false;
+      await this.workspace.refresh();
+      // Its own refresh replaces the page, so the host is what must still hold.
+      if (!this.current() || request.signal.aborted || !this.hostOf(lease)) return false;
+      this.changed();
+      return true;
+    } finally {this.saves.delete(entry);}
   };
   play = async (entry = this.entry, fromStart = false): Promise<void> => {
     if (!this.current()) return;
@@ -145,6 +190,9 @@ export class NativeTitleController {
   dispose = (): void => {
     if (this.retired) return;
     this.retired = true;
+    this.offHost();
+    for (const save of this.saves) save.request.abort();
+    this.saves.clear();
     for (const off of this.off) off(); this.off = [];
     this.detail.dispose(); this.workspace.dispose(); this.pages.dispose(); this.episode.dispose(); this.snapshot = this.read();
     for (const listener of [...this.listeners]) listener(); this.listeners.clear();

@@ -5,13 +5,14 @@ import {NativeTitleController} from '../src-next/screens/watch/title-controller.
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 function fixture() {
-  let current = authority, held: Promise<void> | undefined;
+  let current = authority, held: Promise<void> | undefined, host: {revision: number} = {revision: 1};
+  const hostListeners = new Set<() => void>();
   const listeners = new Set<() => void>(), paths: URL[] = [], signals: (AbortSignal | null | undefined)[] = [], starts: any[] = [];
   const episode = (id: string) => ({id, kind: 'episode', title: id, libraryId: 'library', available: true, navigation: {view: 'item', entityId: id}, playback: {itemId: id, startMs: 17000}});
   const bodies: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); paths.push(url); signals.push(init?.signal);
-    if (init?.method === 'PUT') {const body = JSON.parse(String(init.body)); bodies.push(body); return new Response(JSON.stringify({revision: 2, ...body}), {status: 200});}
+    if (init?.method === 'PUT') {const body = JSON.parse(String(init.body)); bodies.push(body); await held; return new Response(JSON.stringify({revision: 2, ...body}), {status: 200});}
     await held;
     const selectedSeason = url.searchParams.get('selectedSeasonId') ?? 's1';
     const next = url.searchParams.get('cursor') === 'next';
@@ -25,8 +26,11 @@ function fixture() {
     }), {status: 200});
   });
   const controller = new NativeTitleController({api, scope: {serverId: 'server', viewerId: 'viewer'}, entry: {id: 'show', libraryId: 'library', kind: 'show', title: 'Actual show'},
-    authority, current: () => current, subscribeCurrent(listener) {listeners.add(listener); return () => {listeners.delete(listener);};}, requestId: async () => 'request', playback: {start: async input => {starts.push(input);}}});
-  return {controller, paths, signals, starts, bodies, hold: (value: Promise<void>) => {held = value;}, retire: () => {current = {...current, epoch: 'new'}; for (const listener of listeners) listener();}};
+    authority, current: () => current, subscribeCurrent(listener) {listeners.add(listener); return () => {listeners.delete(listener);};}, requestId: async () => 'request',
+    host: () => host, subscribeHost(listener) {hostListeners.add(listener); return () => {hostListeners.delete(listener);};}, playback: {start: async input => {starts.push(input);}}});
+  return {controller, paths, signals, starts, bodies, hold: (value: Promise<void>) => {held = value;},
+    leave: () => {host = {revision: host.revision + 1}; for (const listener of hostListeners) listener();},
+    retire: () => {current = {...current, epoch: 'new'}; for (const listener of listeners) listener();}};
 }
 
 test('title reads canonical show pages, sends Hide watched and retains it through a season change', async () => {
@@ -68,13 +72,36 @@ test('an authority replacement aborts a pending title request and cannot apply i
   } finally {d.controller.dispose();}
 });
 
-test('owner show settings saves the exact server settings and reloads the same show page', async () => {
+const settings = (revision: number) => ({hideSeasons: revision > 1, absoluteNumbering: false, ranges: false, newestFirst: false, revision});
+
+test('owner show settings save the page and host the sheet opened on, and stop when either leaves', async () => {
   const d = fixture();
   try {
     await d.controller.open(); const before = d.paths.length;
-    await d.controller.saveSettings({hideSeasons: true, absoluteNumbering: true, ranges: false, newestFirst: false, revision: 1});
-    assert.deepEqual(d.bodies[0], {hideSeasons: true, absoluteNumbering: true, ranges: false, newestFirst: false, revision: 1});
+    const lease = d.controller.pageLease()!;
+    assert.equal(await d.controller.saveSettings(lease, settings(1)), true);
+    assert.deepEqual(d.bodies[0], settings(1));
     assert.equal(d.paths.at(-1)?.pathname.endsWith('/show-workspace'), true);
     assert.ok(d.paths.length > before, 'the page is read again after the server applied the settings');
+    // A page replaced since the sheet opened is never written.
+    await d.controller.season('s2');
+    assert.equal(await d.controller.saveSettings(lease, settings(2)), false);
+    assert.equal(d.bodies.length, 1, 'only the page the sheet opened on is saved');
+    // A route that leaves mid-write aborts the transport and never reports success.
+    const moving = d.controller.pageLease()!;
+    let release!: () => void, held!: Promise<void>;
+    held = new Promise<void>(resolve => {release = resolve;});
+    d.hold(held);
+    const pending = d.controller.saveSettings(moving, settings(3));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(d.bodies.length, 2, 'the write started');
+    d.leave();
+    assert.equal(d.signals.at(-1)?.aborted, true, 'the write is aborted on the wire when its host leaves');
+    release();
+    assert.equal(await pending, false);
+    // Retirement writes nothing.
+    d.retire();
+    assert.equal(await d.controller.saveSettings(moving, settings(4)), false);
+    assert.equal(d.bodies.length, 2);
   } finally {d.controller.dispose();}
 });

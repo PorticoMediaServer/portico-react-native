@@ -5,13 +5,14 @@ import {cardText, episodeLabel, playbackIdentity, titleFactParts, type TextEnvir
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
 import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} from '../../kit/cards';
-import {Button, Chip, Focusable, ResumeButton, Tabs} from '../../kit/controls';
+import {Button, Chip, Focusable, ResumeButton, Switch, Tabs} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {StateLayout, TitleSkeleton} from '../../kit/states';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {nativeType, useTheme} from '../../kit/theme';
-import type {NativeTitleController} from './title-controller';
+import type {ShowSettings} from '../../../../../packages/client-core/src/show-workspace';
+import type {NativeTitleController, NativeTitlePageLease} from './title-controller';
 import type {NativeTitleTab} from './title-memory';
 import {TitlePeople} from './TitlePeople';
 import {NativeTitleEpisodePlate} from './TitleEpisodePlate';
@@ -98,7 +99,12 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const bodyWidth = props.watch?.width ?? (twoPane ? rightWidth : viewport.width);
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), titlePlay = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
-  const [seasonsOpen, setSeasonsOpen] = useState(false), [settingsOpen, setSettingsOpen] = useState(false), [settingsBusy, setSettingsBusy] = useState(false);
+  // Each sheet owns the exact page and host it opened on, and the settings sheet
+  // also owns its ticket. A callback only ever acts for the sheet it was rendered
+  // with, so a superseded save can never close or borrow a successor's sheet.
+  const [seasonsSheet, setSeasonsSheet] = useState<NativeTitlePageLease>();
+  const [settingsSheet, setSettingsSheet] = useState<Readonly<{lease: NativeTitlePageLease; ticket: number; busy: boolean}>>();
+  const sheetTicket = useRef(0);
   const [tvFocus, setTvFocus] = useState<{play?: number; episodes?: number; related?: number}>({});
   const continueController = useRef<AbortController>();
   const [continueBusy, setContinueBusy] = useState(false), [continueRemoved, setContinueRemoved] = useState(false);
@@ -319,6 +325,30 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       </View>
   );
   const playingEpisodeId = props.watch?.source.entry?.id, nextEpisodeId = workspace?.nextUp?.id;
+  // phone-detail 6 previews the label the owner's own settings will produce, from
+  // the page the sheet opened on, not from whatever replaced it since.
+  const settingsPage = settingsSheet?.lease.page;
+  const settingsEpisode = (settingsPage ?? workspace)?.nextUp ?? (props.watch?.source.entry?.kind === 'episode' ? props.watch.source.entry : undefined) ?? snapshot.episodes[0];
+  // The controls the body draws belong to the page this render shows.
+  const bodyLease = controller.pageLease();
+  // Openers use the lease this render already holds: a stale opener can never
+  // recapture a later page or host at press time.
+  const closeSeasons = () => setSeasonsSheet(undefined);
+  const openSeasons = () => {if (bodyLease) setSeasonsSheet(bodyLease);};
+  const closeSettings = () => setSettingsSheet(undefined);
+  const openSettings = () => {if (bodyLease) setSettingsSheet({lease: bodyLease, ticket: ++sheetTicket.current, busy: false});};
+  const saveSettings = (value: ShowSettings) => {
+    const sheet = settingsSheet;
+    if (!sheet) return;
+    setSettingsSheet(current => current?.ticket === sheet.ticket ? {...current, busy: true} : current);
+    void controller.saveSettings(sheet.lease, value).then(() => {
+      // This finalizer owns this ticket: a successor sheet stays open.
+      setSettingsSheet(current => current?.ticket === sheet.ticket ? undefined : current);
+    }, error => {
+      setSettingsSheet(current => current?.ticket === sheet.ticket ? undefined : current);
+      props.reportError(error);
+    });
+  };
   const bodyNode = (
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
         {selectedTab === 'episodes' && workspace && (theme.isTV ? <TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
@@ -334,10 +364,16 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/>
           : <>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-            <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" style={{flexShrink: 0}} onPress={() => setSeasonsOpen(true)}>{currentSeasonLabel}</Button>
+            <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" style={{flexShrink: 0}}
+              onPress={openSeasons}>{currentSeasonLabel}</Button>
             {seasonProgress ? <Text numberOfLines={1} style={[theme.type.caption, {color: theme.colors.textTertiary, flexShrink: 1}]}>{seasonProgress}</Text> : null}
             <View style={{flex: 1}}/>
-            {props.owner && <Button testID="watch-show-settings-open" variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => setSettingsOpen(true)}/>}
+            {!theme.isTV && <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0}}>
+              <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary}]}>{t('next.controls.hideWatched')}</Text>
+              <Switch testID="watch-hide-watched" variant={theme.platform === 'phone' ? 'episode' : 'selection'} checked={snapshot.place.hideWatched}
+                accessibilityLabel={t('next.controls.hideWatched')} onCheckedChange={value => {if (bodyLease) void controller.hideWatched(value, bodyLease).catch(props.reportError);}}/>
+            </View>}
+            {props.owner && <Button testID="watch-show-settings-open" variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={openSettings}/>}
           </View>
           {episodes.map(entry => {
             const numbering = episodeNumbering(entry);
@@ -417,6 +453,13 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
       {bodyNode}
     </ScrollView>}{header}
+    {!theme.isTV && <NativeSeasonsSheet open={!!seasonsSheet} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}}
+      seasons={snapshot.seasons} total={workspace?.seasonTotalCount ?? snapshot.seasons.length} selectedId={workspace?.selected.seasonId ?? null}
+      onSelect={id => {const lease = seasonsSheet; closeSeasons(); if (lease) void controller.season(id, lease).catch(props.reportError);}}
+      onMore={() => {void controller.moreSeasons().catch(props.reportError);}}
+      hideWatched={snapshot.place.hideWatched} onHideWatched={value => {if (seasonsSheet) void controller.hideWatched(value, seasonsSheet).catch(props.reportError);}}/>}
+    {!theme.isTV && props.owner && settingsSheet && <NativeShowSettingsSheet open onOpenChange={value => {if (!value) closeSettings();}} showTitle={title}
+      {...(settingsEpisode ? {episode: settingsEpisode} : {})} settings={settingsSheet.lease.page.settings} busy={settingsSheet.busy} onSave={saveSettings}/>}
   </View>;
 }
 

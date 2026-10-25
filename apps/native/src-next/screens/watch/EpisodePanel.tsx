@@ -5,10 +5,10 @@ import {episodeLabel, type TextEnvironment} from '../../../../../packages/client
 import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
-import {Button, Focusable} from '../../kit/controls';
+import {Button, Focusable, Switch} from '../../kit/controls';
 import {useTheme} from '../../kit/theme';
 import {NativeSeasonsSheet} from './SeasonsSheet';
-import type {NativeTitleController} from './title-controller';
+import type {NativeTitleController, NativeTitlePageLease} from './title-controller';
 
 /** collections 37/38: the episode list inside the player (sideways) and the season
  * sheet the upright tab shares. Only the workspace's own seasons and episodes are
@@ -33,7 +33,7 @@ const numbering = (entry: ContentEntry) => entry.absoluteNumber !== undefined ? 
 export function NativeWatchEpisodes({controller, currentId, playing, text, artwork, onPlay, onClose, pane = false}: NativeWatchEpisodesProps) {
   const theme = useTheme(), t = defaultI18n.t;
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-  const [seasonsOpen, setSeasonsOpen] = useState(false);
+  const [seasonsSheet, setSeasonsSheet] = useState<NativeTitlePageLease>();
   const scroll = useRef<ScrollView>(null);
   useEffect(() => {void controller.open().catch(() => {});}, [controller]);
   const workspace = snapshot.workspace, data = workspace?.data;
@@ -50,6 +50,11 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
   // ever dressed up as one.
   const playingIndex = episodes.findIndex(entry => entry.id === currentId);
   const following = pane ? (playingIndex >= 0 ? episodes.slice(playingIndex + 1) : []) : episodes;
+  // The sheet and the switch belong to the page and session this render shows.
+  const lease = controller.pageLease();
+  // The opener closes over this render's lease; a stale opener cannot recapture.
+  const openSeasons = () => {if (lease) setSeasonsSheet(lease);};
+  const closeSeasons = () => setSeasonsSheet(undefined);
   const row = (entry: ContentEntry) => {
     const isPlaying = entry.id === currentId;
     const isNext = !isPlaying && nextUp?.id === entry.id;
@@ -83,11 +88,17 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
     {!pane && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8}}>
       <Text accessibilityRole="header" numberOfLines={1} style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18, fontWeight: '800', letterSpacing: -.02, color: theme.colors.text, flexShrink: 1}}>{t('title.episodes')}</Text>
       <View style={{flex: 1}}/>
-      <Button testID="watch-episodes-seasons" variant="glass" size="small" trailingIcon="i-chdown" onPress={() => setSeasonsOpen(true)}>{seasonLabel}</Button>
+      <Button testID="watch-episodes-seasons" variant="glass" size="small" trailingIcon="i-chdown" onPress={openSeasons}>{seasonLabel}</Button>
       <Button testID="watch-episodes-close" variant="text" iconOnly icon="i-close" accessibilityLabel={t('action.close')} onPress={onClose}/>
     </View>}
-    {!pane && count !== undefined && <Text style={{paddingHorizontal: 16, paddingBottom: 6, fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>
-      {defaultI18n.number(count, {useGrouping: false})} · {t('title.episodes')}</Text>}
+    {!pane && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 6}}>
+      {count !== undefined && <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>
+        {defaultI18n.number(count, {useGrouping: false})} · {t('title.episodes')}</Text>}
+      <View style={{flex: 1}}/>
+      <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary}]}>{t('next.controls.hideWatched')}</Text>
+      <Switch testID="watch-episodes-hide-watched" variant={theme.platform === 'phone' ? 'episode' : 'selection'} checked={snapshot.place.hideWatched}
+        accessibilityLabel={t('next.controls.hideWatched')} onCheckedChange={value => {if (lease) void controller.hideWatched(value, lease).catch(() => {});}}/>
+    </View>}
     {pane && following.length > 0 && <Text testID="watch-episodes-pane-heading" accessibilityRole="header" style={{paddingHorizontal: 0, paddingBottom: 4,
       fontFamily: 'Manrope-Bold', fontSize: 12.5, fontWeight: '700', color: theme.colors.accentStrong}}>{t('player.post.upNext')}</Text>}
     <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={pane ? {paddingHorizontal: 8, paddingBottom: 12, gap: 10} : {paddingHorizontal: 8, paddingBottom: 16}} scrollEventThrottle={32}
@@ -99,7 +110,10 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
       {loading && !episodes.length && <Text style={{padding: 16, color: theme.colors.textTertiary}}>{t('next.states.loading')}</Text>}
       {following.map(row)}
     </ScrollView>
-    {!pane && <NativeSeasonsSheet open={seasonsOpen} onOpenChange={setSeasonsOpen} seasons={seasons} total={seasons.length} selectedId={selected}
-      onSelect={id => {void controller.season(id).catch(() => {});}} hideWatched={false} onHideWatched={() => {}}/>}
+    {!pane && <NativeSeasonsSheet open={!!seasonsSheet} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}} seasons={seasons}
+      total={data?.seasonTotalCount ?? seasons.length} selectedId={selected}
+      onSelect={id => {const sheet = seasonsSheet; closeSeasons(); if (sheet) void controller.season(id, sheet).catch(() => {});}}
+      onMore={() => {void controller.moreSeasons().catch(() => {});}}
+      hideWatched={snapshot.place.hideWatched} onHideWatched={value => {if (seasonsSheet) void controller.hideWatched(value, seasonsSheet).catch(() => {});}}/>}
   </View>;
 }
