@@ -42,7 +42,7 @@ export type NativeLibraryActions = Readonly<{
   menuState?: NativeEntryMenuState;
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
-  menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
+  menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, /** The real selection entry point the menu's Select row runs. */ select?: () => void) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
   saveView: (destination: NativeLibraryDestination, draft: NativeLibraryViewDraft) => void;
   /** The host's count-aware bulk command: one durable job over the view the viewer sees. */
@@ -323,7 +323,6 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
           shadowColor: '#000', shadowOffset: {width: -20, height: 0}, shadowOpacity: .6, shadowRadius: 40}}>{panel}</View>
     </View>}
     {sheet}
-    {props.selection?.render()}
   </View>;
 }
 
@@ -422,7 +421,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const rightGutter = list ? 16 : theme.isTV ? 72 : tabletGeometry ? tabletGeometry.rightGutter : 26;
   const columns = list ? 1 : theme.isTV ? 7 : tablet ? tabletGeometry!.columns : 3;
   return <View style={{flex: 1}}>
-    <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
+    {selection && selected?.active ? selection.render() : <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filtersOpen} docked={dockedFilters}
         canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}
         onFilters={onFilters}
@@ -430,7 +429,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
         onQuick={destination.setQuick} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}
         onJump={() => setJumpOpen(true)} jumpEnabled={!!state.positionIndex && !!Object.keys(state.positionIndex).length} jumpAnchor={jumpAnchor}
         onSelect={selection?.start} selecting={selected?.active ?? false}/>
-    </FocusRegion>
+    </FocusRegion>}
     {!!applied.length ? <FocusRegion id={appliedRegion} entry={applied[0].id} orientation="horizontal" enabled={active.visible}
       edges={{left: ids.rail, up: ids.libraryToolbar(source.library.id), ...(firstKey ? {down: ids.libraryCard(source.library.id, firstKey)} : {})}}
       style={{paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 10, paddingBottom: theme.isTV ? 14 : theme.platform === 'phone' ? 0 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
@@ -455,7 +454,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
         const key = nativeLibraryEntryKey(entry);
         return <FocusRegion id={ids.libraryCard(source.library.id, key)} entry={key} entryPolicy="entry" order={[key]} enabled={active.visible}
           edges={{...(context.index % columns === 0 ? {left: ids.rail} : {}), ...(context.index < columns ? {up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : {})}}>
-          {list ? <LibraryListRow entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/> : <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/>}
+          {list ? <LibraryListRow entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur} onSelect={context.selection?.onEnter ?? selection?.start}/> : <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur} onSelect={context.selection?.onEnter ?? selection?.start}/>}
         </FocusRegion>;
       }}/>
     {alphabet && state.positionIndex !== undefined && state.total !== undefined && <AlphabetRail positionIndex={state.positionIndex}
@@ -466,14 +465,14 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   </View>;
 }
 
-function LibraryCard({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions; selected?: CardSelection; disabled?: boolean; focusId?: string; onFocus?: () => void; onBlur?: () => void}) {
+function LibraryCard({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur, onSelect}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions; selected?: CardSelection; disabled?: boolean; focusId?: string; onFocus?: () => void; onBlur?: () => void; /** The menu's Select row: this card's real selection entry. */ onSelect?: () => void}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
   // tv-player 9: the album that is playing carries the same still meter on its card.
   const adapter = runtime.playback;
   const playing = useSyncExternalStore(adapter?.subscribe ?? (() => () => {}), adapter?.getSnapshot ?? (() => undefined));
   const playingAlbum = entry.kind === 'album' && playing?.entry?.album?.id === entry.id;
   const props = {focusId, disabled, title: entry.displayTitle || entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched, playing: playingAlbum,
-    onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, menuAnchorRef), selection: selected,
+    onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, menuAnchorRef, onSelect), selection: selected,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry), onFocus, onBlur};
   return ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind) ? <SquareCard {...props}/> : <PosterCard {...props}/>;
 }

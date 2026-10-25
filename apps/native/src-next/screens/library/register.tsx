@@ -8,6 +8,7 @@ import {nativeScreenServices} from '../native-screen-services';
 import {createNativeEntryActions} from '../destinations/entry-actions';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeLibraryRenderer} from './index';
+import {createNativeLibrarySelection} from './selection';
 import {nativeLibraryCanSave, type NativeLibraryDestination, type NativeLibraryViewDraft} from './model';
 import {NativeLibrarySaveView} from './save-view';
 import {NativeLibraryMarkAll, type NativeMarkAllRequest} from './mark-all';
@@ -43,6 +44,8 @@ export function createNativeHandheldLibraryModule(context: NativeShellBootstrapC
   const markAllStore: MarkAllStore = {subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => markAll};
   const renderer = createNativeLibraryRenderer(context, {
     activation: libraryId => nativeDestinationActivation(context.navigation, {kind: 'library', libraryId}), labels: {field: label, sort: label, quick: label},
+    selection: destination => createNativeLibrarySelection(context, destination,
+      nativeDestinationActivation(context.navigation, {kind: 'library', libraryId: destination.getSnapshot().library.id})),
     actions: destination => {
       const activation = nativeDestinationActivation(context.navigation, {kind: 'library', libraryId: destination.getSnapshot().library.id});
       const actions = createNativeEntryActions(context, {
