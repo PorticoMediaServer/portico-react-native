@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useRef, useState} from 'react';
+import React, {useCallback, useLayoutEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -25,17 +25,17 @@ export function TVTrustedCertificates({context}: {context?: NativeShellBootstrap
   const [rows, setRows] = useState<readonly SavedCertificate[]>([]), [shown, setShown] = useState<Opening>();
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const cancelFocus = useRef<View | null>(null);
-  const current = () => ticket.active && owner.current === ticket && (!ticket.context || ticket.context.current());
-  const refresh = async () => {
+  const current = useCallback(() => ticket.active && owner.current === ticket && (!ticket.context || ticket.context.current()), [ticket]);
+  const refresh = useCallback(async () => {
     if (!current()) return;
     const read = ++ticket.read;
     try {const value = await savedCertificates(); if (current() && ticket.read === read) {setRows(value); setError(undefined);}}
     catch (failure) {if (current() && ticket.read === read) setError(failure);}
-  };
+  }, [current, ticket]);
   useLayoutEffect(() => {
     ticket.active = true; setRows([]); setShown(undefined); setError(undefined); setBusy(false); void refresh();
     return () => {ticket.active = false; ++ticket.read; if (opening.current?.ticket === ticket) opening.current = undefined;};
-  }, [ticket]);
+  }, [refresh, ticket]);
   const captured = shown?.ticket === ticket ? shown : undefined;
   const close = () => {if (!captured || opening.current !== captured) return; opening.current = undefined; setShown(undefined);};
   const confirm = async () => {
