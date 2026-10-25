@@ -44,13 +44,14 @@ export async function openNativeRead(context: NativeReadNavigationContext, targe
 /** The phone's drawn book destination: a visible, inventory-available Reading
  * item of this library, whose exact version the signed producer still offers.
  * The action is checked against the origin captured when the page was laid out. */
-export async function openNativeReadBook(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; item: ReadingItem}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
+export async function openNativeReadBook(context: NativeReadNavigationContext, target: Readonly<{libraryId: string; item: ReadingItem; stillCurrent?: () => boolean}>, origin: NativeReadOrigin, signal?: AbortSignal): Promise<boolean> {
   const selected = context.session(), item = target.item;
-  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin)) return false;
+  const stillCurrent = () => {try {return target.stillCurrent ? target.stillCurrent() : true;} catch {return false;}};
+  if (signal?.aborted || !selected || !context.current() || !originCurrent(context, origin) || !stillCurrent()) return false;
   if (item.libraryId !== target.libraryId || item.inventoryAvailable !== true || !item.id || !item.sourceId) return false;
   const destination: NativeShellRoute = {kind: 'read-book', libraryId: target.libraryId, item};
   if (!context.navigation.allows(destination)) return false;
-  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId;
+  const current = () => originCurrent(context, origin) && context.session()?.sessionFamilyId === selected.sessionFamilyId && stillCurrent();
   const client = context.api.reading({viewer: selected.viewer, isCurrent: current, signal});
   try {
     const eligibility = await nativeReadEligibility(client, item.id, signal);
