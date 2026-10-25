@@ -39,7 +39,7 @@ export function TVServerChooser({snapshot, busy, error, owner, onBack, onSelect,
     <ScrollView contentContainerStyle={{padding: 48, gap: 24}}>
       {onBack && <Button variant="text" size="small" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
       <View style={{gap: 12}}>
-        <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700}, theme.textScale), {color: theme.colors.text}]}>{t('web.servers.switchServer')}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{t('web.servers.switchServer')}</Text>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.lede')}</Text>
         {error}
         {!snapshot && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}

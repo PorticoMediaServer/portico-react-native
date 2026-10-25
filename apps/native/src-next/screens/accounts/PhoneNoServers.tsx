@@ -18,7 +18,7 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
       {onBack && <Button variant="text" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
       <View style={{gap: 12}}>
-        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700}, theme.textScale), {color: theme.colors.text}]}>{t('web.hostedAccount.noServers')}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{t('web.hostedAccount.noServers')}</Text>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.noneBody')}</Text>
         {error}
       </View>
