@@ -15,7 +15,7 @@ import {registerOverlayKeys} from '../../../platform/overlay-keys';
 import {NativeWatchEqualizer, type NativeEqualizerCopy} from '../../watch/Equalizer';
 import {MusicSignalLine, MusicSignalSheet} from './MusicSignal';
 import {NativeListeningNotice} from './ListeningNotice';
-import {NowPlayingQueue} from './NowPlayingQueue';
+import {NowPlayingQueue, nowPlayingQueueRows} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import type {NowPlayingScreenProps} from './NowPlayingScreen';
 import {useTVQueuePolicy} from './TVQueuePolicy';
@@ -53,7 +53,8 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
   const position = playbackPosition(occupant), bounds = seekBounds(occupant), span = bounds ? bounds.end - bounds.start : p.durationSeconds;
   const artist = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
-  const queueRegion = queue ? `${id}.queue` : undefined;
+  // Right names the queue only when that pane has a real, playable focus stop.
+  const queueRegion = queue && onQueuePlay && nowPlayingQueueRows(queue).some(row => !row.current) ? `${id}.queue` : undefined;
   const actionsRegion = lyrics || onAddToPlaylist || equalizer.supported ? `${id}.actions` : undefined;
   const currentEntry = queue?.queue.entries.find(entry => entry.id === queue.queue.currentEntryId);
   const currentItem = queue?.items.find(item => item.entryId === queue.queue.currentEntryId);
