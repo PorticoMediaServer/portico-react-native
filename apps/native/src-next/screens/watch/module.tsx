@@ -86,6 +86,8 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError, skipModes: skipModes(), artwork: runtime.artwork,
       onMinimize: fence => {if (current()) {const transition = context.playback.dock.collapse(fence); if (transition) void context.playback.onTransition(transition).catch(runtime.reportError);}},
       ...(context.playback.cast ? {onCast: fence => {if (current()) void context.playback.cast?.(fence).catch(runtime.reportError);}} : {}),
+      goLive: fence => {if (current()) void context.playback.goLive?.(fence).catch(runtime.reportError);},
+      ...(Platform.isTV ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),
       ...(bindings.onFullWindow ? {onFullWindow: bindings.onFullWindow} : {}),
     }),

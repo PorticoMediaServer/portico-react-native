@@ -27,10 +27,13 @@ type Props = Readonly<{
   focused?: boolean;
   /** The landing time while the bar is being moved, for the TV key hints. */
   onPreview?: (seconds: number | undefined) => void;
+  /** Live: the retained window's live edge. The stretch behind it is what the
+   * server lets you rewind, and a red mark rides the edge (tv-player 11). */
+  liveEdge?: number;
 }>;
 
 /** Actual time/window only. Scrub commits on lift; absent trickplay never becomes invented imagery. */
-export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview}: Props) {
+export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge}: Props) {
   const theme = useTheme(), fence = source.fence, width = useRef(0), dragging = useRef(false);
   const [preview, setPreview] = useState<number>();
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
@@ -59,8 +62,10 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
     onPress={() => {if (!fence || !current()) return; const landing = position;
       void playback.seek(fence, landing).then(() => {if (playback.getSnapshot().playback.intent !== 'playing') return playback.toggle(fence);}).catch(reportError);}}
     style={{height: size, justifyContent: 'center'}}>
-    {({focused: ring}) => <View pointerEvents="none" style={{height: track, backgroundColor: 'rgba(237,245,250,.22)', borderRadius: tv ? track / 2 : compact ? 0 : 4}}>
+    {({focused: ring}) => <View pointerEvents="none" style={{height: track, backgroundColor: liveEdge === undefined ? 'rgba(237,245,250,.22)' : 'rgba(237,245,250,.1)', borderRadius: tv ? track / 2 : compact ? 0 : 4}}>
+      {liveEdge !== undefined && span > 0 && <View style={{position: 'absolute', top: 0, bottom: 0, left: 0, width: `${Math.max(0, Math.min(1, (liveEdge - start) / span)) * 100}%`, backgroundColor: 'rgba(237,245,250,.3)', borderRadius: 4}}/>}
       <View style={{position: 'absolute', top: 0, bottom: 0, left: 0, width: `${(tv ? played : progress) * 100}%`, backgroundColor: theme.colors.accentStrong, borderRadius: tv ? track / 2 : 2}}/>
+      {liveEdge !== undefined && span > 0 && <View style={{position: 'absolute', top: '50%', left: `${Math.max(0, Math.min(1, (liveEdge - start) / span)) * 100}%`, width: 4, height: 30, marginTop: -15, marginLeft: -2, borderRadius: 2, backgroundColor: theme.colors.record}}/>}
       {tv && preview !== undefined && preview > source.playback.positionSeconds && <View style={{position: 'absolute', top: 0, bottom: 0, left: `${played * 100}%`, width: `${Math.max(0, progress - played) * 100}%`, backgroundColor: 'rgba(92,179,226,.42)'}}/>}
       {span > 0 && marks.map((marker, index) => {
         const first = index === 0, last = index === marks.length - 1;

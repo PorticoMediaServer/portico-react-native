@@ -4,6 +4,7 @@ import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming}
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
 import {sameFence, activeSegment, skipTarget, skipsAutomatically, followedByScene, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
 import {upNextCountdown, upNextOffer} from '../../../../../packages/client-core/src/up-next';
+import {channelSeconds} from '../../../../../packages/client-core/src/playback/linear-protocol';
 import {playbackIdentity, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -17,12 +18,12 @@ import {useMotion} from '../../kit/useMotion';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
 import {NativeUpNextCard} from './UpNextCard';
-import type {ArtworkSource} from '../../kit/artwork';
+import {Artwork, type ArtworkSource} from '../../kit/artwork';
 
 export type NativeWatchChromeProps = Readonly<{
   source: NativePlaybackRuntimeSnapshot;
   controls: NativeWatchControls;
-  playback: Pick<NativeShellPlaybackAdapter, 'getSnapshot' | 'toggle' | 'skip' | 'seek' | 'previous' | 'next'>;
+  playback: Pick<NativeShellPlaybackAdapter, 'getSnapshot' | 'toggle' | 'skip' | 'seek' | 'previous' | 'next' | 'goLive'>;
   text: TextEnvironment;
   /** Delivered by the current-fence producers, never the first/default offer or a policy ceiling. */
   quality: string;
@@ -37,6 +38,10 @@ export type NativeWatchChromeProps = Readonly<{
   skipBackSeconds: number;
   skipForwardSeconds: number;
   onMinimize: (fence: PlaybackFence) => void;
+  /** Live TV's Guide leaves the player for the guide. */
+  onGuide?: () => void;
+  /** Channels only: return the same session to the live edge. */
+  goLive?: (fence: PlaybackFence) => void;
   /** The viewer's Settings choice per segment kind; the engine already applies `auto`. */
   skipModes: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
   /** The current authority's artwork resolver, for the next episode's still. */
@@ -148,6 +153,17 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
+  // tv-player 11: a channel is the normal player with the guide's programme in it.
+  const linear = fence?.kind === 'channel' ? source.playback.linear : undefined;
+  const liveEdge = linear ? channelSeconds(linear.media.liveEdgeUs) : undefined;
+  const behindLive = liveEdge === undefined ? 0 : Math.max(0, liveEdge - source.playback.positionSeconds);
+  const audioTracks = source.options?.versions.find(version => version.id === source.session?.versionId)?.audio.length ?? source.options?.versions[0]?.audio.length ?? 0;
+  const liveNumber = linear && /^\d{1,6}$/.test(linear.channel.channelId) ? linear.channel.channelId : undefined;
+  const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 3).map(word => word[0]!.toUpperCase()).join('');
+  const channelMark = linear ? (linear.media.logoUrl
+    ? <Artwork source={props.artwork?.(linear.media.logoUrl)} width={64} height={64} style={{borderRadius: 15, overflow: 'hidden', marginRight: 24}}/>
+    : <View style={{width: 64, height: 64, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginRight: 24, backgroundColor: theme.colors.accentDeep}}>
+        <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 21, fontWeight: '800', color: '#fff'}}>{initials(linear.name)}</Text></View>) : null;
   if (theme.isTV && state.panel && props.tvPanelRight !== undefined) return <View testID="watch-tv-panel-backdrop" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{width, height}}>
     {identity && <View style={{position: 'absolute', left: 96, right: props.tvPanelRight, top: 80}}>
       <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.015, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
@@ -200,10 +216,28 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.left ?? 0), right: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
-          {!compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: theme.isTV ? 0 : 8}}><Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 44 : 16.5, weight: 800, tracking: theme.isTV ? -.03 : -.015, lineHeight: theme.isTV ? 52 : 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
-            <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: theme.isTV ? 24 : 13, lineHeight: theme.isTV ? 32 : undefined, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join(' ')}</Text></View>}
+          {theme.isTV && linear && <>{channelMark}<View style={{flexShrink: 1, minWidth: 0}}>
+            <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center', minWidth: 0}}>
+              <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.text, flexShrink: 0}]}>{linear.name}</Text>
+              {liveNumber && <Text style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, marginLeft: 12, color: theme.colors.textSecondary}]}>{liveNumber}</Text>}
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 18}}>
+                <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.record}}/>
+                <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('next.kit.live')}</Text>
+              </View>
+            </View>
+            <View style={{flexDirection: 'row', alignItems: 'baseline', minWidth: 0}}>
+              {linear.programme && <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, marginRight: 12, color: theme.colors.textSecondary}]}>{t('next.kit.range', {start: wallClock(linear.programme.startMs), end: wallClock(linear.programme.endMs)})}</Text>}
+              {linear.next && <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.textTertiary, flexShrink: 1}]}>{t('player.live.next', {title: linear.next.title})}</Text>}
+            </View>
+          </View></>}
+          {!linear && !compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}><Text numberOfLines={1} style={[nativeType({size: 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
+            {theme.isTV ? <View style={{flexDirection: 'row', alignItems: 'baseline', minWidth: 0}}>{identity!.subtitle.map((part, index) =>
+              <Text key={`${part.role}:${index}`} numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.textSecondary},
+                {flexShrink: index === 0 ? 0 : 1, marginRight: 10}]}>{part.text}</Text>)}</View>
+              : <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 13, color: theme.colors.textSecondary}]}>{identity!.subtitle.map(part => part.text).join(' ')}</Text>}</View>}
           <View style={{flex: 1}}/>
-          {theme.isTV && <View style={{marginLeft: 14, alignItems: 'flex-end'}}>
+          {theme.isTV && !linear && <View style={{marginLeft: 14, alignItems: 'flex-end'}}>
             <Text style={{fontFamily: 'Manrope-Bold', fontSize: 32, lineHeight: 40, fontWeight: '700', color: theme.colors.text, fontVariant: ['tabular-nums']}}>{wallClock(now)}</Text>
             <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, lineHeight: 26, fontWeight: '600', marginTop: 2, color: theme.colors.textSecondary}}>{t('next.watch.ends', {time: wallClock(now + Math.max(0, source.playback.duration - source.playback.positionSeconds) * 1000)})}</Text>
           </View>}
@@ -213,11 +247,19 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
         {theme.isTV && <View style={{position: 'absolute', left: 96 + (props.edgeInsets?.left ?? 0), right: 96 + (props.edgeInsets?.right ?? 0), bottom: 80}}>
-          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} tv focused={seekFocused} onPreview={setLanding} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} tv focused={seekFocused} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
           {landing === undefined && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 30, marginTop: 10}}>
             <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
+            {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 22, marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}
             <View style={{flex: 1}}/>
-            <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>
+            {linear && behindLive > 5
+              ? <Focusable focusId="watch-go-live" testID="watch-go-live" accessibilityRole="button" focusable={visible} disabled={!visible}
+                  onPress={() => {if (current() && props.goLive) {controls.reveal(fence); props.goLive(fence);}}}
+                  style={{height: 48, paddingHorizontal: 20, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
+                  <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.record}}/>
+                  <Text style={{fontFamily: 'Manrope-Bold', fontSize: 21, fontWeight: '700', color: theme.colors.text}}>{t('player.live.goLive')}</Text>
+                </Focusable>
+              : <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>}
           </View>}
           {seekFocused
             ? <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center'}}>
@@ -227,11 +269,16 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
               {hint(3, keycap('Back'), t('player.hint.returnTo', {time: clockText(returnAt)}))}
             </View>
             : <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-              <View style={{flex: 1}}>{fence.kind === 'queue' && fence.showId && option('episodes', t('title.episodes'))}</View>
+              <View style={{flex: 1}}>{linear
+                ? (props.onGuide ? <Focusable focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => props.onGuide!()}
+                    style={{height: 64, paddingHorizontal: 26, borderRadius: 32, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
+                    <Icon name="i-list" size={28} color={theme.colors.text}/><Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.live.guide')}</Text>
+                  </Focusable> : null)
+                : fence.kind === 'queue' && fence.showId && option('episodes', t('title.episodes'))}</View>
               {transport}
               <View style={{flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 14}}>
-                {source.capabilities.subtitleTrack && option('subtitles', t('player.opt.subtitles'), props.subtitle)}
-                {source.capabilities.audioTrack && option('audio', t('title.audio'), props.audio)}
+                {source.capabilities.subtitleTrack && option('subtitles', linear ? t('player.live.captions') : t('player.opt.subtitles'), props.subtitle ?? (linear ? t('player.opt.off') : undefined))}
+                {source.capabilities.audioTrack && audioTracks > 1 && option('audio', t('title.audio'), props.audio)}
                 {option('quality', t('player.opt.quality'), props.quality)}
                 {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
                 {props.onPictureInPicture && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}

@@ -76,6 +76,8 @@ export interface NativeShellPlaybackAdapter {
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;
   next: (fence: PlaybackFence) => Promise<void>;
+  /** Channels only: return to the live edge of the retained window. */
+  goLive?: (fence: PlaybackFence) => Promise<void>;
   cast?: (fence: PlaybackFence) => Promise<void>;
   stop: (fence: PlaybackFence) => Promise<void>;
   open: (fence: PlaybackFence) => void;

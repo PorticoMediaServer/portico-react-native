@@ -136,6 +136,8 @@ export interface NativePlaybackAdapter {
   cast?: (fence: PlaybackFence) => Promise<void>;
   prepareExternalPresentation?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<NativeBinding | undefined>;
   requestPictureInPicture?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<boolean>;
+  /** Channels only: return to the live edge of the retained window. */
+  goLive?: (fence: PlaybackFence) => Promise<void>;
   stop: (fence: PlaybackFence) => Promise<void>;
   restoreBookmark: (expectedBookmarkFence: PlaybackFence, playExplicitly: boolean) => Promise<PlaybackFence | undefined>;
   open: (fence: PlaybackFence) => void;
