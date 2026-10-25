@@ -51,7 +51,7 @@ class PorticoHighlightsSave(private val context: ReactApplicationContext) : Reac
     try { stream?.close() } catch (_: Exception) { /* writer finally owns retirement */ }
   }
   private val listener = object : BaseActivityEventListener() {
-    override fun onActivityResult(activity: Activity?, code: Int, result: Int, data: Intent?) {
+    override fun onActivityResult(activity: Activity, code: Int, result: Int, data: Intent?) {
       val original = synchronized(gate) {
         val value = operation ?: return
         if (!owns(value) || activity !== value.activity || code != value.code || value.resultClaimed) return
@@ -95,7 +95,7 @@ class PorticoHighlightsSave(private val context: ReactApplicationContext) : Reac
     if (!Regex("^[A-Za-z0-9_-]{32}$").matches(id) || !Regex("^[A-Za-z0-9 -]{1,64}-highlights\\.md$").matches(name) || markdown.length > 4194304 || !markdown.startsWith("# Highlights\n")) { promise.reject("invalid_highlights", "Invalid highlights export"); return }
     synchronized(gate) {
       if (closed || custody != null || nextCode > 65534) { promise.reject("highlights_busy", "Save unavailable"); return }
-      val activity = currentActivity
+      val activity = context.currentActivity
       if (activity == null) { promise.reject("highlights_busy", "Save unavailable"); return }
       val bytes = markdown.toByteArray(Charsets.UTF_8)
       if (bytes.size > 4194304) { bytes.fill(0); promise.reject("invalid_highlights", "Invalid highlights export"); return }
@@ -120,7 +120,7 @@ class PorticoHighlightsSave(private val context: ReactApplicationContext) : Reac
     } catch (_: Exception) { promise.reject("invalid_diagnostics", "Invalid diagnostics export"); return }
     synchronized(gate) {
       if (closed || custody != null || nextCode > 65534 || diagnosticsIds.size >= 4096 || diagnosticsIds.contains(id)) { promise.reject("diagnostics_busy", "Save unavailable"); return }
-      val activity = currentActivity
+      val activity = context.currentActivity
       if (activity == null) { promise.reject("diagnostics_busy", "Save unavailable"); return }
       val bytes = json.toByteArray(Charsets.UTF_8)
       if (bytes.size > 8388608) { bytes.fill(0); promise.reject("invalid_diagnostics", "Invalid diagnostics export"); return }
