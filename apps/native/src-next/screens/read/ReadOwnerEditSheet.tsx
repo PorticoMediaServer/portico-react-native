@@ -15,16 +15,19 @@ const {t} = defaultI18n;
 const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
 const sourceLabel = (source: string | undefined): string | undefined =>
   !source || source === 'automatic' ? undefined
-    : source === 'owner' || source === 'manual' ? t('web.metadata.editedHere')
-      : t('web.metadata.fromSource', {source});
+    : source === 'file-metadata' ? t('next.reader.sourceFileMetadata')
+      : source === 'file-name' ? t('next.reader.sourceFileName')
+        : source === 'folder' ? t('next.reader.sourceFolder')
+          : source === 'owner' || source === 'manual' ? t('next.reader.sourceOwner')
+            : t('web.metadata.fromSource', {source});
 
 /** phone-read 3b: the owner's Reading edit sheet over the single-item repair
  * producer. It is bound to the committed book page it was opened from: every
  * request is scoped to that route/revision, session family and authority, and
  * the sheet retires with its page or its own close. */
-export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, title, onClose}: Readonly<{
+export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, onClose}: Readonly<{
   context: NativeShellBootstrapContext; lease: NativeReadOwnerEditLease; owner: object;
-  itemId: string; libraryId: string; title: string; onClose: (owner: object) => void;
+  itemId: string; libraryId: string; onClose: (owner: object) => void;
 }>) {
   const theme = useTheme();
   const sheetLife = useRef<AbortController>(new AbortController()).current;
@@ -104,8 +107,8 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ti
     } catch {if (owned()) setFailed(true);}
     finally {if (saving.current === ticket) {saving.current = undefined; if (owned()) setBusy(false);}}
   };
-  return <BottomSheet open onOpenChange={open => {if (!open && owned()) close();}} title={t('web.metadata.editTitle', {title})}
-    description={t('next.overlays.ownerOnly')} testID="native-read-owner-edit" keyboardAvoiding
+  return <BottomSheet open onOpenChange={open => {if (!open && owned()) close();}} title={t('next.reader.editDetails')}
+    description={t('next.reader.ownerOnly')} testID="native-read-owner-edit" keyboardAvoiding
     footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 10}}>
       <Button variant="glass" onPress={() => {if (owned()) close();}} disabled={busy}>{t('action.cancel')}</Button>
       <Button onPress={() => {void save();}} loading={busy} disabled={!exact(data) || busy}>{t('action.save')}</Button>

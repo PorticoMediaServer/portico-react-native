@@ -64,7 +64,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   const menu: readonly MenuEntry[] = [
     ...(state.read ? [{id: 'read-mark', label: t(state.read.read ? 'next.reader.markUnread' : 'next.reader.markRead'), icon: 'i-check' as IconName,
       onSelect: () => {setMore(false); toggleRead(state.read!);}}] : []),
-    ...(owner && editLease ? [{id: 'edit-details', label: t('web.metadata.editTitle', {title}), tone: 'owner' as const,
+    ...(owner && editLease ? [{id: 'edit-details', label: t('next.reader.editDetails'), tone: 'owner' as const,
       onSelect: () => {if (!editLease.isCurrent()) return; setMore(false); setEdit({lease: editLease, owner: {}, key: ++editSeq.current});}}] : []),
     ...(contents.length ? [{id: 'details', label: t('next.reader.details'), selected: tab === 'details', onSelect: () => {setTab('details'); setMore(false);}}] : []),
     {id: 'settings', label: t('next.reader.openSettings'), onSelect: () => {setMore(false); onOpenSettings();}},
@@ -130,7 +130,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       {body}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
-    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} title={title}
+    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId}
       onClose={ticket => setEdit(current => current?.owner === ticket ? undefined : current)}/> : null}
   </View>;
 }
