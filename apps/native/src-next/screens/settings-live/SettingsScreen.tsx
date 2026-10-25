@@ -183,6 +183,11 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   useSyncExternalStore(devicePreferences.subscribe, () => page.sections.flatMap(section => section.rows).filter(row => row.kind === 'composite' && row.storage === 'device').map(row => devicePreferences.read((row as Extract<Row, {kind: 'composite'}>).id)).join('|'));
   useEffect(() => setAdvanced(false), [page.id]);
   const visible = (row: Row) => !('when' in row) || !row.when || state.preferences.effective[row.when.key] === ('equals' in row.when ? row.when.equals : undefined);
+  const enabled = (row: Row) => {
+    if (!('enableWhen' in row) || !row.enableWhen) return true;
+    const value = state.preferences.effective[row.enableWhen.key];
+    return value !== undefined && row.enableWhen.in.includes(value);
+  };
   const sections = page.sections.filter(section => !section.advanced || advanced);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const showEqualizer = page.id === 'music' && equalizer.supported;
@@ -191,6 +196,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   }, [showEqualizer, equalizer.ready, runtime.reportError]);
   const rowIds = sections.flatMap(section => [...section.rows.filter(visible).map(settingsRowId), ...(showEqualizer && section.id === 'sound' ? ['settings-equalizer'] : [])]);
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
+    if (!enabled(row)) return;
     if (row.kind === 'composite' && row.storage === 'device') {void devicePreferences.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
     const patch = row.kind === 'preference' ? {[row.key]: value} : compositePatch(row.id, value as string | boolean);
     const field = state.preferences.registry.fields.find(value => value.key === Object.keys(patch)[0]);
@@ -222,7 +228,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         const value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
         if (value === undefined) return null;
         const scope = settingsScopeLabel(row.scope, theme.isTV ? 'tv' : 'phone');
-        const copy = {label: t(row.label), description: row.help ? t(row.help) : undefined, scope: scope ? t(scope) : undefined, first: index === 0, dependent: !!row.when};
+        const copy = {label: t(row.label), description: row.help ? t(row.help) : undefined, scope: scope ? t(scope) : undefined, first: index === 0, dependent: !!row.when || !!row.enableWhen};
         const control = row.control;
         if (theme.isTV && control.type !== 'switch') {
           if (control.type === 'languages') {
@@ -241,7 +247,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         }
         const choiceList = control.type === 'choice' ? control.choices : undefined;
         return <SettingsRow key={id} testID={id} {...copy}
-          control={control.type === 'switch' ? <Switch testID={id} checked={value === true} accessibilityLabel={t(row.label)} disabled={state.busy} onCheckedChange={next => change(row, next)}/>
+          control={control.type === 'switch' ? <Switch testID={id} checked={value === true} accessibilityLabel={t(row.label)} disabled={state.busy || !enabled(row)} onCheckedChange={next => change(row, next)}/>
             : choiceList ? <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={choiceList.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)}))} onValueChange={next => {const choice = choiceList.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}} disabled={state.busy}/>
               : control.type === 'languages' ? <LanguageList testID={id} label={t(row.label)} value={(Array.isArray(value) ? value : []).map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} available={COMMON_LANGUAGES.map(id => ({id, label: languageName(id, key => defaultI18n.has(key) ? t(key as Parameters<typeof t>[0]) : undefined)}))} limit={MAX_LANGUAGES} onChange={next => change(row, next.map(value => value.id))}/>
                 : <Select testID={id} accessibilityLabel={t(row.label)} value={String(value)} options={localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}))} onValueChange={next => change(row, next)} disabled={state.busy}/>}/>;
