@@ -142,6 +142,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var displayMatchedItem = ""
   private var firstFrameItem = ""
   private var frameRateVoted = false
+  private var votedFrameSurface: Surface? = null
   private var frameRateClear: Runnable? = null
   /** The surface the picture is drawn on, lent by the view that shows it (for the display's frame rate). */
   var displaySurface: (() -> Surface?)? = null
@@ -259,6 +260,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (invalidated) return "Playback controller is closed."
     val binding = command?.get("binding") as? Map<*, *> ?: return "Invalid playback binding."
     @Suppress("UNCHECKED_CAST") val bound = binding as Map<String, Any?>
+    if (command["matchFrameRate"] != null && command["matchFrameRate"] != "auto" && command["matchFrameRate"] != "off") return "Invalid display matching choice."
     if (listeningOwner != null && !applyingListening) {
       // A delayed JavaScript command may attach the visual surface; it cannot undo a native pause,
       // a timer, an interruption or the end of the owner's authority.
@@ -354,6 +356,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       if (position.isFinite() && (timelineOriginMs != null || position >= 0)) { routePosition = position; routeResume = true; routeFailed = false; routeEpoch++ }
     }
     command = next
+    clearDisabledFrameRate()
     desiredPaused = next["paused"] as Boolean
     if (verifying) {
       if (!routeSuspended) { subtitles.invalidate(); audioSelection.invalidate(); unload(); routeSeeking = false; seeking = false; seekWait = null }
@@ -642,12 +645,29 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   // --- matching the display (television) ---------------------------------------------------
 
+  private fun clearDisabledFrameRate() {
+    if (command?.get("matchFrameRate") != "off") return
+    val target = votedFrameSurface
+    frameRateClear?.let { main.removeCallbacks(it) }
+    frameRateClear = null
+    if (target == null || !target.isValid || Build.VERSION.SDK_INT < 30) {votedFrameSurface = null; frameRateVoted = false; return}
+    try {
+      target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+      frameRateVoted = false
+      votedFrameSurface = null
+    } catch (_: Exception) {}
+  }
+
   private fun voteFrameRate(target: Surface, fps: Float): Boolean {
-    if (Build.VERSION.SDK_INT < 30) return false
+    clearDisabledFrameRate()
+    if (Build.VERSION.SDK_INT < 30 || command?.get("matchFrameRate") == "off") return false
     return try {
+      val previous = votedFrameSurface
+      if (previous != null && previous !== target && previous.isValid) previous.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
       if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
       else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
       frameRateVoted = true
+      votedFrameSurface = target
       true
     } catch (_: Exception) { false }
   }
@@ -655,12 +675,13 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** The display goes back to its own rate a moment after playback is left, not between two episodes. */
   private fun scheduleFrameRateClear() {
     frameRateClear?.let { main.removeCallbacks(it) }
-    if (!frameRateVoted) return
+    if (votedFrameSurface == null) return
     val work = Runnable {
       frameRateClear = null
-      val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+      val target = votedFrameSurface
       if (lease != null && player?.currentMediaItem != null) return@Runnable
       frameRateVoted = false
+      votedFrameSurface = null
       if (target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return@Runnable
       try { target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) } catch (_: Exception) {}
     }
@@ -693,9 +714,10 @@ internal class PorticoPlaybackController(private val context: Context) {
     // The viewer's setting, where the system has one (Android 12): never, only when the picture
     // does not break, or always.
     val preference = if (Build.VERSION.SDK_INT >= 31) displays.matchContentFrameRateUserPreference else null
-    val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
+    val never = command?.get("matchFrameRate") == "off" || preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
     val fps = format.frameRate.takeIf { it.isFinite() && it >= 1f && it <= 240f }
     val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+    clearDisabledFrameRate()
     if (Build.VERSION.SDK_INT >= 30 && !never && fps != null && (target == null || !target.isValid) && !backgroundHold) {
       // READY can arrive before React has mounted the surface. Keep the opening frame until
       // there is somewhere to make the rate request, within the same bounded startup wait.
@@ -1210,6 +1232,9 @@ internal class PorticoPlaybackController(private val context: Context) {
     next["seekPlan"] = media["seekPlan"]
     next["audio"] = attached?.get("audio") ?: command?.get("audio")
     next["subtitles"] = attached?.get("subtitles") ?: command?.get("subtitles")
+    // Display metadata belongs to the validated attachment, never its playback intent.
+    // Missing stays missing (Automatic), including after an earlier attachment chose Off.
+    attached?.get("matchFrameRate")?.let { next["matchFrameRate"] = it }
     // The same command again changes nothing, and must not churn JavaScript's command barrier.
     val before = command?.let { HashMap(it).apply { remove("commandRevision") } }
     if (before == HashMap(next).apply { remove("commandRevision") }) return

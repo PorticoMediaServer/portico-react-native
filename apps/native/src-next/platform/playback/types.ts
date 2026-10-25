@@ -52,6 +52,8 @@ export type NativePlaybackSurfaceProps = Readonly<{
 }>;
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
 export type NativePlaybackSettings = Readonly<{
+  /** Android display matching; absent is the platform's existing Automatic behavior. */
+  matchFrameRate?: 'auto' | 'off';
   audiobook?: import('../../../../../packages/client-core/src/audiobook-preferences').AudiobookPreferences;
   /** The profile's Music > Sound settings, as the listening engine renders them. */
   audioEffects?: import('../../../../../packages/client-core/src/audio-effects').AudioEffectsSettings;
@@ -79,6 +81,7 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
 
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */
 export type NativePlaybackRuntimeOptions = Readonly<{
+  androidDisplayMatching?: true;
   api: HttpLocalApi;
   authority: () => PlaybackAuthority;
   session: () => LocalSession | undefined;
