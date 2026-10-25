@@ -1,4 +1,4 @@
-import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult} from '../../../../../../packages/client-core/src/remote-sources';
+import {RemoteSourceService, type RemoteState, type RemoteSource, type DAVConfiguration, type DAVConnectionInput, type DAVConnectionResult, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from '../../settings-live/lifetime';
 import type {NativeSettingsLivePorts} from '../../settings-live/ports';
 
@@ -16,16 +16,17 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   private readonly lifetime: NativeScreenLifetime;
   private readonly service: RemoteSourceService;
   private readonly ports: NativeSettingsLivePorts;
+  private readonly viewportCurrent: () => boolean;
   private offService: () => void = () => {};
   private offAuthority: () => void = () => {};
   private disposed = false;
 
-  constructor(ports: NativeSettingsLivePorts) {
+  constructor(ports: NativeSettingsLivePorts, viewportCurrent: () => boolean = () => true) {
     const lifetime = new NativeScreenLifetime(ports.context);
     let retire = () => lifetime.dispose();
     const admitted = () => {
       const account = ports.context.account;
-      return lifetime.current() && account.canManage && !account.account.disabled
+      return viewportCurrent() && lifetime.current() && account.canManage && !account.account.disabled
         && account.account.role === 'owner'
         && account.serverId === lifetime.authority.serverId
         && account.account.id === lifetime.authority.accountId
@@ -51,6 +52,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     }, admitted);
     super({allowed: admitted(), sources: {...service.getSnapshot(), loading: admitted()}});
     this.ports = ports;
+    this.viewportCurrent = viewportCurrent;
     this.lifetime = lifetime;
     this.service = service;
     retire = () => this.dispose();
@@ -65,7 +67,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
 
   private allowed(): boolean {
     const account = this.ports.context.account;
-    return !this.disposed && this.lifetime.current() && account.canManage && !account.account.disabled
+    return !this.disposed && this.viewportCurrent() && this.lifetime.current() && account.canManage && !account.account.disabled
       && account.account.role === 'owner' && account.serverId === this.lifetime.authority.serverId
       && account.account.id === this.lifetime.authority.accountId
       && account.account.primaryProfileId === this.lifetime.authority.profileId;
@@ -82,25 +84,47 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   }
 
   /** Credential fields stay in this call and the service request, never in a snapshot. */
-  async testConnection(input: DAVConnectionInput): Promise<DAVConnectionResult> {
+  async testConnection(input: DAVConnectionInput, guard: () => boolean = () => true): Promise<DAVConnectionResult> {
     this.assertAllowed();
     try {
-      const result = await this.service.testConnection(input);
+      if (!guard()) throw screenScopeEnded();
+      const result = await this.service.testConnection(input, guard);
+      if (!guard()) throw screenScopeEnded();
       this.assertAllowed();
       return result;
     } finally {if (!this.allowed()) this.dispose();}
   }
 
-  async configure(id: string | null, input: DAVConfiguration, base?: RemoteSource): Promise<void> {
+  async configure(id: string | null, input: DAVConfiguration, base?: RemoteSource, guard: () => boolean = () => true): Promise<void> {
     this.assertAllowed();
-    try {await this.service.configure(id, input, base);}
+    try {if (!guard()) throw screenScopeEnded(); await this.service.configure(id, input, base, guard);}
     finally {if (!this.allowed()) this.dispose();}
   }
 
-  async remove(source: RemoteSource): Promise<void> {
+  async remove(source: RemoteSource, guard: () => boolean = () => true): Promise<void> {
     this.assertAllowed();
-    try {await this.service.remove(source);}
+    try {if (!guard()) throw screenScopeEnded(); await this.service.remove(source, guard);}
     finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async readProfile(source: RemoteSource, guard: () => boolean): Promise<SourceReadSettings> {
+    this.assertAllowed();
+    try {
+      const result = await this.service.readProfile(source.id, String(source.generation), guard);
+      this.assertAllowed();
+      if (!guard()) throw screenScopeEnded();
+      return result;
+    } finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async saveProfile(profile: SourceReadSettings, values: SourceReadValues, guard: () => boolean): Promise<SourceReadSettings> {
+    this.assertAllowed();
+    try {
+      const result = await this.service.saveProfile(profile, values, guard);
+      this.assertAllowed();
+      if (!guard()) throw screenScopeEnded();
+      return result;
+    } finally {if (!this.allowed()) this.dispose();}
   }
 
   async recover(): Promise<void> {
