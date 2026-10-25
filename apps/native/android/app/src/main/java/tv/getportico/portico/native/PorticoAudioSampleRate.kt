@@ -17,9 +17,11 @@ import android.media.AudioTrack
  *   arbitrary.
  * - The platform's preferred rate (`PROPERTY_OUTPUT_SAMPLE_RATE`) is reported as a separate
  *   configured/preferred fact, never as the routed device's support.
- * - A match is only ever `opened rate == source rate`, recorded by the sink after a successful
- *   open on the current route; `AudioTrack.getSampleRate()` is the configured source rate and
- *   is *not* proof of the physical output or DAC rate, and no bit-perfect state is inferred.
+ * - A match is only ever `opened rate == source rate`. The opened rate is not recorded here yet:
+ *   this object is process-global, and an opened rate belongs to one owner, item, mode and route,
+ *   so until the sink can name that association the reported output stays 0/unknown. Even when it
+ *   is recorded, `AudioTrack.getSampleRate()` is the track's configured rate, *not* proof of the
+ *   physical output or DAC rate, and no bit-perfect state is inferred.
  *
  * Smart: the file's rate when the routed device lists it or the route is unknown, the device's
  * preferred rate only when the route is known and lacks the file's rate.
@@ -34,13 +36,11 @@ object PorticoAudioSampleRate {
   const val STRICT = "strict"
   const val OFF = "off"
 
-  /** The listener's chosen mode and the rate the sink last *asked* its delegate to open at.
-   * The delegate may fall back silently, so this is a request fact: the observed output rate stays
-   * 0/unknown and nothing here can claim a match. Cleared when the stream is flushed or reset and
-   * when the mode changes, because those retire the open it described. */
+  /** The listener's chosen mode. The sink's request rate and the rate the track it opened actually
+   * runs at are deliberately not recorded here: this object is process-global, and both facts belong
+   * to one owner, item, mode and route. Recording them without that association would let a
+   * preloaded or just-replaced sink stamp the audible item, so the reported output stays unknown. */
   @Volatile var mode: String = SMART
-  @Volatile var configuredSampleRate: Int = 0
-  fun resetConfigured() { configuredSampleRate = 0 }
 
   /** What the routed device says about itself. Unknown and arbitrary are different facts. */
   data class RouteFacts(
@@ -114,16 +114,15 @@ object PorticoAudioSampleRate {
   }
 
   /** Observed facts for the bridge and the signal path, in the native contract's own names.
-   * `outputSampleRate` is 0 and `openedSampleRateKnown` false until the sink can report the session
-   * it actually opened; `modeImplemented` stays false until it opens at the chosen rate.
-   * `configuredSampleRate` is what the sink asked its delegate for — a request, not an observation. */
-  fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int, configuredSampleRate: Int = 0): Map<String, Any> {
+   * `openedSampleRate` is 0 and `openedSampleRateKnown` false: nothing here is bound to one owner,
+   * item, mode and route yet, so no open is reported and `modeImplemented` stays false. */
+  fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int): Map<String, Any> {
+    val opened = openedSampleRate
     val route = routeFacts(context, routed)
     return mapOf(
         "sampleRateMatching" to parse(mode),
         "requestedSampleRate" to sourceRate,
-        "configuredSampleRate" to configuredSampleRate,
-        "outputSampleRate" to openedSampleRate,
+        "outputSampleRate" to opened,
         "routeDeviceId" to route.deviceId,
         "routeDeviceType" to route.deviceType,
         "routeDeviceName" to (route.deviceName ?: ""),
@@ -131,9 +130,9 @@ object PorticoAudioSampleRate {
         "routeRatesKnown" to route.ratesKnown,
         "routeRatesArbitrary" to route.ratesArbitrary,
         "preferredSampleRate" to route.preferredSampleRate,
-        "openedSampleRateKnown" to (openedSampleRate > 0),
+        "openedSampleRateKnown" to (opened > 0),
         "modeImplemented" to false,
-        "sampleRateMatched" to (sourceRate > 0 && openedSampleRate > 0 && sourceRate == openedSampleRate),
+        "sampleRateMatched" to (sourceRate > 0 && opened > 0 && sourceRate == opened),
     )
   }
 }

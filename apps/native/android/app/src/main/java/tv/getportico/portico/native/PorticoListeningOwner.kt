@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
@@ -141,7 +140,6 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private var artwork: ByteArray? = null
   private var ticking = false
   private var noisy: BroadcastReceiver? = null
-  private var devices: AudioDeviceCallback? = null
 
   // --- adoption --------------------------------------------------------------------------
 
@@ -210,17 +208,6 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     }
     noisy = receiver
     try { context.registerReceiver(receiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)) } catch (_: Exception) { noisy = null }
-    // The route belongs to the device that was connected when the sink was configured. The routed
-    // device itself cannot be read back from the media3 sink, so a change invalidates the open
-    // request and the route facts rather than letting a departed device's support stand.
-    val deviceCallback = object : AudioDeviceCallback() {
-      override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { routeChanged() }
-      override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { routeChanged() }
-    }
-    devices = deviceCallback
-    try {
-      (context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.registerAudioDeviceCallback(deviceCallback, main)
-    } catch (_: Exception) { devices = null }
     apply(); emit(); loadCurrentMetadata()
     ticking = true
     main.removeCallbacks(loop)
@@ -268,21 +255,12 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val url = plan["url"] as String
     return if (url.startsWith("/")) HashMap(plan).apply { put("url", origin + url) } else plan
   }
-  /** A route change retires the facts that described the old route. The routed device itself is
-   * not readable from the media3 sink, so the change can only invalidate, not re-bind. */
-  private fun routeChanged() {
-    PorticoAudioSampleRate.resetConfigured()
-  }
-
   // Music Match sample rate (23 Oct ruling): this device's own value. Reviewable WIP for Media: the
-  // mode is held and reported here; the sink configures its delegate at the stage's chosen rate and
-  // records what it asked for, but the observed output rate stays unknown, so
-  // audioProcessingFacts can never answer sampleRateMatched = true.
+  // mode is held and reported here; the sink configures its delegate at the stage's chosen rate, but
+  // no opened or configured rate is recorded process-wide, so audioProcessingFacts can never answer
+  // sampleRateMatched = true.
   fun setSampleRateMatching(mode: String) {
     PorticoAudioSampleRate.mode = PorticoAudioSampleRate.parse(mode)
-    // The configured rate belongs to the mode the sink was configured under; a new mode has asked
-    // for nothing yet, so the previous request cannot stand for it.
-    PorticoAudioSampleRate.resetConfigured()
   }
 
 
@@ -296,8 +274,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   fun audioProcessingFacts(context: android.content.Context): Map<String, Any> {
     val owner = activeOwner
     val rate = if (owner == null) 0 else num(decodePlan(presentation(heard()))?.get("sampleRate"))?.toInt() ?: 0
-    return PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, rate, null, 0,
-        PorticoAudioSampleRate.configuredSampleRate)
+    return PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, rate, null, 0)
   }
 
   private fun renders(presentation: Map<String, Any?>?): Boolean = PorticoAudioPlan.playable(decodePlan(presentation))
@@ -1308,10 +1285,6 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     controller.onInterruption = null
     noisy?.let { try { context.unregisterReceiver(it) } catch (_: Exception) {} }
     noisy = null
-    devices?.let { callback ->
-      try { (context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.unregisterAudioDeviceCallback(callback) } catch (_: Exception) {}
-    }
-    devices = null
     val key = journalKey
     if (key != null && !commitWanted) PorticoRecordStore.get(context).write(PorticoRecordStore.QUEUES, key, json(mapOf("version" to 1, "sessionId" to id, "retired" to true)).toByteArray(Charsets.UTF_8))
     val wasTerminal = terminal

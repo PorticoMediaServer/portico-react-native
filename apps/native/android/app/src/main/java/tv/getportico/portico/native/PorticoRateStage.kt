@@ -17,22 +17,23 @@ import kotlin.math.floor
  * its original timestamp, and the end-of-stream tail continues the same clock instead of jumping
  * back to the last input buffer's start.
  *
- * Rate conversion is linear at the encoding the gain already produced. The finite input is drained
- * exactly: while streaming, positions are emitted where a following source frame exists; at end of
- * stream every position inside the input duration is emitted, holding the final frame for the last
- * fractional positions. A downsample whose next phase is past the end therefore invents nothing,
- * and an upsample gets every position the input duration supports.
+ * Rate conversion is linear at the encoding the gain already produced. It is a correctness-first
+ * stage, not a qualified music sample-rate converter: downsampling here has no anti-alias filter,
+ * so nothing in this file supports a claim of transparent or bit-perfect resampling. The finite
+ * input is drained exactly: while streaming, positions are emitted where a following source frame
+ * exists; at end of stream every position inside the input duration is emitted, holding the final
+ * frame for the last fractional positions. A downsample whose next phase is past the end therefore
+ * invents nothing, and an upsample gets every position the input duration supports.
  *
  * Modes: Off opens at this device's preferred rate; Strict at the file's rate (route refusal is a
  * caller fact); Smart at the file's rate unless the route is known to refuse it.
  */
 internal class PorticoRateStage {
-  /** A piece the delegate must accept; [frames] is captured at creation because the delegate may
-   * consume [buffer] before we ever look at it again. */
-  data class Piece(val buffer: ByteBuffer, val timeUs: Long, val count: Int, val frames: Int) {
-    /** A fresh view at the piece's own start, so a retry never inherits the delegate's position. */
-    fun deliverable(): ByteBuffer = buffer.duplicate().order(ByteOrder.nativeOrder())
-  }
+  /** A piece the delegate must accept. [buffer] is the delegate's own object: media3 requires a
+   * retry to hand back the same buffer it last saw, and it may have partially consumed that buffer
+   * before returning false, so its position is never rewound here. [frames] is captured at creation
+   * because the position no longer describes the piece once the delegate has touched it. */
+  data class Piece(val buffer: ByteBuffer, val timeUs: Long, val count: Int, val frames: Int)
 
   private var sourceRate = 0
   private var targetRate = 0
@@ -49,7 +50,6 @@ internal class PorticoRateStage {
   private var tail: Piece? = null
   private var ended = false
 
-  val openedRate: Int get() = targetRate
   val resampling: Boolean get() = sourceRate > 0 && targetRate > 0 && sourceRate != targetRate
 
   fun configure(
@@ -131,6 +131,9 @@ internal class PorticoRateStage {
 
   /** True once the retained tail has been accepted, so the delegate may finish. */
   val tailAccepted: Boolean get() = ended
+
+  /** True while a piece the delegate has not accepted is still held, tail included. */
+  val hasPendingOutput: Boolean get() = retained != null || tail != null
 
   fun flush() = clear()
 
