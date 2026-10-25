@@ -9,13 +9,17 @@ type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; servi
   wantPublication: (...args: Parameters<typeof offlineDownloads.wantPublication>) => ReturnType<typeof offlineDownloads.wantPublication>;
   want: (...args: Parameters<typeof offlineDownloads.want>) => ReturnType<typeof offlineDownloads.want>;
   display: (...args: Parameters<typeof offlineDownloads.display>) => ReturnType<typeof offlineDownloads.display>;
+  /** A reader may borrow the same lease without wanting the online service; an
+   * ordinary Downloads borrower upgrades it before its own open(). */
+  allowService: () => void;
   dispose: () => void}>;
 type SharedDevice = {lease: DownloadDeviceLease; references: number};
 const authorities = new WeakMap<NativeShellBootstrapContext, WeakMap<typeof offlineDownloads, SharedDevice>>();
 
 /** Saved and Downloads borrow one connection for their actual bootstrap authority.
  * Opening the Downloads route must not retire the still-mounted Saved hub. */
-export function createNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads): DownloadDeviceLease {
+export function createNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads,
+  options: Readonly<{readOnly?: boolean}> = {}): DownloadDeviceLease {
   let devices = authorities.get(context);
   if (!devices) {devices = new WeakMap(); authorities.set(context, devices);}
   const pool = devices;
@@ -23,6 +27,7 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
   if (!shared) {shared = {lease: connectNativeDownloadsDevice(context, device), references: 0}; pool.set(device, shared);}
   const current = shared;
   current.references++;
+  if (!options.readOnly) current.lease.allowService();
   let released = false;
   const assertBorrowed = () => {if (released) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});};
   const source = current.lease.device;
@@ -54,6 +59,7 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     ...(openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await openOffline(entry);}} : {}),
   };
   return Object.freeze({device: Object.freeze(borrowed), service: current.lease.service,
+    allowService: () => {assertBorrowed(); current.lease.allowService();},
     wantPublication: (...args) => {assertBorrowed(); return current.lease.wantPublication(...args);},
     want: (...args) => {assertBorrowed(); return current.lease.want(...args);},
     display: (...args) => {assertBorrowed(); return current.lease.display(...args);},
@@ -90,25 +96,29 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
   custody = claimNativeDownloadsDevice(device, () => {alive = false; abort.abort(); service.stop(); service.dispose();});
   device.adopt(viewer);
   const adapter = createNativeOfflineDownloadsAdapter(undefined, device);
-  let opening: Promise<void> | undefined, connected = false;
+  let opening: Promise<void> | undefined, opened = false, online = false, connected = false;
+  const connectOnline = () => {
+    assertCurrent();
+    if (!online || connected || !opened || !adapter.getSnapshot().supported) return;
+    device.connect(api, service, viewer);
+    // The service's list and the device's whole-container requests are only
+    // read while it is started and following this device (legacy downloads
+    // provider did both on active). Without them nothing is ever fetched or
+    // enrolled, even after a persisted want.
+    service.start();
+    const deviceId = context.session()?.deviceId;
+    if (deviceId) service.followDevice(deviceId);
+    connected = true;
+  };
   const open = (): Promise<void> => {
     assertCurrent();
     if (opening) return opening;
     const task = adapter.open().then(() => {
       assertCurrent();
+      opened = true;
       // Connect after the actual native read succeeds. A failed native read is
       // returned to the screen's retry state, not an unhandled connect chain.
-      if (!connected && adapter.getSnapshot().supported) {
-        device.connect(api, service, viewer);
-        // The service's list and the device's whole-container requests are only
-        // read while it is started and following this device (legacy downloads
-        // provider did both on active). Without them nothing is ever fetched or
-        // enrolled, even after a persisted want.
-        service.start();
-        const deviceId = context.session()?.deviceId;
-        if (deviceId) service.followDevice(deviceId);
-        connected = true;
-      }
+      connectOnline();
     }).finally(() => {if (opening === task) opening = undefined;});
     opening = task; return task;
   };
@@ -131,6 +141,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     note: entry => {assertCurrent(); return adapter.note(entry);},
   };
   return Object.freeze({device: Object.freeze(guarded), service,
+    allowService: () => {if (!online) {online = true; try {connectOnline();} catch { /* The next open retries the online path. */ }}},
     wantPublication: (...args) => {assertCurrent(); return device.wantPublication(...args);},
     want: (...args) => {assertCurrent(); return device.want(...args);},
     display: (...args) => {assertCurrent(); return device.display(...args);},

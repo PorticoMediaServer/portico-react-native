@@ -1,7 +1,7 @@
 import {DeviceAboutPanel} from './DeviceAboutPanel';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
-import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {NativeModules, Text, View} from 'react-native';
 import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
 import {idempotencyKey} from '../../../../../packages/client-core/src/playback-v1/http';
@@ -17,8 +17,9 @@ import {Menu, type MenuEntry} from '../../kit/overlays';
 import {SettingsRow} from '../../kit/shell';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
-import type {MessageId, MessageValues} from '../../../../../packages/i18n/src';
+import {defaultI18n, type MessageId, type MessageValues} from '../../../../../packages/i18n/src';
 import type {NativeScreenLifetime} from './lifetime';
+import type {NativeSettingsDownloads} from './ports';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Button} from '../../kit/controls';
@@ -31,6 +32,7 @@ export type NativeSettingsPanelDeps = Readonly<{
   lifetime: NativeScreenLifetime;
   t: Translate;
   openRoute: (route: NativeShellRoute) => void;
+  downloads?: NativeSettingsDownloads;
 }>;
 
 const roleWord = (role: 'owner' | 'admin' | 'member'): MessageId => role === 'owner' ? 'next.shell.owner' : role === 'admin' ? 'next.shell.administrator' : 'next.shell.member';
@@ -61,6 +63,46 @@ function PrivacyNotePanel({t}: NativeSettingsPanelDeps) {
   return <View style={theme.isTV ? {paddingLeft: 24, marginBottom: 26} : {paddingHorizontal: 14, paddingVertical: 12}}>
     <Text testID="settings-panel-privacy-note" style={[shellType(theme.isTV ? 22 : 13, 400, theme.isTV ? 31.9 : 'normal'), {color: theme.colors.textTertiary}]}>{t('pref.note.privacy.ownerSeesPlays')}</Text>
   </View>;
+}
+
+
+/** The one viewer-scoped downloads store, read for its real used and free bytes;
+ * the row opens the real Downloads route. No writable controls live here. */
+type DownloadsStorageLease = Readonly<{
+  route: NativeShellRoute; revision: number; downloads: NativeSettingsDownloads;
+  lifetime: NativeScreenLifetime; live: {value: boolean};
+}>;
+
+function DownloadsStoragePanel({downloads, t, openRoute, context, lifetime}: NativeSettingsPanelDeps & {downloads: NativeSettingsDownloads}) {
+  const navigation = useSyncExternalStore(context.navigation.subscribe, context.navigation.getSnapshot, context.navigation.getSnapshot);
+  const snapshot = useSyncExternalStore(downloads.subscribe, downloads.getSnapshot, downloads.getSnapshot);
+  const [lease, setLease] = useState<DownloadsStorageLease>();
+  const settingsRoute = navigation.route.kind === 'shell' && navigation.route.destination.kind === 'settings';
+  // The committed layout publishes an immutable lease for the exact Settings
+  // route/revision, this summary and this lifetime. A route change re-publishes
+  // and retires the old lease, so a retained row can never press from a stale one.
+  useLayoutEffect(() => {
+    if (!settingsRoute) {setLease(undefined); return;}
+    const live = {value: true};
+    const next = Object.freeze({route: navigation.route, revision: navigation.revision, downloads, lifetime, live});
+    setLease(next);
+    return () => {
+      live.value = false;
+      setLease(current => current === next ? undefined : current);
+    };
+  }, [downloads, lifetime, navigation.revision, navigation.route, settingsRoute]);
+  if (!settingsRoute || !lease || lease.downloads !== downloads || !snapshot?.supported || !snapshot.ready) return null;
+  const held = lease;
+  const openDownloads = () => {
+    if (!held.live.value || held.downloads !== downloads || !held.lifetime.current()) return;
+    const now = context.navigation.getSnapshot();
+    if (now.revision !== held.revision || now.route !== held.route) return;
+    if (now.route.kind !== 'shell' || now.route.destination.kind !== 'settings') return;
+    openRoute({kind: 'downloads'});
+  };
+  return <SettingsRow first testID="settings-panel-downloads-storage" label={t('settings.row.downloadsStorage')}
+    value={defaultI18n.bytes(snapshot.usedBytes)} description={t('settings.downloadsStorage.free', {free: defaultI18n.bytes(snapshot.freeBytes)})}
+    onPress={openDownloads}/>;
 }
 
 const transportIcon: Record<TransportCommand, 'i-pause' | 'i-play' | 'i-rew' | 'i-ffw' | 'i-restart'> = {pause: 'i-pause', resume: 'i-play', back: 'i-rew', forward: 'i-ffw', startOver: 'i-restart'};
@@ -133,6 +175,7 @@ function nativeRequestId(): string {
 /** The account pages' custom surfaces this build draws with real data. Server pages are their own routes. */
 export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSettingsPanelDeps, _runtime: NativeShellRuntime): React.ReactNode {
   switch (id) {
+    case 'downloadsStorage': return deps.downloads ? <DownloadsStoragePanel {...deps} downloads={deps.downloads}/> : null;
     case 'deviceName': {
       deps.lifetime.assert();
       const identity = installationIdentity();

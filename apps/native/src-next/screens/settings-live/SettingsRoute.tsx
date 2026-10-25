@@ -15,6 +15,7 @@ import {NativeEqualizerSettingsScreen} from './EqualizerSettingsScreen';
 import {NativeSettingsScreen} from './SettingsScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
 import {createNativeSettingsPorts, nativeSettingsRequestId} from './settings-ports';
+import {createNativeSettingsDownloads} from './downloads-summary';
 
 /**
  * The one composition Accounts hands the shell: the Settings destination and the read-only
@@ -25,7 +26,12 @@ function createComposition(context: NativeShellBootstrapContext) {
   const lifetime = new NativeScreenLifetime(context);
   const devicePreferences = nativeDevicePreferences(context);
   const settings = createBoundNativeSettingsController(lifetime, context);
-  const ports = createNativeSettingsPorts(context, lifetime, route => context.navigation.open(route, context.authority()));
+  // Borrow the genuine viewer-scoped downloads store for a read-only size row.
+  // This never creates a second store or starts the online service by itself;
+  // the real Downloads route upgrades the same lease if it is opened.
+  let downloads: ReturnType<typeof createNativeSettingsDownloads> | undefined;
+  try {if (!Platform.isTV) downloads = createNativeSettingsDownloads(context);} catch { /* No session/authority: the row stays out. */ }
+  const ports = createNativeSettingsPorts(context, lifetime, route => context.navigation.open(route, context.authority()), downloads);
   const unsubscribe = context.subscribePreferences(() => {if (lifetime.current()) settings.accept(context.preferences());});
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => context.api.request<T>(path, method, body, next), signal)};
   const raw = localV1Http(context.api);
@@ -33,7 +39,7 @@ function createComposition(context: NativeShellBootstrapContext) {
   const admission = (): NativeDashboardAdmission => nativeServerAdmission(context.account, lifetime);
   const dashboard = new NativeDashboardController(lifetime, admission, {sessions, console: new ConsoleClient(api, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId})});
   let disposed = false;
-  const dispose = () => {if (disposed) return; disposed = true; unsubscribe(); dashboard.dispose(); lifetime.dispose();};
+  const dispose = () => {if (disposed) return; disposed = true; unsubscribe(); dashboard.dispose(); try {downloads?.dispose();} catch { /* Composition retirement is final. */ } lifetime.dispose();};
   return {
     settings: {
       render: (route, runtime) => {
