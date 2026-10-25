@@ -20,6 +20,7 @@ import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {NativeProfileRecovery} from './profile-recovery';
 import {hostedSignInUnavailable} from './hosted-sign-in-unavailable';
 import {startAppSetup, initializeServer} from '../../../../packages/client-core/src/setup-onboarding';
+import {rememberNativeSignInHint} from './sign-in-ended';
 import {requestOwnerResetFile, verifyOwnerResetFile} from '../../../../packages/client-core/src/account-reset';
 import {createNativeSetupClaim} from './setup-claim';
 import {nativeSetupDraft} from './setup-draft';
@@ -72,6 +73,10 @@ export class NativeServerSignIn {
     this.assertCurrent();
     if (!this.api || !this.server) throw mismatch();
     return routeOrigin(this.api.baseUrl);
+  }
+  assertSignInTarget(serverId: string, fingerprint: string) {
+    this.assertCurrent(); const pin = this.api?.getRouteConnection()?.pin;
+    if (!pin || this.server?.id !== serverId || pin.serverId !== serverId || pin.fingerprint !== fingerprint) throw mismatch();
   }
   needsIdentityCode() {this.assertCurrent(); return !!this.pendingIdentity && pendingCertificate(this.pendingIdentity.origin) === this.pendingIdentity;}
   confirmIdentityCode(code: string) {return this.run(async () => {
@@ -618,6 +623,11 @@ export class NativeServerSignIn {
     try {
     const previous = await this.owner.remember(this.api, session, this.admission, this.hosted, this.current);
     this.issued.delete(session.sessionFamilyId); this.setupIssuers.delete(session.sessionFamilyId); this.complete = true;
+    if (this.snapshot && this.server) {
+      const pin = this.api.getRouteConnection()?.pin;
+      if (pin) await rememberNativeSignInHint({serverId: pin.serverId, accountId: session.viewer.accountId, familyId: session.sessionFamilyId,
+        fingerprint: pin.fingerprint, origin: this.api.baseUrl, serverName: this.server.name, username: this.snapshot.account.username, signIn: this.server.signIn}).catch(() => {});
+    }
     const temporary = this.account; this.account = undefined;
     const cleanup = await Promise.allSettled([this.owner.retireReplacedServerSession(previous), temporary ? this.retire(temporary) : Promise.resolve()]);
     if (cleanup.some(value => value.status === 'rejected')) throw Object.assign(new Error('native_session_revocation_pending'), {code: 'session_revocation_pending'});

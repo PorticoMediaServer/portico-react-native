@@ -9,6 +9,7 @@ import {readNativeSelectedViewer, subscribeNativeAppSessions} from '../platform/
 import {AccountEntry} from '../screens/accounts/AccountEntry';
 import {ServersRoute} from '../screens/accounts/AccountRoutes';
 import {defaultI18n} from '../../../../packages/i18n/src';
+import {NativeSignInEnded} from '../platform/sign-in-ended';
 import {NativeIdentityFailure} from '../platform/identity-failure';
 import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
 import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
@@ -70,6 +71,7 @@ export function RestoredShell() {
     return <ServerIdentityFailure failure={failure} onRetry={complete} onChoose={() => setShowAccounts(true)}
       onForget={() => nativeAccounts.forgetServer(failure.server)} onError={error => setState({phase: 'ended', error})}/>;
   }
+  if (state.error instanceof NativeSignInEnded) return <AccountEntry key={state.error.hint.serverId + ':' + state.error.hint.familyId} endedSignIn={state.error.hint} onComplete={complete} onBack={() => setShowAccounts(true)}/>;
   if (state.error) {
     const error = presentError(state.error, 'home');
     return <StateView variant="centered" title={error.title} body={error.body} tone="error"

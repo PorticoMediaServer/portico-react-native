@@ -22,6 +22,7 @@ import {readNativeServerDisplays} from '../platform/server-display';
 import {nativeAppSessions} from '../platform/app-session-storage';
 import {nativeAccounts} from '../platform/accounts';
 import {hostedUrl} from '../platform/account-authority';
+import {nativeSignInEnded, type NativeSignInHint, type NativeSignInEnded, readNativeSignInHint} from '../platform/sign-in-ended';
 import {nativeIdentityFailure, nativeRouteIdentityFailure, type NativeIdentityFailure, type NativeIdentityServer} from '../platform/identity-failure';
 import {profilePictureSource} from '../platform/profile-avatars';
 import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
@@ -73,7 +74,7 @@ const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamil
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
-export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
+export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure | NativeSignInEnded) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
   const installation = beginNativeInstallation(options.signal);
   let alive = true, ready = false, api: HttpLocalApi | undefined, home: HomeService | undefined;
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
@@ -85,6 +86,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
   let avatars: Awaited<ReturnType<IdentityClient['avatars']>> = [], libraries: readonly Library[] = [];
   let installationSettings: unknown;
+  let signInHint: NativeSignInHint | undefined;
   let identityServer: NativeIdentityServer | undefined;
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
   const signal = new AbortController();
@@ -97,7 +99,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     for (const listener of [...authorityListeners]) listener();
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
   };
-  const end = (error?: NativeIdentityFailure) => {if (alive) {dispose(); options.onAuthorityEnded(error);}};
+  const end = (error?: NativeIdentityFailure | NativeSignInEnded) => {if (alive) {dispose(); options.onAuthorityEnded(error);}};
   const abort = () => dispose();
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
@@ -115,6 +117,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const [display] = await readNativeServerDisplays([selected]); assertCurrent();
     identityServer = Object.freeze({serverId: selected.connection.pin.serverId, familyId: selected.connection.session.sessionFamilyId,
       fingerprint: selected.connection.pin.fingerprint, signIn: selected.signIn, name: display.name});
+    signInHint = await readNativeSignInHint(original.session, original.serverUrl, selected.connection.pin.fingerprint, selected.signIn).catch(() => undefined); assertCurrent();
     // A server-local session renews locally even while Portico Services is unreachable.
     const hostedCredentials = connection?.hosted?.origin === hostedUrl ? () => nativeAccounts.accountCredentials() : undefined;
     const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, hostedCredentials, original.session, env);
@@ -248,7 +251,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();
-    }, onSignedOut: () => end()});
+    }, onSignedOut: error => end(nativeSignInEnded(error, signInHint, session?.expiresAt))});
     let refreshing: Promise<void> | undefined;
     const refresh = () => refreshing ??= (async () => {
       assertCurrent();
@@ -333,5 +336,5 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const retireTopShelfLocale = bindNativeTopShelfLocale(context, runtime.text, error => nativeScreenServices(context).reportError(error));
     if (retireTopShelfLocale) cleanups.push(retireTopShelfLocale);
     return runtime;
-  } catch (error) {dispose(); throw nativeIdentityFailure(error, identityServer) ?? error;}
+  } catch (error) {const ended = nativeSignInEnded(error, signInHint, session?.expiresAt); dispose(); throw nativeIdentityFailure(error, identityServer) ?? ended ?? error;}
 }
