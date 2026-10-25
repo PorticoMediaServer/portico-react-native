@@ -22,7 +22,7 @@ import {AccountConfigEditor} from './AccountConfigEditor';
 import {ImportedSourceEditor} from './ImportedSourceEditor';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
-type Mode = {kind: 'assignment'; source: RemoteSource; folders: readonly ChosenSourceFolder[]} | {kind: 'choose' | 'accountConfig'} | {kind: 'connection' | 'imported' | 's3' | 'drive'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect' | 'folders' | 'advanced'; source: RemoteSource};
+type Mode = {kind: 'assignment'; source: RemoteSource; folders: readonly ChosenSourceFolder[]} | {kind: 'choose' | 'accountConfig'} | {kind: 'connection' | 'imported' | 's3' | 'drive' | 'driveOAuth'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect' | 'folders' | 'advanced'; source: RemoteSource};
 
 /** Canonical WebDAV and imported source management. Settings owns the entry. */
 export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
@@ -52,20 +52,21 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     return () => onBackHandlerChange?.(undefined);
   }, [subpage, close, onBackHandlerChange]);
   const captured = attempt.current;
-  const isCurrent = () => controller.getSnapshot().allowed && attempt.current === captured;
+  const isCurrent = useCallback(() => controller.getSnapshot().allowed && attempt.current === captured, [controller, captured]);
   if (!snapshot.allowed) {
     const problem = presentError({code: 'forbidden'}, 'server-console');
     return <StateView title={problem.title} body={problem.body} tone="error"/>;
   }
   if (mode?.kind === 'choose') return <Page title={t('next.remoteSources.whatToConnect')} t={t} busy={false} onCancel={close} footer={null}>
     <Button variant="glass" onPress={() => open({kind: 'connection'})}>{t('next.remoteSources.connectWebdav')}</Button>
+    <Button variant="glass" onPress={() => open({kind: 'driveOAuth'})}>{t('next.remoteSources.driveOAuth')}</Button>
     <Button variant="glass" onPress={() => open({kind: 'drive'})}>{t('next.remoteSources.connectDrive')}</Button>
     <Button variant="glass" onPress={() => open({kind: 's3'})}>{t('next.remoteSources.connectS3')}</Button>
     <Button variant="glass" onPress={() => open({kind: 'imported'})}>{t('next.remoteSources.connectRclone')}</Button>
     <Button variant="glass" onPress={() => open({kind: 'accountConfig'})}>{t('next.remoteSources.connectFromConfig')}</Button>
   </Page>;
   if (mode?.kind === 'accountConfig') return <AccountConfigEditor controller={controller} t={t} isCurrent={isCurrent} onCancel={close} onSaved={source => open({kind: 'reading', source})}/>;
-  if (mode?.kind === 'imported' || mode?.kind === 's3' || mode?.kind === 'drive') return <ImportedSourceEditor form={mode.kind} key={mode.source?.id ?? mode.kind} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
+  if (mode?.kind === 'imported' || mode?.kind === 's3' || mode?.kind === 'drive' || mode?.kind === 'driveOAuth') return <ImportedSourceEditor form={mode.kind} key={mode.source?.id ?? mode.kind} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
     onCancel={close} onSaved={source => open({kind: 'reading', source})}/>;
   if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={close}
     onSaved={source => open({kind: 'reading', source})}/>;
