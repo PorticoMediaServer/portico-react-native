@@ -8,6 +8,8 @@ import {SkeletonBlock, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import {linkNativeAbortSignals} from '../../platform/abort-signals';
+import {stageCoverImage, type CoverImageMime, type CoverImageTemp} from '../../platform/cover-image';
+import type {ReadingManifest, ReadingPage} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeReadOwnerEditLease} from './read-book-model';
 
@@ -21,50 +23,82 @@ const sourceLabel = (source: string | undefined): string | undefined =>
           : source === 'owner' || source === 'manual' ? t('next.reader.sourceOwner')
             : t('web.metadata.fromSource', {source});
 
+/** The immutable cover opening: the exact repair document and selected manifest
+ * captured when the drawn control opened the nested sheet. A later repair
+ * document or page render never becomes this opening's subject. */
+type CoverOpening = Readonly<{
+  key: number; data: RepairData; manifest: ReadingManifest; itemId: string; sourceId: string;
+  revision: string; pageCount: number; pageNames: readonly string[];
+}>;
+
 /** phone-read 3b: the owner's Reading edit sheet over the single-item repair
  * producer. It is bound to the committed book page it was opened from: every
  * request is scoped to that route/revision, session family and authority, and
  * the sheet retires with its page or its own close. */
-export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, onClose}: Readonly<{
+export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, manifest, onClose}: Readonly<{
   context: NativeShellBootstrapContext; lease: NativeReadOwnerEditLease; owner: object;
-  itemId: string; libraryId: string; onClose: (owner: object) => void;
+  itemId: string; libraryId: string; manifest?: ReadingManifest; onClose: (owner: object) => void;
 }>) {
   const theme = useTheme();
   const sheetLife = useRef<AbortController>(new AbortController()).current;
   const linked = useMemo(() => linkNativeAbortSignals([lease.signal, sheetLife.signal]), [lease, sheetLife]);
   const owned = useMemo(() => () => !linked.signal.aborted && lease.isCurrent(), [lease, linked]);
-  const api = useMemo(() => ({
-    request: async <T,>(path: string, method?: string, body?: unknown, callerSignal?: AbortSignal): Promise<T> => {
-      if (!owned()) throw cancelled();
-      const operation = linkNativeAbortSignals([linked.signal, callerSignal]);
-      try {
-        const result = await context.api.request<T>(path, method, body, operation.signal);
-        if (!owned()) throw cancelled();
-        return result;
-      } finally {operation.dispose();}
-    },
-    requestMetadataUpload: async <T,>(path: string, body: FormData, callerSignal?: AbortSignal): Promise<T> => {
-      if (!owned()) throw cancelled();
-      const operation = linkNativeAbortSignals([linked.signal, callerSignal]);
-      try {
-        const result = await context.api.requestMetadataUpload<T>(path, body, operation.signal);
-        if (!owned()) throw cancelled();
-        return result;
-      } finally {operation.dispose();}
-    },
-  }), [context, linked, owned]);
+  // One render-owned ticket serializes editing, artwork selection and the CBZ
+  // cover operation. The nested cover opening owns a separate flight so its
+  // close can abort staging and upload without retiring the outer sheet.
+  const operation = useRef<object | undefined>(undefined);
+  const coverCurrent = useRef<CoverOpening | null>(null);
+  const coverFlight = useRef<Readonly<{opening: CoverOpening; controller: AbortController}> | undefined>(undefined);
+  const coverSeq = useRef<number>(0);
+  // The page-number draft is opaque and revisioned: a retained Choose callback
+  // can only submit the exact draft it was drawn with.
+  const pageCurrent = useRef<Readonly<{revision: number; value: string}>>(Object.freeze({revision: 0, value: ''}));
+  const api = useMemo(() => {
+    // A transport may resolve after its scoped signal was retired; the result is
+    // never admitted, and the repair service keeps the failure as uncertain.
+    const admitted = (scoped: AbortSignal, flight: AbortController | undefined, ticket: object | undefined) => {
+      if (!owned() || scoped.aborted) throw cancelled();
+      if (flight && (coverFlight.current?.controller !== flight || operation.current !== ticket)) throw cancelled();
+    };
+    return {
+      request: async <T,>(path: string, method?: string, body?: unknown, callerSignal?: AbortSignal): Promise<T> => {
+        const flight = coverFlight.current?.controller, ticket = operation.current;
+        const scoped = linkNativeAbortSignals([linked.signal, callerSignal, flight?.signal]);
+        try {
+          admitted(scoped.signal, flight, ticket);
+          const result = await context.api.request<T>(path, method, body, scoped.signal);
+          admitted(scoped.signal, flight, ticket);
+          return result;
+        } finally {scoped.dispose();}
+      },
+      requestMetadataUpload: async <T,>(path: string, body: FormData, callerSignal?: AbortSignal): Promise<T> => {
+        const flight = coverFlight.current?.controller, ticket = operation.current;
+        const scoped = linkNativeAbortSignals([linked.signal, callerSignal, flight?.signal]);
+        try {
+          admitted(scoped.signal, flight, ticket);
+          const result = await context.api.requestMetadataUpload<T>(path, body, scoped.signal);
+          admitted(scoped.signal, flight, ticket);
+          return result;
+        } finally {scoped.dispose();}
+      },
+    };
+  }, [context, linked, owned]);
   const service = useMemo(() => new MetadataRepairService({api,
     scope: {serverId: lease.viewer.serverId, viewerId: JSON.stringify([lease.viewer.authority, lease.viewer.accountId, lease.viewer.profileId])}}),
   [api, lease.viewer.serverId, lease.viewer.authority, lease.viewer.accountId, lease.viewer.profileId]);
   const [snapshot, setSnapshot] = useState(service.getSnapshot());
   const [draft, setDraft] = useState<Readonly<Record<string, string>>>({});
   const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
-  const loaded = useRef<RepairData | undefined>(undefined), saving = useRef<object | undefined>(undefined), retired = useRef(false);
+  const [coverOpening, setCoverOpening] = useState<CoverOpening | null>(null);
+  const [pageInput, setPageInput] = useState(pageCurrent.current);
+  const [coverBusy, setCoverBusy] = useState(false), [coverFailed, setCoverFailed] = useState(false);
+  const client = useMemo(() => context.api.reading({viewer: lease.viewer, isCurrent: () => owned(), signal: linked.signal}), [context, lease.viewer, linked, owned]);
+  const loaded = useRef<RepairData | undefined>(undefined), retired = useRef<boolean>(false);
   // Each opening is its own keyed instance: its owner ticket and close callback
   // are captured once and never follow a successor.
-  const opening = useRef<Readonly<{owner: object; onClose: (owner: object) => void}>>();
+  const opening = useRef<Readonly<{owner: object; onClose: (owner: object) => void}> | undefined>(undefined);
   if (!opening.current) opening.current = Object.freeze({owner, onClose});
-  const close = () => {if (!retired.current) {retired.current = true; sheetLife.abort(); opening.current!.onClose(opening.current!.owner);}};
+  const close = () => {if (!retired.current) {retired.current = true; sheetLife.abort(); coverFlight.current?.controller.abort(); opening.current!.onClose(opening.current!.owner);}};
   useLayoutEffect(() => {
     if (!owned()) {close(); return;}
     // The original page leaving its route or authority retires this sheet and
@@ -81,15 +115,23 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, on
       }
     });
     void service.load({kind: 'item', id: itemId, libraryId});
-    return () => {offNav(); offAuthority(); offModel(); off(); retired.current = true; sheetLife.abort(); linked.dispose(); service.dispose();};
+    return () => {offNav(); offAuthority(); offModel(); off(); retired.current = true; sheetLife.abort(); coverFlight.current?.controller.abort(); linked.dispose(); client.dispose(); service.dispose();};
   }, [context, service, itemId, libraryId, owned, sheetLife, linked, lease]); // eslint-disable-line react-hooks/exhaustive-deps
   const data: RepairData | null | undefined = snapshot.data;
   const exact = (value: RepairData | null | undefined): value is RepairData => !!value && owned()
     && lease.origin.route.kind === 'read-book' && lease.origin.route.libraryId === libraryId && lease.origin.route.item.id === itemId
     && value.target.kind === 'item' && value.target.id === itemId && value.libraryId === libraryId
     && value.serverId === lease.viewer.serverId;
+  /** The exact selected manifest the sheet was opened for: source revision and
+   * page bounds are witnessed, never inferred from a page count. */
+  const coverWitness = (value: RepairData | null | undefined, source: ReadingManifest | undefined) => {
+    if (!exact(value) || !source || source.itemId !== itemId || source.format !== 'cbz' || !source.sourceId
+      || typeof source.revision !== 'string' || !source.revision || !source.pageNames?.length) return undefined;
+    return Object.freeze({data: value, manifest: source, itemId: source.itemId, sourceId: source.sourceId,
+      revision: source.revision, pageCount: source.pageNames.length, pageNames: source.pageNames});
+  };
   const save = async () => {
-    if (!service || !exact(data) || busy || saving.current) return;
+    if (!exact(data) || operation.current) return;
     const fields: Record<string, {value: string}> = {};
     for (const spec of data.schema) {
       const current = data.snapshot.fields[spec.field];
@@ -98,20 +140,116 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, on
       if (next !== undefined && next !== current.value) fields[spec.field] = {value: next};
     }
     if (!Object.keys(fields).length) {if (owned()) close(); return;}
-    const ticket = {};
-    saving.current = ticket;
+    const capturedData = data, ticket = {};
+    operation.current = ticket;
     setBusy(true); setFailed(false);
     try {
-      const saved = await service.command({action: 'edit', fields}, data, {signal: linked.signal, current: owned});
-      if (saved && owned()) close(); else if (owned()) setFailed(true);
-    } catch {if (owned()) setFailed(true);}
-    finally {if (saving.current === ticket) {saving.current = undefined; if (owned()) setBusy(false);}}
+      const saved = await service.command({action: 'edit', fields}, capturedData, {signal: linked.signal, current: owned});
+      if (!owned() || operation.current !== ticket) return;
+      if (saved) close(); else setFailed(true);
+    } catch {if (owned() && operation.current === ticket) setFailed(true);}
+    finally {if (operation.current === ticket) {operation.current = undefined; if (owned()) setBusy(false);}}
   };
-  return <BottomSheet open onOpenChange={open => {if (!open && owned()) close();}} title={t('next.reader.editDetails')}
+  const selectCover = async (candidateId: string) => {
+    if (!exact(data) || operation.current) return;
+    const capturedData = data;
+    const candidate = capturedData.artwork.candidates.find(value => value.id === candidateId && value.role === 'cover');
+    if (!candidate || candidate.current) return;
+    const ticket = {};
+    operation.current = ticket;
+    setCoverBusy(true); setCoverFailed(false);
+    try {
+      const selected = await service.command({action: 'select_artwork', candidateId}, capturedData, {signal: linked.signal, current: owned});
+      if (!owned() || operation.current !== ticket) return;
+      // A false command is a refused selection, never a silent success.
+      if (!selected) setCoverFailed(true);
+    } catch {if (owned() && operation.current === ticket) setCoverFailed(true);}
+    finally {if (operation.current === ticket) {operation.current = undefined; if (owned()) setCoverBusy(false);}}
+  };
+  const setPage = (value: string) => {
+    const next = Object.freeze({revision: pageCurrent.current.revision + 1, value});
+    pageCurrent.current = next; setPageInput(next);
+  };
+  /** The drawn control captures the immutable opening now; later renders never
+   * substitute their own repair document or manifest for it. */
+  const openCover = () => {
+    const live = service.getSnapshot();
+    // A retained control may not open a repair document the sheet no longer holds.
+    if (!exact(data) || live.phase !== 'ready' || live.data !== data || operation.current || coverCurrent.current) return;
+    const witness = coverWitness(data, manifest);
+    if (!witness) return;
+    const next = Object.freeze({...witness, key: ++coverSeq.current});
+    coverCurrent.current = next;
+    setPage(''); setCoverFailed(false); setCoverOpening(next);
+  };
+  /** Closing the nested sheet retires only its own opening and flight; a
+   * retained close from a superseded opening is refused. */
+  const dismissCover = (target: CoverOpening) => {
+    if (coverCurrent.current !== target) return;
+    coverCurrent.current = null;
+    const flight = coverFlight.current;
+    if (flight?.opening === target) {coverFlight.current = undefined; flight.controller.abort();}
+    setCoverOpening(null); setPage(''); setCoverFailed(false);
+  };
+  const choosePage = async (target: CoverOpening, input: Readonly<{revision: number; value: string}>) => {
+    if (coverCurrent.current !== target || operation.current || !owned() || pageCurrent.current !== input) return;
+    // The opening's own ready document is required before any preview session
+    // is opened; a retained opening is closed rather than served.
+    const entry = service.getSnapshot();
+    if (entry.phase !== 'ready' || entry.data !== target.data) {dismissCover(target); return;}
+    const index = Number(input.value.trim()) - 1;
+    const pageName = Number.isInteger(index) && index >= 0 && index < target.pageCount ? target.pageNames[index] : undefined;
+    if (pageName === undefined) return;
+    const ticket = {}, flight = new AbortController();
+    operation.current = ticket;
+    coverFlight.current = Object.freeze({opening: target, controller: flight});
+    const scoped = linkNativeAbortSignals([linked.signal, flight.signal]);
+    const alive = () => owned() && coverCurrent.current === target && operation.current === ticket
+      && coverFlight.current?.controller === flight && !scoped.signal.aborted;
+    // This opening's own repair document is the only one a cover may use.
+    const sameDocument = () => service.getSnapshot().data === target.data;
+    setCoverBusy(true); setCoverFailed(false);
+    let temp: CoverImageTemp | undefined;
+    try {
+      const session = await client.open({itemId, sourceId: target.sourceId}, scoped.signal);
+      let image: ReadingPage | undefined, closeError: unknown;
+      try {
+        if (!alive() || !sameDocument()) throw cancelled();
+        const actual = session.manifest, pageNames = actual.pageNames;
+        if (actual.itemId !== target.itemId || actual.sourceId !== target.sourceId || actual.format !== 'cbz'
+          || actual.revision !== target.revision || !pageNames || pageNames.length !== target.pageCount
+          || pageNames[index] !== pageName) throw new Error('invalid_cover_source');
+        image = await session.page(index, {width: 1280, signal: scoped.signal});
+      } finally {try {await session.close();} catch (error) {closeError = error;}}
+      if (closeError) throw closeError;
+      if (!alive()) return;
+      if (!image || image.index !== index || image.name !== pageName) throw new Error('invalid_cover_page');
+      if (!sameDocument()) throw new Error('cover_document_changed');
+      if (image.mime !== 'image/jpeg' && image.mime !== 'image/png') throw new Error('unsupported_cover');
+      temp = await stageCoverImage(image.bytes, image.mime as CoverImageMime, {signal: scoped.signal, isCurrent: alive});
+      if (!temp || !alive()) return;
+      // The upload must still belong to this opening's own document.
+      const live = service.getSnapshot();
+      if (live.phase !== 'ready' || live.data !== target.data) throw new Error('cover_document_changed');
+      const part = {uri: temp.uri, name: image.mime === 'image/jpeg' ? 'cover.jpg' : 'cover.png', type: image.mime, size: temp.size} as unknown as Blob;
+      const uploaded = await service.uploadArtwork('cover', part, '');
+      if (!alive()) return;
+      if (!uploaded) throw new Error('cover_upload_failed');
+      coverCurrent.current = null;
+      setCoverOpening(null); setPage('');
+    } catch {if (alive()) setCoverFailed(true);}
+    finally {
+      await temp?.dispose();
+      scoped.dispose();
+      if (coverFlight.current?.controller === flight) coverFlight.current = undefined;
+      if (operation.current === ticket) {operation.current = undefined; if (owned()) setCoverBusy(false);}
+    }
+  };
+  return <BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('next.reader.editDetails')}
     description={t('next.reader.ownerOnly')} testID="native-read-owner-edit" keyboardAvoiding
     footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 10}}>
       <Button variant="glass" onPress={() => {if (owned()) close();}} disabled={busy}>{t('action.cancel')}</Button>
-      <Button onPress={() => {void save();}} loading={busy} disabled={!exact(data) || busy}>{t('action.save')}</Button>
+      <Button onPress={() => {void save();}} loading={busy} disabled={!exact(data) || busy || coverBusy}>{t('action.save')}</Button>
     </View>}>
     {snapshot.phase === 'idle' || snapshot.phase === 'loading' ? <SkeletonBlock width="100%" height={220}/> : null}
     {snapshot.phase === 'error' || failed ? <StateView variant="inline" title={t('error.unknown')}/> : null}
@@ -128,5 +266,25 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, on
         </View>;
       })}
     </View> : null}
+    {exact(data) && data.artworkRoles.includes('cover') ? <View style={{marginTop: 16, gap: 8}}>
+      <Text style={[browseType(theme, 14, 700), {color: theme.colors.text}]}>{t('web.metadata.tabArtwork')}</Text>
+      {data.artwork.candidates.filter(candidate => candidate.role === 'cover').map(candidate => <View key={candidate.id} style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+        <Text numberOfLines={2} style={[browseType(theme, 12.5, 500), {color: theme.colors.textSecondary, flex: 1}]}>{candidate.attribution || candidate.provider}</Text>
+        {candidate.current ? <Text style={[browseType(theme, 12, 600), {color: theme.colors.textTertiary}]}>{t('profile.current')}</Text>
+          : <Button variant="text" size="small" disabled={coverBusy || busy || !!coverOpening} onPress={() => {void selectCover(candidate.id);}}>{t('web.metadata.useIt')}</Button>}
+      </View>)}
+      {manifest?.format === 'cbz' && manifest.pageNames?.length ? <Button variant="glass" disabled={coverBusy || busy || !!coverOpening} onPress={openCover}>{t('next.reader.chooseCoverPage')}</Button> : null}
+      {coverFailed ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
+    </View> : null}
+    {coverOpening ? <BottomSheet open onOpenChange={open => {if (!open) dismissCover(coverOpening);}} title={t('next.reader.chooseCoverPage')}
+      description={t('next.reader.ownerOnly')} testID="native-read-cover-page" keyboardAvoiding>
+      <View style={{gap: 10}}>
+        <Text style={[browseType(theme, 13, 500), {color: theme.colors.textSecondary}]}>{t('next.reader.pageCount', {count: coverOpening.pageCount})}</Text>
+        <TextField value={pageInput.value} onChangeText={setPage} editable={!coverBusy} keyboardType="number-pad"
+          accessibilityLabel={t('next.reader.page')} maxLength={4}/>
+        <Button onPress={() => {void choosePage(coverOpening, pageInput);}} loading={coverBusy} disabled={coverBusy || !pageInput.value.trim()}>{t('web.metadata.useIt')}</Button>
+        {coverFailed ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
+      </View>
+    </BottomSheet> : null}
   </BottomSheet>;
 }

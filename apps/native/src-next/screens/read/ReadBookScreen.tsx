@@ -130,7 +130,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       {body}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
-    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId}
+    {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} manifest={manifest}
       onClose={ticket => setEdit(current => current?.owner === ticket ? undefined : current)}/> : null}
   </View>;
 }
