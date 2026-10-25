@@ -10,7 +10,12 @@ export function EndedMoveCodeAction({scope, busy, isCurrent, onStart}: {
 }) {
   const active = useRef<Ticket | undefined>(undefined), flight = useRef<{ticket: Ticket; abort: AbortController} | undefined>(undefined);
   const [committed, setCommitted] = useState<Ticket>();
-  if (active.current && active.current.scope !== scope) {active.current.live = false; active.current = undefined;}
+  if (active.current && active.current.scope !== scope) {
+    const retired = active.current;
+    retired.live = false;
+    if (flight.current?.ticket === retired) flight.current.abort.abort();
+    if (active.current === retired) active.current = undefined;
+  }
   useLayoutEffect(() => {const ticket = {scope, live: true}; active.current = ticket; flight.current = undefined; setCommitted(ticket);
     return () => {ticket.live = false; if (active.current === ticket) active.current = undefined; if (flight.current?.ticket === ticket) flight.current.abort.abort();};}, [scope]);
   const current = () => !!committed?.live && committed.scope === scope && active.current === committed && isCurrent();
