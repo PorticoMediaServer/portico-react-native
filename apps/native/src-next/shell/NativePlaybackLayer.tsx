@@ -12,6 +12,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
 import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
+import type {V1QueueEditIntent} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
 import {NativeListeningNotice} from '../screens/destinations/music/ListeningNotice';
 import {NativePlayOnSheets} from '../screens/watch/PlayOnSheets';
@@ -115,8 +116,14 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         if (!lifetime.isCurrent() || current.capabilities.cast !== true || !current.fence || !sameFence(current.fence, fence)) return;
         runtime.playOn?.open();
       }}} : {}),
+      ...(adapter.editQueue ? {queueEdit: {enabled: snapshot.capabilities.queueEdit === true, lease: lifetime,
+        apply: (fence: PlaybackFence, intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => {
+          const current = adapter.getSnapshot();
+          if (!lifetime.isCurrent() || current.capabilities.queueEdit !== true || !current.fence || !sameFence(current.fence, fence)) return;
+          void adapter.editQueue!(fence, {queueId, expectedRevision, intent}, lifetime).catch(runtime.reportError);
+        }}} : {}),
     };
-  }, [listeningLifetime, adapter, snapshot.capabilities.retry, snapshot.capabilities.cast, runtime]);
+  }, [listeningLifetime, adapter, snapshot.capabilities.retry, snapshot.capabilities.cast, snapshot.capabilities.queueEdit, runtime]);
   const playOn = runtime.playOn;
   const playOnState = useSyncExternalStore(playOn?.subscribe ?? noListeningSubscribe, playOn?.getSnapshot ?? noPlayOnState);
   const action = useMemo(() => {

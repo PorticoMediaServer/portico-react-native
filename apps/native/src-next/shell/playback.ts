@@ -2,7 +2,7 @@ import type {ComponentType} from 'react';
 import type {HomeSelectionPlaybackPort} from '../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
-import type {V1QueuePlayer} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import type {V1QueuePlayer, V1QueueEditIntent} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {SegmentInput} from '../../../../packages/client-core/src/playback-v1/queue';
 import type {QueueHeader} from '../../../../packages/client-core/src/playback-v1/types';
 import type {QueuePlayerState} from '../../../../packages/client-core/src/queue-controller';
@@ -42,7 +42,7 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   /** The runtime's admitted retained-view fact, passed through without inference. */
   pictureInPicture?: NativePlaybackRuntimeSnapshot['pictureInPicture'];
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
-  capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
+  capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queueEdit?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
 }>;
 
 /** TV video has no collapsed state. Audio folds away; phones retain their video dock. */
@@ -86,6 +86,9 @@ export interface NativeShellPlaybackAdapter {
   replay: (fence: PlaybackFence) => Promise<void>;
   /** Retry the exact failed queue output at its saved target; the core fences the output it replaced. */
   retry?: (fence: PlaybackFence, lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => Promise<void>;
+  /** Edit only loaded upcoming rows under the drawn output and revision. */
+  editQueue?: (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueueEditIntent}>,
+    lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => Promise<void>;
   seek: (fence: PlaybackFence, seconds: number) => Promise<void>;
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;

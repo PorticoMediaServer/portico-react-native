@@ -1,12 +1,14 @@
-import React from 'react';
+import React, {useCallback, useLayoutEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
 import type {QueueEntry} from '../../../../../../packages/player-core/src';
+import type {V1QueueEditIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Artwork} from '../../../kit/artwork';
 import {Focusable} from '../../../kit/controls';
 import {FocusRegion, type FocusEdges} from '../../../kit/focus';
+import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
 
@@ -29,10 +31,15 @@ export type NowPlayingQueueProps = Readonly<{
    * asks for focus on mount, so the player's own Pause keeps it. */
   regionId?: string;
   edges?: FocusEdges;
+  /** The guarded queue edit, only for loaded noncurrent available rows; absent means no actions. */
+  queueEdit?: Readonly<{enabled: boolean; lease?: object; fenceKey: string; apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
   testID?: string;
 }>;
 
-type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean; segmentId?: string}>;
+type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean; position: number; available: boolean; segmentId?: string}>;
+/** Everything one open sheet may act on; never read from a later render. */
+type RowOpening = Readonly<{row: Row; previous?: Row; next?: Row; queueId: string; revision: string; fenceKey: string; lease?: object;
+  apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
 
 const visibleEntries = (view: QueuePlaybackView): readonly Extract<QueueEntry, {hidden: false}>[] =>
   view.queue.entries.filter((entry): entry is Extract<QueueEntry, {hidden: false}> => !entry.hidden && !entry.removed);
@@ -49,7 +56,7 @@ export function nowPlayingQueueRows(view: QueuePlaybackView): readonly Row[] {
     const detail = [item.artist, item.album && item.album !== item.title ? item.album : undefined]
       .filter((value): value is string => !!value).join(' · ');
     const seconds = item.durationMs !== undefined && item.durationMs > 0 ? item.durationMs / 1000 : undefined;
-    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}), current: entry.id === view.queue.currentEntryId, ...(entry.segmentId ? {segmentId: entry.segmentId} : {})}];
+    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}), current: entry.id === view.queue.currentEntryId, position: entry.position, available: entry.available, ...(entry.segmentId ? {segmentId: entry.segmentId} : {})}];
   });
 }
 
@@ -57,8 +64,8 @@ export function nowPlayingQueueRows(view: QueuePlaybackView): readonly Row[] {
  * One entry per queue, bounded, so a long session cannot grow it without limit. */
 const rememberedRow = new Map<string, string>();
 
-export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
-  const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view);
+export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
+  const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view), [rowMenu, setRowMenu] = useState<RowOpening>(), rowMenuRef = useRef<RowOpening | undefined>(undefined);
   const current = rows.filter(row => row.current), upcoming = rows.filter(row => !row.current);
   // The queue's own segments name what each run of upcoming entries came from; a run without
   // one keeps the plain Up next heading rather than inventing a source.
@@ -72,7 +79,53 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID 
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
   const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
-  const canPlay = typeof onPlay === 'function';
+  const canPlay = typeof onPlay === 'function', editable = !!queueEdit?.enabled;
+  // The live ref is the opening's authority: a retained callback may only act while it is still
+  // that exact opening, so Cancel or a successor on the same view/fence/lease cannot be used.
+  const retire = useCallback((opening: RowOpening) => {
+    if (rowMenuRef.current === opening) rowMenuRef.current = undefined;
+    setRowMenu(current => current === opening ? undefined : current);
+  }, []);
+  // Layout retirement for a changed view, fence or lease; the ref and the sheet leave together.
+  useLayoutEffect(() => {
+    const opening = rowMenuRef.current;
+    if (!opening) return;
+    if (!queueEdit?.enabled || queueEdit.fenceKey !== opening.fenceKey || (queueEdit.lease ?? undefined) !== opening.lease
+      || view.queue.id !== opening.queueId || view.queue.revision !== opening.revision) retire(opening);
+  }, [queueEdit?.enabled, queueEdit?.fenceKey, queueEdit?.lease, view.queue.id, view.queue.revision, retire]);
+  useLayoutEffect(() => () => {rowMenuRef.current = undefined;}, []);
+  const openMenu = (value: Row) => {
+    if (!editable || !queueEdit || value.current || !value.available || !upcoming.some(entry => entry.entryId === value.entryId)) return;
+    const rows = upcoming.filter(entry => entry.available), at = rows.findIndex(entry => entry.entryId === value.entryId);
+    if (at < 0) return;
+    const previous = at > 0 ? rows[at - 1] : undefined, next = at < rows.length - 1 ? rows[at + 1] : undefined;
+    const opening: RowOpening = {row: value, ...(previous ? {previous} : {}), ...(next ? {next} : {}), queueId: view.queue.id, revision: view.queue.revision,
+      fenceKey: queueEdit.fenceKey, ...(queueEdit.lease ? {lease: queueEdit.lease} : {}), apply: queueEdit.apply};
+    rowMenuRef.current = opening;
+    setRowMenu(opening);
+  };
+  // Disabled is presentation; each press also proves its captured neighbour is still the one
+  // adjacent loaded position before it asks for anything.
+  const menuItems = (opening: RowOpening): readonly MenuEntry[] => {
+    const canUp = !!opening.previous && opening.previous.position + 1 === opening.row.position;
+    const canDown = !!opening.next && opening.next.position === opening.row.position + 1;
+    return [
+      {id: 'move-up', label: t('web.profile.moveUp'), disabled: !canUp, onSelect: () => {
+        if (rowMenuRef.current !== opening) return;
+        const previous = opening.previous;
+        if (!previous || previous.position + 1 !== opening.row.position) return;
+        opening.apply({action: 'reorder', entryIds: [opening.row.entryId, previous.entryId]}, opening.queueId, opening.revision);
+      }},
+      {id: 'move-down', label: t('web.profile.moveDown'), disabled: !canDown, onSelect: () => {
+        if (rowMenuRef.current !== opening) return;
+        const next = opening.next;
+        if (!next || next.position !== opening.row.position + 1) return;
+        opening.apply({action: 'reorder', entryIds: [next.entryId, opening.row.entryId]}, opening.queueId, opening.revision);
+      }},
+      {id: 'remove', label: t('web.together.removeFromQueue'), destructive: true,
+        onSelect: () => {if (rowMenuRef.current !== opening) return; opening.apply({action: 'remove', entryId: opening.row.entryId}, opening.queueId, opening.revision);}},
+    ];
+  };
   const remember = (entryId: string) => {
     const queueId = view.queue.id;
     if (!rememberedRow.has(queueId) && rememberedRow.size >= 8) rememberedRow.delete(rememberedRow.keys().next().value!);
@@ -88,13 +141,20 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID 
       </View>
       {value.seconds ? <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{durationText(value.seconds, t)}</Text> : null}
     </>;
-    if (!canPlay || value.current) return <View key={value.entryId} testID={`${testID}-row-${value.entryId}`} accessibilityRole="text" accessibilityLabel={[value.title, value.detail].filter(Boolean).join(', ')}
-      style={{minHeight: 52, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12}}>{body}</View>;
-    return <Focusable key={value.entryId} testID={`${testID}-row-${value.entryId}`} focusId={`${testID}-${value.entryId}`} focusKind="row" focusRadius={10}
-      accessibilityRole="button" accessibilityLabel={t('player.queuePlay', {title: value.title})}
-      onPress={() => onPlay!(view.queue.id, value.entryId, view.queue.revision)}
-      style={({focused}) => ({minHeight: 52, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 10,
-        backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>{body}</Focusable>;
+    const main = !canPlay || value.current ? <View key={`${value.entryId}:main`} testID={`${testID}-row-${value.entryId}`} accessibilityRole="text" accessibilityLabel={[value.title, value.detail].filter(Boolean).join(', ')}
+      style={{flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12}}>{body}</View>
+      : <Focusable key={`${value.entryId}:main`} testID={`${testID}-row-${value.entryId}`} focusId={`${testID}-${value.entryId}`} focusKind="row" focusRadius={10}
+        accessibilityRole="button" accessibilityLabel={t('player.queuePlay', {title: value.title})}
+        onPress={() => onPlay!(view.queue.id, value.entryId, view.queue.revision)}
+        style={({focused}) => ({flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 10,
+          backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>{body}</Focusable>;
+    if (!editable || value.current || !value.available) return main;
+    return <View key={value.entryId} style={{flexDirection: 'row', alignItems: 'center'}}>{main}
+      <Focusable testID={`${testID}-row-menu-${value.entryId}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t('server.row.actions', {name: value.title})}
+        onPress={() => openMenu(value)} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
+        <Text style={[browseType(theme, 18, 800), {color: theme.colors.textSecondary}]}>⋯</Text>
+      </Focusable>
+    </View>;
   };
   /** tv#7's row: 88 high, the album cover 72 squared and rounded 10, the title at 22, the artist
    * at 19 and the duration at 19; only the entries the engine will really play next. */
@@ -159,5 +219,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, testID 
     {rows.length ? <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, paddingHorizontal: 14, paddingVertical: 12}}>
       <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{summary}</Text>
     </View> : null}
+    {rowMenu && <Menu key={`${rowMenu.queueId}:${rowMenu.revision}:${rowMenu.row.entryId}`} testID={`${testID}-row-menu`} open presentation="sheet" title={rowMenu.row.title}
+      onOpenChange={open => {if (!open) retire(rowMenu);}} items={menuItems(rowMenu)}/>}
   </View>;
 }
