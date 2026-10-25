@@ -3,6 +3,7 @@
  * A field this client cannot read is refused rather than guessed; the server's
  * own keys are the contract, so extra fields are ignored and never invented.
  */
+import {liveSourceAcquisition, type LiveSourceAcquisition} from '../../../../../packages/client-core/src/administration';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown, max = 4096): v is string => typeof v === 'string' && v.length <= max && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v);
@@ -28,6 +29,8 @@ export type LiveSource = Readonly<{
   id: string; name: string; revision: number; state: string; tunerCount: number; tunerCountMode: string;
   generation: string; publishedAt: string; channels: number; programmes: number;
   deliveryValidation: string; capacityKnown: boolean; planningEstimate: number; diagnostics: ImportDiagnostics;
+  /** The server's own update mode. Absent means unknown, never inferred from a refresh row. */
+  acquisition?: LiveSourceAcquisition;
 }>;
 export type LiveSources = Readonly<{sources: readonly LiveSource[]; refresh: readonly LiveRefresh[]}>;
 
@@ -42,8 +45,9 @@ const diagnostics = (v: unknown): ImportDiagnostics => {
 };
 const source = (v: unknown): LiveSource => {
   if (!object(v) || !text(v.id, 64) || !v.id || !text(v.name, 512) || !count(v.revision) || !text(v.state, 64)) invalid();
+  const acquisition = liveSourceAcquisition(v.acquisition);
   return Object.freeze({
-    id: v.id, name: v.name, revision: v.revision, state: v.state,
+    id: v.id, name: v.name, revision: v.revision, state: v.state, ...(acquisition ? {acquisition} : {}),
     tunerCount: count(v.tunerCount, 256) ? v.tunerCount : 0,
     tunerCountMode: text(v.tunerCountMode, 64) ? v.tunerCountMode : '',
     generation: text(v.generation, 128) ? v.generation : '',
@@ -99,6 +103,8 @@ export type LiveSourceSettings = Readonly<{
 export type LiveSourceDocument = Readonly<{
   sourceId: string; sourceName: string; revision: number; digest: string;
   settings: LiveSourceSettings; effective: LiveDefaults; availableKinds: readonly string[]; tunerCount: number;
+  /** Same server fact as the list; absent means unknown. */
+  acquisition?: LiveSourceAcquisition;
 }>;
 
 const limits = (v: unknown): Readonly<{bytes: number; channels: number; programmes: number}> => {
@@ -135,7 +141,8 @@ const settings = (v: unknown): LiveSourceSettings => {
 export function parseSourceDocument(v: unknown, serverId: string): LiveSourceDocument {
   const body = adminResult(v, serverId, true);
   if (!text(body.sourceId, 64) || !text(body.sourceName, 512) || !count(body.revision) || !strings(body.availableKinds, 16) || !count(body.tunerCount, 256)) invalid();
-  return Object.freeze({sourceId: body.sourceId, sourceName: body.sourceName, revision: body.revision, digest: text(body.digest, 128) ? body.digest : '', settings: settings(body.settings), effective: defaults(body.effective), availableKinds: Object.freeze([...body.availableKinds]), tunerCount: body.tunerCount});
+  const acquisition = liveSourceAcquisition(body.acquisition);
+  return Object.freeze({sourceId: body.sourceId, sourceName: body.sourceName, revision: body.revision, digest: text(body.digest, 128) ? body.digest : '', settings: settings(body.settings), effective: defaults(body.effective), availableKinds: Object.freeze([...body.availableKinds]), tunerCount: body.tunerCount, ...(acquisition ? {acquisition} : {})});
 }
 export function parseLiveDefaults(v: unknown, serverId: string): Readonly<{revision: number; settings: LiveDefaults}> {
   const body = adminResult(v, serverId, true);

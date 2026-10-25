@@ -46,7 +46,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
   const menuItems = menu ? [
     {id: 'settings', icon: 'i-sliders' as const, label: t('web.liveTv.sourceSettings'), onSelect: () => setConfigure(menu)},
     {id: 'channels', icon: 'i-list' as const, label: t('web.liveTv.channelsAndNumbers'), onSelect: () => setMapping(menu)},
-    ...(menu.state !== 'disabled' ? [{id: 'refresh', icon: 'i-refresh' as const, label: t('web.liveTv.refreshGuideNow'), onSelect: () => {void controller.refreshSource(menu.id);}}] : []),
+    ...(menu.state !== 'disabled' && menu.acquisition !== 'upload' ? [{id: 'refresh', icon: 'i-refresh' as const, label: t('web.liveTv.refreshGuideNow'), onSelect: () => {void controller.refreshSource(menu.id);}}] : []),
     {id: 'toggle', icon: menu.state === 'disabled' ? 'i-play' as const : 'i-pause' as const, label: t(menu.state === 'disabled' ? 'web.liveTv.enableSource' : 'web.liveTv.pauseSource'), onSelect: () => {void controller.setEnabled(menu.id, menu.state === 'disabled');}},
     {id: 'separator', separator: true as const},
     {id: 'remove', icon: 'i-trash' as const, label: t('web.liveTv.removeSource'), destructive: true, onSelect: () => setRemove(menu)},
