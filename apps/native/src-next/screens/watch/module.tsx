@@ -3,7 +3,7 @@ import React from 'react';
 import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import {Platform, type View} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import {sameFence, type PlaybackFence, type SkipMode} from '../../../../../packages/player-core/src';
+import {sameFence, type SkipMode} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {qualityOptionSelected} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -43,8 +43,6 @@ export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
   playbackInfo?: NativeWatchPanelsProps['playbackInfo'];
   episodes?: NativeWatchPanelsProps['episodes'];
   presentation?: NativeWatchHostBindings['presentation'];
-  /** The runtime's own resume-at-the-saved-place retry for a failed playback; absent until it exists. */
-  retryPlayback?: (failure: import('./PlaybackFailed').NativePlaybackFailure) => Promise<void>;
   onPictureInPicture?: ReturnType<NativeWatchHostBindings['chrome']>['onPictureInPicture'];
   onFullWindow?: ReturnType<NativeWatchHostBindings['chrome']>['onFullWindow'];
   renderOverlays?: (runtime: NativeShellRuntime) => React.ReactNode;
@@ -78,27 +76,39 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   // belong to the module and its route, never to the error surface. They abort on a
   // route/authority replacement, a collapsed watch or disposal — not on phase,
   // source or session changes — and the core fences unrelated intents itself.
-  const retries = new Set<AbortController>();
+  const retries = new Set<{controller: AbortController; route: Readonly<{authority: ReturnType<typeof context.authority>; revision: number}>}>();
   const expanded = () => context.playback.getSnapshot().dock.local?.expanded === true;
-  const abortRetries = () => {for (const controller of retries) controller.abort(); retries.clear();};
-  const subscription = context.playback.subscribe(() => {if (!expanded()) abortRetries();});
-  const subscriptionAuthority = context.subscribeAuthority?.(() => abortRetries());
-  /** The button named one exact failure. Everything it acts on comes from that
-   * snapshot, and the live fence and capability are checked again before dispatch. */
-  const retryFailed = (failure: NativePlaybackFailure, report: (error: unknown) => void) => {
+  const abortAll = () => {for (const operation of retries) operation.controller.abort(); retries.clear();};
+  // A pending retry belongs to the route it was started under. Collapsing the watch,
+  // replacing the route or authority, or disposing the module aborts it; the retry's
+  // own phase, source and session changes never do.
+  const stopPlayback = context.playback.subscribe(() => {if (!expanded()) abortAll();});
+  const stopNavigation = context.navigation.subscribe(() => {
+    const route = {authority: context.authority(), revision: context.navigation.getSnapshot().revision};
+    for (const operation of [...retries]) {
+      if (sameAuthority(operation.route.authority, route.authority) && operation.route.revision === route.revision) continue;
+      operation.controller.abort();
+      retries.delete(operation);
+    }
+  });
+  const stopAuthority = context.subscribeAuthority(() => abortAll());
+  /** Dispatch one failure the viewer actually saw, under the route it was drawn on.
+   * The captured route travels with the operation; nothing reads a later route. */
+  const retryFailed = (failure: NativePlaybackFailure, route: Readonly<{authority: ReturnType<typeof context.authority>; revision: number}>,
+    report: (error: unknown) => void) => {
     const live = context.playback.getSnapshot();
-    if (!current() || !sameAuthority(context.authority(), authority)) return;
+    if (!current() || !sameAuthority(context.authority(), route.authority)) return;
+    if (context.navigation.getSnapshot().revision !== route.revision) return;
     if (live.capabilities.retry !== true || !live.fence || !sameFence(live.fence, failure.fence) || !expanded()) return;
     const retry = context.playback.retry;
     if (!retry) return;
-    const route = {authority: context.authority(), revision: context.navigation.getSnapshot().revision};
-    const controller = new AbortController();
-    retries.add(controller);
+    const controller = new AbortController(), operation = {controller, route};
+    retries.add(operation);
     const isCurrent = () => !disposed && !controller.signal.aborted && current() && expanded()
       && sameAuthority(context.authority(), route.authority) && context.navigation.getSnapshot().revision === route.revision;
     void retry(failure.fence, {signal: controller.signal, isCurrent})
-      .catch(error => {if (!controller.signal.aborted && current()) report(error);})
-      .finally(() => retries.delete(controller));
+      .catch(error => {if (isCurrent()) report(error);})
+      .finally(() => retries.delete(operation));
   };
   const skipSeconds = (source: NativePlaybackRuntimeSnapshot, key: 'playback.skipBackMs' | 'playback.skipForwardMs') => {
     if (source.dock?.local?.kind === 'audiobook') {
@@ -171,8 +181,13 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     content: host => screens.watch.body(host),
     details: host => screens.watch.details(host),
     episodes: host => screens.watch.upNext(host),
-    failed: (host, failure, chromeVisible) => <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible}
-      retry={() => {retryFailed(failure, host.runtime.reportError);}}/>,
+    failed: (host, failure, chromeVisible) => {
+      const route = {authority: context.authority(), revision: context.navigation.getSnapshot().revision};
+      const live = context.playback.getSnapshot();
+      const canRetry = live.capabilities.retry === true && !!context.playback.retry && !!live.fence && sameFence(live.fence, failure.fence);
+      return <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible}
+        {...(canRetry ? {retry: () => {retryFailed(failure, route, host.runtime.reportError);}} : {})}/>;
+    },
     postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
       current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
       onClose={() => {if (current()) void context.playback.stop(host.fence).catch(host.runtime.reportError);}} onOpen={entry => {if (current()) bindings.title.navigate(entry);}}
@@ -201,6 +216,6 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     renderOverlays: (runtime: NativeShellRuntime) => current() ? bindings.renderOverlays?.(runtime) : null,
     back: () => current() && screens.watch.back(),
     screens,
-    dispose: () => {if (disposed) return; disposed = true; abortRetries(); subscription(); subscriptionAuthority?.(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
+    dispose: () => {if (disposed) return; disposed = true; abortAll(); stopPlayback(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });
 }

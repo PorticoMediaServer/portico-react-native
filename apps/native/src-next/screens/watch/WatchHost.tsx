@@ -133,6 +133,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   }, [layoutKey, motion, paneFade, isTV]);
   useEffect(() => () => {cancelAnimation(paneFade);}, [paneFade]);
   const paneFadeStyle = useAnimatedStyle(() => ({opacity: paneFade.value}));
+  // states 11: one failure names one exact fence, session and place. The hook is
+  // declared above every conditional return; it only ever captures with a valid fence.
+  const failureRef = useRef<{key: string; failure: NativePlaybackFailure} | undefined>(undefined);
   if (!expanded || !fence || !layout?.surface) return null;
   const context: NativeWatchHostContext = {source, fence, layout, state, runtime,
     renderer: {width: television?.canvas.width ?? window.width, height: television?.canvas.height ?? window.height, scale: television?.canvas.scale ?? 1,
@@ -145,11 +148,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // full-window player (phone-player 6); the upright watch page keeps its own page.
   const postPlay = bindings.postPlay && !panelOpen && (isTV || layout.mode === 'full-window') && source.playback.phase === 'ended'
     && !(source.queue.view?.next.available === true) ? bindings.postPlay(context) : undefined;
-  // states 11: a failure names one exact fence, session and place. Capture it when
-  // that failure appears and never re-read the live context, so a later start
-  // (a successor) is never the thing a recovery control acts on.
-  const failureRef = useRef<{key: string; failure: NativePlaybackFailure} | undefined>(undefined);
-  const failureKey = source.playback.phase === 'error'
+  // Capture only when a valid fence names this failure; a render without one leaves
+  // the last capture alone rather than inventing a fence or changing hook count.
+  const failureKey = fence && source.playback.phase === 'error'
     ? JSON.stringify([fence, source.playback.intentId, source.playback.session?.id, source.playback.positionSeconds]) : undefined;
   if (failureKey === undefined) failureRef.current = undefined;
   else if (failureRef.current?.key !== failureKey) failureRef.current = {key: failureKey,
