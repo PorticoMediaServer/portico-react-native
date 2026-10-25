@@ -1,5 +1,5 @@
-import React from 'react';
-import {ScrollView, View} from 'react-native';
+import React, {useState} from 'react';
+import {useWindowDimensions, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {AdminSession, StreamAction} from '../../../../../../packages/client-core/src/playback-v1/types';
 import type {Alert, Job} from '../../../../../../packages/client-core/src/console';
@@ -107,22 +107,22 @@ const summary: PlaySummary = {
 
 function specimen(scale: boolean, expanded: boolean, move = false) {
   return function OwnerDashboardSpecimen() {
+    const {height} = useWindowDimensions();
+    const [showAll, setShowAll] = useState(expanded), [showMove, setShowMove] = useState(move);
     const theme = useTheme(), env = {t, locale: defaultI18n.region.formatLocale}, health = ownerHealthLine(undefined, undefined, t);
     const list = scale ? scaleSessions : sessions;
     // The page is drawn edge to edge in the frames; the dev host's gutter is cancelled here, once.
-    return <View style={{flex: 1, backgroundColor: theme.colors.ink, marginHorizontal: -theme.gutter}}>
-      <ScrollView contentContainerStyle={{paddingBottom: 40}}>
+    return <View style={{height, backgroundColor: theme.colors.ink, marginHorizontal: -theme.gutter}}>
         <OwnerDashboardPage t={t} role="owner" serverName="Portico demo" topInset={0}
           health={{degraded: false, status: health.status, line: 'Up for 6 days · 1.2 TB free · Database 412 MB'}} updated={t('next.dashboard.updatedNow')} loading={false}
           streams={list.slice(0, 10).map(value => ({view: ownerStreamView(value, env)}))} streamTotals={scale ? scaleTotals : {streams: 2, paused: 0, converting: 1, bandwidthKbps: 8000, people: 2, atHome: 1, away: 1}}
-          expanded={expanded} allStreams={expanded ? list.map(value => ({view: ownerStreamView(value, env)})) : []}
+          expanded={showAll} allStreams={showAll ? list.map(value => ({view: ownerStreamView(value, env)})) : []}
           people={scale ? '37 people · 30 at home, 7 away' : '2 people · 1 at home, 1 away'}
           alerts={alerts.map(value => ownerAlertView(value, t, defaultI18n.has))} jobs={jobs.map(value => ownerJobView(value, t, defaultI18n.has))}
           telemetry={telemetry} healthWindow="1h" summary={summary} viewingPeriod="7d"
           onBack={() => {}} onRefresh={() => {}} onRetry={() => {}} onHealthWindow={() => {}} onViewingPeriod={() => {}} onAcknowledge={() => {}} onFixPermissions={() => {}} onJobMenu={() => {}} onStop={() => {}} onStreamMenu={() => {}}
-          onShowAll={() => {}} onShowFewer={() => {}} onRetryAll={() => {}}/>
-      </ScrollView>
-      {move ? <OwnerMoveSheet session={scaleSessions[4]} t={t} busy={false} onCancel={() => {}} onMove={() => {}}/> : null}
+          onShowAll={() => setShowAll(true)} onShowFewer={() => setShowAll(false)} onRetryAll={() => {}}/>
+      {showMove ? <OwnerMoveSheet session={scaleSessions[4]} t={t} busy={false} onCancel={() => setShowMove(false)} onMove={() => setShowMove(false)}/> : null}
     </View>;
   };
 }
