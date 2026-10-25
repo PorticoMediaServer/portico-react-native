@@ -342,6 +342,19 @@ maxFrameRate, tenBit}}` (each hardware decoder's own limits), `hdrOutputRanges: 
   so its "match content frame rate" setting decides; an HDR title on a television that shows HDR
   is also held for a moment after its first picture, which is when the television changes to HDR.
   Never on a phone or tablet, and never for music.
+  Native tvOS commands independently accept `matchDynamicRange: auto | off`. Automatic
+  permits an app-owned `AVDisplayManager.preferredDisplayCriteria` request subject to the
+  system's Match Content settings. Off cancels pending matching and withdraws only criteria
+  still owned by this controller; it never selects SDR or changes system output policy.
+  Replacing or retiring the item withdraws that same request, including video-to-audio and
+  connection-verification transitions. The separate Quality Turn off HDR restriction remains
+  a delivery capability restriction and is never read or written by this port.
+  Only tvOS exports `dynamicRangeMatching: true`. Android Media3 and mpv currently expose
+  `Surface.setFrameRate` for cadence; HDR output follows decoded Surface content (mpv uses
+  `mediacodec_embed` when supported). Neither exposes a Portico-owned dynamic-range matching
+  enable/disable request independent of HDR delivery or fixed system output policy. iOS also
+  has no television display-matching port. These paths do not offer the matching control;
+  current output range is not inferred from a saved preference.
 - **Network.** The engine reads only the command's `source` and addresses under the same media
   grant. TLS is validated by the system. Redirects of subtitle and font fetches are refused.
 

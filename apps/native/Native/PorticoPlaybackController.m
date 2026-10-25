@@ -727,6 +727,13 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  double now=CMTimeGetSeconds(item.currentTime);
  if(isfinite(now)){for(NSValue *value in item.loadedTimeRanges){CMTimeRange range=value.CMTimeRangeValue;double start=CMTimeGetSeconds(range.start),end=CMTimeGetSeconds(CMTimeRangeGetEnd(range));if(isfinite(start)&&isfinite(end)&&start<=now+0.5&&end>now){fact[@"bufferedSeconds"]=@(end-now);break;}}}
 }
-- (void)removeObservation{[self clearCapturedVideoFrame];if(_videoOutput&&[_observedItem.outputs containsObject:_videoOutput])[_observedItem removeOutput:_videoOutput];_videoOutput=nil;if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
+- (void)removeObservation{
+#if TARGET_OS_TV
+ // Every retired item also retires its pending match callback and owned criteria.
+ // Audio and a verifying replacement must never inherit the previous title's request.
+ _displayWaiting=NO;_displayMatchedItem=nil;_displayEpoch++;
+ [self endDisplayObservation];[self clearOwnedDisplayCriteria];
+#endif
+ [self clearCapturedVideoFrame];if(_videoOutput&&[_observedItem.outputs containsObject:_videoOutput])[_observedItem removeOutput:_videoOutput];_videoOutput=nil;if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
 - (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_subtitleOverlay invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
 @end
