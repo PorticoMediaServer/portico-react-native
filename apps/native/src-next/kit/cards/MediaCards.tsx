@@ -78,7 +78,14 @@ export function SquareCard(props: SquareCardProps) {
       <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="square" source={props.artwork} fallback={props.artworkFallback} width={width} height={width} />
       <Scrim start={0.55} opacity={0.75} /><Marks watched={props.watched} isNew={props.isNew} />
       <Progress value={props.progress} height={t.isTV ? 6 : 3} style={{position: 'absolute', left: 8, right: 8, bottom: 8}} />
-    </ArtFrame><Caption {...props} selected={props.selection?.selected} /></>}
+      {props.playing && <View pointerEvents="none" style={{position: 'absolute', left: 12, bottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
+        paddingVertical: 7, paddingHorizontal: 12, borderRadius: 9, backgroundColor: 'rgba(7,16,24,.82)'}}>
+        <View accessible={false} importantForAccessibility="no-hide-descendants" style={{flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 16}}>
+          {[.55, 1, .38].map((factor, index) => <View key={index} style={{width: 4, height: 16 * factor, borderRadius: 1.5, backgroundColor: t.colors.accentStrong}}/>)}
+        </View>
+        <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18, fontWeight: '800', color: t.colors.text}}>{defaultI18n.t('player.miniPlaying')}</Text>
+      </View>}
+    </ArtFrame><Caption {...props} selected={props.selection?.selected} titleTextStyle={props.playing ? {color: t.colors.accentStrong} : props.titleTextStyle} /></>}
   </CardFrame>;
 }
 

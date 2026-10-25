@@ -35,6 +35,8 @@ export type CardNativeProps = Omit<PressableProps, 'children' | 'style' | 'onPre
   pressableStyle?: StyleProp<ViewStyle>;
   visible?: boolean;
   priority?: boolean;
+  /** Draws the still "Playing" badge on a squared card (tv-player 9). */
+  playing?: boolean;
 };
 export type CardProps = CardNativeProps & CardActions;
 type Interaction = {focused: boolean; hovered: boolean; pressed: boolean; holding: boolean};
