@@ -4,6 +4,7 @@ import type {Receiver} from '../../../../../packages/client-core/src/social-play
 import type {LocalSession} from '../../../../../packages/client-core/src/index';
 import {sameFence, type DockPlayback, type PlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
 import {routePath} from '../../../../../packages/contracts/src/routes';
+import {NativeCastCaller, type NativeCastState} from './cast';
 import type {NativePlaybackAdapter} from '../playback/types';
 
 /** Play on, natively: the Portico devices this profile may send to, the handoff that
@@ -12,8 +13,8 @@ import type {NativePlaybackAdapter} from '../playback/types';
  * Every fact is the server's or the receiving device's own: the directory comes from
  * `GET /v1/receivers`, the takeover only counts once the television proves it is
  * playing, and the position and controls the remote shows are read from the playing
- * device through `GET /v1/playback/controls`. AirPlay and Google Cast need platform
- * transports this app does not install, so they are not offered.
+ * device through `GET /v1/playback/controls`. Cast uses the installed native
+ * transport and the shared admitted queue-transfer controller.
  *
  * One send is one attempt with its own connection id: the initiating dock playback,
  * fence, authority and session are captured before any await and checked again before
@@ -34,6 +35,8 @@ export type PlayOnRemote = Readonly<{
 
 export type PlayOnSnapshot = Readonly<{
   open: boolean;
+  cast?: NativeCastState;
+  castRemoteOpen?: boolean;
   receivers: readonly Receiver[];
   directoryPhase: HandoffSnapshot['directoryPhase'];
   directoryError?: string;
@@ -49,7 +52,7 @@ export type PlayOnSnapshot = Readonly<{
 }>;
 
 type Options = Readonly<{
-  api: Readonly<{request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>;
+  api: Readonly<{baseUrl?: string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>;
     requestRaw?(path: string, method: string, options?: Readonly<{headers?: Readonly<Record<string, string>>; body?: unknown; signal?: AbortSignal}>): Promise<{status: number; headers: Record<string, string>; body?: unknown}>}>;
   session: () => LocalSession | undefined;
   deviceName: () => string;
@@ -83,9 +86,15 @@ export class NativePlayOn {
   private disposed = false;
   private state: PlayOnSnapshot = Object.freeze({open: false, receivers: [], directoryPhase: 'idle', phase: 'idle', sending: false, remoteOpen: false});
 
+  readonly cast: NativeCastCaller;
+  private offCast?: () => void;
   private off?: () => void;
   constructor(options: Options) {
     this.options = options;
+    this.cast = new NativeCastCaller(options);
+    this.offCast = this.cast.subscribe(() => {const cast=this.cast.getSnapshot(),began=cast.cast.phase==='casting'&&this.state.cast?.cast.phase!=='casting';
+      this.publish({cast,...(began?{open:false,castRemoteOpen:true}:{})});});
+    this.state=Object.freeze({...this.state,cast:this.cast.getSnapshot()});
     // Another surface may end the remote first (Continue here on the bar, Dismiss,
     // or the dock's own expiry); the controller follows the dock, never the reverse.
     this.off = options.playback()?.subscribe(() => {
@@ -153,6 +162,7 @@ export class NativePlayOn {
     if (!this.state.open) return;
     this.publish({open: false});
     if (this.state.phase !== 'done') this.controller?.cancel();
+    const cast=this.cast.getSnapshot().cast;if(['connecting','pairing','waiting'].includes(cast.phase)||cast.transferPending)this.cast.controls('stop');
   };
 
   /** A request from the attempt that started it: the identity captured at send is checked
@@ -198,7 +208,13 @@ export class NativePlayOn {
   /** Moves this phone's playback to the receiver. The statement of what is playing is
    * this device's own, captured before the handoff starts; a replacement dock playback
    * is never stopped and its title is never restored. */
+  startCast = (): void => {if(!this.state.sending&&!this.state.remote){this.cast.start();this.publish({castRemoteOpen:false});}};
+  openCastRemote = (): void => {this.publish({castRemoteOpen:true});};
+  closeCastRemote = (): void => {this.publish({castRemoteOpen:false});};
+  castCommand = (type: string, position?: number): void => {this.cast.controls(type,position);};
+
   send = async (receiver: Receiver): Promise<void> => {
+    if(this.state.cast?.cast.transferPending||['connecting','pairing','waiting','casting'].includes(this.state.cast?.cast.phase??''))return;
     const playback = this.options.playback(), session = this.options.session();
     if (!playback || !session) return;
     const snapshot = playback.getSnapshot(), fence = snapshot.fence, local = snapshot.dock.local;
@@ -357,6 +373,13 @@ export class NativePlayOn {
   }
   /** The dock's remote commands, always bound to the bar's own remote id. */
   command = async (type: string, positionSeconds?: number, remoteId?: string): Promise<void> => {
+    const cast=this.cast.getSnapshot();
+    if(remoteId&&cast.source?.id===remoteId){
+      if(type==='open-remote')return this.openCastRemote();
+      if(type==='continue-here')return this.cast.continueHere();
+      if(type==='dismiss-remote')return this.cast.dismiss();
+      this.cast.controls(type,positionSeconds);return;
+    }
     switch (type) {
       case 'pause': return this.pause(remoteId);
       case 'play': case 'resume': return this.resume(remoteId);
@@ -379,6 +402,7 @@ export class NativePlayOn {
   dispose(): void {
     this.disposed = true;
     this.stopPolling();
+    this.offCast?.();this.offCast=undefined;this.cast.dispose();
     this.off?.(); this.off = undefined;
     this.offController?.(); this.offController = undefined;
     this.controller?.dispose(); this.controller = undefined;

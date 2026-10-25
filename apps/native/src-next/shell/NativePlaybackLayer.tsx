@@ -7,7 +7,7 @@ import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation} from '../kit/dock';
-import {currentOccupant, playbackPosition} from '../kit/dock/model';
+import {commandIsCurrent, currentOccupant, playbackPosition} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {NowPlayingScreen} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
@@ -29,6 +29,7 @@ import {TVStartFailure} from './TVStartFailure';
 
 const noListeningSubscribe = () => () => {};
 const noListeningNavigation = () => undefined;
+const noPlayOnState = () => undefined;
 /** The pushed route as identity, for a lease that only belongs to the page that opened it. */
 const listeningRouteKey = (route: Readonly<{kind: string}> | undefined) => route ? JSON.stringify(route) : '';
 
@@ -116,7 +117,19 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
     };
   }, [listeningLifetime, adapter, snapshot.capabilities.retry, snapshot.capabilities.cast, runtime]);
   const playOn = runtime.playOn;
-  const action = useMemo(() => bindNativeDock(adapter, playOn ? {remote: async command => {await playOn.command(command.type, command.positionSeconds, command.remote.id);}} : {}), [adapter, playOn]);
+  const playOnState = useSyncExternalStore(playOn?.subscribe ?? noListeningSubscribe, playOn?.getSnapshot ?? noPlayOnState);
+  const action = useMemo(() => {
+    const bound=bindNativeDock(adapter,playOn?{remote:async command=>{await playOn.command(command.type,command.positionSeconds,command.remote.id);}}:{});
+    return async (command: Parameters<typeof bound>[0]) => {
+      // Cast custody cannot restore the sender's old queue. Continue here is an
+      // explicit admitted start of the receiver's actual reported leaf instead.
+      if(playOn&&command.type==='continue-here'&&command.remote&&adapter.dock.getSnapshot().remote?.kind==='cast'){
+        if(!commandIsCurrent(adapter.dock,command))return false;
+        await playOn.command(command.type,command.positionSeconds,command.remote.id);return true;
+      }
+      return bound(command);
+    };
+  }, [adapter, playOn]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
     const current = adapter.getSnapshot();
     if (!alive.current || !sameAuthority(current.authority, authority) || !sameFence(current.fence, original)
@@ -228,6 +241,16 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
     artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, skipForwardSeconds: runtime.skipForwardSeconds, capabilities: snapshot.capabilities} : undefined;
+  const cast=playOnState?.cast,castSource=cast?.source;
+  const castIdentity=castSource?.snapshot.subject?playbackIdentity(castSource.snapshot.subject,'dock',runtime.text):undefined;
+  const observed=cast?.receiver,casting=cast?.cast.phase==='casting',known=!!observed&&observed.itemId===cast?.cast.itemId;
+  const remotePresentation:DockPresentation|undefined=cast&&castSource&&castIdentity&&snapshot.dock.remote?.kind==='cast'&&snapshot.dock.remote.id===castSource.id?{
+    fence:castSource.fence,identity:{...castIdentity,id:observed?.itemId||cast.cast.itemId||castIdentity.id,title:cast.title??runtime.text.t('player.queueNowPlaying'),subtitle:[]},
+    artwork:runtime.artwork(cast.posterUrl),ambient:runtime.ambient(cast.posterUrl),device:cast.cast.deviceName??runtime.text.t('cast.theTV'),
+    positionKnown:!!observed,durationSeconds:observed&&observed.durationSeconds>0?observed.durationSeconds:undefined,
+    skipBackSeconds:runtime.skipBackSeconds,skipForwardSeconds:runtime.skipForwardSeconds,
+    capabilities:{play:casting&&known&&observed.paused,pause:casting&&known&&!observed.paused,stop:cast.cast.phase!=='off'||cast.cast.transferPending===true,
+      seek:casting&&known&&observed.durationSeconds>0,previous:false,next:false,cast:false}}:undefined;
   // tablet-play9/10: a music or audiobook occupant that the viewer expanded is the
   // listening surface, drawn from the same dock occupant and the listening owner's
   // queue. The dock stays underneath; this never starts a second session.
@@ -245,7 +268,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={watch ? {position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height} : {position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
-        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot} contentInset={contentInset}
+        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation,remote:remotePresentation}} morph={morph} onVideoSlot={onSlot} contentInset={contentInset}
           visible={snapshot.pictureInPicture?.active !== true}
           tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}

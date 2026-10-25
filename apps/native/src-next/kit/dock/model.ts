@@ -34,7 +34,7 @@ export function commandAllowed(occupant: DockOccupant, type: DockAction): boolea
   const {capabilities: cap, finished} = occupant.presentation;
   const phase = occupant.remote?.phase;
   if (type === 'dismiss-remote') return !!phase && ['stopped', 'replaced', 'error'].includes(phase);
-  if (type === 'continue-here') return phase === 'stopped';
+  if (type === 'continue-here') return phase === 'stopped' && occupant.presentation.positionKnown !== false;
   if (type === 'stop' || type === 'close') return cap.stop;
   if (type === 'open-remote') return phase === 'playing';
   if (type === 'expand' || type === 'collapse') return !phase;
@@ -68,7 +68,7 @@ export function remoteSubtitle(occupant: DockOccupant): readonly FactPart[] {
   const remote = occupant.remote;
   if (!remote) return occupant.presentation.identity.subtitle;
   const device = occupant.presentation.device ?? defaultI18n.t('cast.theTV');
-  const position = clockText(remote.positionSeconds);
+  const position = occupant.presentation.positionKnown === false ? undefined : clockText(remote.positionSeconds);
   switch (remote.phase) {
     case 'connecting': case 'pairing': return [{id: 'connecting', text: defaultI18n.t('playOn.connectingTo', {device}), role: 'status'}];
     case 'waiting': return [{id: 'waiting', text: defaultI18n.t('cast.waitingForAllow'), role: 'status'}];

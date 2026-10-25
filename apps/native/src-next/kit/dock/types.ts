@@ -29,6 +29,8 @@ export type DockPresentation = Readonly<{
   ambient?: AmbientArtSource;
   palette?: ArtworkPalette;
   durationSeconds?: number;
+  /** Receiver observation only; false hides a placeholder numeric position. */
+  positionKnown?: boolean;
   /** Actual seekable window; a live dock uses the rewind window, not a fabricated programme range. */
   seekWindow?: Readonly<{start: number; end: number}>;
   finished?: boolean;

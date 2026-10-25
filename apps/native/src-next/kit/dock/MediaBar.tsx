@@ -293,7 +293,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     </View>}
   </View>;
   const terminalTools = <>
-    {remote?.phase === 'stopped' && <Button variant="primary" size="small" accessibilityLabel={t('web.cast.continueHere', {position: clockText(playbackPosition(occupant)) ?? ''})}
+    {remote?.phase === 'stopped' && p.positionKnown !== false && <Button variant="primary" size="small" accessibilityLabel={t('web.cast.continueHere', {position: clockText(playbackPosition(occupant)) ?? ''})}
       onPress={() => act('continue-here')} style={{height: 34, paddingHorizontal: 11, borderRadius: 9}} textStyle={dockType(theme, 13, 700)}>{t('next.dock.native.continueHere')}</Button>}
     {button('dismiss-remote', 'i-x', t('action.dismiss'), 18, true)}
   </>;
