@@ -218,6 +218,15 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     [...new Set(credits.filter(credit => departments.includes(credit.department.toLowerCase())).map(credit => credit.name))];
   const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
   const castNames = [...new Set(credits.filter(credit => ['acting', 'cast'].includes(credit.department.toLowerCase())).map(credit => credit.name))];
+  // The drawn synopsis is 24/1.45 in 800 and ends in 30; the credits line follows it and ends in 30.
+  const copyBlock = props.watch ? null : <>
+    {overview ? <Text numberOfLines={2} style={[theme.isTV ? theme.type.synopsis : theme.type.body, {color: theme.colors.textSecondary,
+      maxWidth: theme.isTV ? 800 : undefined, marginTop: theme.isTV ? 0 : 18, marginBottom: theme.isTV ? 30 : 0}]}>{overview}</Text> : null}
+    {theme.isTV && (directors.length > 0 || castNames.length > 0) ? <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 24, rowGap: 6, marginTop: -10, marginBottom: 30}}>
+      {directors.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text>}
+      {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: defaultI18n.list(castNames.slice(0, 3))})}</Text>}
+    </View> : null}
+  </>;
   const heroNode = (
       <View style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
         <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}/>
@@ -231,9 +240,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </Focusable> : null}
           <View style={tabletWatch ? {flexDirection: 'row', alignItems: 'flex-end', gap: 24} : undefined}>
           <View style={tabletWatch ? {flex: 1, minWidth: 0} : undefined}>
-          <Text accessibilityRole="header" numberOfLines={2} style={[nativeType({size: props.watch ? 28 : theme.isTV ? 76 : 40, weight: 800, tracking: props.watch ? -.035 : -.04, lineHeight: props.watch ? 30.8 : theme.isTV ? 84 : 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : 12}]}>{title}</Text>
+          <Text accessibilityRole="header" numberOfLines={theme.isTV && !props.watch ? undefined : 2} style={[props.watch ? nativeType({size: 28, weight: 800, tracking: -.035, lineHeight: 30.8}, theme.textScale)
+            : theme.isTV ? theme.type.lockup : nativeType({size: 40, weight: 800, tracking: -.04, lineHeight: 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : theme.isTV ? 22 : 12}]}>{title}</Text>
           {props.watch && watchIdentity?.subtitle.length ? <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 6}]}>{watchIdentity.subtitle.map(part => part.text).join(' ')}</Text> : null}
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.isTV ? 26 : 10}}>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.isTV ? 26 : 10, marginBottom: theme.isTV ? 18 : 0}}>
             <HeroMetadata facts={metadataFacts}/>
             {studio ? <Text style={[theme.type.meta, {color: theme.colors.textSecondary}]}>{studio}</Text> : null}
             {seasonFact ? <View style={{borderWidth: 1.5, borderColor: '#edf5fa47', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 3}}>
@@ -242,8 +252,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               : {borderWidth: 1, borderColor: theme.colors.lineStrong, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 1}}>
               <Text style={theme.isTV ? [theme.type.tag, {color: theme.colors.text}] : [theme.type.meta, {color: theme.colors.textSecondary}]}>{shownRating.text}</Text></View> : null}
           </View>
+          {/* tv.html frame 3 and tv-detail frame 1 draw the synopsis and credits above the buttons. */}
+          {theme.isTV ? copyBlock : null}
           </View>
-          <View style={{flexDirection: 'row', gap: 10, marginTop: props.watch ? (tabletWatch ? 0 : 16) : 22, flexShrink: tabletWatch ? 0 : undefined}}>
+          <View style={{flexDirection: 'row', gap: theme.isTV ? 18 : 10, marginTop: props.watch ? (tabletWatch ? 0 : 16) : theme.isTV ? 0 : 22, flexShrink: tabletWatch ? 0 : undefined}}>
             {props.watch ? <Button testID="watch-body-toggle" focusId="watch-body-toggle" style={tabletWatch ? undefined : {flex: 1}} disabled={!watching?.fence || watching.retired || !watching.capabilities.play && !watching.capabilities.pause}
               icon={watching?.playback.intent === 'playing' ? 'i-pause' : 'i-play'} onPress={toggle}>{t(watching?.playback.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
               : playback && (theme.isTV && resuming && duration && progress !== undefined
@@ -266,11 +278,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               {startOver && <Button variant="text" size="small" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
             </View>
           </View>}
-          {!props.watch && overview && <Text numberOfLines={theme.isTV ? 3 : 2} style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 18}]}>{overview}</Text>}
-          {!props.watch && theme.isTV && (directors.length > 0 || castNames.length > 0) && <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 24, rowGap: 6, marginTop: 14}}>
-            {directors.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text>}
-            {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: defaultI18n.list(castNames.slice(0, 3))})}</Text>}
-          </View>}
+          {theme.isTV ? null : copyBlock}
         </View>
       </View>
   );
