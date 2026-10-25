@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Music and audiobooks go on with the screen off: a media-playback foreground service, awake while it plays. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -31,6 +33,7 @@
       android:networkSecurityConfig="@xml/network_security_config"
       android:theme="@style/AppTheme"
       android:supportsRtl="true">
+        <activity android:name=".native.PorticoQRScanActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" android:theme="@android:style/Theme.Material.NoActionBar" />
 
       <!-- Portico Account origin; empty means production (the JavaScript default). -->
       <meta-data android:name="PorticoHostedURL" android:value="${porticoHostedUrl}" />
