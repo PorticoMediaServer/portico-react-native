@@ -15,24 +15,37 @@ const t = defaultI18n.t;
 type Actions = Pick<NativeEntryActions, 'menu'>;
 const seconds = (value: number | undefined) => value === undefined ? undefined : defaultI18n.duration(value);
 
-function BookRow({entry, runtime, tv, onOpen, onMore}: {
-  entry: ContentEntry; runtime: NativeShellRuntime; tv: boolean; onOpen: () => void; onMore: () => void;
+function BookRow({entry, runtime, tv, position, onOpen, onMore}: {
+  entry: ContentEntry; runtime: NativeShellRuntime; tv: boolean; position?: string; onOpen: () => void; onMore: () => void;
 }) {
   const theme = useTheme(), art = runtime.artwork(entry.posterUrl), progress = entry.bookProgress;
   const state = progress?.chapter ? t('next.kit.chapterOf', {number: progress.chapter.index, total: entry.count ?? 0}) : undefined;
   const left = progress?.remainingMs === undefined ? undefined : seconds(progress.remainingMs / 1000);
+  const readBy = entry.narrators?.length ? t('next.kit.readBy', {name: defaultI18n.list(entry.narrators)}) : undefined;
+  const ratio = progress?.positionMs !== undefined && progress.durationMs ? progress.positionMs / progress.durationMs
+    : progress?.partPositionMs !== undefined && progress.durationMs ? progress.partPositionMs / progress.durationMs : undefined;
+  // collections 41b/41c draw who read it and the time left on the phone; 44/45
+  // add the chapter state and the whole length on TV.
+  const phoneLine = [readBy, left ? t('next.kit.remaining', {time: left}) : undefined].filter(Boolean).join(' · ');
+  const tvLine = [state, left ? t('next.kit.remaining', {time: left}) : undefined].filter(Boolean).join(', ');
   return <Focusable accessibilityRole="button" accessibilityLabel={entry.title} focusKind="row" focusRadius={10} onPress={onOpen}
     style={{height: tv ? 104 : 76, flexDirection: 'row', alignItems: 'center', gap: tv ? 20 : 12, paddingHorizontal: tv ? 18 : 0,
       borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
     <View style={{width: tv ? 72 : 50, height: tv ? 72 : 50, borderRadius: 8, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {art ? <Artwork source={art} width={tv ? 72 : 50} height={tv ? 72 : 50}/> : null}
+      {ratio === undefined ? null : <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, backgroundColor: alpha(theme.colors.ink, .55)}}>
+        <View style={{width: `${Math.max(0, Math.min(1, ratio)) * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
+      </View>}
     </View>
     <View style={{flex: 1, minWidth: 0, gap: 3}}>
+      {position ? <Text numberOfLines={1} style={[browseType(theme, tv ? 19 : 11.5, 600), {color: theme.colors.textTertiary}]}>{t('next.reader.bookNumber', {number: position})}</Text> : null}
       <Text numberOfLines={1} style={[browseType(theme, tv ? 24 : 15.5, 700), {color: theme.colors.text}]}>{entry.title}</Text>
-      {entry.narrators?.length ? <Text numberOfLines={1} style={[browseType(theme, tv ? 20 : 12.5, 400), {color: theme.colors.textSecondary}]}>{t('next.kit.readBy', {name: defaultI18n.list(entry.narrators)})}</Text> : null}
-      {state || left ? <Text numberOfLines={1} style={[browseType(theme, tv ? 19 : 12, 500), {color: theme.colors.textTertiary}]}>{[state, left].filter(Boolean).join(' · ')}</Text> : null}
+      {tv ? <>
+        {readBy ? <Text numberOfLines={1} style={[browseType(theme, 20, 400), {color: theme.colors.textSecondary}]}>{readBy}</Text> : null}
+        {tvLine ? <Text numberOfLines={1} style={[browseType(theme, 19, 500), {color: theme.colors.textTertiary}]}>{tvLine}</Text> : null}
+      </> : phoneLine ? <Text numberOfLines={1} style={[browseType(theme, 12.5, 400), {color: theme.colors.textSecondary}]}>{phoneLine}</Text> : null}
     </View>
-    {entry.duration === undefined ? null : <Text style={[browseType(theme, tv ? 20 : 12, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{seconds(entry.duration)}</Text>}
+    {tv && entry.duration !== undefined ? <Text style={[browseType(theme, 20, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{seconds(entry.duration)}</Text> : null}
     <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entry.title})} onPress={onMore}
       style={{height: tv ? 52 : 36, width: tv ? 52 : 36}}/>
   </Focusable>;
@@ -50,6 +63,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   const resume = books.find(book => book.bookProgress?.itemId);
   const series = entry.kind === 'book_series';
   const author = series ? books[0]?.author ?? books[0]?.subtitle : undefined;
+  const narrators = [...new Set([...(entity.narrators ?? []), ...books.flatMap(book => book.narrators ?? [])])];
   const facts = [entity.count === undefined ? undefined : t('next.kit.books', {count: entity.count}),
     entity.duration === undefined ? undefined : seconds(entity.duration)].filter((value): value is string => !!value);
   const coverPath = series ? books[0]?.posterUrl ?? entity.posterUrl : entity.posterUrl;
@@ -92,8 +106,21 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
           </View>
         </View>
         <View style={tv ? {position: 'absolute', left: 760, top: 560, width: 1000} : {width: '100%', marginTop: 22}}>
-          <Text style={[browseType(theme, tv ? 32 : 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.kit.books', {count: entity.count ?? books.length})}</Text>
-          {books.map(book => <BookRow key={book.id} entry={book} runtime={runtime} tv={tv} onOpen={() => open(book)} onMore={() => actions.menu(book)}/>)}
+          {/* collections 44/45 draw the rows without a section heading; 41b/41c
+              keep the heading above the list on the phone. */}
+          {!tv ? <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.kit.books', {count: entity.count ?? books.length})}</Text> : null}
+          {books.map(book => <BookRow key={book.id} entry={book} runtime={runtime} tv={tv} position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onMore={() => actions.menu(book)}/>)}
+          {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
+            <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
+            {narrators.length ? <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
+              <Text style={[browseType(theme, 14, 600), {color: theme.colors.text}]}>{t('web.metadata.field.narrator')}</Text>
+              <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{defaultI18n.list(narrators)}</Text>
+            </View> : null}
+            {entity.duration === undefined ? null : <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
+              <Text style={[browseType(theme, 14, 600), {color: theme.colors.text}]}>{t('next.kit.length')}</Text>
+              <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{seconds(entity.duration)}</Text>
+            </View>}
+          </View> : null}
         </View>
       </View>
     </ScrollView>

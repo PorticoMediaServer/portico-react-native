@@ -77,6 +77,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   openEntry?: (entry: ContentEntry) => void; onBack?: () => void;
 }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets();
+  const [aboutExpanded, setAboutExpanded] = React.useState(false), [aboutLong, setAboutLong] = React.useState(false);
   const entity = snapshot.entity ?? entry, tv = theme.isTV;
   const chapters = snapshot.sections.find(section => section.id === 'chapters')?.entries ?? [];
   const parts = snapshot.sections.find(section => section.id === 'files')?.entries ?? [];
@@ -147,7 +148,17 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
         </View>
         <View style={tv ? {position: 'absolute', left: 760, top: 620, width: 1000} : {width: '100%', marginTop: 22}}>
           {snapshot.phase === 'error' ? <ErrorState error={snapshot.error} retry={retry}/> : null}
-          {entity.overview ? <Text style={[browseType(theme, tv ? 22 : 14.5, 400), {color: theme.colors.textSecondary, lineHeight: tv ? 32 : 23}]}>{entity.overview}</Text> : null}
+          {/* collections 41a/42a: the phone page shows the description and a
+              Read more link; collections 43 keeps the description in Details. */}
+          {!tv && entity.overview ? <View style={{marginBottom: 14}}>
+            <Text accessible={false} style={[browseType(theme, 14.5, 400), {position: 'absolute', left: 0, right: 0, top: 0, opacity: 0, lineHeight: 23}]}
+              onTextLayout={event => {const long = event.nativeEvent.lines.length > 3; if (long !== aboutLong) setAboutLong(long);}}>{entity.overview}</Text>
+            <Text numberOfLines={aboutExpanded ? undefined : 3} style={[browseType(theme, 14.5, 400), {color: theme.colors.textSecondary, lineHeight: 23}]}>{entity.overview}</Text>
+            {aboutLong ? <Focusable accessibilityRole="button" accessibilityLabel={t(aboutExpanded ? 'web.person.showLess' : 'web.person.readMore')} focusKind="button"
+              onPress={() => setAboutExpanded(value => !value)} style={{marginTop: 6, paddingVertical: 3}}>
+              {({focused}) => <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.accentStrong, textDecorationLine: focused ? 'underline' : 'none'}]}>{t(aboutExpanded ? 'web.person.showLess' : 'web.person.readMore')}</Text>}
+            </Focusable> : null}
+          </View> : null}
           {rows.length ? <View style={{marginTop: tv ? 24 : 18}}>
             <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 12}}>
               <Text style={[browseType(theme, tv ? 32 : 20, 700), {color: theme.colors.text}]}>{t('next.browse.chapters')}</Text>
