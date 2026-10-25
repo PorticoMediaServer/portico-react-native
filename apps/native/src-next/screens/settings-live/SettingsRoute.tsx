@@ -11,6 +11,7 @@ import {nativeDevicePreferences} from './device-preference-consumer';
 import {NativeDashboardController, type NativeDashboardAdmission} from './dashboard-controller';
 import {nativeServerAdmission} from './server/tv-server-reader';
 import {NativeTVServerScreen} from './server/TVServerScreen';
+import {NativeEqualizerSettingsScreen} from './EqualizerSettingsScreen';
 import {NativeSettingsScreen} from './SettingsScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
 import {createNativeSettingsPorts, nativeSettingsRequestId} from './settings-ports';
@@ -78,4 +79,17 @@ export function createNativeServerDashboardRenderer(context: NativeShellBootstra
 
 export function createNativeTVServerSettingsRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   return createComposition(context).serverSettings;
+}
+
+/** Additive device editor route; playback and Settings share the native singleton. */
+export function createNativeEqualizerSettingsRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
+  const lifetime = new NativeScreenLifetime(context);
+  return {
+    render: (route, runtime) => {
+      lifetime.assert();
+      if (route.kind !== 'settings-equalizer') throw new Error('native_equalizer_settings_route_mismatch');
+      return <NativeEqualizerSettingsScreen runtime={runtime} onBack={() => {lifetime.assert(); context.navigation.back(context.authority());}}/>;
+    },
+    dispose: () => lifetime.dispose(),
+  };
 }

@@ -1,4 +1,4 @@
-import {createNativeTVServerSettingsRenderer, createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
+import {createNativeEqualizerSettingsRenderer, createNativeTVServerSettingsRenderer, createNativeServerDashboardRenderer, createNativeSettingsRenderer} from '../screens/settings-live/SettingsRoute';
 import {nativeShellRoutes, type NativeRouteFactory} from './route-registry';
 
 /** One registration for the phone and TV entries. The Settings family owns the
@@ -10,3 +10,5 @@ nativeShellRoutes.registerDestination('settings', settingsFactory);
 nativeShellRoutes.registerRoute('server-dashboard', dashboardFactory);
 
 nativeShellRoutes.registerRoute('server-settings', context => createNativeTVServerSettingsRenderer(context));
+
+nativeShellRoutes.registerRoute('settings-equalizer', context => createNativeEqualizerSettingsRenderer(context));
