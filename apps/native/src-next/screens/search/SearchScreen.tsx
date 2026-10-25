@@ -41,6 +41,8 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const activeRoute = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const scroll = useRef<ScrollView>(null), grid = useRef<FlatList<SearchEntry>>(null), input = useRef<TextInput>(null), focusedOnEntry = useRef(false), [focused, setFocused] = useState(false), [elapsed, setElapsed] = useState(0);
+  // The shell's sidebar narrows this page; measure the content box instead of the window.
+  const [surface, setSurface] = useState(dimensions.width);
   const groups = useMemo(() => orderedSearchGroups(state.groups), [state.groups]);
   const typed = state.text.trim().length > 0;
   const empty = typed && state.search.phase === 'ready' && state.groups.every(group => group.status === 'success' && group.totalCount === 0);
@@ -108,32 +110,41 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
     {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
     {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
     <View style={{paddingHorizontal: 16, paddingTop: 4, flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>
-      {genreTiles.map(genre => <SearchGenre key={genre.id} genre={genre} empty={empty} runtime={runtime} width={(dimensions.width - 42) / 2} onPress={() => explore.openGenre(genre)}/>)}
+      {genreTiles.map(genre => <SearchGenre key={genre.id} genre={genre} empty={empty} runtime={runtime} width={(surface - 42) / 2} onPress={() => explore.openGenre(genre)}/>)}
     </View>
   </>;
   const error = state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>;
   const resultRows = groups.flatMap(group => group.items.filter(entry => !top || entry !== top.entry).slice(0, 3).map((entry, index) => ({entry, group: group.id, heading: index === 0})));
-  const active = groups.find(group => group.id === state.group);
+  const active = groups.find(group => group.id === state.group), wideSearch = theme.layoutMode === 'desktop' && !theme.isTV;
   if (theme.isTV) return <TVSearchScreen destination={destination} runtime={runtime} activation={activation} explore={explore} actions={actions} selection={selection} copy={tvCopy}/>;
   return <View testID="native-search-screen" pointerEvents={activeRoute.visible ? 'auto' : 'none'} accessibilityElementsHidden={!activeRoute.visible}
-    importantForAccessibility={activeRoute.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={activeRoute.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => setSurface(event.nativeEvent.layout.width)}>
     {fields}
     {state.group === 'all' || empty || !typed ? <ScrollView ref={scroll} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: 28}}>
       {problem && <StateView variant="search" title={problem} style={{margin: 20}}/>}
       {error}
       {empty && <StateView testID="search-no-matches" variant="search" title={t('next.states.noMatches', {query: state.text.trim()})} body={t('next.states.noMatchesBody')} style={{paddingTop: 26, marginHorizontal: 20}}/>}
       {(!typed || empty) && (empty ? <>{genres}{history}</> : <>{history}{genres}</>)}
-      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} width={dimensions.width - 32}/>}
-      {resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
+      {!wideSearch && top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} width={surface - 32}/>}
+      {wideSearch ? groups.filter(group => group.items.length).map(group => <View key={group.id}>
+        <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 8, marginHorizontal: 20, marginTop: 22, marginBottom: 10}}>
+          <Text accessibilityRole="header" style={[browseType(theme, 20, 700, -.02), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
+          {group.totalCountExact && <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 20, gap: 14}}>
+          {group.items.slice(0, 7).map(entry => <SearchGridCard key={nativeSearchEntryKey(group.id, entry)} entry={entry} group={group.id} runtime={runtime} actions={actions}
+            selection={selection?.item(group.id, entry)} width={Math.floor((surface - 40 - 6 * 14) / 7)}/>)}
+        </ScrollView>
+      </View>) : resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
         <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(group, entry)}/>
       </React.Fragment>)}
-      {loading && <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={Math.max(0, dimensions.height - 180)} width={dimensions.width} columns={3} totalCount={9}/>}
+      {loading && <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={Math.max(0, dimensions.height - 180)} width={surface} columns={3} totalCount={9}/>}
     </ScrollView> : <FlatList ref={grid} key={state.group} data={active?.items ?? []} numColumns={3} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
       keyExtractor={entry => nativeSearchEntryKey(state.group as SearchGroup, entry)} contentContainerStyle={{padding: 16, gap: 16, paddingBottom: 28}}
       columnWrapperStyle={{gap: 10}} onEndReachedThreshold={.5} onEndReached={() => {if (active?.nextCursor && state.search.phase === 'ready') run(destination.next(active.id));}}
-      renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(state.group as SearchGroup, item)} width={(dimensions.width - 52) / 3}/>}
-      ListHeaderComponent={error || null} ListEmptyComponent={loading ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 180} width={dimensions.width} columns={3} totalCount={9}/> : null}/>}
+      renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(state.group as SearchGroup, item)} width={(surface - 52) / 3}/>}
+      ListHeaderComponent={error || null} ListEmptyComponent={loading ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 180} width={surface} columns={3} totalCount={9}/> : null}/>}
     {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
   </View>;
 }
