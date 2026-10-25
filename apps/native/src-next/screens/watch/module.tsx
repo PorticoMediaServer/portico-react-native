@@ -11,7 +11,7 @@ import type {NativePlaybackRuntimeSnapshot} from '../../platform/playback/types'
 import {createNativeWatchScreens, type NativeWatchFactoryPorts} from './factory';
 import type {MusicPlaylistPickerHandle} from '../destinations/music/MusicPlaylistPicker';
 import {NativePlaybackInfoPanel} from './PlaybackInfoPanel';
-import {NativeWatchPanels, type NativeWatchPanelsProps} from './WatchPanels';
+import {NativeWatchPanels, type NativeWatchPanelsProps, type NativeWatchStylePort} from './WatchPanels';
 import {NativeWatchPanelOptions} from './panel-options';
 import type {NativeWatchHostBindings} from './WatchHost';
 import type {NativeWatchPanelNames} from './panel-model';
@@ -19,6 +19,8 @@ import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
 import {NativeWatchPostPlay} from './PostPlayScreen';
 import {createNativeWatchPanelNames} from './panel-names';
+import {nativeServerPreferences} from '../../platform/server-preferences';
+import {browseValueLabel} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 
 export type NativeWatchEntryMenu = Readonly<{
   open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void) => Promise<void>;
@@ -81,6 +83,31 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     const read = (key: string): SkipMode => values[key] === 'auto' ? 'auto' : values[key] === 'off' ? 'off' : 'ask';
     return {intro: read('playback.introSkip'), recap: read('playback.recapSkip'), credits: read('playback.creditsSkip')};
   };
+  // The viewer's subtitle style, read from the registry the server publishes and
+  // written to the scope that registry allows; the panel renders only fields the
+  // server actually publishes.
+  const stylePort = (): NativeWatchStylePort | undefined => {
+    const snapshot = context.preferences(), keys = ['playback.subtitleSize', 'playback.subtitleColor', 'playback.subtitleBackground', 'playback.subtitlePosition', 'playback.subtitleFont'];
+    const fields = keys.flatMap(key => {
+      const field = snapshot.registry.fields.find(entry => entry.key === key);
+      if (!field?.allowedValues?.length) return [];
+      return [{key, label: defaultI18n.t(field.labelKey as Parameters<typeof defaultI18n.t>[0]), current: String(snapshot.effective[key] ?? ''),
+        values: field.allowedValues.map(value => ({value: String(value), label: browseValueLabel(String(value))}))}];
+    });
+    if (!fields.length) return undefined;
+    return {fields, apply: async (key: string, value: string) => {
+      const current = context.preferences(), field = current.registry.fields.find(entry => entry.key === key);
+      const scope = (['profile-device', 'profile-device-class', 'profile-server'] as const).find(candidate => field?.scopes.includes(candidate));
+      const document = scope ? current.documents.find(entry => entry.scope === scope) : undefined;
+      if (!scope || !document) throw new Error('native_preferences_scope_missing');
+      await nativeServerPreferences(context).applyPreferences(scope, current.deviceClass, document.revision, {[key]: value});
+    }};
+  };
+  const sleepPort = (): NonNullable<NativeWatchPanelsProps['sleep']> => {
+    const at = context.playback.getSnapshot().playback.listeningDeadlines?.sleepAtMs ?? null;
+    return {minutes: at === null ? null : Math.max(0, Math.round((at - Date.now()) / 60_000)),
+      set: async (fence, minutes) => {await context.playback.setSleepTimer?.(fence, minutes);}};
+  };
   const player: NativeWatchHostBindings = {
     chrome: (source, runtime) => ({...nativeWatchChromeFacts(source, bindings.names ?? createNativeWatchPanelNames(runtime.text)), skipBackSeconds: skipSeconds(source, 'playback.skipBackMs'),
       skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError, skipModes: skipModes(), artwork: runtime.artwork,
@@ -92,6 +119,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       ...(bindings.onFullWindow ? {onFullWindow: bindings.onFullWindow} : {}),
     }),
     panel: host => <NativeWatchPanels context={host} options={options} playback={context.playback} names={bindings.names ?? createNativeWatchPanelNames(host.runtime.text)} copy={copy}
+      subtitleControls={fence => context.playback.subtitleControls?.(fence)} sleep={context.playback.setSleepTimer ? sleepPort() : undefined} style={stylePort()}
       reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo ?? (value => <NativePlaybackInfoPanel context={value} read={screens.readPlaybackInfo} renderError={bindings.title.renderError}/>)} episodes={bindings.episodes}/>,
     content: host => screens.watch.body(host),
     postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId}

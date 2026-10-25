@@ -138,6 +138,8 @@ export interface NativePlaybackAdapter {
   requestPictureInPicture?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<boolean>;
   /** Channels only: return to the live edge of the retained window. */
   goLive?: (fence: PlaybackFence) => Promise<void>;
+  /** The viewer's sleep timer for this playback: minutes, or null to clear it. */
+  setSleepTimer?: (fence: PlaybackFence, minutes: number | null) => Promise<void>;
   stop: (fence: PlaybackFence) => Promise<void>;
   restoreBookmark: (expectedBookmarkFence: PlaybackFence, playExplicitly: boolean) => Promise<PlaybackFence | undefined>;
   open: (fence: PlaybackFence) => void;

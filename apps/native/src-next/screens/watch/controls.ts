@@ -1,6 +1,6 @@
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 
-export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'chapters' | 'episodes' | 'playback-info';
+export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'sleep' | 'style' | 'chapters' | 'episodes' | 'playback-info';
 export type NativeWatchControlState = Readonly<{
   fence?: PlaybackFence;
   visible: boolean;

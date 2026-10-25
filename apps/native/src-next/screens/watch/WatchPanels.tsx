@@ -1,9 +1,11 @@
 import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ActivityIndicator, ScrollView, Text, View} from 'react-native';
-import {sameFence} from '../../../../../packages/player-core/src';
+import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import type {NativePlaybackAdapter} from '../../platform/playback/types';
+import type {NativePlaybackSubtitleControls} from '../../platform/playback/subtitle-controls';
+import {subtitleReason} from '../../../../../packages/client-core/src/subtitles';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
@@ -29,15 +31,24 @@ export type NativeWatchPanelsProps = Readonly<{
   /** Rich current-fence producer content, never the old generic File info/title details. */
   playbackInfo?: (context: NativeWatchHostContext) => React.ReactNode;
   episodes?: (context: NativeWatchHostContext) => React.ReactNode;
+  /** The current source's subtitle writer: adding a found track, searching a provider, applying one. */
+  subtitleControls?: (fence: PlaybackFence) => NativePlaybackSubtitleControls | undefined;
+  /** The viewer's sleep timer for this playback. */
+  sleep?: Readonly<{minutes: number | null; set: (fence: PlaybackFence, minutes: number | null) => Promise<void>}>;
+  /** Subtitle style, read from the server's own preference registry. */
+  style?: NativeWatchStylePort;
 }>;
+
+export type NativeWatchStyleField = Readonly<{key: string; label: string; current: string | undefined; values: readonly Readonly<{value: string; label: string}>[]}>;
+export type NativeWatchStylePort = Readonly<{fields: readonly NativeWatchStyleField[]; apply: (key: string, value: string) => Promise<void>}>;
 
 /** The real Options/Audio/Subtitles/Quality/Speed/Chapters renderer. The host
  * positions it inside its accepted pane/canvas. It owns no Surface or engine. */
-export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes}: NativeWatchPanelsProps) {
+export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes, subtitleControls, sleep, style}: NativeWatchPanelsProps) {
   const {source, fence, state} = context, theme = useTheme(), t = defaultI18n.t;
   const choices = useSyncExternalStore(options.subscribe, options.getSnapshot);
   const first = useRef<View>(null), scroll = useRef<ScrollView>(null), busy = useRef(false), commandEpoch = useRef(0);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState(false), [subtitleSearching, setSubtitleSearching] = useState(false), [subtitleReasonText, setSubtitleReasonText] = useState<string>();
   const latest = useRef(context); latest.current = context;
   const fenceKey = JSON.stringify(fence);
   const current = useCallback(() => !playback.getSnapshot().retired && sameFence(playback.getSnapshot().fence, fence)
@@ -60,11 +71,14 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   if (!state.panel || !sameFence(state.fence, fence)) return null;
   if (state.panel === 'episodes') return episodes?.(context) ?? null;
   const ready = choices.phase === 'ready' && sameFence(choices.fence, fence) ? choices.options : undefined;
+  const subtitlePlan = source.subtitles?.plan, subtitleProvider = source.subtitles?.catalog?.provider, subtitleCandidates = source.subtitles?.candidates ?? [];
+  const subtitleDiscovered = subtitlePlan ? subtitlePlan.discovered.filter(track => !subtitlePlan.resources.some(resource => resource.discoveryId === track.id && resource.enabled)) : [];
   const rows = ready ? nativeWatchPanelRows(source, ready, names) : undefined;
   const selected = nativeWatchTracks(source);
   const rateLabel = (rate: number) => rate === 1 ? t('player.opt.normalSpeed') : `${new Intl.NumberFormat(context.runtime.text.locale, {maximumFractionDigits: 2}).format(rate)}×`;
   const labels: Record<Exclude<NativeWatchPanel, 'episodes'>, string> = {options: t('player.opt.menu'), audio: t('title.audio'), subtitles: t('player.opt.subtitles'),
-    quality: t('player.opt.quality'), speed: t('player.opt.speed'), chapters: t('player.opt.chapters'), 'playback-info': t('player.opt.info')};
+    quality: t('player.opt.quality'), speed: t('player.opt.speed'), sleep: t('player.opt.sleepTimer'), style: t('player.opt.subtitleStyle'),
+    chapters: t('player.opt.chapters'), 'playback-info': t('player.opt.info')};
   const chooseRow = <T,>(row: NativeWatchChoiceRow<T>, action: (value: T) => Promise<void>, preferred: boolean) => <Focusable key={row.id} ref={preferred ? first : undefined}
     focusId={`watch-choice-${row.id}`} testID={`watch-choice-${row.id}`} focusKind="row" focusRadius={theme.isTV ? 12 : 0}
     accessibilityRole="button" accessibilityLabel={[row.primary, row.secondary, row.unavailable ? t('player.opt.unavailable') : undefined].filter(Boolean).join(', ')}
@@ -84,6 +98,16 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const list = <T,>(values: readonly NativeWatchChoiceRow<T>[], action: (value: T) => Promise<void>) => <View style={theme.isTV ? {padding: 4, borderRadius: 14, backgroundColor: '#edf5fa0d'} : {marginHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
     {values.map((row, index) => chooseRow(row, action, values.some(value => value.selected && !value.unavailable) ? row.selected && !row.unavailable : index === 0))}
   </View>;
+  const actionRow = (id: string, primary: string, secondary: string | undefined, onPress: () => void, disabled = false) => <Focusable key={id} focusId={`watch-action-${id}`} testID={`watch-action-${id}`}
+    focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" accessibilityLabel={[primary, secondary].filter(Boolean).join(', ')}
+    disabled={!current() || pending || disabled} onPress={onPress}
+    style={({focused}) => ({minHeight: theme.isTV ? 54 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
+      borderRadius: theme.isTV ? 12 : 0, backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent', opacity: disabled ? .5 : 1,
+      borderBottomWidth: theme.isTV ? 0 : 1, borderBottomColor: '#3b566873'})}>
+    <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 22 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{primary}</Text>
+      {secondary && <Text style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 2 : 1, color: theme.colors.textTertiary}]}>{secondary}</Text>}</View>
+    <Icon name="i-right" size={theme.isTV ? 24 : 18} color={theme.colors.textTertiary}/>
+  </Focusable>;
   const footer = (lines: readonly string[]) => lines.map((line, index) => <Text key={index} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale), {marginHorizontal: theme.isTV ? 14 : 18, marginTop: index ? 0 : 10, color: theme.colors.textTertiary}]}>{line}</Text>);
   const retry = () => {void options.load(fence);};
   let body: React.ReactNode = null;
@@ -108,6 +132,28 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
         <View style={{position: 'absolute', top: 4, left: source.forcedOnly.on ? 32 : 4, width: 28, height: 28, borderRadius: 14, backgroundColor: source.forcedOnly.on ? '#fff' : theme.colors.textTertiary}}/>
       </View>
     </Focusable>}
+    {subtitleDiscovered.map(track => actionRow(`subtitle-add-${track.id}`, track.title || track.language.toUpperCase(), `${track.language.toUpperCase()} · ${t('player.opt.origin', {origin: track.origin})}`,
+      () => {const found = source.subtitles?.plan?.resources.find(resource => resource.discoveryId === track.id && resource.sourceId === track.sourceId);
+        if (found) void run(() => playback.change(fence, {subtitleTrackId: found.id})); else if (track.reason) setSubtitleReasonText(subtitleReason(track.reason, id => t(id)));},
+      !track.enabled))}
+    {subtitleProvider && !subtitleProvider.enabled && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10}}>
+      <Text style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale), {color: theme.colors.textTertiary}]}>{subtitleReason(subtitleProvider.reason, id => t(id))}</Text>
+    </View>}
+    {subtitleProvider?.enabled && !subtitleSearching && actionRow('subtitle-search', t('player.opt.findSubtitles'), t('player.opt.providedByOpenSubtitles'),
+      () => {setSubtitleSearching(true); void run(async () => {const controls = subtitleControls?.(fence); if (controls) await controls.search((context.runtime.text.locale ?? 'en').split('-')[0] ?? 'en');});})}
+    {subtitleProvider?.enabled && subtitleSearching && <>
+      {source.subtitles?.busy && !subtitleCandidates.length && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10, color: theme.colors.textSecondary}}>{t('player.opt.lookingForSubtitles')}</Text>}
+      {subtitleCandidates.map(candidate => actionRow(`subtitle-candidate-${candidate.id}`, candidate.title, `${candidate.language.toUpperCase()} · ${candidate.attribution}`,
+        () => {void run(async () => {const controls = subtitleControls?.(fence); if (controls) {await controls.apply(candidate.id, 'personal', 'Downloaded by the viewer for personal viewing'); setSubtitleSearching(false);}});}))}
+      {!source.subtitles?.busy && !subtitleCandidates.length && !source.subtitles?.error && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10, color: theme.colors.textTertiary}}>{t('player.opt.noSubtitlesFound')}</Text>}
+      {source.subtitles?.error && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10}}>
+        <Text style={{color: theme.colors.textSecondary}}>{source.subtitles.error}</Text>
+        <Text style={{marginTop: 6, color: theme.colors.textTertiary}}>{t('player.opt.providedByOpenSubtitles')}</Text>
+      </View>}
+    </>}
+    {style && style.fields.length > 0 && actionRow('subtitle-style', t('player.opt.subtitleStyle'), style.fields.map(field => field.values.find(value => value.value === field.current)?.label).filter(Boolean).join(' · '),
+      () => {if (current()) context.openPanel('style');})}
+    {subtitleReasonText && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 8, color: theme.colors.textTertiary}}>{subtitleReasonText}</Text>}
     {selected.resource && source.subtitles?.plan && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text, flex: 1}]}>{t('player.opt.timing')}</Text>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('player.opt.offsetSeconds', {seconds: new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(Number(source.subtitles.plan.offsetUs) / 1_000_000)})}</Text>
@@ -119,6 +165,21 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   </>;
   else if (state.panel === 'quality') body = <>{list(rows.qualities, quality => playback.chooseQuality(fence, quality))}{footer(names.qualityFooter(source))}</>;
   else if (state.panel === 'speed') body = list(source.supportedRates.map(rate => ({id: String(rate), primary: rateLabel(rate), selected: source.effectiveRate === rate, value: rate})), async rate => {playback.setRate(fence, rate);});
+  else if (state.panel === 'sleep') body = list<number | null>([null, 15, 30, 45, 60, 90].map(minutes => ({
+      id: minutes === null ? 'off' : String(minutes), primary: minutes === null ? t('player.opt.off') : t('player.opt.minutes', {count: minutes}),
+      selected: minutes === null ? sleep?.minutes == null : sleep?.minutes === minutes, value: minutes})), async minutes => {if (sleep) await sleep.set(fence, minutes);});
+  else if (state.panel === 'style' && style) body = <View style={{gap: 18}}>{style.fields.map(field => <View key={field.key} style={{marginHorizontal: theme.isTV ? 0 : 12}}>
+      <Text style={[nativeType({size: theme.isTV ? 22 : 13, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{field.label}</Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8}}>
+        {field.values.map(value => <Focusable key={value.value} focusId={`watch-style-${field.key}-${value.value}`} testID={`watch-style-${field.key}-${value.value}`}
+          focusKind="row" accessibilityRole="button" accessibilityState={{selected: field.current === value.value}} disabled={!current() || pending}
+          onPress={() => {if (!current() || field.current === value.value) return; void run(() => style.apply(field.key, value.value));}}
+          style={({focused}) => ({minHeight: 48, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+            backgroundColor: field.current === value.value ? 'rgba(92,179,226,.22)' : focused ? 'rgba(237,245,250,.16)' : 'rgba(237,245,250,.06)'})}>
+          <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: theme.isTV ? 20 : 13, fontWeight: '600', color: field.current === value.value ? theme.colors.accentStrong : theme.colors.text}}>{value.label}</Text>
+        </Focusable>)}
+      </View>
+    </View>)}</View>;
   else if (state.panel === 'chapters') body = list(ready.chapters.map((chapter, index) => ({id: `${index}:${chapter.startMs}`, primary: chapter.title || t('player.chapter.numbered', {number: index + 1}), secondary: clockText(chapter.startMs / 1000), selected: source.playback.positionSeconds * 1000 >= chapter.startMs && (!ready.chapters[index + 1] || source.playback.positionSeconds * 1000 < ready.chapters[index + 1]!.startMs), value: chapter})), chapter => playback.seek(fence, chapter.startMs / 1000));
   const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
     focusId={`watch-option-${panel}`} testID={`watch-option-${panel}`} focusKind="row" accessibilityRole="button" onPress={() => {if (current()) context.openPanel(panel);}}
@@ -127,7 +188,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {value && <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{value}</Text>}<Icon name="i-right" size={theme.isTV ? 24 : 18}/>
   </Focusable>;
   const expandedBody = body;
-  if (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info') body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
+  if (state.panel !== 'style' && (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info')) body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
     {option('subtitles', 'i-cc', selected.subtitlesOff ? t('player.opt.off') : rows?.subtitles.find(row => row.selected)?.primary)}
     {state.panel === 'subtitles' && expandedBody}
     {option('audio', 'i-audio', rows?.audio.find(row => row.selected)?.primary)}
@@ -136,6 +197,9 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {state.panel === 'quality' && expandedBody}
     {option('speed', 'i-gauge', rateLabel(source.effectiveRate))}
     {state.panel === 'speed' && expandedBody}
+    {sleep && option('sleep', 'i-moon', sleep.minutes == null ? t('player.opt.off') : t('player.opt.minutes', {count: sleep.minutes}))}
+    {state.panel === 'sleep' && expandedBody}
+    {(!!ready?.chapters.length || playbackInfo) && <Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 18 : 10, marginBottom: 4, marginLeft: theme.isTV ? 20 : 18, color: theme.colors.textTertiary}]}>{t('player.more')}</Text>}
     {!!ready?.chapters.length && option('chapters', 'i-queue')}
     {state.panel === 'chapters' && expandedBody}
     {playbackInfo && option('playback-info', 'i-pulse')}

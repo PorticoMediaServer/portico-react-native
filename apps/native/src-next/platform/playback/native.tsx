@@ -125,7 +125,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     cataloguePlayback: runtime.cataloguePlayback,
     change: runtime.change, chooseQuality: runtime.chooseQuality, setRate: runtime.setRate, setForcedOnly: runtime.setForcedOnly, subtitleControls: runtime.subtitleControls, readSession: runtime.readSession,
     onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, seek: runtime.seek, skip: runtime.skip,
-    previous: runtime.previous, next: runtime.next, stop: runtime.stop, goLive: runtime.goLive, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,
+    previous: runtime.previous, next: runtime.next, stop: runtime.stop, goLive: runtime.goLive, setSleepTimer: runtime.setSleepTimer, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,
     captureVideoSnapshot: runtime.captureVideoSnapshot,
     ...(options.openDestinations ? {cast: runtime.cast} : {}),
   };

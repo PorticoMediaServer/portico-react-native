@@ -1962,6 +1962,8 @@ export const enUS = {
   'player.opt.lookingForSubtitles': 'Looking for subtitles…',
   'player.opt.noSubtitlesFound': 'No subtitles found in this language.',
   'player.opt.findSubtitles': 'Search for subtitles',
+  'player.opt.subtitleStyle': 'Subtitle style',
+  'player.opt.providedByOpenSubtitles': 'Provided by OpenSubtitles',
   'player.opt.timing': 'Timing',
   'player.opt.timingHelp': 'Move subtitles earlier or later',
   'player.opt.offsetSeconds': '{seconds} s',
