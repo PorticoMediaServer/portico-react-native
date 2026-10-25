@@ -94,7 +94,7 @@ export function SelectionBar(props: SelectionBarProps) {
       <View style={styles.header}>
         <Button testID={controlID(props.testID, 'dismiss')} variant="text" size="small" style={{paddingHorizontal: 0}} textStyle={{fontSize: 16.5 * textScale, color: colors.textSecondary}} onPress={props.onCancel}>{selectionText('next.selection.native.cancel')}</Button>
         <View pointerEvents="none" style={styles.count}><SelectionText size={17} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText></View>
-        <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16 * textScale}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button>
+        {props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16 * textScale}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button> : null}
       </View>
       {props.subtitle ? <View style={{paddingHorizontal: 20, paddingBottom: 10}}><SelectionText size={13} weight={600} secondary>{props.subtitle}</SelectionText></View> : null}
     </View>
@@ -109,7 +109,7 @@ export function SelectionBar(props: SelectionBarProps) {
       {mainTV.filter(id => props.fourthSlot !== 'watched' || id !== 'myList').map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
         style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : 24}} textStyle={{fontSize: 22 * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
-      <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button>
+      {props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button> : null}
       <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64}} textStyle={{fontSize: 22 * textScale}}>{selectionText('next.selection.native.done')}</Button>
     </View>
     <SelectionMenus {...props} returnFocusRef={props.menu === 'more' ? moreRef : props.menu === 'queue' ? queueRef : props.menu === 'watched' ? watchedRef : undefined} />
