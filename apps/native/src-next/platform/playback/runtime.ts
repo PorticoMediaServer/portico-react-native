@@ -11,7 +11,7 @@ import {SessionsClient} from '../../../../../packages/client-core/src/playback-v
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {call, type V1Request, type V1Response} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
-import {V1QueuePlayer, serverSupportsQueueTransitions, type V1QueuePolicyIntent} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import {V1QueuePlayer, serverSupportsQueueTransitions, type V1QueueEditIntent, type V1QueuePolicyIntent} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {V1ChannelControl, serverSupportsV1Channels} from '../../../../../packages/client-core/src/playback-v1/channel-control';
 import {channelSeconds, type ChannelReference} from '../../../../../packages/client-core/src/playback/linear-protocol';
@@ -1128,6 +1128,11 @@ export class NativePlaybackRuntime {
     const currentIndex = fence?.kind === 'queue' ? view?.items.findIndex(item => item.entryId === fence.entryId) ?? -1 : -1;
     const ready = !!fence && !this.retired && (playback.phase === 'ready' || playback.phase === 'starting');
     const session = this.currentSession();
+    const editIndex = fence?.kind === 'queue' ? view?.queue.entries.findIndex(entry => entry.id === fence.entryId) ?? -1 : -1;
+    const queueEditReady = ready && !this.preparing && fence?.kind === 'queue' && !!view && editIndex >= 0
+      && session?.queue?.queueId === view.queue.id && session.queue.entryId === fence.entryId && view.queue.currentEntryId === fence.entryId
+      && !view.queue.entries[editIndex]!.hidden && !view.queue.entries[editIndex]!.removed
+      && view.queue.entries.some((entry, index) => index > editIndex && !entry.hidden && !entry.removed);
     const nativeBinding = this.coordinator.getBinding(), acknowledgement = this.externalPresentationBinding;
     const externalPresentationBinding = acknowledgement === undefined ? undefined : acknowledgement && fence && !this.retired
       && !playback.pendingSeek && !playback.failedSeek && playback.phase !== 'error' && nativeBinding
@@ -1141,7 +1146,7 @@ export class NativePlaybackRuntime {
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
         ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
-      capabilities: Object.freeze({queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
+      capabilities: Object.freeze({queueEdit: queueEditReady, queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
         audioTrack: ready && !playback.nativeListening && !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length,
@@ -1236,6 +1241,21 @@ export class NativePlaybackRuntime {
   }
 
   toggle = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) { const state = this.playback.getSnapshot(); if (state.intent === 'playing') this.playback.pause(); else this.playback.resume(); } };
+  editQueue = async (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueueEditIntent}>, lifetime: NativePlaybackReadLifetime): Promise<void> => {
+    if (!this.matches(fence) || fence.kind !== 'queue' || !this.snapshot.capabilities.queueEdit
+      || lifetime.signal.aborted || !lifetime.isCurrent()) return;
+    const session = this.currentSession(), view = this.queue.getSnapshot().view;
+    if (!session?.queue || session.queue.queueId !== request.queueId || session.queue.entryId !== fence.entryId
+      || view?.queue.id !== request.queueId || view.queue.revision !== request.expectedRevision) return;
+    const epoch = this.startEpoch;
+    const current = () => epoch === this.startEpoch && this.matches(fence) && !lifetime.signal.aborted && lifetime.isCurrent();
+    const scoped = this.selectionScope(lifetime.signal, current);
+    try {
+      await this.queue.editQueue({sessionId: fence.sessionId, generation: fence.generation, playbackRun: fence.playback.run,
+        itemId: fence.itemId, versionId: fence.sourceId, queueId: request.queueId, entryId: fence.entryId}, request.expectedRevision, request.intent,
+        {signal: scoped.signal, isCurrent: current});
+    } finally {scoped.close();}
+  };
   setQueuePolicy = async (fence: PlaybackFence, request: Readonly<{queueId: string; expectedRevision: string; intent: V1QueuePolicyIntent}>, lifetime: NativePlaybackReadLifetime): Promise<void> => {
     if (!this.matches(fence) || fence.kind !== 'queue' || !this.snapshot.capabilities.queuePolicy
       || lifetime.signal.aborted || !lifetime.isCurrent()) return;
