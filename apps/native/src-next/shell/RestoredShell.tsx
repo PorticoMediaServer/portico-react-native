@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useRef, useState} from 'react';
+import React, {useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {HomeSkeleton, StateView} from '../kit/states';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
 import {createNativeShellBindings} from './assembly';
@@ -13,6 +13,7 @@ import {NativeSignInEnded} from '../platform/sign-in-ended';
 import {NativeIdentityFailure} from '../platform/identity-failure';
 import {PhoneFirstLibrary} from '../screens/accounts/PhoneFirstLibrary';
 import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
+import {nativeInvitationLinks} from '../platform/invitation-links';
 import {beginNativeInstallation} from '../platform/installation';
 import {createRememberedDownloadsOpening, type RememberedDownloadsOpening} from './remembered-downloads-opening';
 import {RememberedDownloadsScreen, RememberedDownloadsShortcut} from '../screens/downloads/RememberedDownloadsScreen';
@@ -23,6 +24,8 @@ type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: Re
 
 /** Restore only the captured canonical server selection; current account entry owns sign-in. */
 export function RestoredShell() {
+  const incoming = useSyncExternalStore(nativeInvitationLinks.subscribe, nativeInvitationLinks.getSnapshot, nativeInvitationLinks.getSnapshot);
+  useLayoutEffect(() => nativeInvitationLinks.acquire(), []);
   const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'}), [elapsed, setElapsed] = useState(0);
   const [firstLibrary, setFirstLibrary] = useState<string>();
   const [showAccounts, setShowAccounts] = useState(false), [retained, setRetained] = useState(false);
@@ -134,6 +137,9 @@ export function RestoredShell() {
   const setupComplete = (serverId: string) => {if (renderedCurrent()) setFirstLibrary(previous => renderedCurrent() ? serverId : previous);};
   const chooseAccounts = () => {if (renderedCurrent()) setShowAccounts(previous => renderedCurrent() ? true : previous);};
   if (renderedRoot && !renderedCurrent()) return <HomeSkeleton elapsedMs={elapsed} visible/>;
+  if (incoming?.current()) return <AccountEntry key={'incoming-invitation:' + incoming.id} incomingInvitation={incoming} onSetupComplete={setupComplete}
+    onBack={() => {if (renderedCurrent() && incoming.current()) incoming.dismiss();}}
+    onComplete={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); complete();}}/>;
   const remembered = downloads && root.current?.active && root.current.attempt === attempt && downloads.current() ? downloads : undefined;
   const opened = downloadView;
   if (opened && remembered === opened.source && viewOwner.current === opened) return <RememberedDownloadsScreen key={opened.serial} source={opened.source} onBack={() => {
