@@ -30,6 +30,11 @@ const rows: Readonly<Partial<Record<CompositeId, Row>>> = Object.freeze({
     shown: (current: unknown) => current === 'stereo' ? true : current === 'asis' ? false : undefined,
     asked: (value: NativeDevicePreferenceValue) => value === true ? 'stereo' : value === false ? 'asis' : undefined,
   }),
+  tvSupports: Object.freeze({
+    row: 'quality.tvSupports',
+    shown: (current: unknown) => current === 'none' || current === 'hdr' || current === 'surround' || current === 'hdr-surround' ? current : undefined,
+    asked: (value: NativeDevicePreferenceValue) => typeof value === 'string' ? value : undefined,
+  }),
   disableHdr: Object.freeze({
     row: 'quality.disableHdr',
     shown: (current: unknown) => typeof current === 'boolean' ? current : undefined,

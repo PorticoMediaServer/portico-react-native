@@ -6,7 +6,19 @@ const unavailable = () => Object.assign(new Error('native_device_setting_unsuppo
 /** A Settings device row resolves only through the installed device source. */
 export function readNativeDevicePreference(rowId: string, source: NativeDeviceSettings): SettingsBindingValue | undefined {
   const binding = settingsBinding(rowId);
-  if (!binding || binding.form !== 'device' || binding.fields) return undefined;
+  if (!binding || binding.form !== 'device') return undefined;
+  if (binding.fields) {
+    // The TV output row composes one choice from two device keys. A key that was
+    // never overridden reads as off for that choice only; the observed capability
+    // is shown separately and is never written here.
+    if (binding.codec !== 'tv-support') return undefined;
+    const device: Record<string, unknown> = {};
+    for (const key of Object.values(binding.fields)) {
+      if (!source.supports(key)) return undefined;
+      device[key] = source.read(key) === true;
+    }
+    return readSettingsBinding(binding, {device}, rowId);
+  }
   const key = binding.key;
   if (!source.supports(key)) return undefined;
   const value = source.read(key);
@@ -18,7 +30,20 @@ export function readNativeDevicePreference(rowId: string, source: NativeDeviceSe
  * the source's committed record, never the asked value or a local echo. */
 export async function writeNativeDevicePreference(rowId: string, value: unknown, source: NativeDeviceSettings): Promise<SettingsBindingValue> {
   const binding = settingsBinding(rowId);
-  if (!binding || binding.form !== 'device' || binding.fields) throw unavailable();
+  if (!binding || binding.form !== 'device') throw unavailable();
+  if (binding.fields) {
+    if (binding.codec !== 'tv-support') throw unavailable();
+    const patch = settingsBindingPatch(binding, value);
+    const keys = Object.keys(patch.values);
+    if (patch.form !== 'device' || keys.length !== Object.keys(binding.fields).length) throw unavailable();
+    for (const key of keys) {
+      if (!source.supports(key) || typeof patch.values[key] !== 'boolean') throw unavailable();
+      await source.write(key, patch.values[key] as boolean);
+    }
+    const composed = readNativeDevicePreference(rowId, source);
+    if (!composed) throw new Error('native_device_preference_unreadable');
+    return composed;
+  }
   const key = binding.key;
   if (!source.supports(key)) throw unavailable();
   const patch = settingsBindingPatch(binding, value);

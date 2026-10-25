@@ -1,6 +1,6 @@
 import {NativeSafeModeRow, nativeSafeModeAvailable, nativeSafeModeFocusId} from './NativeSafeModeRow';
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Dimensions, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
+import {AppState, Dimensions, NativeModules, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, readComposite, compositePatch, type SettingsPage, type SettingsRow as Row} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
@@ -66,6 +66,31 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   // quality.awayLimit is the owner's own server limit, read from the same
   // settings-configuration document the Streaming page reads. The route decides
   // who may see it; a refusal or an unreadable answer leaves the rows out.
+  // What the television itself reports, read live: HDR from the display's own modes
+  // and surround from the audio output's channels. It only fills the drawn choice
+  // until the viewer overrides it; it is never written to the device record.
+  const [reportedOutputs, setReportedOutputs] = useState<Readonly<{hdr: boolean; surround: boolean}>>();
+  useEffect(() => {
+    let alive = true;
+    const read = async () => {
+      try {
+        const facts = await (NativeModules.PorticoCapabilities?.facts?.() as Promise<Record<string, unknown>> | undefined);
+        if (!alive || !facts) return;
+        const modes = facts.hdrModes && typeof facts.hdrModes === 'object' ? facts.hdrModes as Record<string, unknown> : undefined;
+        const display = facts.display && typeof facts.display === 'object' ? facts.display as Record<string, unknown> : undefined;
+        const audio = facts.audio && typeof facts.audio === 'object' ? facts.audio as Record<string, unknown> : undefined;
+        const hdr = modes ? [modes.hdr10, modes.hlg, modes.dolbyVision].some(value => value === true)
+          : typeof facts.hdr === 'boolean' ? facts.hdr : typeof display?.hdr === 'boolean' ? display.hdr : undefined;
+        const channels = typeof audio?.maxOutputChannels === 'number' ? audio.maxOutputChannels
+          : typeof audio?.outputNumberOfChannels === 'number' ? audio.outputNumberOfChannels : undefined;
+        if (hdr === undefined || channels === undefined) return;
+        setReportedOutputs({hdr, surround: channels > 2});
+      } catch {}
+    };
+    void read();
+    const subscription = AppState.addEventListener('change', value => {if (value === 'active') void read();});
+    return () => {alive = false; subscription.remove();};
+  }, []);
   const [awayLimit, setAwayLimit] = useState<SettingsBindingValue>();
   useEffect(() => {
     if (!managesServer) return;
@@ -289,7 +314,11 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
             else setConfirmation(row.id === 'signOut' ? 'signOut' : 'resetRecommendations');
           }}/>;
         }
-        const value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
+        let value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
+        // No override stored: the drawn TV choice shows what the set reports. Both
+        // facts must be known, or the row stays out rather than guessing one.
+        if (value === undefined && row.kind === 'composite' && row.id === 'tvSupports' && reportedOutputs)
+          value = reportedOutputs.hdr ? reportedOutputs.surround ? 'hdr-surround' : 'hdr' : reportedOutputs.surround ? 'surround' : 'none';
         if (value === undefined) return null;
         const scope = settingsScopeLabel(row.scope, theme.isTV ? 'tv' : 'phone');
         const copy = {label: t(row.label), description: row.help ? t(row.help) : undefined, scope: scope ? t(scope) : undefined, first: index === 0, dependent: !!row.when || !!row.enableWhen};
