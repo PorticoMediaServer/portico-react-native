@@ -5,6 +5,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {enqueueCatalogueQuerySelection} from '../../../../../packages/client-core/src/catalogue-query-selection';
+import type {BulkMetadataPreview} from '../../../../../packages/client-core/src/home-selection/metadata-preview';
 import {createCataloguePersonalSelection, enqueueCatalogueSelection, selectionFourthAction,
   type BrowseSelectionContext, type SelectionSnapshot} from '../../../../../packages/client-core/src/selection-model';
 import {mediaSelectionKey} from '../../../../../packages/client-core/src/media-selection';
@@ -180,7 +181,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
           : enqueueCatalogueSelection(port, op.target.items.map(value => value.item), action === 'playNext' ? 'next' : 'end', {signal: controller.signal, isCurrent: live}));
       }
       if (live()) clear();
-    } catch (error) {if (visible()) services.reportError(error, 'library');}
+    } catch (error) {if (live()) services.reportError(error, 'library');}
     finally {if (pending === controller) {pending = undefined; emit();}}
   };
   const applyPersonal = async (action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched', view: SelectionSnapshot<BrowseSelectionContext>) => {
@@ -351,9 +352,9 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (explicit && summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
   if (explicit && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole();
-  const bulk = store.bulk(), bulkState = bulk?.getSnapshot();
+  const bulk = store.bulk(), bulkState = bulk?.getSnapshot(), preview: BulkMetadataPreview | undefined = bulkState?.preview;
   const bulkSummary: readonly {id: string; text: string}[] = bulkState ? Object.entries(bulkState.changes).flatMap(([field, change]) => {
-    const spec = bulkState.preview?.schema.find(candidate => candidate.field === field);
+    const spec = preview?.schema.find(candidate => candidate.field === field);
     if (!spec) return [];
     if ('value' in change) return [{id: field, text: `${spec.label}: ${change.value || defaultI18n.t('next.selection.native.notSet')}`}];
     const parts: string[] = [];
