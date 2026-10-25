@@ -1,22 +1,18 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
-import {parseStorageReport, type StorageReport, type StorageUsage} from '../../../../../../packages/client-core/src/administration';
-import {loadResourceUsage, type ResourceUsage} from '../../../../../../packages/client-core/src/server-admin/server-forms';
-import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
+import {loadResourceUsage} from '../../../../../../packages/client-core/src/server-admin/server-forms';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
-import {Button} from '../../../kit/controls/Button';
-import {TextField} from '../../../kit/controls/TextField';
 import {Tabs} from '../../../kit/controls/Tabs';
-import {BottomSheet} from '../../../kit/overlays/BottomSheet';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
-import {StateView} from '../../../kit/states';
-import {alpha, shellType} from '../../../kit/shell/visual';
+import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {LimitsTab} from './storage/LimitsTab';
 import {BackupsTab} from './storage/BackupsTab';
 import {MissingTitlesTab} from './storage/MissingTitlesTab';
+import {NativeStorageSpaceUsage} from './storage/SpaceUsage';
+import {useSettingsRequestScope} from '../use-settings-request-scope';
 
 type ViewerRole = 'owner' | 'administrator' | 'member';
 type Translate = typeof defaultI18n.t;
@@ -53,53 +49,13 @@ export function NativeServerStorage({ports, runtime, compactHeader = false}: {po
   </View>;
 }
 
-function serverFailure(error: unknown, retry: () => void, t: Translate): {title: string; body: string; tone: 'error'; primaryAction: {id: string; label: string; onPress: () => void}} {
-  const p = presentError(error, 'server-console');
-  return {title: p.title, body: p.body, tone: 'error', primaryAction: {id: 'retry', label: t('action.tryAgain'), onPress: retry}};
-}
-
 function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
   const theme = useTheme(), context = ports.context;
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
-  const report = useRead(() => api.request<unknown>('/v1/admin/storage-usage').then(raw => parseStorageReport(((raw as {result?: unknown}).result ?? raw))), [context]);
-  const usage = useRead(() => loadResourceUsage(api), [context]);
-  const [chosen, setChosen] = useState<StorageUsage>(), [days, setDays] = useState('30'), [typed, setTyped] = useState(''), [busy, setBusy] = useState(false), [failure, setFailure] = useState<unknown>();
-  const close = () => {if (busy) return; setChosen(undefined); setTyped(''); setFailure(undefined);};
-  const cleanUp = () => {
-    if (!chosen) return;
-    setBusy(true); setFailure(undefined);
-    const body = {olderThanDays: Math.max(0, Number(days) || 0), confirmation: chosen.id, operationId: ports.requestId()};
-    void api.request(`/v1/admin/storage-usage/${encodeURIComponent(chosen.id)}/cleanup`, 'POST', body)
-      .then(() => {setBusy(false); setChosen(undefined); setTyped(''); report.reload();}, error => {setBusy(false); setFailure(error);});
-  };
+  const {api}=useSettingsRequestScope(context);
+  const usage=useRead(()=>loadResourceUsage(api),[api]);
   const used = (part: {trackedBytes: number; limitBytes: number; measured: boolean}) => part.measured ? t('server.usage.ofLimit', {used: defaultI18n.bytes(part.trackedBytes), limit: defaultI18n.bytes(part.limitBytes)}) : t('server.usage.notMeasuredYet');
-  const problem = failure === undefined ? undefined : presentError(failure, 'server-console').body;
-  const doc: StorageReport | undefined = report.data;
-  return <View style={{marginTop: 14}} testID="server-storage-space">
-    {report.error !== undefined && !doc ? <StateView {...serverFailure(report.error, report.reload, t)}/> : null}
-    {doc ? <>
-      <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('settings.server.diskUsage')}</Text>
-      <View style={{marginTop: 10, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-        <View style={{paddingHorizontal: 14, paddingVertical: 12}}>
-          <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-            <Text style={[shellType(16, 700), {color: theme.colors.text}]}>{t('web.maintenance.totalLabel')}</Text>
-            <Text style={[shellType(22, 800, 'normal', -.02), {color: theme.colors.text}]}>{defaultI18n.bytes(doc.totalBytes)}</Text>
-          </View>
-          <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.storageLede')}</Text>
-        </View>
-        {doc.categories.filter(category => category.present).map(category => <View key={category.id} style={{paddingHorizontal: 14, paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft}}>
-          <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 10}}>
-            <Text style={[shellType(15.5, 600), {color: theme.colors.text, flex: 1}]}>{category.name}</Text>
-            <Text style={[shellType(15, 700), {color: theme.colors.textSecondary}]}>{defaultI18n.bytes(category.bytes)}</Text>
-          </View>
-          {Number.isFinite(doc.totalBytes) && doc.totalBytes > 0 && Number.isFinite(category.bytes) && category.bytes >= 0 ? <View accessible={false} style={{height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 6, marginBottom: 2, backgroundColor: alpha(theme.colors.text, .09)}}>
-            <View style={{height: '100%', width: `${Math.max(0, Math.min(1, category.bytes / doc.totalBytes)) * 100}%`, borderRadius: 3, backgroundColor: theme.colors.accent}}/>
-          </View> : null}
-          <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{category.description}</Text>
-          {category.cleanable && category.bytes > 0 ? <View style={{flexDirection: 'row', marginTop: 8}}><Button size="compact" variant="glass" icon="i-trash" onPress={() => {setChosen(category); setDays('30'); setTyped(''); setFailure(undefined);}}>{t('server.cleanUp')}</Button></View> : null}
-        </View>)}
-      </View>
-    </> : null}
+  return <View style={{marginTop:14}} testID="server-storage-space">
+    <NativeStorageSpaceUsage context={context} runtime={runtime}/>
     {usage.data ? <>
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('server.usage.title')}</Text>
       <View style={{marginTop: 10, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
@@ -109,16 +65,6 @@ function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime:
         <UsageRow label={t('server.usage.artwork')} value={used(usage.data.localArtwork)}/>
       </View>
     </> : null}
-    <BottomSheet open={Boolean(chosen)} onOpenChange={open => {if (!open) close();}} testID="server-storage-cleanup" keyboardAvoiding
-      title={chosen ? t('web.maintenance.cleanUpTitle', {name: chosen.name}) : undefined}
-      description={chosen ? t('web.maintenance.cleanUpBody', {canRecreate: chosen.regenerable ? 'yes' : 'no', id: chosen.name}) : undefined}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} loading={busy} disabled={typed.trim() !== (chosen?.name ?? '')} onPress={cleanUp}>{t('server.cleanUp')}</Button></View>}>
-      <View style={{gap: 12}}>
-        <TextField label={t('web.maintenance.olderThan')} keyboardType="number-pad" value={days} onChangeText={setDays}/>
-        <TextField label={chosen ? t('confirm.typeToConfirm', {token: chosen.name}) : ''} value={typed} onChangeText={setTyped} autoCapitalize="none" autoCorrect={false}/>
-        {problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record}]}>{problem}</Text> : null}
-      </View>
-    </BottomSheet>
   </View>;
 }
 
