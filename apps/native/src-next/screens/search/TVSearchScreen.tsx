@@ -128,7 +128,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
         </View>)}
       </ScrollView>
     </FocusRegion>
-    {selection?.render()}
+    {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
   </View>;
 }
 

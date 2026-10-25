@@ -126,7 +126,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
       columnWrapperStyle={{gap: 10}} onEndReachedThreshold={.5} onEndReached={() => {if (active?.nextCursor && state.search.phase === 'ready') run(destination.next(active.id));}}
       renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(state.group as SearchGroup, item)} width={(dimensions.width - 52) / 3}/>}
       ListHeaderComponent={error || null} ListEmptyComponent={loading ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 180} width={dimensions.width} columns={3} totalCount={9}/> : null}/>}
-    {selection?.render()}
+    {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
   </View>;
 }
 

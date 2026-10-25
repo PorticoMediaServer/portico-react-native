@@ -1,6 +1,6 @@
 import {DetailService} from '../../../../../packages/client-core/src/detail';
 import {SavedService} from '../../../../../packages/client-core/src/saved';
-import {PersonalSavedService} from '../../../../../packages/client-core/src/personal-saved';
+import {PersonalSavedService, type EntryOutcomes} from '../../../../../packages/client-core/src/personal-saved';
 import {appendPlaylistSelection} from '../../../../../packages/client-core/src/playlist-selection';
 import {validateContentEntry, type ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {CatalogueSelectionOptions} from '../../../../../packages/client-core/src/catalogue-selection';
@@ -27,6 +27,8 @@ export class NativeLoadedDestinations {
   private chosen?: Readonly<{kind: 'playlist' | 'collection'; id: string}>;
   private completed = 0;
   private attemptedCollection = false;
+  private collectionItems: readonly string[];
+  private readonly collectionReceipts: EntryOutcomes[] = [];
 
   constructor(options: CatalogueSelectionOptions, input: readonly ContentEntry[]) {
     this.options = options;
@@ -34,6 +36,7 @@ export class NativeLoadedDestinations {
     if (!this.entries.length || this.entries.length > 100 || this.entries.some(entry => !entry.libraryId
       || !['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind))
       || new Set(this.entries.map(entry => entry.id)).size !== this.entries.length) throw unavailable();
+    this.collectionItems = Object.freeze(this.entries.map(entry => entry.id));
     if (options.signal.aborted || !options.isCurrent()) throw Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
     const api = {request: async <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
       this.assertCurrent();
@@ -59,7 +62,7 @@ export class NativeLoadedDestinations {
   private changed = () => {this.revision++; for (const listener of [...this.listeners]) listener();};
   subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = () => this.revision;
-  snapshot = () => ({busy: this.running, chosen: this.chosen, completed: this.completed,
+  snapshot = () => ({busy: this.running, chosen: this.chosen, completed: this.completed, collectionReceipts: Object.freeze([...this.collectionReceipts]),
     playlists: this.playlists.getSnapshot(), playlist: this.playlist.getSnapshot(),
     collections: this.collections.getSnapshot(), collection: this.collection.getSnapshot()});
   private async eligibility(kind: 'playlist' | 'collection') {
@@ -122,6 +125,7 @@ export class NativeLoadedDestinations {
       this.completed = await appendPlaylistSelection(this.playlist, this.entries.map(entry => entry.id), this.completed,
         count => {this.completed = count; this.changed();}, () => !this.disposed && !this.options.signal.aborted && this.options.isCurrent());
     } else if (this.chosen?.kind === 'collection') {
+      if (!this.collectionItems.length) throw unavailable();
       const state = this.collection.getSnapshot();
       if (state.resource?.id !== this.chosen.id || state.resource.kind !== 'collection' || !state.resource.actions.includes('entries')) throw unavailable();
       if (this.attemptedCollection) {
@@ -129,11 +133,16 @@ export class NativeLoadedDestinations {
         await this.collection.retry();
       } else {
         this.attemptedCollection = true;
-        await this.collection.mutate({action: 'entries', addItemIds: this.entries.map(entry => entry.id), removeEntryIds: []});
+        await this.collection.mutate({action: 'entries', addItemIds: this.collectionItems, removeEntryIds: []});
       }
       this.assertCurrent();
       const after = this.collection.getSnapshot();
       if (after.pending || after.retryPending || after.mutationError || !after.result?.entries) throw after.mutationError ?? unavailable();
+      const receipt = after.result.entries;
+      if (!this.collectionReceipts.includes(receipt)) this.collectionReceipts.push(receipt);
+      const missing = new Set(receipt.failed.map(failure => failure.itemId));
+      this.collectionItems = Object.freeze(this.collectionItems.filter(id => missing.has(id)));
+      this.attemptedCollection = false;
     } else throw unavailable();
   }
   retry = () => this.run(async () => {

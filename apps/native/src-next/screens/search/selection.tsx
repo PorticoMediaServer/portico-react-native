@@ -19,6 +19,8 @@ import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {nativeScreenServices} from '../native-screen-services';
 import {nativeSearchEntryKey, type NativeSearchDestination} from './model';
 import type {NativeSearchSelectionPort} from './types';
+import {NativeLoadedDestinations} from './loaded-destinations';
+import {NativeDestinationPicker} from './DestinationPickerSheet';
 
 const leaf = (entry: SearchEntry): entry is ContentEntry => ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind);
 const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
@@ -35,7 +37,11 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   let stopPlayback: (() => void) | undefined;
   let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, stopPersonal: (() => void) | undefined;
   let personalController: AbortController | undefined, personalCurrent: (() => boolean) | undefined;
+  let destinations: NativeLoadedDestinations | undefined, destinationKind: 'playlist' | 'collection' | undefined;
+  let destinationController: AbortController | undefined, stopDestinations: (() => void) | undefined;
   const closePersonal = () => {personalController?.abort(); personalController = undefined; stopPersonal?.(); stopPersonal = undefined; personal?.dispose(); personal = undefined; personalCurrent = undefined;};
+  const closeDestinations = () => {destinationController?.abort(); destinationController = undefined; stopDestinations?.(); stopDestinations = undefined;
+    destinations?.dispose(); destinations = undefined; destinationKind = undefined;};
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const keyFor = (snapshot: SearchSnapshot) => snapshot.phase === 'ready' && snapshot.data
     ? JSON.stringify([snapshot.generation, snapshot.data.scope.viewerFence, snapshot.data.revision, snapshot.data.query]) : '';
@@ -45,7 +51,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     return role === undefined || role === 'local';
   };
   const reset = () => {
-    batchGeneration++; closePersonal();
+    batchGeneration++; closePersonal(); closeDestinations();
     stopPlayback?.(); stopPlayback = undefined;
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
     model?.dispose(); model = undefined; windows.clear(); token = ''; emit();
@@ -180,6 +186,26 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
     try {await personal.service.retry();}
     catch (error) {if (personalCurrent?.()) feedback.reportError(error, 'search');}
   };
+  /** The bounded direct Saved destination picker for exactly the selected leaves. */
+  const openDestination = (kind: 'playlist' | 'collection') => {
+    if (!model || !visible() || pending || personal || destinations) return;
+    const state = model.getSnapshot();
+    if (!state.active || !state.selectedKeys.length) return;
+    const selected = [...windows.values()].filter(window => state.selectedKeys.includes(window.key)).flatMap(window => leaf(window.entry) ? [window.entry] : []);
+    if (selected.length !== state.selectedKeys.length) return;
+    const captured = token, currentModel = model, route = context.navigation.getSnapshot().revision;
+    const controller = new AbortController();
+    const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
+      && context.navigation.getSnapshot().revision === route && keyFor(source.getSnapshot().search) === captured
+      && currentModel.getSnapshot().active;
+    destinationController = controller;
+    destinations = new NativeLoadedDestinations({api: context.api, scope: authority.scope, requestId: feedback.requestId,
+      signal: controller.signal, isCurrent: current}, selected);
+    destinationKind = kind;
+    stopDestinations = destinations.subscribe(emit);
+    void destinations.load(kind).catch(error => {if (current()) feedback.reportError(error, 'search');});
+    emit();
+  };
   let lastQueueControl: boolean | undefined;
   const queueChanged = () => {
     const next = queueControl();
@@ -197,7 +223,8 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
   reconcile();
   const store = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision, loadedCount: () => distinctLeaves().length, snapshot: () => model?.getSnapshot(), personal: () => personal?.service.getSnapshot(), busy: () => !!pending || !!personal?.service.getSnapshot().busy, queueControl,
-    clear: () => {if (personal?.service.getSnapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); model?.clear(); emit();}, selectLoaded, execute, applyPersonal, retryPersonal};
+    clear: () => {if (personal?.service.getSnapshot().busy || destinations?.snapshot().busy) return; batchGeneration++; pending?.abort(); closePersonal(); closeDestinations(); model?.clear(); emit();}, selectLoaded, execute, applyPersonal, retryPersonal,
+    openDestination, closeDestinations, destination: () => destinations, destinationKind: () => destinationKind};
   const port: NativeSearchSelectionPort = {
     register: () => {reconcile(); return () => {};},
     item: (group, entry) => {
@@ -206,7 +233,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
       return {active: snapshot?.active ?? false, selected: !!registered && !!snapshot?.selectedKeys.includes(registered.key),
         onEnter: () => {void pick(group, entry);}, onToggle: () => {void pick(group, entry);}};
     },
-    render: () => <SearchSelectionBars store={store}/>,
+    render: artwork => <SearchSelectionBars store={store} artwork={artwork}/>,
   };
   return Object.freeze({...port, subscribe: store.subscribe, getSnapshot: store.getSnapshot,
     dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
@@ -215,8 +242,9 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
 type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number; snapshot(): ReturnType<SelectionModel['getSnapshot']> | undefined;
   personal(): ReturnType<ReturnType<typeof createCataloguePersonalSelection>['service']['getSnapshot']> | undefined;
   applyPersonal(action: 'myList' | 'removeMyList' | 'favorite' | 'watched' | 'unwatched'): Promise<void>; retryPersonal(): Promise<void>;
-  loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>};
-function SearchSelectionBars({store}: {store: Store}) {
+  loadedCount(): number; busy(): boolean; queueControl(): boolean; clear(): void; selectLoaded(): Promise<void>; execute(action: 'play' | 'playNext' | 'playLater'): Promise<void>;
+  openDestination(kind: 'playlist' | 'collection'): void; closeDestinations(): void; destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined};
+function SearchSelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets(), [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   const state = store.snapshot();
@@ -227,6 +255,9 @@ function SearchSelectionBars({store}: {store: Store}) {
     {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
   if (state.summary.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
   if (state.summary.every.favorite) actions.push({id: 'favorite', disabled: store.busy()});
+  // The bounded direct Saved pickers are offered for an explicit leaf selection; the
+  // controller re-reads every leaf's own Detail grant before it writes anything.
+  if (state.summary.count > 0) actions.push({id: 'playlist', disabled: store.busy()}, {id: 'collection', disabled: store.busy()});
   if (state.summary.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
   if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   const personal = store.personal();
@@ -234,7 +265,9 @@ function SearchSelectionBars({store}: {store: Store}) {
     selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: store.loadedCount()}), onSelectAll: () => {void store.selectLoaded();}, onCancel: () => {setMenu(null); store.clear();},
     actions, menu, onMenuChange: setMenu, topInset: insets.top, fourthSlot: selectionFourthAction(state.summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action);}
-      else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action);}}};
+      else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action);}
+      else if (action === 'playlist' || action === 'collection') {setMenu(null); store.openDestination(action);}}};
+  const destination = store.destination(), destinationKind = store.destinationKind();
   return <><View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
     <View style={theme.isTV ? {position: 'absolute', left: 200, right: 96, top: 58} : undefined}><SelectionBar {...props}/></View>
     {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}
@@ -250,5 +283,8 @@ function SearchSelectionBars({store}: {store: Store}) {
             : presentError({code: result.status === 'conflict' ? 'metadata_conflict' : result.status === 'unavailable' ? 'access_refused' : 'unavailable'}, 'detail', {operation: 'action'}).body}</Text>
       </View>)}
     </Dialog>}
+    {destination && destinationKind && <NativeDestinationPicker controller={destination} kind={destinationKind} open
+      selectionLabel={selectedItemsLabel(state.summary)} count={state.summary.count} artwork={artwork}
+      onOpenChange={open => {if (!open && !destination.snapshot().busy) store.closeDestinations();}}/>}
   </>;
 }

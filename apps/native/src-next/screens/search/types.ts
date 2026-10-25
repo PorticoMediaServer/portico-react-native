@@ -26,7 +26,8 @@ export type NativeSearchSelectionPort = Readonly<{
   /** The producer's exact scope/query/revision and IDs, with bounded mounted windows. */
   register: (snapshot: SearchSnapshot, groups: readonly SearchGroupResult[]) => () => void;
   item: (group: SearchGroup, entry: SearchEntry) => CardSelection | undefined;
-  render: () => ReactNode;
+  /** The screen's own artwork resolver, for the destination picker's rows. */
+  render: (artwork: (path?: string) => ReactNode) => ReactNode;
 }>;
 export type NativeSearchActions = Readonly<{
   menuState?: NativeEntryMenuState;
