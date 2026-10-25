@@ -87,7 +87,9 @@ export function createNativeReadSeriesRenderer(context: NativeShellBootstrapCont
     if (!current() || !seriesRouteCurrent(context, route)) return undefined;
     const cached = pages.get(route);
     if (cached) return cached;
-    const page = new NativeReadSeries(context, route);
+    const library = readingLibrary(context, route.libraryId);
+    if (!library) return undefined;
+    const page = new NativeReadSeries(context, route, library.kind === 'comic');
     retain(pages, route, page);
     return page;
   };

@@ -32,6 +32,7 @@ export class NativeReadSeries {
   private readonly libraryId: string;
   private readonly seriesId: string;
   private readonly route: SeriesRoute;
+  private readonly comic: boolean;
   private origin?: NativeReadOrigin;
   private captured?: Readonly<{sessionFamilyId: string; viewer: LocalSession['viewer']}>;
   private authority?: ShellAuthority;
@@ -45,8 +46,8 @@ export class NativeReadSeries {
   private pageTicket?: object;
   private disposed = false;
 
-  constructor(context: NativeShellBootstrapContext, route: SeriesRoute) {
-    this.context = context; this.libraryId = route.libraryId; this.seriesId = route.seriesId; this.route = route;
+  constructor(context: NativeShellBootstrapContext, route: SeriesRoute, comic: boolean) {
+    this.context = context; this.libraryId = route.libraryId; this.seriesId = route.seriesId; this.route = route; this.comic = comic;
   }
   /** Run from the page's layout effect with the exact rendered route. */
   arm = (): boolean => {
@@ -116,18 +117,24 @@ export class NativeReadSeries {
       }
       if (flight !== this.flight || !this.current()) return;
       // One authorized preview of the volume the page would read gives its real
-      // declared direction (ComicInfo.xml and only that). It is closed before
-      // the page can become ready, and a close refusal fails the page rather
-      // than publishing a projection the server still holds open.
-      const previewItem = continued?.item ?? page.items.find(value => value.inventoryAvailable);
+      // declared direction (ComicInfo.xml and only that). A book or periodical
+      // series opens no extra session for an absent direction. It is closed
+      // before the page can become ready, and a close refusal fails the page
+      // rather than publishing a projection the server still holds open.
+      const previewItem = this.comic ? continued?.item ?? page.items.find(value => value.inventoryAvailable) : undefined;
       let direction: 'ltr' | 'rtl' | 'vertical' | undefined;
-      if (previewItem) {
+      if (previewItem?.format === 'cbz') {
         try {
           const session = await client.open({itemId: previewItem.id, sourceId: previewItem.sourceId}, signal);
           let closeError: unknown;
           try {
-            const declared = session.manifest.metadata.direction;
-            if (declared === 'ltr' || declared === 'rtl' || declared === 'vertical') direction = declared;
+            const manifest = session.manifest;
+            // Only the exact signed witness may yield a direction: the same item
+            // and source, and a real comic publication at both ends.
+            if (manifest.itemId === previewItem.id && manifest.sourceId === previewItem.sourceId && manifest.format === 'cbz') {
+              const declared = manifest.metadata.direction;
+              if (declared === 'ltr' || declared === 'rtl' || declared === 'vertical') direction = declared;
+            }
           } finally {try {await session.close();} catch (error) {closeError = error;}}
           if (flight !== this.flight || !this.current()) return;
           if (closeError) {this.publish({phase: 'error', items: [], error: closeError}); return;}
