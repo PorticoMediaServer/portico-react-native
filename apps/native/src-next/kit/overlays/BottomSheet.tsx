@@ -12,7 +12,7 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
   const theme = useTheme();
   const side = theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
@@ -75,7 +75,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     done.current = reason === 'close-button' || reason === 'action';
     onOpenChange(false, reason);
   }, [onOpenChange, dismissOnBack]);
-  useOverlayLifecycle(present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500, testID);
+  useOverlayLifecycle(present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500, testID, restoreFocus);
   useEffect(() => {
     opacity.value = motion.reduce ? withTiming(open ? 1 : 0, motion.timing()) : open ? withTiming(1, motion.timing('standard')) : 1;
     const target = open ? heights[index] : 0;

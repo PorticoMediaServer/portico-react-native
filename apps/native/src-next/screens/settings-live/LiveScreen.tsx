@@ -426,7 +426,7 @@ function GuideChannelArt({channel, source, size}: {channel: GuideChannelRow; sou
   return mark ? <ChannelMark mark={mark} source={source} size={size}/> : source ? <Artwork source={source} fit="contain"/> : null;
 }
 
-function ProgrammeDetails({programme, now, runtime}: {programme: GuideProgram; now: number; runtime: NativeShellRuntime}) {
+export function ProgrammeDetails({programme, now, runtime}: {programme: GuideProgram; now: number; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t;
   const episode = programme.episode?.number !== undefined ? {mode: 'seasonal' as const, season: programme.episode.season, episode: programme.episode.number} : undefined;
   const categories = programme.categories?.filter(value => value.toLowerCase() !== 'live');

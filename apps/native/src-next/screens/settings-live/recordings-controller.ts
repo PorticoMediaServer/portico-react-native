@@ -1,5 +1,6 @@
 import {DVRClient, type DeletePreview, type DVRPage, type DVRSummary, type DVRView, type Occurrence, type Recording, type RecordingDetail, type RecordingDraft, type RecordingGroups, type RecordingOptions, type RecordingRule, type RecordingStorage, type RuleConfig, type RulePreview, type StoragePolicy} from '../../../../../packages/client-core/src/dvr';
 import type {ChannelApi} from '../../../../../packages/client-core/src/channel-guide';
+import type {DVRCommandLifetime} from '../../../../../packages/client-core/src/dvr';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
 
 export type NativeRecordingQuery = Readonly<{view: DVRView; cursor?: string; sort?: 'recent' | 'title' | 'oldest'; group?: string}>;
@@ -68,20 +69,43 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   private async read<T>(work: () => Promise<T>): Promise<T> {this.assert(); const result = await work(); this.assert(); if (this.getSnapshot().accessDenied) throw screenScopeEnded(); return result;}
   detail = (id: string, after?: string): Promise<RecordingDetail> => this.read(() => this.service.detail(id, after));
   deletePreview = (recording: Recording): Promise<DeletePreview> => this.read(() => this.service.deletePreview(recording));
-  async act<T>(work: (service: NativeRecordingService) => Promise<T>): Promise<Readonly<{value: T}> | undefined> {
+  private requireCommand(lifetime?: DVRCommandLifetime): void {
+    if (lifetime && (!this.current() || lifetime.signal.aborted || !lifetime.isCurrent())) throw screenScopeEnded();
+  }
+  async act<T>(work: (service: NativeRecordingService) => Promise<T>, lifetime?: DVRCommandLifetime): Promise<Readonly<{value: T}> | undefined> {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
+    this.requireCommand(original);
     this.assert();
     if (this.getSnapshot().busy || this.getSnapshot().accessDenied) return undefined;
     this.publish({...this.getSnapshot(), busy: true, error: undefined});
     try {
+      this.requireCommand(original);
       const value = await this.read(() => work(this.service));
+      this.requireCommand(original);
       // A receipt is the success boundary. Refreshing another current view never changes
       // the mutation's expectedRevision or creates a replacement retry request id.
-      void this.load(); void this.loadFacts();
+      // A Watch command returns its real receipt to that opening. Do not start
+      // an unscoped refresh that could adopt into a replacement route; the DVR
+      // screen keeps its ordinary authoritative reads when entered.
+      if (!original) {void this.load(); void this.loadFacts();}
+      this.requireCommand(original);
       return {value};
-    } catch (error) {if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), error}); return undefined;}
-    finally {if (this.current()) this.publish({...this.getSnapshot(), busy: false});}
+    } catch (error) {
+      this.requireCommand(original);
+      if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), error});
+      this.requireCommand(original);
+      if (original) throw error;
+      return undefined;
+    }
+    finally {if (this.current()) this.publish({...this.getSnapshot(), busy: false});this.requireCommand(original);}
   }
-  schedule = (draft: RecordingDraft, options: RecordingOptions) => this.act(service => service.schedule(draft, options));
+  schedule = (draft: RecordingDraft, options: RecordingOptions, lifetime?: DVRCommandLifetime) => {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;
+    this.requireCommand(original);
+    const capturedDraft = original ? Object.freeze({channel: Object.freeze({...draft.channel}), programme: Object.freeze({...draft.programme}), series: draft.series}) : draft;
+    const capturedOptions = original ? Object.freeze({...options}) : options;
+    return this.act(service => service.schedule(capturedDraft, capturedOptions, original), original);
+  };
   cancel = (recording: Recording) => this.act(service => service.cancel(recording));
   keep = (recording: Recording) => this.act(service => service.keep(recording));
   remove = (recording: Recording, preview: DeletePreview) => this.act(service => service.delete(recording, preview));
@@ -90,8 +114,26 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   resolve = (detail: RecordingDetail) => this.act(service => service.update(detail.recording, {...detail.recording.options, priority: Math.min(1000, Math.max(detail.recording.options.priority, ...detail.overlaps.map(value => value.priority)) + 1)}));
   saveRule = (rule: RecordingRule, config: RuleConfig) => this.act(service => service.saveRule(rule.id, rule.revision, config));
   /** A new rule is a client-named canonical id with expected revision zero; the receipt is the success boundary. */
-  createRule = (config: RuleConfig, anchor: Occurrence) => this.act(async service => service.saveRule(await service.newRuleID(), 0, config, anchor));
-  previewRule = (config: RuleConfig): Promise<RulePreview> => this.read(() => this.service.preview(config));
+  newRuleID = async (lifetime: DVRCommandLifetime): Promise<string> => {
+    const original = Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent});this.requireCommand(original);
+    try {const id = await this.service.newRuleID(original);this.requireCommand(original);return id;}
+    catch (error) {this.requireCommand(original);throw error;}
+  };
+  createRule = (config: RuleConfig, anchor: Occurrence, lifetime?: DVRCommandLifetime, preparedId?: Promise<string>) => {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;this.requireCommand(original);
+    const captured = original ? Object.freeze({...config, allowedChannels: [...config.allowedChannels], blockedChannels: [...config.blockedChannels],
+      keywords: [...config.keywords], blockedKeywords: [...config.blockedKeywords], options: Object.freeze({...config.options})}) : config;
+    const capturedAnchor = original ? Object.freeze({...anchor}) : anchor;
+    return this.act(async service => {
+      const id = await (preparedId ?? service.newRuleID(original));this.requireCommand(original);
+      return service.saveRule(id, 0, captured, capturedAnchor, original);
+    }, original);
+  };
+  previewRule = async (config: RuleConfig, lifetime?: DVRCommandLifetime): Promise<RulePreview> => {
+    const original = lifetime ? Object.freeze({signal: lifetime.signal, isCurrent: lifetime.isCurrent}) : undefined;this.requireCommand(original);
+    try {const preview = await this.read(() => this.service.preview(config, original));this.requireCommand(original);return preview;}
+    catch (error) {this.requireCommand(original);throw error;}
+  };
   deleteRule = (rule: RecordingRule, future: 'keep' | 'cancel') => this.act(service => service.deleteRule(rule, future));
   dispose(): void {if (this.disposed) return; this.disposed = true; this.epoch++; this.pending = undefined; this.service.dispose(); this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true}); this.clearListeners();}
 }

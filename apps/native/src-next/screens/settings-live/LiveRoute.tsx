@@ -10,6 +10,7 @@ import {createNativeRecordingsController} from './recordings-controller';
 import {NativeLiveScreen} from './LiveScreen';
 import {NativeLiveOwnerController} from './live-owner-controller';
 import {nativeSettingsRequestId} from './settings-ports';
+import {publishNativeLiveWatchPort} from './watch-port';
 
 export function createNativeLiveRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const lifetime = new NativeScreenLifetime(context);
@@ -19,13 +20,14 @@ export function createNativeLiveRenderer(context: NativeShellBootstrapContext): 
   const recordings = createNativeRecordingsController(lifetime, api, dvrRequestId);
   const operationId = () => [...nativeRouteCrypto.random(24)].map(byte => byte.toString(16).padStart(2, '0')).join('');
   const owner = new NativeLiveOwnerController(lifetime, api, operationId);
+  const releaseWatch = publishNativeLiveWatchPort(context, lifetime, {recordings, live: controller, owner, requestId: dvrRequestId});
   return {
     render: (route, runtime) => {
       lifetime.assert();
       if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch');
       return <NativeLiveScreen ports={{context, dvrRequestId, requestId: nativeSettingsRequestId}} controller={controller} recordings={recordings} owner={owner} runtime={runtime}/>;
     },
-    dispose: () => {owner.dispose(); controller.dispose(); recordings.dispose(); lifetime.dispose();},
+    dispose: () => {releaseWatch(); owner.dispose(); controller.dispose(); recordings.dispose(); lifetime.dispose();},
   };
 }
 
