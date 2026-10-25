@@ -4,7 +4,7 @@ import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeOfflineDownloadsAdapter, offlineDownloads, type NativeOfflineDownloadsDevice, type OfflineEntry} from '../../platform/offline-downloads';
 import {createNativeOfflineEntryPlayback} from './playback';
 
-let connection: object | undefined;
+import {claimNativeDownloadsDevice} from '../../shell/downloads-device-custody';
 type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; service: DownloadsService;
   want: (...args: Parameters<typeof offlineDownloads.want>) => ReturnType<typeof offlineDownloads.want>;
   display: (...args: Parameters<typeof offlineDownloads.display>) => ReturnType<typeof offlineDownloads.display>;
@@ -66,8 +66,9 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
 /** Native files remain in the genuine singleton; the server prepares receipts only. */
 function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, device: typeof offlineDownloads): DownloadDeviceLease {
   const lifetime = nativeDestinationLifetime(context), viewer = context.session()!.viewer;
-  const owner = {}, abort = new AbortController(); let alive = true;
-  const current = () => alive && lifetime.current() && connection === owner;
+  const abort = new AbortController(); let alive = true;
+  let custody: ReturnType<typeof claimNativeDownloadsDevice> | undefined;
+  const current = () => alive && lifetime.current() && custody?.current() === true;
   const assertCurrent = () => {if (!current()) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});};
   const api = {
     get baseUrl() {assertCurrent(); return context.api.baseUrl;},
@@ -82,7 +83,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     },
   };
   const service = new DownloadsService(api);
-  connection = owner;
+  custody = claimNativeDownloadsDevice(device, () => {alive = false; abort.abort(); service.stop(); service.dispose();});
   device.adopt(viewer);
   const adapter = createNativeOfflineDownloadsAdapter(undefined, device);
   let opening: Promise<void> | undefined, connected = false;
@@ -129,7 +130,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     dispose: () => {
       if (!alive) return; alive = false; abort.abort(); service.stop(); service.dispose();
       // A late retired screen cannot disconnect a newer restored viewer.
-      if (connection === owner) {connection = undefined; device.disconnect(); device.adopt(undefined);}
+      if (custody?.current() === true) {custody.release(); device.disconnect(); device.adopt(undefined);}
     },
   });
 }
