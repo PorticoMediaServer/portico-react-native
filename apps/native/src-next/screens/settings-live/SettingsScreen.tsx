@@ -141,9 +141,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     });
   }, [structure, theme.isTV, managesServer]);
   // phone-app 8 omits the profile row because the drawn profile card replaces it.
-  const phoneAccountOrder = ['playback', 'languages', 'quality', 'music', 'appearance', 'region', 'privacy', 'device'];
-  const tabletAccountOrder = ['profile', 'privacy', 'playback', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
-  const tabletAccountClusters: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
+  const phoneAccountOrder = ['playback', 'reading', 'languages', 'quality', 'music', 'appearance', 'region', 'privacy', 'device'];
+  const tabletAccountOrder = ['profile', 'privacy', 'playback', 'reading', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
+  const tabletAccountClusters: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'reading', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
   const tabletServerClusters: readonly (readonly string[])[] = [['general', 'dashboard'], ['libraries', 'remote-sources', 'segments'], ['live', 'remote', 'integrations'], ['streaming', 'storage', 'troubleshooting']];
   const tabletDefaultPage = accountPages.some(value => value.id === 'playback') ? 'playback' : accountPages[0]?.id;
   const [selected, setSelected] = useState(() => !theme.isTV && !compact ? tabletDefaultPage : accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
