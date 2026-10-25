@@ -201,9 +201,9 @@ function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu,
       </CardFrame>
       {text.stopped && <Chip testID={`download-retry-${encodeURIComponent(entry.id)}`} icon="i-retry" iconSize={14} onPress={onRetry} style={{position: 'absolute', bottom: 0, left: 59, height: 30, paddingHorizontal: 11}} textStyle={browseType(theme, 13, 700)}>{t('action.tryAgain')}</Chip>}
     </View>
-    <Focusable testID={`download-action-${encodeURIComponent(entry.id)}`} accessibilityLabel={t(playable ? 'action.play' : 'card.more', {title: entry.title})}
+    <Focusable testID={`download-action-${encodeURIComponent(entry.id)}`} accessibilityLabel={t(playable ? (entry.kind === 'ebook' || entry.kind === 'comic' ? 'next.cards.read' : 'action.play') : 'card.more', {title: entry.title})}
       disabled={playable && !onPlay} onPress={playable ? onPlay : menu} style={{width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: playable ? theme.colors.text : undefined}}>
-      <Icon name={playable ? 'i-play' : 'i-more'} size={playable ? 16 : 20} color={playable ? theme.colors.ink : theme.colors.textTertiary}/>
+      <Icon name={playable ? (entry.kind === 'ebook' || entry.kind === 'comic' ? 'i-book' : 'i-play') : 'i-more'} size={playable ? 16 : 20} color={playable ? theme.colors.ink : theme.colors.textTertiary}/>
     </Focusable>
   </View>;
 }

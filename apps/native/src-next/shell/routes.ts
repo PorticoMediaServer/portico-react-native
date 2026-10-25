@@ -13,7 +13,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'book'; entry: ContentEntry}
   | {kind: 'audiobook'; entry: ContentEntry}
   | {kind: 'person'; personId: string}
-  | {kind: 'read'; itemId: string; sourceId: string; contentsTarget?: ReadingHostContentsTarget}
+  | {kind: 'read'; itemId: string; sourceId: string; downloadId?: string; contentsTarget?: ReadingHostContentsTarget}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
   | {kind: 'channel'; sourceId: string; channelId: string}
   | {kind: 'home-see-all'; destination: HomeSeeAll}

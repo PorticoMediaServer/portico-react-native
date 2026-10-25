@@ -3,6 +3,8 @@
 export type NativeDownloadContainerKind = 'show' | 'season' | 'album' | 'book' | 'playlist';
 export type NativeDownloadRequest = Readonly<{
   title: string;
+  /** Actual Reading publications use their own original-version choice, never a video ladder. */
+  reading?: true;
   /** The single item to ask the server's real quality menu for. */
   itemId?: string;
   /** A whole show/season/album/book/playlist goes through the durable request. */
@@ -20,7 +22,8 @@ export function askNativeDownload(request: NativeDownloadRequest): void {
   publish();
 }
 
-export function closeNativeDownload(): void {
+export function closeNativeDownload(expected?: NativeDownloadRequest): void {
+  if (expected && current !== expected) return;
   if (!current) return;
   current = undefined;
   publish();
