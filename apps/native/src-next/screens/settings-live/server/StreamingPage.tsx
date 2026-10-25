@@ -46,6 +46,7 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
   const runtimeState = useSyncExternalStore(owned.forms.runtime.subscribe, owned.forms.runtime.getSnapshot);
   const connectivityState = useSyncExternalStore(owned.forms.connectivity.subscribe, owned.forms.connectivity.getSnapshot);
   const state = useSyncExternalStore(owned.set.subscribe, owned.set.getSnapshot);
+  const [discardRevision, setDiscardRevision] = useState(0);
   const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set());
   const sources: SettingsBindingSources = {forms: {runtime: runtimeState.draft, connectivity: connectivityState.draft}};
   const section = settingsSpec.find(value => value.scope === 'server' && value.id === 'streaming');
@@ -62,7 +63,7 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
     const fact = readSettingsBinding(binding, sources, row.id); if (!fact) return null;
     if (row.control.type === 'select' && row.control.options) return <Select key={row.id} testID={row.id} rowLabel={t(row.label)} description={row.help ? t(row.help) : undefined} value={String(fact.current)} disabled={state.saving}
       options={row.control.options.map(option => ({value: String(option.value), label: t(option.label), description: option.hint ? t(option.hint) : undefined}))} onValueChange={value => change(row, value)}/>;
-    if (row.control.type === 'number') return <StreamingNumber key={row.id} row={row} value={fact.current} disabled={state.saving} runtime={runtime} onChange={value => change(row, value)} onValidity={valid => setInvalid(before => {const next = new Set(before); if (valid) next.delete(row.id); else next.add(row.id); return next;})}/>;
+    if (row.control.type === 'number') return <StreamingNumber key={`${row.id}:${discardRevision}`} row={row} value={fact.current} disabled={state.saving} runtime={runtime} onChange={value => change(row, value)} onValidity={valid => setInvalid(before => {const next = new Set(before); if (valid) next.delete(row.id); else next.add(row.id); return next;})}/>;
     return null;
   };
   return <View style={{flex: 1}}><ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40, gap: 18}}>
@@ -82,7 +83,7 @@ export function NativeServerStreaming({ports, runtime}: {ports: NativeSettingsLi
         {!!capacity.hdrToneMapping.detail && <SettingsRow label={t('next.settingsSpec.server.streaming.groups.3.rows.4.label')} value={capacity.hdrToneMapping.detail}/>}
       </View></View>
     </>}
-  </ScrollView><View style={{flexDirection: 'row', justifyContent: 'flex-end', padding: 16, gap: 12}}><Button variant="glass" disabled={!state.dirty || state.saving} onPress={() => {owned.set.discard(); setInvalid(new Set());}}>{t('action.discard')}</Button><Button disabled={!state.dirty || state.saving || invalid.size > 0 || !!state.problem} loading={state.saving} onPress={() => {void owned.set.save();}}>{t('action.save')}</Button></View></View>;
+  </ScrollView><View style={{flexDirection: 'row', justifyContent: 'flex-end', padding: 16, gap: 12}}><Button variant="glass" disabled={!state.dirty || state.saving} onPress={() => {owned.set.discard(); setInvalid(new Set()); setDiscardRevision(value => value + 1);}}>{t('action.discard')}</Button><Button disabled={!state.dirty || state.saving || invalid.size > 0 || !!state.problem} loading={state.saving} onPress={() => {void owned.set.save();}}>{t('action.save')}</Button></View></View>;
 }
 
 function StreamingNumber({row, value, disabled, runtime, onChange, onValidity}: {row: SpecRow; value: unknown; disabled: boolean; runtime: NativeShellRuntime; onChange: (value: number | null) => void; onValidity: (valid: boolean) => void}) {
