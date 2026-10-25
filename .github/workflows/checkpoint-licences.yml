@@ -1,0 +1,64 @@
+name: Checkpoint Vega licence inventory
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact published native checkpoint source
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: checkpoint-vega-licences
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Verify immutable source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p "$RUNNER_TEMP/licence-inventory"
+          git rev-parse HEAD > "$RUNNER_TEMP/licence-inventory/source-sha.log"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/vega/package-lock.json
+      - run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: apps/vega
+      - name: Record the real Metro graph and generate the Vega inventory
+        env:
+          TMPDIR: ${{ runner.temp }}/licence-inventory
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types apps/native/scripts/licences.mts --record --client vega 2>&1 | tee "$RUNNER_TEMP/licence-inventory/generator.log"
+      - name: Preserve only the generator outputs
+        run: |
+          set -euo pipefail
+          git diff --name-only > "$RUNNER_TEMP/licence-inventory/changed-paths.log"
+          while IFS= read -r path; do
+            case "$path" in
+              apps/native/licences/js-vega.txt|apps/vega/src/licences/vega.json) ;;
+              *) echo 'Unexpected tracked change outside the licence generator outputs.' >&2; exit 2 ;;
+            esac
+          done < "$RUNNER_TEMP/licence-inventory/changed-paths.log"
+          git diff --binary -- apps/native/licences/js-vega.txt apps/vega/src/licences/vega.json > "$RUNNER_TEMP/licence-inventory/generation.patch"
+          git diff --stat > "$RUNNER_TEMP/licence-inventory/summary.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: checkpoint-vega-licences-${{ inputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/licence-inventory/*.log
+            ${{ runner.temp }}/licence-inventory/generation.patch
+          if-no-files-found: error
+          retention-days: 14
