@@ -165,13 +165,21 @@ export class NativeServerSignIn {
       if (!api || !server?.setupRequired) throw mismatch();
       const origin = new URL(api.baseUrl);
       if (origin.origin !== api.baseUrl || (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && origin.hostname === 'localhost'))) throw mismatch();
+      const claim = this.hostedSetup ??= createNativeSetupClaim(api.baseUrl, server.id);
+      const existing = await claim.resumePrepared(); this.assertCurrent();
+      if (existing) return existing.url;
       const store = nativeSetupDraft(server.id), saved = await store.read(); this.assertCurrent();
       if (saved && saved.authMode !== 'hosted') throw mismatch();
       const token = saved?.setupToken ?? (await startAppSetup(api, this.controller.signal)).setupToken; this.assertCurrent();
       const pending = await initializeServer(api, store, {setupToken: token, name: name.trim(), authMode: 'hosted', interactive: true}, this.controller.signal);
       this.assertCurrent(); if (!('claimRequired' in pending)) throw mismatch();
-      const claim = this.hostedSetup ??= createNativeSetupClaim(api.baseUrl, server.id);
       const url = await claim.prepare(api, hostedUrl); this.assertCurrent(); return url;
+    });
+  }
+  reviewHostedSetup(url: string) {
+    return this.run(async () => {
+      if (!this.hostedSetup) throw mismatch();
+      const review = await this.hostedSetup.accountApproval(url); this.assertCurrent(); return review;
     });
   }
   finishHostedSetup() {
@@ -180,12 +188,13 @@ export class NativeServerSignIn {
       if (!claim || !this.server) throw mismatch();
       const completed = await claim.finishInstalled();
       if (!completed) {this.assertCurrent(); return undefined;}
+      try {
       const {api, result, admission, hosted, draft} = completed, routes = api.getRouteConnection();
       const retained = await nativeAppSessions.read();
       if (!routes || retained.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) throw mismatch();
       this.api = api; this.admission = admission; this.hosted = hosted;
       this.setupIssuers.set(result.session.sessionFamilyId, {origin: api.baseUrl, routes, pin: {...routes.pin}});
-      this.issued.set(result.session.sessionFamilyId, result.session);
+      this.issued.set(result.session.sessionFamilyId, result.session); completed.accept();
       try {
         this.assertCurrent(); this.server = {...this.server, signIn: 'portico', setupRequired: false};
         const accepted = await this.consume(result);
@@ -196,6 +205,7 @@ export class NativeServerSignIn {
         });
         return accepted;
       } catch (error) {await this.retire(result.session); throw error;}
+      } catch (error) {await completed.release(); throw error;}
     });
   }
   inspectLocalIdentity(): Promise<ServerPin> {
@@ -346,7 +356,7 @@ export class NativeServerSignIn {
       if (!this.api || !this.snapshot || !this.account || !this.snapshot.profiles.some(profile => profile.id === profileId)) throw mismatch();
       const result = await selectDirectProfile(this.api, {authority: 'local', accountId: this.snapshot.account.id, serverId: this.snapshot.serverId},
         profileId, {pin, installationId: this.installation?.installationId}, this.controller.signal);
-      this.issued.set(result.session.sessionFamilyId, result.session);
+      this.issued.set(result.session.sessionFamilyId, result.session); completed.accept();
       try {await this.persist(result.session);} catch (error) {await this.retire(result.session); throw error;}
     });
   }

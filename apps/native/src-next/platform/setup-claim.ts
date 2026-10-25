@@ -8,6 +8,7 @@ import {resumeServerSetup, type SetupDraft, type SetupDraftStore} from '../../..
 import {parseDirectSignIn, type DirectSignIn} from '../../../../packages/client-core/src/profile-management.ts';
 import {assertFirstContactIdentity, routeBase64, routeBytes, routeOrigin, sameServerPin, type ServerPin, type RouteCrypto} from '../../../../packages/client-core/src/route-identity.ts';
 import {connectPairedServer, connectPairedPorticoServer, type ConnectionEnvironment} from '../../../../packages/client-core/src/server-connections.ts';
+import {NativeSetupApproval} from './setup-approval';
 import {CodedError} from '../../../../packages/client-core/src/server-messages.ts';
 import {routePath} from '../../../../packages/contracts/src/routes.ts';
 
@@ -15,7 +16,7 @@ type Pending = Readonly<{
   version: 1; kind: 'setup'; attemptId: string; origin: string; hostedOrigin: string; pin: ServerPin;
   expectedRevision: number; setupRequestId: string; setupToken: string; setupRevision: string;
   installationId: string; state: string; verifier: string; codeChallenge: string; createdAt: number; expiresAt: string;
-  expected?: ClaimExpected; handoff?: SetupClaimHandoff;
+  expected?: ClaimExpected; handoff?: SetupClaimHandoff; approvalURL?: string;
 }>;
 type Journal = Readonly<{assertAvailable: () => void; read: () => Promise<Pending | undefined>;
   change: (update: (old: Pending | undefined) => Pending | undefined) => Promise<void>}>;
@@ -28,6 +29,7 @@ type Ports = Readonly<{
 }>;
 type Completion = Readonly<{api: HttpLocalApi; result: Extract<DirectSignIn, {kind: 'signed-in'}>;
   hosted: {origin: string; accountId: string; key: import('../../../../packages/client-core/src/route-identity').RouteKey};
+  accept: () => void; release: () => Promise<void>;
   draft: {requestId: string; setupToken: string};
   admission: import('../../../../packages/client-core/src/app-sessions').NewServerConnection}>;
 const invalid = () => new CodedError('invalid_return', 'This setup continuation is no longer available.');
@@ -69,8 +71,36 @@ export class NativeSetupClaim {
     if (id) await this.ports.journal.change(old => old?.attemptId === id ? undefined : old);
   }
   dispose() {++this.epoch; this.controller?.abort();}
+  async resumePrepared(): Promise<{url?: string} | undefined> {
+    const operation = this.operation();
+    try {
+      const record = await this.ports.journal.read();
+      if (!record) return undefined;
+      if (!record.handoff || !record.expected) throw invalid();
+      await this.current(record, operation);
+      const binding = record.handoff.binding;
+      if (binding.origin !== record.origin || binding.hostedOrigin !== record.hostedOrigin || !sameServerPin(binding.pin, record.pin)
+        || binding.state !== record.state || binding.installationId !== record.installationId || binding.codeChallenge !== record.codeChallenge
+        || binding.operationId !== record.expected.operationId || binding.localGeneration !== record.expected.localGeneration
+        || binding.setupRequestId !== record.setupRequestId || binding.setupRevision !== record.setupRevision
+        || JSON.stringify(record.handoff.expected) !== JSON.stringify(record.expected)) throw invalid();
+      const proof = await verifySetupClaimStart(record.handoff.claim, record.handoff.start, binding, this.now(), this.ports.crypto);
+      await this.current(record, operation);
+      if (record.handoff.expiresAt !== proof.start.expiresAt || Date.parse(record.expiresAt) > Date.parse(proof.start.expiresAt)) throw invalid();
+      if (record.approvalURL) {
+        const url = new URL(record.approvalURL), fragment = new URLSearchParams(url.hash.slice(1));
+        if (url.origin !== record.hostedOrigin || url.pathname !== '/claim' || url.search || url.username || url.password
+          || [...fragment.keys()].sort().join(',') !== 'code,operation,server' || fragment.get('operation') !== record.expected.operationId
+          || fragment.get('server') !== proof.claim.name || !fragment.get('code')?.startsWith('claim_')) throw invalid();
+        routeBytes(fragment.get('code')!.slice(6), 32);
+      }
+      this.attemptId = record.attemptId; return {url: record.approvalURL};
+    } finally {this.busy = false;}
+  }
   async prepare(api: HttpLocalApi, hostedOrigin: string): Promise<string> {
     this.ports.journal.assertAvailable();
+    const existing = await this.resumePrepared();
+    if (existing) return existing.url;
     const origin = this.ports.pageOrigin(), route = api.getRouteConnection();
     if (api.baseUrl !== origin || routeOrigin(origin) !== origin || !route || route.getSnapshot().phase !== 'ready' ||
       routeOrigin(hostedOrigin) !== hostedOrigin || !hostedOrigin.startsWith('https://')) throw invalid();
@@ -111,7 +141,7 @@ export class NativeSetupClaim {
       }
       const binding = {pin: pending.pin, origin, hostedOrigin, operationId: pending.expected!.operationId, localGeneration: pending.expected!.localGeneration,
         setupRequestId: pending.setupRequestId, setupRevision: pending.setupRevision, state: pending.state, codeChallenge: pending.codeChallenge, installationId: pending.installationId};
-      return await (this.ports.prepare ?? prepareSetupClaimHandoff)(captured, pending.expected!, binding, {
+      const url = await (this.ports.prepare ?? prepareSetupClaimHandoff)(captured, pending.expected!, binding, {
         assertPendingCurrent: async () => {await this.current(pending!, operation);},
         bindPending: async handoff => {
           await this.current(pending!, operation);
@@ -120,6 +150,32 @@ export class NativeSetupClaim {
           pending = updated;
         },
       }, {signal: operation.signal, now: () => this.now(), crypto: this.ports.crypto});
+      await this.current(pending, operation);
+      const beforeURL = pending, withURL = {...pending, approvalURL: url};
+      await this.ports.journal.change(old => {if (!operation.current() || !same(old, beforeURL)) throw cancelled(); return withURL;});
+      return url;
+    } finally {this.busy = false;}
+  }
+  async accountApproval(url: string) {
+    const resumed = await this.resumePrepared();
+    if (!resumed?.url || resumed.url !== url) throw invalid();
+    const operation = this.operation();
+    try {
+      const record = await this.ports.journal.read();
+      if (!record?.handoff || !record.expected) throw invalid();
+      await this.current(record, operation);
+      const proof = await verifySetupClaimStart(record.handoff.claim, record.handoff.start, record.handoff.binding, this.now(), this.ports.crypto);
+      await this.current(record, operation);
+      const parsed = new URL(url), fragment = new URLSearchParams(parsed.hash.slice(1));
+      if (parsed.origin !== record.hostedOrigin || parsed.pathname !== '/claim' || parsed.search || parsed.username || parsed.password
+        || [...fragment.keys()].sort().join(',') !== 'code,operation,server' || fragment.get('operation') !== record.expected.operationId
+        || fragment.get('server') !== proof.claim.name) throw invalid();
+      const code = fragment.get('code') ?? '';
+      if (!code.startsWith('claim_')) throw invalid(); routeBytes(code.slice(6), 32);
+      const approval = new NativeSetupApproval({code, serverId: record.pin.serverId, name: proof.claim.name, origin: record.origin,
+        transactionId: record.handoff.transactionId, expiresAt: record.handoff.expiresAt},
+        async () => {await this.current(record, operation);}, operation.signal);
+      const display = await approval.review(); return {approval, display};
     } finally {this.busy = false;}
   }
   private async retire(api: HttpLocalApi, session: LocalSession, initial: ReadonlySet<string>) {
@@ -164,12 +220,18 @@ export class NativeSetupClaim {
       await current();
       const status = parseClaimStatus(raw, record.pin), setup = object(raw) ? raw.setupContinuation : undefined;
       if (status.state !== 'installed') return undefined;
-      if ( status.identity.localGeneration !== record.expected.localGeneration || status.operation?.operationId !== record.expected.operationId ||
-        status.operation.localGeneration !== record.expected.localGeneration || BigInt(status.operation.revision) < BigInt(record.expected.revision) || !object(setup) || setup.phase !== 'installed' || setup.transactionId !== handoff.transactionId ||
-        Object.keys(setup).sort().join(',') !== 'expiresAt,phase,returnRegistration,transactionId' || typeof setup.expiresAt !== 'string' || Date.parse(setup.expiresAt) !== Date.parse(handoff.expiresAt) ||
-        !object(setup.returnRegistration) || Object.keys(setup.returnRegistration).sort().join(',') !== 'id,origin' || typeof setup.returnRegistration.id !== 'string' ||
-        !/^ret_[A-Za-z0-9_-]{43}$/.test(setup.returnRegistration.id) || typeof setup.returnRegistration.origin !== 'string' ||
-        !setup.returnRegistration.origin.startsWith('https://') || routeOrigin(setup.returnRegistration.origin) !== setup.returnRegistration.origin) throw invalid();
+      if (status.identity.localGeneration !== record.expected.localGeneration || status.operation?.operationId !== record.expected.operationId
+        || status.operation.localGeneration !== record.expected.localGeneration || BigInt(status.operation.revision) < BigInt(record.expected.revision)
+        || !object(setup) || setup.transactionId !== handoff.transactionId || typeof setup.expiresAt !== 'string'
+        || Date.parse(setup.expiresAt) !== Date.parse(handoff.expiresAt)) throw invalid();
+      // The installed claim can still be provisioning its real TLS/route/return
+      // registration. That exact pending shape grants nothing and retains PKCE.
+      if (setup.phase === 'prepared' && Object.keys(setup).sort().join(',') === 'expiresAt,phase,transactionId') return undefined;
+      if (setup.phase !== 'installed' || Object.keys(setup).sort().join(',') !== 'expiresAt,phase,returnRegistration,transactionId'
+        || !object(setup.returnRegistration) || Object.keys(setup.returnRegistration).sort().join(',') !== 'id,origin'
+        || typeof setup.returnRegistration.id !== 'string' || !/^ret_[A-Za-z0-9_-]{43}$/.test(setup.returnRegistration.id)
+        || typeof setup.returnRegistration.origin !== 'string' || !setup.returnRegistration.origin.startsWith('https://')
+        || routeOrigin(setup.returnRegistration.origin) !== setup.returnRegistration.origin) throw invalid();
       await this.ports.journal.change(old => {if (!operation.current() || !same(old, record)) throw cancelled(); return undefined;});
       consumed = true; this.attemptId = undefined;
       grant = parseDirectSignIn(await connected.api.request(routePath('post_auth_portico_return_exchange'), 'POST', {transactionId: handoff.transactionId, state: record.state,
@@ -183,7 +245,14 @@ export class NativeSetupClaim {
       bound = await (this.ports.connectPortico ?? connectPairedPorticoServer)(record.origin, record.pin,
         {origin: record.hostedOrigin, accountId, request: async () => {throw invalid();}}, environment, operation.signal);
       await current(); bound.api.setAccessToken(grant.session.accessToken);
+      const returnedFamily = grant.session.sessionFamilyId;
+      const retained = await this.ports.sessions.read(); await current();
+      if (initial.has(returnedFamily) || retained.servers.some(value => value.connection.session.sessionFamilyId === returnedFamily)) throw invalid();
+      const original = bound.api, session = grant.session, connection = bound.connection;
+      let custody = true;
+      const release = async () => {if (!custody) return; custody = false; try {await this.retire(original, session, initial);} finally {connection.dispose();}};
       adopted = true; return {api: bound.api, result: grant, hosted: bound.hosted,
+        accept: () => {custody = false;}, release,
         draft: {requestId: record.setupRequestId, setupToken: record.setupToken},
         admission: {signIn: 'portico', hostedAccount: {origin: record.hostedOrigin, accountId}, expectedRevision: record.expectedRevision}};
     } finally {
