@@ -48,7 +48,7 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
     }, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId}, async () => {
       if (!admitted()) throw screenScopeEnded();
       return `${Date.now()}-${ports.requestId()}`;
-    });
+    }, admitted);
     super({allowed: admitted(), sources: {...service.getSnapshot(), loading: admitted()}});
     this.ports = ports;
     this.lifetime = lifetime;
