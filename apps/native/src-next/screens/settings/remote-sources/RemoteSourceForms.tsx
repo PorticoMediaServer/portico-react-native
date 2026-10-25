@@ -13,12 +13,12 @@ type Translate = typeof defaultI18n.t;
 type Common = {controller: NativeRemoteSourcesController; t: Translate; onCancel: () => void; isCurrent: () => boolean};
 
 export function remoteSourceError(t: Translate, error: unknown): string {
-  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : '';
   const keys = {unauthorized: 'next.remoteSources.error.signIn', forbidden: 'next.remoteSources.error.forbidden', not_permitted: 'next.remoteSources.error.forbidden',
     storage_command_conflict: 'next.remoteSources.error.changed', revision_mismatch: 'next.remoteSources.error.changed', remote_source_changed: 'next.remoteSources.error.changed',
     idempotency_key_reused: 'next.remoteSources.error.reused', request_in_progress: 'next.remoteSources.error.busy', refresh_failed: 'next.remoteSources.error.refreshFailed',
     remote_invalid_configuration: 'next.remoteSources.error.invalid', invalid_request: 'next.remoteSources.error.invalid'} as const;
-  return t(keys[code as keyof typeof keys] ?? 'next.remoteSources.error.generic');
+  return t(Object.prototype.hasOwnProperty.call(keys, code) ? keys[code as keyof typeof keys] : 'next.remoteSources.error.generic');
 }
 
 export function receiptCheckRequired(state: RemoteState): boolean {
