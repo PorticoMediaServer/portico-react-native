@@ -18,6 +18,10 @@ export type NativeShellRoute = Readonly<
   | {kind: 'read-book'; libraryId: string; item: ReadingItem}
   | {kind: 'read-series'; libraryId: string; seriesId: string}
   | {kind: 'read-periodical'; libraryId: string; groupId: string; publicationType: 'magazine' | 'newspaper'}
+  /** Root54: the reader's own authored Search all books, carrying its literal
+   * current words. This is an explicit indexed book-text mode, never inferred
+   * from an ordinary Search query, and it is pushed above the reader that sent it. */
+  | {kind: 'search-reading'; query: string}
   | {kind: 'settings-page'; scope: 'account'; page: 'reading'}
   | {kind: 'channel'; sourceId: string; channelId: string; guide?: import('../platform/playback/types').NativeChannelGuideOrigin;
       tune?: Readonly<{fence: import('../../../../packages/player-core/src').ChannelPlaybackFence; sourceGeneration: string}>}
