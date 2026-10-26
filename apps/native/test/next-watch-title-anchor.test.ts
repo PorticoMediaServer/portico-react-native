@@ -1,9 +1,15 @@
+import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
+import {tvTitleRegionMap} from '../src-next/screens/watch/tv-title-focus.ts';
+import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
 const {TitleEpisode, TitleRelated} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
+  '../../../../../packages/client-core/src/presentation/errors': {presentError},
+  '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
+  './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React}, 'react-native': {},
   '../../../../../packages/player-core/src': {}, '../../../../../packages/client-core/src/presentation/kit-model/text': {},
   '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../../../../packages/i18n/src': {},

@@ -245,3 +245,40 @@ test('F13 duplicate live host owners are diagnosed and stale owner cleanup canno
   registry.attachRegion('r', null, ownerB); assert.equal(registry.host('r'), host);
   const release = registry.mountRegion('r', ownerA); assert.throws(() => registry.mountRegion('r', ownerB), /Duplicate/); release();
 });
+
+
+test('compound sections remember the exact descendant region and child through native guide entry', () => {
+  const registry = createFocusRegistry(), requests: string[] = [];
+  registry.configure({id: 'episodes', entryRegion: 'tiles'});
+  registry.configure({id: 'tiles', parent: 'episodes', entry: 'episode-3', order: ['episode-1', 'episode-2', 'episode-3']});
+  registry.configure({id: 'seasons', parent: 'episodes', entry: 'season-2'});
+  for (const [regionId, childId] of [['tiles', 'episode-1'], ['tiles', 'episode-3'], ['seasons', 'season-2']]) {
+    registry.attach({regionId, childId}, {requestTVFocus: () => requests.push(`${regionId}/${childId}`)});
+  }
+  assert.equal(registry.focusRegion('episodes'), true);
+  assert.deepEqual(requests, ['tiles/episode-3']);
+  registry.didFocus({regionId: 'seasons', childId: 'season-2'});
+  registry.focusRegion('episodes');
+  assert.equal(requests.at(-1), 'seasons/season-2');
+  registry.didFocus({regionId: 'tiles', childId: 'episode-1'});
+  registry.focusRegion('episodes');
+  assert.equal(requests.at(-1), 'tiles/episode-1');
+  const before = requests.length;
+  registry.configure({id: 'tiles', parent: 'episodes', entry: 'episode-3', order: ['episode-1', 'episode-2', 'episode-3', 'episode-4']});
+  assert.equal(requests.length, before, 'data and configuration never issue a focus request');
+  registry.focusRegion('episodes'); assert.equal(requests.at(-1), 'tiles/episode-1');
+});
+
+test('a removed compound descendant falls back to a surviving entry, never a disabled child region', () => {
+  const registry = createFocusRegistry(), calls: string[] = [];
+  registry.configure({id: 'section', entryRegion: 'row'});
+  registry.configure({id: 'row', parent: 'section', entry: 'a', order: ['a', 'b']});
+  for (const childId of ['a', 'b']) registry.attach({regionId: 'row', childId}, {requestTVFocus: () => calls.push(childId)});
+  registry.didFocus({regionId: 'row', childId: 'b'});
+  registry.attach({regionId: 'row', childId: 'b'}, null);
+  registry.focusRegion('section'); assert.equal(calls.at(-1), 'a');
+  registry.configure({id: 'row', parent: 'section', entry: 'a', enabled: false});
+  assert.equal(registry.focusRegion('section'), false);
+  registry.configure({id: 'section', entryRegion: 'section'});
+  assert.equal(registry.focusRegion('section'), false, 'a malformed cycle cannot recurse');
+});

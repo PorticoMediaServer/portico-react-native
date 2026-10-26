@@ -14,6 +14,8 @@ export type TabsProps = {
   defaultValue?: string;
   onValueChange?: (value: string) => void;
   disabled?: boolean;
+  /** Section position markers retain typography but offer no focus or action. */
+  passive?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
@@ -28,7 +30,7 @@ function ChoiceLabel({children, style}: {children: React.ReactNode; style: Style
   return <View style={{flexDirection: 'row', alignItems: 'center', flexShrink: 1}}>{children}</View>;
 }
 
-export function Tabs({items, value, defaultValue, onValueChange, disabled, accessibilityLabel, style, contentContainerStyle, itemProps, testID}: TabsProps) {
+export function Tabs({items, value, defaultValue, onValueChange, disabled, passive = false, accessibilityLabel, style, contentContainerStyle, itemProps, testID}: TabsProps) {
   const theme = useTheme();
   const id = useId();
   const [current, setCurrent] = useControlValue(value, defaultValue ?? enabledChoice(items) ?? '', onValueChange);
@@ -36,11 +38,16 @@ export function Tabs({items, value, defaultValue, onValueChange, disabled, acces
   return <View style={style} testID={testID}>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{overflow: 'visible'}}
       contentContainerStyle={[styles.tabs, {gap: tabsSpec.gap[theme.platform], paddingHorizontal: theme.gutter, borderBottomColor: theme.colors.line}, contentContainerStyle]}
-      accessibilityRole="tablist" accessibilityLabel={accessibilityLabel}>
+      accessibilityRole={passive ? undefined : 'tablist'} accessibilityLabel={accessibilityLabel}>
       {items.map(item => {
         const childProps = itemProps?.(item);
         const blocked = disabled || item.disabled;
         const selected = item.value === current;
+        if (passive) return <View key={item.value} testID={testID ? `${testID}-item-${item.value}` : undefined} focusable={false}
+          accessibilityState={{selected}} style={{paddingTop: tabsSpec.paddingTop[theme.platform], paddingBottom: tabsSpec.paddingBottom[theme.platform]}}>
+          <ChoiceLabel style={[theme.type.tab, {color: selected ? theme.colors.text : theme.colors.textTertiary}]}>{item.label}</ChoiceLabel>
+          {selected ? <View pointerEvents="none" style={[styles.underline, {height: tabsSpec.underline[theme.platform], backgroundColor: theme.colors.accent}]} /> : null}
+        </View>;
         return <Focusable {...childProps} testID={childProps?.testID ?? (testID ? `${testID}-item-${item.value}` : undefined)} focusId={childProps?.focusId ?? (testID ? focusTestID(testID, item.value) : childProps?.testID)} key={item.value} nativeID={`${id}-${item.value}`} accessibilityRole="tab"
           disabled={blocked} accessibilityState={{...childProps?.accessibilityState, selected}}
           focusRadius={4} focusInset focusKind="row" onPress={event => {if (!blocked) {setCurrent(item.value); childProps?.onPress?.(event);}}}

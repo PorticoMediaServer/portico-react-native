@@ -3,9 +3,9 @@ export type FocusAddress = Readonly<{regionId: string; childId: string}>;
 export type FocusHost = {requestTVFocus?: () => void; focus?: () => void};
 export type FocusEdges = Readonly<Partial<Record<'up' | 'down' | 'left' | 'right', string>>>;
 export type FocusRegionConfig = Readonly<{
-  id: string; entry?: string; entryPolicy?: 'memory' | 'entry'; order?: readonly string[];
+  id: string; entry?: string; entryRegion?: string; parent?: string; entryPolicy?: 'memory' | 'entry'; order?: readonly string[];
   neighbors?: Readonly<{next?: string; previous?: string}>; screenStart?: FocusAddress;
-  edges?: FocusEdges; orientation?: 'horizontal' | 'vertical' | 'free'; hold?: boolean; enabled?: boolean;
+  edges?: FocusEdges; stops?: Readonly<Partial<Record<'up' | 'down' | 'left' | 'right', boolean>>>; orientation?: 'horizontal' | 'vertical' | 'free'; hold?: boolean; enabled?: boolean;
 }>;
 export type FocusSnapshot = FocusAddress & Readonly<{
   order: readonly string[]; neighbors?: FocusRegionConfig['neighbors']; screenStart?: FocusAddress; returnTo?: FocusSnapshot;
@@ -19,12 +19,12 @@ export function requestNativeFocus(host: FocusHost | null | undefined): boolean 
   if (host?.focus) {host.focus(); return true;}
   return false;
 }
-const configKey = (c: FocusRegionConfig) => JSON.stringify([c.entry, c.entryPolicy, c.order, c.neighbors?.next, c.neighbors?.previous,
-  c.screenStart?.regionId, c.screenStart?.childId, c.edges?.up, c.edges?.down, c.edges?.left, c.edges?.right, c.orientation, c.hold, c.enabled]);
+const configKey = (c: FocusRegionConfig) => JSON.stringify([c.entry, c.entryRegion, c.parent, c.entryPolicy, c.order, c.neighbors?.next, c.neighbors?.previous,
+  c.screenStart?.regionId, c.screenStart?.childId, c.edges?.up, c.edges?.down, c.edges?.left, c.edges?.right, c.stops, c.orientation, c.hold, c.enabled]);
 
 export function createFocusRegistry() {
   type Child = {host: FocusHost; owner?: object};
-  type Region = {config: FocusRegionConfig; host?: FocusHost; hostOwner?: object; owner?: object; children: Map<string, Child>; remembered?: string; returns: Map<object, FocusSnapshot | undefined>};
+  type Region = {config: FocusRegionConfig; host?: FocusHost; hostOwner?: object; owner?: object; children: Map<string, Child>; remembered?: string; descendant?: FocusAddress; returns: Map<object, FocusSnapshot | undefined>};
   const regions = new Map<string, Region>(), listeners = new Set<() => void>();
   const retained = new Map<object, FocusSnapshot[]>(), memory = new Map<string, string>();
   let active: FocusSnapshot | undefined, revision = 0, epoch = 0, recoveredEpoch = -1;
@@ -58,14 +58,37 @@ export function createFocusRegistry() {
     const r = regions.get(address.regionId);
     return r?.config.enabled !== false && requestNativeFocus(r?.children.get(address.childId)?.host);
   };
+  const belongsTo = (child: string, ancestor: string): boolean => {
+    const visited = new Set<string>();
+    for (let id: string | undefined = child; id && !visited.has(id); id = regions.get(id)?.config.parent) {
+      if (id === ancestor) return true;
+      visited.add(id);
+    }
+    return false;
+  };
+  /** Compound regions remember the actual descendant; native guides still perform every move. */
+  const entryTarget = (id: string, visited = new Set<string>()): FocusHost | undefined => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const r = regions.get(id);
+    if (!r || r.config.enabled === false) return;
+    if (r.config.entryPolicy !== 'entry' && r.descendant) {
+      const childRegion = regions.get(r.descendant.regionId);
+      if (childRegion?.config.enabled !== false && belongsTo(r.descendant.regionId, id)) {
+        const host = childRegion?.children.get(r.descendant.childId)?.host;
+        if (host) return host;
+      }
+    }
+    const first = r.config.entryPolicy === 'entry' ? r.config.entry : r.remembered ?? r.config.entry;
+    for (const childId of [first, r.config.entry, ...order(r)]) {
+      if (childId && r.children.has(childId)) return r.children.get(childId)?.host;
+    }
+    const nested = r.config.entryRegion && regions.get(r.config.entryRegion);
+    return nested && nested.config.enabled !== false ? entryTarget(nested.config.id, visited) ?? nested.host : undefined;
+  };
   const focusRegion = (id: string): boolean => {
     const r = regions.get(id);
-    if (!r || r.config.enabled === false || !r.children.size) return false;
-    const first = r.config.entryPolicy === 'entry' ? r.config.entry : r.remembered ?? r.config.entry;
-    if (first && focus({regionId: id, childId: first})) return true;
-    if (r.config.entry && focus({regionId: id, childId: r.config.entry})) return true;
-    for (const childId of order(r)) if (focus({regionId: id, childId})) return true;
-    return requestNativeFocus(r.host);
+    return r?.config.enabled !== false && (requestNativeFocus(entryTarget(id)) || requestNativeFocus(r?.host));
   };
   const restore = (saved: FocusSnapshot | undefined, visited = new Set<string>()): boolean => {
     if (!saved || visited.has(saved.regionId)) return false;
@@ -100,7 +123,7 @@ export function createFocusRegistry() {
     subscribe(listener: () => void) {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision,
     capture: (): FocusSnapshot | undefined => active && {...currentSnapshot(active), order: [...currentSnapshot(active).order]},
-    focus, focusRegion, restore,
+    focus, focusRegion, entryTarget, restore,
     order: (id: string): readonly string[] => {const r = regions.get(id); return r ? order(r) : [];},
     remembered: (id: string) => regions.get(id)?.remembered ?? memory.get(id),
     config: (id: string) => regions.get(id)?.config,
@@ -128,7 +151,7 @@ export function createFocusRegistry() {
     configure(config: FocusRegionConfig) {
       const r = region(config.id);
       if (configKey(r.config) === configKey(config)) return;
-      r.config = {...config, order: config.order && [...config.order], edges: config.edges && {...config.edges}, neighbors: config.neighbors && {...config.neighbors}, screenStart: config.screenStart && {...config.screenStart}};
+      r.config = {...config, order: config.order && [...config.order], edges: config.edges && {...config.edges}, stops: config.stops && {...config.stops}, neighbors: config.neighbors && {...config.neighbors}, screenStart: config.screenStart && {...config.screenStart}};
       if (active?.regionId === config.id) active = currentSnapshot(active);
       emit();
     },
@@ -157,6 +180,10 @@ export function createFocusRegistry() {
     didFocus(address: FocusAddress) {
       const previous = active?.regionId;
       epoch++; const r = region(address.regionId); r.remembered = address.childId;
+      const visited = new Set<string>([address.regionId]);
+      for (let parent = r.config.parent; parent && !visited.has(parent); parent = region(parent).config.parent) {
+        visited.add(parent); region(parent).descendant = {...address};
+      }
       active = snapshot(address); emit(); if (previous) schedulePrune(previous);
     },
     didBlur(address: FocusAddress) {

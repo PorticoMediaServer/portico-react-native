@@ -1,3 +1,6 @@
+import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
+import {tvTitleRegionMap} from '../src-next/screens/watch/tv-title-focus.ts';
+import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -11,6 +14,9 @@ let width = 890, height = 626;
 let posture: any = {status: 'available', window: {width: 890, height: 626}, folds: [{bounds: {left: 445, top: 0, right: 445, bottom: 626}, orientation: 'vertical', state: 'flat', isSeparating: false, occlusion: 'none'}]};
 const theme = {isTV: false, platform: 'tablet', textScale: 1, colors: {ink: '#000', text: '#fff', textSecondary: '#ccc', textTertiary: '#999', raised: '#111', raisedHigh: '#151515', line: '#222', lineStrong: '#333', accent: '#3af', accentStrong: '#4bf'}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}, captionStrong: {}, meta: {}}};
 const {NativeTitleScreen} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
+  '../../../../../packages/client-core/src/presentation/errors': {presentError},
+  '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
+  './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React},
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height})},
   '../../../../../packages/player-core/src': {sameFence: () => true}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
@@ -31,7 +37,7 @@ const snapshot = {retired: false, entry: {id: 'show', kind: 'show', title: 'The 
   workspace: {phase: 'ready', data: {show: {id: 'show', libraryId: 'lib', title: 'The Last of Us', overview: 'A hardened survivor.', credits: [{name: 'Pedro Pascal', role: 'Joel', department: 'acting', ordinal: 0}]},
     selected: {seasonId: 's1'}, groups: [], settings: {hideSeasons: false, ranges: false, absoluteNumbering: false, newestFirst: false}, nextUp: episode,
     episodes: {sections: [{entries: [episode]}]}}}};
-const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place},
+const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place},
   episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}},
   open: async () => {}, play: async () => {}, personal: async () => {}, season: async () => {}, moreSeasons: async () => {}, moreEpisodes: async () => {}, hideWatched: async () => {}, group: async () => {}};
 

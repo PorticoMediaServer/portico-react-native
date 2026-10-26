@@ -30,12 +30,13 @@ export const FocusRegion = forwardRef<View, FocusRegionProps>(function FocusRegi
   return parent ? <Region {...props} onFocusChange={onFocusChange} ref={ref}>{children}</Region>
     : <FocusProvider><Region {...props} onFocusChange={onFocusChange} ref={ref}>{children}</Region></FocusProvider>;
 });
-const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, entryPolicy = 'memory', order, neighbors, screenStart, edges, orientation = 'free', hold = false, enabled = true, onFocusChange, children, testID, ...view}, ref) {
+const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, entryRegion, parent: configuredParent, entryPolicy = 'memory', order, neighbors, screenStart, edges, stops, orientation = 'free', hold = false, enabled = true, onFocusChange, children, testID, ...view}, ref) {
+  const parent = useContext(RegionContext);
   const registry = useFocusRegistry(), {isTV} = useTheme(), owner = useRef({});
   const onHost = useCallback((host: Guide | null) => {registry.attachRegion(id, host, owner.current);}, [id, registry]);
   const {native, ref: setRef} = useHostRef<View, Guide>(ref, onHost);
   const revision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
-  const config = {id, entry, entryPolicy, order, neighbors, screenStart, edges, orientation, hold, enabled};
+  const config = {id, entry, entryRegion, parent: configuredParent ?? parent, entryPolicy, order, neighbors, screenStart, edges, stops, orientation, hold, enabled};
   useLayoutEffect(() => {registry.configure(config);});
   useLayoutEffect(() => {
     const registrationOwner = owner.current;
@@ -48,17 +49,16 @@ const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, en
   useLayoutEffect(() => {onFocusChange?.(ownsFocus);}, [ownsFocus, onFocusChange]);
   useLayoutEffect(() => {
     if (!isTV) return;
-    const childId = entryPolicy === 'entry' ? entry : registry.remembered(id) ?? entry;
-    const target = childId ? registry.child({regionId: id, childId}) : undefined;
+    const target = registry.entryTarget(id);
     // Imperative destination API accepts real host handles (installed RN TV types).
     const handle = target ? findNodeHandle(target as View) : null;
     native.current?.setDestinations(handle == null ? [] : [handle]);
-  }, [entry, entryPolicy, id, isTV, native, registry, revision]);
+  }, [id, isTV, native, registry, revision]);
   const body = <RegionContext.Provider value={id}>{children}</RegionContext.Provider>;
   return isTV ? <TVFocusGuideView {...view} testID={testID ?? `portico.region.${encodeURIComponent(id)}`} ref={setRef} autoFocus
-    focusable={enabled} trapFocusUp={hold || orientation === 'vertical' && !edges?.up}
-    trapFocusDown={hold || orientation === 'vertical' && !edges?.down}
-    trapFocusLeft={hold} trapFocusRight={hold || orientation === 'horizontal' && !edges?.right}>{body}</TVFocusGuideView>
+    focusable={enabled} trapFocusUp={hold || stops?.up || orientation === 'vertical' && !edges?.up}
+    trapFocusDown={hold || stops?.down || orientation === 'vertical' && !edges?.down}
+    trapFocusLeft={hold || stops?.left} trapFocusRight={hold || stops?.right || orientation === 'horizontal' && !edges?.right}>{body}</TVFocusGuideView>
     : <View {...view} testID={testID} ref={setRef}>{body}</View>;
 });
 

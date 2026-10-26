@@ -1,3 +1,6 @@
+import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
+import {tvTitleRegionMap} from '../src-next/screens/watch/tv-title-focus.ts';
+import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -8,6 +11,9 @@ import {cardText, episodeLabel, playbackIdentity, titleFactParts} from '../../..
 import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 const {NativeTitleScreen, TitleEpisode} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
+  '../../../../../packages/client-core/src/presentation/errors': {presentError},
+  '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
+  './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'Scroll', useWindowDimensions: () => ({width: 390, height: 844})},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
   '../../../../../packages/client-core/src/presentation/kit-model': {cardText, episodeLabel, playbackIdentity, titleFactParts}, '../../../../../packages/i18n/src': {defaultI18n},
@@ -19,9 +25,9 @@ const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', ac
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
 test('upright body reuses real title memory and toggles only the existing exact session without a new Play', () => {
   const calls: unknown[] = [], entry = {id: 'item', kind: 'movie', title: 'The Hunger Games', displayTitle: 'The Hunger Games: Special Edition'};
-  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [],
+  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
     detail: {phase: 'ready', data: {item: entry, actions: [], personal: {}, metadata: {genres: [], ratings: [], credits: []}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: () => {assert.fail('Watch body must not start playback');}};
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: () => {assert.fail('Watch body must not start playback');}};
   let source: any = {retired: false, fence, playback: {intent: 'playing', duration: 100, positionSeconds: 10}, capabilities: {play: true, pause: true}}, width = 390, tree: any;
   const playback = {getSnapshot: () => source, toggle: async (expected: unknown) => {calls.push(expected);}};
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
@@ -41,8 +47,8 @@ test('upright body reuses real title memory and toggles only the existing exact 
 
 test('title My List reads actual Detail actions and personal state after the first lazy read', async () => {
   const calls: unknown[] = [], entry = {id: 'item', kind: 'movie', title: 'Actual title'};
-  let snapshot: any = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [], detail: {phase: 'idle', data: null}}, tree: any;
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
+  let snapshot: any = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [], detail: {phase: 'idle', data: null}}, tree: any;
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
     personal: async (intent: unknown) => {calls.push(intent);}};
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
@@ -61,14 +67,14 @@ test('title My List reads actual Detail actions and personal state after the fir
 
 test('phone details draws the real cast and crew row, its credit lines and the in-progress remaining line', () => {
   const personCalls: string[] = [], entry = {id: 'item', kind: 'movie', title: 'Real film', duration: 5700, progressSeconds: 540};
-  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [],
+  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
     detail: {phase: 'ready', data: {item: entry, facts: {contentRating: 'PG-13'},
       actions: [{id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}}, {id: 'start_over', enabled: true, playback: {itemId: entry.id, startSeconds: 0}}],
       personal: {progressSeconds: 540, watched: false},
       metadata: {genres: [], ratings: [], status: 'available', credits: [
         {id: 'c1', name: 'Timothée Chalamet', role: 'Paul Atreides', department: 'acting', provider: 'tmdb', personId: 'p1'},
         {id: 'c2', name: 'Denis Villeneuve', role: 'Director', department: 'directing', provider: 'tmdb', personId: 'p2'}]}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}, personal: async () => {}};
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}, personal: async () => {}};
   let tree: any;
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About', person: (id: string) => personCalls.push(id)});});
@@ -104,7 +110,7 @@ test('a phone episode opens in place under its row from its own detail, with cre
       episodeDetails: {previous: {id: 'e0', number: 0, title: 'Pilot'}, next: {id: 'e3', number: 3, title: 'Next one'}}}};
       for (const listener of listeners) listener();},
     close() {episodeSnapshot = {phase: 'idle'}; for (const listener of listeners) listener();}, play: async () => {calls.push('play');}, personal: async (intent: unknown) => {calls.push(JSON.stringify(intent));}, retry() {}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode, open: async () => {}, play: async () => {}};
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode, open: async () => {}, play: async () => {}};
   let tree: any;
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: (entry: any) => navigations.push(entry), more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About', download: () => {calls.push('download');}});});
@@ -129,13 +135,13 @@ test('a phone episode opens in place under its row from its own detail, with cre
 
 test('title details render without Intl.ListFormat, which this Hermes build does not provide', () => {
   const entry = {id: 'item', kind: 'movie', title: 'Real film', duration: 5700, progressSeconds: 540};
-  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [],
+  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
     detail: {phase: 'ready', data: {item: entry, facts: {},
       actions: [{id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}}], personal: {progressSeconds: 540, watched: false},
       metadata: {genres: [], ratings: [], status: 'available', credits: [
         {id: 'c1', name: 'Timothée Chalamet', role: 'Paul Atreides', department: 'acting', provider: 'tmdb'},
         {id: 'c2', name: 'Denis Villeneuve', role: 'Director', department: 'directing', provider: 'tmdb'}]}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
   const original = (Intl as any).ListFormat;
   (Intl as any).ListFormat = undefined;
   let tree: any;

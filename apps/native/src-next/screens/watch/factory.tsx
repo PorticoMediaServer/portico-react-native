@@ -417,7 +417,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
             if (!runtime.playOn || !ports.playback.getSnapshot().capabilities.cast) return;
             runtime.playOn.open();
           } : undefined;
-      return <NativeTitleScreen {...ports.title} search={search} removeContinue={removeContinue} onPlayOn={onPlayOn} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
+      return <NativeTitleScreen authority={ports.authority} {...ports.title} search={search} removeContinue={removeContinue} onPlayOn={onPlayOn} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
         back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {
           const owner = controller!;
           void menu(entry, () => {
@@ -443,7 +443,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     let controller = controllers.get(key);
     if (!controller) controller = createTitleController(key, entry, true);
     const owner = controller;
-    return <NativeTitleScreen {...ports.title} key={`${key}:${sections}`} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
+    return <NativeTitleScreen authority={ports.authority} {...ports.title} key={`${key}:${sections}`} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
       watch={{source, playback: ports.playback, width: pane.width, sections}} back={() => {ports.navigation.back(ports.authority);}}
       myList={ports.title.myList?.(entry)} download={ports.title.download} more={(member, anchorRef) => {
         void menu(member, () => {

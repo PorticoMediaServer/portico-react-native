@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
-import {ScrollView, Text, View, useWindowDimensions, type LayoutChangeEvent} from 'react-native';
+import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {cardText, episodeLabel, playbackIdentity, titleFactParts, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -8,6 +8,10 @@ import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} fr
 import {Button, Chip, Focusable, ResumeButton, Switch, Tabs} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {TVShelf, tvItemKey} from '../../tv/layout/TVShelf';
+import {FocusRegion, useOptionalFocusRegistry, type FocusRegionProps} from '../../kit/focus';
+import {tvFocusIds} from '../../shell/tv-focus';
+import type {ShellAuthority} from '../../shell/model';
+import {tvTitleRegionMap} from './tv-title-focus';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {StateLayout, TitleSkeleton} from '../../kit/states';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -28,6 +32,7 @@ import {mediumRailMetrics} from '../../shell/model';
 
 export type NativeTitleScreenProps = Readonly<{
   controller: NativeTitleController;
+  authority?: ShellAuthority;
   text: TextEnvironment;
   artwork: (path: string | undefined) => ArtworkSource | undefined;
   ambient: (path: string | undefined) => AmbientArtSource | undefined;
@@ -70,6 +75,7 @@ export type NativeTitleScreenProps = Readonly<{
 }>;
 const noMenuSubscribe = () => () => {};
 const noMenuSnapshot = () => undefined;
+const noFocusSnapshot = () => 0;
 /** An episode's own numbering, the same shape the episode rows and the player label use. */
 const episodeNumbering = (entry: ContentEntry) => entry.absoluteNumber !== undefined ? {mode: 'absolute' as const, number: entry.absoluteNumber}
   : entry.dateBased && entry.airDate ? {mode: 'date' as const, day: entry.airDate}
@@ -82,7 +88,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const openEpisode = useSyncExternalStore(controller.episode.subscribe, controller.episode.getSnapshot);
   const menuIsOpen = (entry: ContentEntry) => !!menuEntry && menuEntry.id === entry.id && menuEntry.kind === entry.kind && menuEntry.libraryId === entry.libraryId;
   const theme = useTheme(), viewport = useWindowDimensions(), t = defaultI18n.t;
-  const posture = usePlatformPosture();
+  const posture = usePlatformPosture(), registry = useOptionalFocusRegistry();
+  useSyncExternalStore(registry?.subscribe ?? noMenuSubscribe, registry?.getSnapshot ?? noFocusSnapshot, registry?.getSnapshot ?? noFocusSnapshot);
+  const activeFocus = registry?.capture();
   const fold = posture.status === 'available' && posture.window?.width === viewport.width && posture.window.height === viewport.height
     ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.left < viewport.width) : undefined;
   const rail = mediumRailMetrics.width;
@@ -109,15 +117,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const [seasonsSheet, setSeasonsSheet] = useState<NativeTitlePageLease>();
   const [settingsSheet, setSettingsSheet] = useState<Readonly<{lease: NativeTitlePageLease; ticket: number; busy: boolean}>>();
   const sheetTicket = useRef(0);
-  const [tvFocus, setTvFocus] = useState<{play?: number; episodes?: number; related?: number}>({});
   const continueController = useRef<AbortController | undefined>(undefined);
   const [continueBusy, setContinueBusy] = useState(false), [continueRemoved, setContinueRemoved] = useState(false);
   useEffect(() => () => continueController.current?.abort(), []);
-  const captureTag = (key: keyof typeof tvFocus) => theme.isTV ? (event: LayoutChangeEvent) => {
-    const tag = event.target;
-    if (typeof tag === 'number' && tag > 0 && tag !== tvFocus[key]) setTvFocus(value => ({...value, [key]: tag}));
-  } : undefined;
-  const tab = snapshot.place.tab, focusDown = theme.isTV ? (tab === 'episodes' ? tvFocus.episodes : tab === 'related' ? tvFocus.related : undefined) : undefined;
   const pendingAnchor = useRef<ReturnType<NativeTitleController['memory']['getSnapshot']>['anchor'] | undefined>(controller.memory.getSnapshot().anchor);
   const detail = snapshot.detail?.data, workspace = snapshot.workspace?.data;
   const myList = props.myList ?? (detail?.actions.some(action => action.id === 'watchlist' && action.enabled)
@@ -144,14 +146,23 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       pendingAnchor.current = undefined;
     }
   };
-  useLayoutEffect(() => {pendingAnchor.current = controller.memory.getSnapshot().anchor; cells.current.clear();}, [controller, snapshot.place.tab, snapshot.place.seasonId, snapshot.place.group, viewport.width, viewport.height, bodyWidth]);
+  const restoreTab = theme.isTV ? undefined : snapshot.place.tab;
+  useLayoutEffect(() => {pendingAnchor.current = controller.memory.getSnapshot().anchor; cells.current.clear();}, [controller, restoreTab, snapshot.place.seasonId, snapshot.place.group, viewport.width, viewport.height, bodyWidth]);
   if (snapshot.retired) return null;
   const title = workspace?.show.title ?? snapshot.entry.displayTitle ?? detail?.item.title ?? snapshot.entry.title;
   const backdrop = workspace?.show.backdropUrl ?? detail?.item.backdropUrl ?? snapshot.entry.backdropUrl;
   const source = props.ambient(backdrop), foreground = props.artwork(backdrop);
   const selectedTab = snapshot.place.tab;
   const tabItems = [...(show ? [{value: 'episodes', label: t('title.episodes')}] : []), {value: 'related', label: t('next.controls.moreLikeThis')}, {value: 'details', label: t('title.details')}];
-  const tabs = <Tabs testID="watch-title-tabs" value={selectedTab} onValueChange={value => controller.tab(value as NativeTitleTab)} items={tabItems}
+  const focusScope = JSON.stringify([props.authority, snapshot.entry.kind, snapshot.entry.libraryId, snapshot.entry.id]);
+  const relatedRows = (detail?.related?.rows ?? []).filter(row => row.entries.length > 0);
+  const hasPeople = !!props.person && (detail?.metadata.credits ?? []).some(credit => !!credit.personId);
+  const regions = tvTitleRegionMap(focusScope, props.authority ? tvFocusIds(props.authority).rail : undefined,
+    show && !!workspace, relatedRows.map(row => row.id), !!detail?.collections?.[0], hasPeople);
+  const focusedSection = activeFocus?.regionId?.startsWith(`${regions.prefix}.episodes`) ? 'episodes'
+    : activeFocus?.regionId?.startsWith(`${regions.prefix}.related`) ? 'related' : activeFocus?.regionId === regions.people?.id ? 'details' : selectedTab;
+  const tabs = <Tabs testID="watch-title-tabs" passive={theme.isTV} value={theme.isTV ? focusedSection : selectedTab}
+    onValueChange={theme.isTV ? undefined : value => controller.tab(value as NativeTitleTab)} items={tabItems}
     contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, justifyContent: centered ? 'center' : undefined}}/>;
   const play = () => {void controller.play().catch(props.reportError);};
   const toggle = () => {const watch = props.watch, fence = watch?.source.fence;
@@ -300,13 +311,13 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <View style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
         <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}/>
         <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
-          {(theme.isTV || wide) && !props.watch && detail?.collections?.[0] ? <Focusable testID="watch-title-collection" focusKind="row" focusRadius={8}
+          {(theme.isTV || wide) && !props.watch && detail?.collections?.[0] ? <TitleRegion {...regions.collection}><Focusable focusId="watch-title-collection" testID="watch-title-collection" focusKind="row" focusRadius={8}
             onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
             style={{alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 10 : 8, marginBottom: theme.isTV ? 12 : 6}}>
             <Icon name="i-layers" size={theme.isTV ? 24 : 18} color={theme.colors.accentStrong}/>
             <Text style={[nativeType({size: theme.isTV ? 24 : 14.5, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong}]}>{detail.collections[0].name}</Text>
             <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.browse.filmCount', {count: detail.collections[0].memberCount})}</Text>
-          </Focusable> : null}
+          </Focusable></TitleRegion> : null}
           <View style={tabletWatch ? {flexDirection: 'row', alignItems: 'flex-end', gap: 24} : undefined}>
           <View style={tabletWatch ? {flex: 1, minWidth: 0} : undefined}>
           <Text accessibilityRole="header" numberOfLines={theme.isTV && !props.watch ? undefined : 2} style={[props.watch ? nativeType({size: 28, weight: 800, tracking: -.035, lineHeight: 30.8}, theme.textScale)
@@ -326,21 +337,21 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           {/* tv.html frame 3 and tv-detail frame 1 draw the synopsis and credits above the buttons. */}
           {theme.isTV || wide ? copyBlock : null}
           </View>
-          <View style={{flexDirection: 'row', gap: theme.isTV ? 18 : 10, justifyContent: centered ? 'center' : undefined, marginTop: props.watch ? (tabletWatch ? 0 : 16) : theme.isTV ? 0 : 22, flexShrink: tabletWatch ? 0 : undefined}}>
+          <TitleRegion {...regions.actions} style={{flexDirection: 'row', gap: theme.isTV ? 18 : 10, justifyContent: centered ? 'center' : undefined, marginTop: props.watch ? (tabletWatch ? 0 : 16) : theme.isTV ? 0 : 22, flexShrink: tabletWatch ? 0 : undefined}}>
             {props.watch ? <Button testID="watch-body-toggle" focusId="watch-body-toggle" style={tabletWatch ? undefined : {flex: 1}} disabled={!watching?.fence || watching.retired || !watching.capabilities.play && !watching.capabilities.pause}
               icon={watching?.playback.intent === 'playing' ? 'i-pause' : 'i-play'} onPress={toggle}>{t(watching?.playback.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
               : playback && (theme.isTV && resuming && duration && progress !== undefined
-                ? <ResumeButton ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}
+                ? <ResumeButton ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus icon="i-play" onPress={play} onLongPressAction={playMenu}
                     progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{primaryCode ? t('title.resumeEpisode', {code: primaryCode.text}) : t('entry.resume')}</ResumeButton>
-                : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" style={centered ? {minWidth: 300} : undefined} onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}>{primaryCode ? t(resuming ? 'title.resumeEpisode' : 'title.playEpisode', {code: primaryCode.text}) : t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
-            {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" nextFocusDown={focusDown} onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
-            {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV && !wide} nextFocusDown={focusDown} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
-            {!props.watch && (theme.isTV || wide || centered) && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly={!theme.isTV} nextFocusDown={focusDown}
+                : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" style={centered ? {minWidth: 300} : undefined} onPress={play} onLongPressAction={playMenu} >{primaryCode ? t(resuming ? 'title.resumeEpisode' : 'title.playEpisode', {code: primaryCode.text}) : t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
+            {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
+            {myList && <Button focusId="watch-title-my-list" variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV && !wide} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
+            {!props.watch && (theme.isTV || wide || centered) && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly={!theme.isTV}
               accessibilityLabel={t(detail.personal.watched ? 'entry.markUnwatched' : 'entry.markWatched')} accessibilityState={{selected: detail.personal.watched}}
               onPress={() => {void controller.personal({action: 'watched', value: !detail.personal.watched}).catch(props.reportError);}}>{t('next.detail.watched')}</Button>}
             {props.download && !theme.isTV && <Button variant="glass" icon="i-dl" iconOnly={!wide} accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}>{t('next.cards.download')}</Button>}
-            <Button ref={titleMore} variant="glass" icon="i-more" iconOnly nextFocusDown={focusDown} accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
-          </View>
+            <Button ref={titleMore} focusId="watch-title-more" variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
+          </TitleRegion>
           </View>
           {!props.watch && !theme.isTV && resuming && duration && progress !== undefined && <View style={{marginTop: 16, gap: 8}}>
             <View style={{height: 4, backgroundColor: '#edf5fa26'}}><View style={{height: 4, width: `${Math.min(1, progress / duration) * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>
@@ -380,7 +391,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   };
   const bodyNode = (
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
-        {selectedTab === 'episodes' && workspace && (theme.isTV ? <TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
+        {(theme.isTV || selectedTab === 'episodes') && workspace && (theme.isTV ? <TitleRegion {...regions.episodes} orientation="free"><TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
           episodes={episodes} nextUp={workspace.nextUp} show={{title: workspace.show.title, overview: workspace.show.overview, backdropUrl: workspace.show.backdropUrl}}
           open={openEpisode} text={text} artwork={props.artwork} more={props.more}
           onSeasonFocus={() => controller.episode.close()} onEpisodeFocus={entry => controller.episode.open(entry)}
@@ -390,7 +401,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           onMarkSeason={(id, watched) => {void controller.markSeason(id, watched).catch(props.reportError);}}
           onMoreSeasons={() => {void controller.moreSeasons().catch(props.reportError);}}
           onMoreEpisodes={() => {void controller.moreEpisodes().catch(props.reportError);}}
-          onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/>
+          onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/></TitleRegion>
           : <>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
             <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" style={{flexShrink: 0}}
@@ -442,12 +453,12 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             return episodes.map(entry => cell(entry.id, open?.id === entry.id ? plate(entry) : card(entry, 'row', bodyWidth - 40)));
           })()}
         </>)}
-        {selectedTab === 'related' && detail?.related?.rows.map((row, rowIndex) => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          {theme.isTV ? <TVShelf items={row.entries} getKey={tvItemKey} itemWidth={214} itemHeight={420} gap={10}
-            renderItem={(entry, slot) => <TitleRelated entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={214}
-              onFocus={slot.onFocus} onBlur={slot.onBlur} onLayout={rowIndex === 0 && slot.index === 0 ? captureTag('related') : undefined} nextFocusUp={rowIndex === 0 && slot.index === 0 ? tvFocus.play : undefined} onNavigate={() => props.navigate(entry)}/>}/>
+        {(theme.isTV || selectedTab === 'related') && relatedRows.map(row => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
+          {theme.isTV ? <TVShelf items={row.entries} getKey={tvItemKey} getFocusId={tvItemKey} focus={regions.related.get(row.id)} itemWidth={214} itemHeight={420} gap={10}
+            renderItem={(entry, slot) => <TitleRelated entry={entry} focusId={slot.focusId} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={214}
+              onFocus={slot.onFocus} onBlur={slot.onBlur} onNavigate={() => props.navigate(entry)}/>}/>
             : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={(bodyWidth - 60) / 3} onNavigate={() => props.navigate(entry)}/>)}</ScrollView>}</View>))}
-        {selectedTab === 'details' && cell('details', <View style={{gap: 16}}>
+        {(theme.isTV || selectedTab === 'details') && cell('details', <View style={{gap: 16}}>
           <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
           {theme.isTV && detail?.facts?.tagline ? <Text style={[theme.type.body, {color: theme.colors.textTertiary, fontStyle: 'italic'}]}>{detail.facts.tagline}</Text> : null}
           {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
@@ -468,7 +479,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </Focusable> : null}
           {credits.length ? <View style={{gap: 10}}>
             <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
-            <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/>
+            <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person} focus={regions.people}/>
             {(directors.length > 0 || writers.length > 0) && <View style={{gap: 2}}>
               {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text> : null}
               {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: defaultI18n.list(writers)})}</Text> : null}
@@ -492,13 +503,13 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
         <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
         <ScrollView ref={scroll} onScroll={event => {
           const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-          if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
+          if ((theme.isTV || selectedTab === 'episodes') && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
         }} scrollEventThrottle={32}>{bodyNode}</ScrollView>
       </View>
-    </View> : titleOnly ? <View style={{flex: 1, overflow: 'hidden'}}>{heroNode}</View> : <ScrollView ref={scroll} stickyHeaderIndices={[episodesOnly ? 0 : 1]} onScroll={event => {
+    </View> : titleOnly ? <View style={{flex: 1, overflow: 'hidden'}}>{heroNode}</View> : <ScrollView ref={scroll} stickyHeaderIndices={theme.isTV ? undefined : [episodesOnly ? 0 : 1]} onScroll={event => {
       remember(event.nativeEvent.contentOffset.y);
       const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-      if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
+      if ((theme.isTV || selectedTab === 'episodes') && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
     }} scrollEventThrottle={32}>
       {!episodesOnly && heroNode}
       <View accessibilityElementsHidden={pinned} importantForAccessibility={pinned ? 'no-hide-descendants' : 'auto'}
@@ -524,4 +535,10 @@ export function TitleEpisode({entry, more, ...props}: EpisodeTileProps & {entry:
 export function TitleRelated({entry, more, ...props}: PosterCardProps & {entry: ContentEntry; more: NativeTitleScreenProps['more']}) {
   const anchor = useRef<View>(null);
   return <PosterCard {...props} menuAnchorRef={anchor} onMore={() => more(entry, anchor)}/>;
+}
+
+/** Touch keeps its original View ancestry; TV opts into the shared native guide policy. */
+function TitleRegion({children, style, ...config}: Partial<FocusRegionProps>) {
+  const {isTV} = useTheme();
+  return isTV && config.id ? <FocusRegion {...config} id={config.id} style={style}>{children}</FocusRegion> : <View style={style}>{children}</View>;
 }

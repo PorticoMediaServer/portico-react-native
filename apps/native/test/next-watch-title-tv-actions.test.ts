@@ -1,3 +1,6 @@
+import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
+import {tvTitleRegionMap} from '../src-next/screens/watch/tv-title-focus.ts';
+import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -9,6 +12,9 @@ import {durationText} from '../../../packages/client-core/src/presentation/kit-m
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {NativeTitleScreen, TitleRelated} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
+  '../../../../../packages/client-core/src/presentation/errors': {presentError},
+  '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
+  './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'Scroll', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
   '../../../../../packages/client-core/src/presentation/kit-model': {cardText, episodeLabel, playbackIdentity, titleFactParts}, '../../../../../packages/i18n/src': {defaultI18n},
@@ -20,7 +26,7 @@ const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(des
 
 test('TV title resume, Start over, watched and Play menu bind actual current title actions and the genuine anchor', async () => {
   const calls: unknown[][] = [], entry = {id: 'inside-out', kind: 'movie', title: 'Inside Out', duration: 5700, progressSeconds: 540};
-  let snapshot: any = {retired: false, entry, place: {tab: 'related', anchor: {itemId: null, offset: 0}}, episodes: [],
+  let snapshot: any = {retired: false, entry, place: {tab: 'related', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
     detail: {phase: 'ready', data: {item: entry, actions: [
       {id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}},
       {id: 'start_over', enabled: true, playback: {itemId: entry.id, startSeconds: 0}},
@@ -29,7 +35,7 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
       {id: 'd1', name: 'Pete Docter', role: 'Director', department: 'directing', provider: 'tmdb'},
       {id: 'c1', name: 'Amy Poehler', role: 'Joy', department: 'acting', provider: 'tmdb'},
       {id: 'c2', name: 'Phyllis Smith', role: 'Sadness', department: 'acting', provider: 'tmdb'}]}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
     play: async (...args: unknown[]) => {calls.push(['play', ...args]);}, personal: async (...args: unknown[]) => {calls.push(['personal', ...args]);}};
   let tree: any;
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
@@ -56,24 +62,30 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
 
 test('TV Down from the hero buttons skips the strip for the first content row and Up returns to Play', () => {
   const entry = {id: 'inside-out', kind: 'movie', title: 'Inside Out'};
-  const snapshot = {retired: false, entry, place: {tab: 'related', anchor: {itemId: null, offset: 0}}, episodes: [],
+  const snapshot = {retired: false, entry, place: {tab: 'related', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
     detail: {phase: 'ready', data: {item: entry, actions: [{id: 'play', enabled: true, playback: {itemId: entry.id, startSeconds: 0}}], personal: {progressSeconds: 0},
       metadata: {genres: [], ratings: [], credits: []},
       related: {rows: [{id: 'row-1', heading: 'More like Inside Out', entries: [{id: 'first', kind: 'movie', title: 'First film'}, {id: 'second', kind: 'movie', title: 'Second film'}]}]}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
   let tree: any;
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
   host.mount();
   try {
     const play = () => descendants(tree).find(node => node.props.focusId === 'watch-title-play');
-    const posters = () => descendants(tree).filter(node => node.type === TitleRelated && node.props.entry);
-    assert.equal(play().props.nextFocusDown, undefined);
-    assert.equal(posters()[0].props.nextFocusUp, undefined);
-    play().props.onLayout({target: 37, nativeEvent: {layout: {x: 0, y: 0, width: 240, height: 72}}});
-    posters()[0].props.onLayout({target: 91, nativeEvent: {layout: {x: 0, y: 700, width: 214, height: 321}}});
-    host.rerender();
-    assert.equal(play().props.nextFocusDown, 91, 'Down leaves the hero for the first card, never the tab strip');
-    assert.equal(posters()[0].props.nextFocusUp, 37, 'Up from the first card returns to Play');
+    const shelf = () => descendants(tree).find(node => node.type === 'TVShelf');
+    const posters = () => shelf().props.items.map((entry: any, index: number) => shelf().props.renderItem(entry, {focusId: entry.id, index, onFocus() {}, onBlur() {}}));
+    assert.equal(play().props.nextFocusDown, undefined, 'no screen-owned native tags');
+    const regions = descendants(tree).filter(node => typeof node.props.id === 'string');
+    const actions = regions.find(node => node.props.id.endsWith('.actions'));
+    const row = {props: shelf().props.focus};
+    assert.equal(actions.props.edges.down, row.props.id);
+    assert.equal(row.props.edges.up, actions.props.id);
+    assert.equal(actions.props.entry, 'watch-title-play');
+    assert.deepEqual(posters().map(node => node.props.focusId), ['first', 'second']);
+    const strip = descendants(tree).find(node => node.props.testID === 'watch-title-tabs');
+    assert.equal(strip.props.passive, true); assert.equal(strip.props.onValueChange, undefined);
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === 'About'), 'Details stays mounted below related rows');
+
   } finally {host.unmount();}
 });
