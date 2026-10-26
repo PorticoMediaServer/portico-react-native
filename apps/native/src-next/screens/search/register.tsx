@@ -14,6 +14,7 @@ import {SearchScreen} from './SearchScreen';
 import {GenreBrowseScreen} from './GenreBrowseScreen';
 import {AllGenresScreen} from './AllGenresScreen';
 import {createNativeSearchSelection} from './selection';
+import {createNativeReadingSearchModule} from './reading-register';
 
 type Root = Readonly<{route: NativeShellRoute; key: number; search: ReturnType<typeof createNativeSearchController>;
   explore: NativeSearchExplore; selection: ReturnType<typeof createNativeSearchSelection>; actions: ReturnType<typeof createNativeSearchActions>}>;
@@ -120,3 +121,4 @@ function AllHost({entry, runtime, navigation, back}: {entry: All; runtime: Nativ
 nativeShellRoutes.registerDestination('search', createNativeSearchModule);
 nativeShellRoutes.registerRoute('search-genre', createNativeSearchModule);
 nativeShellRoutes.registerRoute('search-genres', createNativeSearchModule);
+nativeShellRoutes.registerRoute('search-reading', createNativeReadingSearchModule);

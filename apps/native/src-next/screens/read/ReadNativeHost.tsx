@@ -10,6 +10,7 @@ import {createNativeDownloadsDevice} from '../downloads/device';
 import {offlineDownloads} from '../../../platform/offline-downloads';
 import type {ReadingHostSession} from '../../../../../packages/client-core/src/reading-host';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import type {NativeShellRoute} from '../../shell/routes';
 import {StateView, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
@@ -161,6 +162,20 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         initialProgress, initialContentsTarget: target.contentsTarget,
         onUnavailable: () => {if (current()) setState({failed: true}); void dispose().catch(() => {});},
         current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
+        // Root54: the guest's own Search all books is only a request to the app that
+        // owns navigation. It is admitted for this exact live reader and the authority
+        // the shell still allows; the literal words travel unchanged into the explicit
+        // search-reading route, which is pushed above this reader so Back returns here.
+        onSearchAll: (query, signal, isLive) => {
+          if (!current() || signal.aborted) return false;
+          let liveNow = false;
+          try {liveNow = isLive();} catch {liveNow = false;}
+          // The host's own activity can lag a navigation commit, so the shell must
+          // currently be on this exact captured target, not a retained or borrowed route.
+          if (!liveNow || context.navigation.getSnapshot().route !== target) return false;
+          const destination: NativeShellRoute = {kind: 'search-reading', query};
+          return context.navigation.allows(destination) && context.navigation.open(destination, context.authority());
+        },
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
       // The guest may handshake before the post-render activity effect runs.
       host.current = ownedHost; ownedHost.setActive(callbacks.current.active);
