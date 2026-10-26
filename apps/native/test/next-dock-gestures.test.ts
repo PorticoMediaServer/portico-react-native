@@ -40,6 +40,8 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   let now = 0, parentRenders = 0;
   const clock = controlledClock ? mock.method(performance, 'now', () => now) : undefined;
   const presentations: any[] = [];
+  const runtimeLife = new AbortController(), backCallbacks: (() => boolean)[] = [];
+  const activeBack = new Set<() => boolean>();let shellReads = 0;
   const useSharedValue = (initialValue: any) => {
     const ref = React.useRef<any>(null);
     if (!ref.current) {
@@ -81,7 +83,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const react = {...React, default: React};
   const native = {View: 'View', Text: 'Text', Image: 'Image', ActivityIndicator: 'ActivityIndicator', Platform: {OS: os, isTV: tv},
     NativeModules: {PorticoHaptics: {selection: async () => {requests.push(now); return true;}}},
-    BackHandler: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: 400, height: 800})};
+    BackHandler: {addEventListener: (_event: string, callback: () => boolean) => {backCallbacks.push(callback);activeBack.add(callback);return {remove() {activeBack.delete(callback);}};}}, useWindowDimensions: () => ({width: 400, height: 800})};
   const visual = {alpha: () => '#000', DockFacts: 'DockFacts', dockStyles: {fill: {position: 'absolute', inset: 0}}, dockType: () => ({})};
   const common = {react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture, GestureDetector: 'GestureDetector'},
     '../../../../../packages/player-core/src/index': {sameFence}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
@@ -125,7 +127,10 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
     './video-snapshot': {NativeVideoSnapshotCapture: class {matches() {return true;} async clear() {} async prepare() {}}},
   });
-  const runtime = {reportError: (error: any) => {throw error;}, text: {}, artwork() {}, ambient() {}};
+  const runtime = {retirementSignal: runtimeLife.signal, getSnapshot: () => {
+    if (runtimeLife.signal.aborted) throw Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});
+    shellReads++;return {selectionActive: false, homeObscured: false};
+  }, reportError: (error: any) => {throw error;}, text: {}, artwork() {}, ambient() {}};
   let tree: any, hostTree: any, barTree: any, pictureTree: any, hostProps: any, barProps: any, pictureProps: any;
   let barHost: ReturnType<typeof createHookHost> | undefined, closed = false;
   let extraPicture: any = {}, extraBar: any = {};
@@ -182,6 +187,8 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     throw new Error('motion reactions did not settle');
   };
   return {dock, adapter, Surface, animations, cancelled, requests, actions, transitions, presentations, controller, fullPan, aside, opener, flushJS, complete, tick, tickPicture, motionTick, flushMotionJS, measurements,
+    get backCallback() {return backCallbacks.at(-1)!;}, get activeBackListeners() {return activeBack.size;},
+    get shellReads() {return shellReads;}, retireRuntime() {runtimeLife.abort();},
     get parentRenders() {return parentRenders;},
     get tree() {return tree;}, get hostTree() {return hostTree;}, get barTree() {return barTree;}, get pictureTree() {return pictureTree;},
     async render() {refresh(); layerHost.rerender(); await sync();},
@@ -644,4 +651,22 @@ test('local video and chrome use actual travel opacity through an interrupted as
     pan.callbacks.onUpdate({translationX: -93.5, velocityX: 0}); await r.tick();
     assert.equal(r.controller().dockTravelFade.value, .5);
   } finally {r.close();}
+});
+
+
+test('playback Back refuses the original retired shell before any accessor even with no local media', async () => {
+  for (const empty of [false, true]) {
+    const r = await rig({docked: true});
+    try {
+      if (empty) {
+        const previous = r.adapter.getSnapshot();
+        r.adapter.getSnapshot = () => ({...previous, fence: undefined, dock: {...previous.dock, local: null}});
+      }
+      const queued = r.backCallback;assert.equal(r.activeBackListeners, 1);
+      assert.equal(queued(), false);assert.equal(r.shellReads, 1, 'live Back keeps its original guard/transition path');
+      const transitions = r.transitions.length;r.retireRuntime();assert.equal(r.activeBackListeners, 0);
+      assert.equal(queued(), false, 'already-queued delivery also refuses the original aborted owner');
+      assert.equal(r.shellReads, 1);assert.equal(r.transitions.length, transitions);
+    } finally {r.close();}
+  }
 });

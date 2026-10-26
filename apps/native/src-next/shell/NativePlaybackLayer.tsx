@@ -202,7 +202,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   }, [adapter, authority, snapshot.fence, capture]);
   useEffect(() => {alive.current = true; return () => {alive.current = false; touching.current = false; moving.current = false; void capture.clear();};}, [capture]);
   useEffect(() => {
+    const original = runtime.retirementSignal;
+    if (original?.aborted) return;
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (original?.aborted) return false;
       const current = adapter.getSnapshot();
       const shell = runtime.getSnapshot();
       if (shell.selectionActive || shell.homeObscured) return false;
@@ -211,7 +214,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
       void adapter.onTransition(transition).catch(runtime.reportError);
       return true;
     });
-    return () => back.remove();
+    const off = () => back.remove();
+    original?.addEventListener('abort', off, {once: true});
+    if (original?.aborted) off();
+    return () => {original?.removeEventListener('abort', off);off();};
   }, [adapter, authority, runtime, theme.isTV]);
   const onSlot = useCallback((bounds: NativeShellBounds) => {
     slot.current = bounds;
