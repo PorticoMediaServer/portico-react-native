@@ -12,7 +12,7 @@ import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
-import type {NativeTVMusicController, MusicAlbumRow} from './model';
+import type {NativeTVMusicController, NativeTVMusicSnapshot, MusicAlbumRow} from './model';
 import {MusicErrorView} from './MusicErrorView';
 import {MusicFormatBadges} from './MusicFormatBadges';
 
@@ -114,10 +114,25 @@ function SongLines({songs, runtime, controller, actions, playingId}: {songs: rea
   return <View>{songs.map((song, index) => <SongLine key={song.id} song={song} index={index} runtime={runtime} controller={controller} actions={actions} playingId={playingId}/>)}</View>;
 }
 
-function AlbumCard({album, runtime, actions, openEntry}: {album: MusicAlbumRow; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void}) {
-  const entry: ContentEntry = {id: album.id, libraryId: album.libraryId, kind: 'album', title: album.title, ...(album.artist ? {artist: album.artist} : {}), ...(album.year ? {year: album.year} : {})};
+function AlbumCard({album,runtime,actions,openEntry,original,current}: {album:MusicAlbumRow;runtime:NativeShellRuntime;actions:Actions;openEntry:(entry:ContentEntry)=>void;original?:ContentEntry;current?:()=>boolean}) {
+  const entry: ContentEntry = original??{id: album.id, libraryId: album.libraryId, kind: 'album', title: album.title, ...(album.artist ? {artist: album.artist} : {}), ...(album.year ? {year: album.year} : {})};
   return <SquareCard width={phoneMusicGeometry.albumCard} title={album.title} caption={Object.freeze([{id: 'caption', text: album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false}), role: 'value' as const}])}
-    artwork={runtime.artwork(album.posterUrl)} onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)}/>;
+    artwork={runtime.artwork(album.posterUrl)} onNavigate={()=>{if(current?.()!==false)openEntry(entry);}} onMore={()=>{if(current?.()!==false)actions.menu(entry);}}/>;
+}
+
+/** music-plus16c: the existing album recommendation row, with the server's reason. */
+function SimilarAlbums({snapshot,controller,runtime,actions,openEntry}:{snapshot:NativeTVMusicSnapshot;controller:NativeTVMusicController;runtime:NativeShellRuntime;actions:Actions;openEntry:(entry:ContentEntry)=>void}){
+  const theme=useTheme();
+  if(!snapshot.similar.length&&!snapshot.similarError)return null;
+  return <View style={{marginTop:30,paddingHorizontal:theme.platform==='phone'?20:32}}>
+    <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginBottom:10}]}>{t('next.controls.moreLikeThis')}</Text>
+    {snapshot.similar.length?<Text style={[browseType(theme,13,500),{color:theme.colors.textSecondary,marginBottom:10}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
+    {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}}/>:null}
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
+      {snapshot.similar.flatMap(value=>value.kind==='album'&&value.libraryId?[<AlbumCard key={value.id} album={{id:value.id,libraryId:value.libraryId,title:value.title,year:value.year,posterUrl:value.posterUrl}} original={value}
+        current={()=>controller.similarCurrent(snapshot,value)} runtime={runtime} actions={actions} openEntry={openEntry}/>]:[])}
+    </ScrollView>
+  </View>;
 }
 
 /** phone-app#13: the album body. The canonical controller owns the server lists;
@@ -182,18 +197,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
               <Text style={[browseType(theme, 13, 400), {width: 76, color: theme.colors.textTertiary}]}>{label}</Text><Text style={[browseType(theme, 13, 500), {flex: 1, color: theme.colors.text}]}>{value}</Text></View>)}
           </View> : null}
         </View>
-        {snapshot.similar.length ? <View style={{marginTop: 30, paddingHorizontal: 32}}>
-          <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 10}]}>{t('next.controls.moreLikeThis')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 14}}>
-            {snapshot.similar.flatMap(value => {
-              if (!value.libraryId) return [];
-              const album: MusicAlbumRow = {id: value.id, libraryId: value.libraryId, title: value.title,
-                ...(value.artist?.id && value.artist.name ? {artist: {id: value.artist.id, name: value.artist.name}} : {}),
-                ...(value.year ? {year: value.year} : {}), ...(value.posterUrl ? {posterUrl: value.posterUrl} : {})};
-              return [<AlbumCard key={value.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry}/>];
-            })}
-          </ScrollView>
-        </View> : null}
+        <SimilarAlbums snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry}/>
       </ScrollView>
     </View>;
   }
@@ -213,6 +217,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false} download={download}/></View>
       {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View> : null}
+      <SimilarAlbums snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry}/>
     </ScrollView>
     <PhoneHeader title={title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
   </View>;
