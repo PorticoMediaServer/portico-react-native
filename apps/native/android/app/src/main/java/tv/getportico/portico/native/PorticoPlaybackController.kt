@@ -513,14 +513,19 @@ internal class PorticoPlaybackController(private val context: Context) {
     return made
   }
 
-  /** A supported file plan keeps the precision/rate pipeline even with effects off. The
-   * ordinary fallback has no such plan; forcing it through the PCM-only sink would suppress
-   * Media3's existing encoded-output path. Neither case adds a codec or an output fact. */
+  /** A supported file plan keeps the precision/rate pipeline even with effects off. Only
+   * known encoded delivery without such a plan uses the ordinary sink; absent facts keep
+   * the existing PCM precision path. A delivery recipe is never an output observation. */
   private fun listeningUsesPCM(): Boolean {
     if (listeningOwner == null) return false
     val rendered = planOf(command?.get("audioRender"))
     @Suppress("UNCHECKED_CAST") val plain = command?.get("seekPlan") as? Map<String, Any?>
-    return PorticoAudioPlan.playable(rendered) || PorticoAudioPlan.playable(plain)
+    if (PorticoAudioPlan.playable(rendered) || PorticoAudioPlan.playable(plain)) return true
+    val media = listeningState?.get("media") as? Map<*, *>
+    return when (media?.get("audioCodec")) {
+      "ac3", "eac3", "truehd", "dts", "dts_hd" -> false
+      else -> true
+    }
   }
 
   /** What the player measures of the connection as it downloads, for Automatic quality. */
