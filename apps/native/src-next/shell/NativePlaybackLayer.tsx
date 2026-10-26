@@ -1,3 +1,4 @@
+import {DockVideoExitImages} from '../kit/dock/video-exit-paint';
 import {usePlayerMorphPublication} from '../kit/dock/PlayerMorphBridge';
 import {InitialPicturePresentation} from '../kit/dock/InitialPicturePresentation';
 import {initialPictureKey} from '../kit/dock/initial-picture-model';
@@ -69,6 +70,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const pictureFence = fence && local && sameFence(local.fence, fence) && (local.kind === 'video' || local.kind === 'live')
     && (!docked || dockSlot !== undefined) ? fence : undefined;
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
+  const miniExitProof = useRef<{fence: PlaybackFence; bounds: NativeShellBounds; viewport: {width: number; height: number};
+    host: View; prepared: boolean; claimed: boolean; claimSettled: boolean} | undefined>(undefined);
+  const exitImages = useMemo(() => new DockVideoExitImages(() => currentWindow.current, runtime.reportError), [runtime.reportError]);
+  useEffect(() => () => exitImages.dispose(), [exitImages]);
   const watchRevision = useRef(0), lastExpandedFrame = useRef<NativeShellBounds | undefined>(undefined);
   const [expandedMeasurement, setExpandedMeasurement] = useState<Readonly<{reader: NativeWatchReader; slot: NativeExpandedVideoSlot; host: View; bounds: NativeShellBounds}>>();
   const expandedBounds = watch && expandedMeasurement?.reader === watch && expandedMeasurement.slot === watchSlot
@@ -85,6 +90,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const retainedImage = useRef<Readonly<{owner: NativeVideoSnapshotCapture; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const [imageState, setImageState] = useState<Readonly<{image: NativeShellVideoSnapshot; state: 'ready' | 'failed'}>>();
+  const [exitDecoded, setExitDecoded] = useState<NativeShellVideoSnapshot>();
   const touching = useRef(false), moving = useRef(false), alive = useRef(true);
   // The touch listening surface's guarded controls own a lease over the player opening and the
   // real pushed page it belongs to. The lease is published only while that surface is open,
@@ -165,6 +171,38 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   }});
   usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV && expandedReady ? pictureFence : undefined);
   const {dockX, dockFade, dockTravelFade} = morph;
+  const miniExitCurrent = useCallback((proof: NonNullable<typeof miniExitProof.current>) => {
+    const now = adapter.getSnapshot(), view = currentWindow.current;
+    return alive.current && !now.retired && miniExitProof.current === proof && host.current === proof.host && sameAuthority(now.authority, authority)
+      && sameFence(now.fence, proof.fence) && !!now.dock.local && !now.dock.local.expanded
+      && ['video', 'live'].includes(now.dock.local.kind) && now.pictureInPicture?.active !== true
+      && view.width === proof.viewport.width && view.height === proof.viewport.height
+      && dockX.value === 0 && dockFade.value === 1 && !morph.dragging.value;
+  }, [adapter, authority, dockX, dockFade, morph.dragging]);
+  const prepareMiniExit = useCallback(() => {
+    const proof = miniExitProof.current;
+    if (theme.isTV || !proof || !miniExitCurrent(proof) || touching.current || moving.current) return false;
+    if (proof.prepared) {
+      if (proof.claimSettled) void capture.clear();
+      return true;
+    }
+    proof.prepared = true;
+    // Capture from this actually measured, settled mini only. This runs outside
+    // every playback command; a replacement during either await simply declines.
+    void capture.clear().then(() => miniExitCurrent(proof) ? capture.prepare(proof.fence, () => miniExitCurrent(proof)) : undefined).catch(runtime.reportError);
+    return true;
+  }, [theme.isTV, miniExitCurrent, capture, runtime]);
+  useEffect(() => {
+    const proof = miniExitProof.current, frame = picture?.owner === capture ? picture.image : undefined;
+    if (!proof || proof.claimed || !frame || !frame.retainForExit || exitDecoded !== frame
+      || !sameFence(frame.fence, proof.fence) || !miniExitCurrent(proof)) return;
+    proof.claimed = true;
+    void exitImages.offer(frame, true, proof.bounds, () => miniExitCurrent(proof) && retainedImage.current?.owner === capture
+      && retainedImage.current.image === frame).finally(() => {
+        proof.claimSettled = true;
+        if (retainedImage.current?.owner === capture && retainedImage.current.image === frame && !touching.current && !moving.current && !morph.dragging.value) void capture.clear();
+      }).catch(runtime.reportError);
+  }, [picture, exitDecoded, capture, exitImages, miniExitCurrent, morph.dragging, runtime]);
   const prepareLayout = useCallback(async (fence: PlaybackFence) => {
     if (!['android', 'ios'].includes(Platform.OS) || theme.isTV) return;
     const revision = ++layoutCaptureRevision.current; layoutCapture.current = revision;
@@ -190,10 +228,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     const current = adapter.getSnapshot();
     if (!sameAuthority(current.authority, authority) || !sameFence(current.fence, state.fence)) return;
     moving.current = state.moving;
-    if (state.moving) preparePicture(); else if (!touching.current && layoutCapture.current === undefined) void capture.clear();
-  }, [adapter, authority, capture, preparePicture]);
+    if (state.moving) preparePicture(); else if (!touching.current && layoutCapture.current === undefined && !prepareMiniExit()) void capture.clear();
+  }, [adapter, authority, capture, preparePicture, prepareMiniExit]);
   const touchStart = () => {touching.current = true; preparePicture();};
-  const touchEnd = () => {touching.current = false; if (!moving.current && !morph.dragging.value) void capture.clear();};
+  const touchEnd = () => {touching.current = false; if (!moving.current && !morph.dragging.value && !prepareMiniExit()) void capture.clear();};
   useEffect(() => {
     const current = adapter.getSnapshot();
     if (!sameAuthority(current.authority, authority) || !capture.matches(current.fence)) {
@@ -224,11 +262,20 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
       if (!alive.current || dockX.value !== 0 || dockFade.value !== 1 || host.current !== node || revision !== slotRevision.current || !sameAuthority(current.authority, authority)
         || !sameFence(current.fence, source) || !Number.isFinite(x) || !Number.isFinite(y)) return;
       const next = {...bounds, x: bounds.x - x, y: bounds.y - y};
+      const previousProof = miniExitProof.current, view = currentWindow.current;
+      if (!previousProof || !sameFence(previousProof.fence, source) || previousProof.host !== node
+        || previousProof.viewport.width !== view.width || previousProof.viewport.height !== view.height
+        || Object.keys(bounds).some(key => previousProof.bounds[key as keyof NativeShellBounds] !== bounds[key as keyof NativeShellBounds])) {
+        exitImages.retireUnconsumed();
+        miniExitProof.current = {fence: source, bounds: Object.freeze({...bounds}), viewport: Object.freeze({...view}), host: node,
+          prepared: false, claimed: false, claimSettled: false};
+      }
+      prepareMiniExit();
       setDockMeasurement(previous => previous && sameFence(previous.fence, source)
         && Object.keys(next).every(key => previous.bounds[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds])
         ? previous : {fence: source, bounds: next});
     });
-  }, [adapter, authority, dockX, dockFade]);
+  }, [adapter, authority, dockX, dockFade, exitImages, prepareMiniExit]);
   const measureExpandedSlot = useCallback(() => {
     const source = watch?.getSnapshot(), current = adapter.getSnapshot(), node = host.current, revision = ++watchRevision.current;
     if (docked || !current.dock.local?.expanded || !watch || !node || !sameAuthority(current.authority, authority) || !watchSlotIsCurrent(source, authority, current.fence, currentWindow.current)) return;
@@ -266,6 +313,8 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     && snapshot.firstVideoFrame.generation === initial.fence.generation;
   const Surface = adapter.Surface;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
+  const decodeProof = miniExitProof.current;
+  const exitDecodeImage = image && decodeProof?.prepared && !decodeProof.claimSettled && miniExitCurrent(decodeProof) ? image : undefined;
   const imageSettled = (state: 'ready' | 'failed') => {
     const current = adapter.getSnapshot();
     if (alive.current && image && retainedImage.current?.owner === capture && retainedImage.current.image === image && sameAuthority(current.authority, authority) && sameFence(current.fence, image.fence)) setImageState({image, state});
@@ -329,7 +378,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={watch ? {position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height} : {position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
-        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation,remote:remotePresentation}} castView={castView} morph={morph} onVideoSlot={onSlot} contentInset={contentInset}
+        {(!theme.isTV || !nowPlaying) && <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation,remote:remotePresentation}} castView={castView} morph={morph} onVideoSlot={onSlot} takeVideoExit={exitImages.take} contentInset={contentInset}
           visible={snapshot.pictureInPicture?.active !== true}
           tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
@@ -341,6 +390,11 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
+    {exitDecodeImage && decodeProof && <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{position: 'absolute', width: decodeProof.bounds.width, height: decodeProof.bounds.height, opacity: 0}}><Image accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+      source={{uri: exitDecodeImage.image.uri}} fadeDuration={0} resizeMode="contain"
+      style={{width: '100%', height: '100%'}}
+      onLoad={() => {if (miniExitCurrent(decodeProof) && retainedImage.current?.owner === capture && retainedImage.current.image === exitDecodeImage) setExitDecoded(exitDecodeImage);}}
+      onError={() => setExitDecoded(current => current === exitDecodeImage ? undefined : current)}/></View>}
     {initial && initialFull && <InitialPicturePresentation key={initialPictureKey(initial.key)} offer={initial} host={host} full={initialFull}
       dock={dockSlot} docked={docked} firstFrame={!!initialFrame} controller={morph} travel={height}/>}
     {!theme.isTV && !snapshot.retired && sameAuthority(snapshot.authority, authority) && !snapshot.startFailure && !snapshot.capacityWait
