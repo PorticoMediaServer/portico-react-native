@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {ActivityIndicator, Text, View, type LayoutChangeEvent} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
-import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
+import Animated, {Easing, cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Artwork} from '../artwork';
@@ -143,8 +143,13 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
       const direction = releaseAside(x.value, event.velocityX, width.value), version = run.value;
       if (direction) {
         const done = (finished?: boolean) => {if (finished && run.value === version && lifetime.value === gestureSource.epoch) runOnJS(dismissFromGesture)(version);};
-        if (spring) x.value = withSpring(direction * width.value * 1.25, {...spring, velocity: event.velocityX}, done);
-        else {x.value = 0; fade.value = withTiming(0, {duration: 160}, done);}
+        // The outward exit decelerates on the authored ~200 ms curve and its
+        // opacity follows the distance actually travelled; the return keeps the
+        // snap spring, and the same completion gate decides the dismissal.
+        const exitMs = 200, exitTo = direction * width.value * 1.25;
+        const travelled = Math.min(1, Math.abs(exitTo - xOrigin.value) / Math.max(1, width.value));
+        x.value = withTiming(exitTo, {duration: exitMs, easing: Easing.out(Easing.cubic)}, done);
+        fade.value = withTiming(Math.max(0, 1 - travelled - Math.abs(event.translationX) / Math.max(1, width.value)), {duration: exitMs, easing: Easing.out(Easing.cubic)});
       } else if (spring) x.value = withSpring(0, {...spring, velocity: event.velocityX});
       else {x.value = 0; fade.value = withTiming(1, {duration: 160});}
     }).onFinalize((_event, success) => {
