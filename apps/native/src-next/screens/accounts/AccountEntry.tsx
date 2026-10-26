@@ -93,6 +93,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const [setupMode, setSetupMode] = useState<'hosted' | 'local'>('hosted');
   const [setupAddress, setSetupAddress] = useState('');
   const [setupApprovalURL, setSetupApprovalURL] = useState<string>();
+  const [setupHostedOpening, setSetupHostedOpening] = useState<Readonly<{source: NativeServerSignIn; life: AbortController; owner: {live: boolean}; url?: string}>>();
   const [setupPasswordConfirm, setSetupPasswordConfirm] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
@@ -686,14 +687,25 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const stopOwnedRetry = () => {if (retryEpoch.current === epoch) stopRetry();};
     return stopOwnedRetry;
   }, [stage, target, directoryView, hostedWaiting, busy, appActive, allDirectoryOffline, servers, directoryScope]);
-  const resumeSetupRef = useRef<() => void>(() => {});
-  resumeSetupRef.current = () => {void run(async () => {
-    const source = operation.current;
-    if (!source || stageRef.current !== 'setup-hosted') return;
-    const result = await source.finishHostedSetup();
-    if (result && lifetime.current && operation.current === source) consume(result);
-  });};
-  useEffect(() => {if (stage === 'setup-hosted' && appActive) resumeSetupRef.current();}, [stage, appActive]);
+  const setupOpeningSource = operation.current;
+  useLayoutEffect(() => {
+    const source = setupOpeningSource;
+    if (stage !== 'setup-hosted' || !source) {setSetupHostedOpening(undefined); return;}
+    const owner = {live: true}, life = new AbortController();
+    setSetupHostedOpening(Object.freeze({source, owner, life, url: setupApprovalURL}));
+    return () => {owner.live = false; life.abort();};
+  }, [stage, server?.id, setupApprovalURL, setupOpeningSource]);
+  const setupOpeningCurrent = (opening: typeof setupHostedOpening) => !!opening && opening.owner.live && !opening.life.signal.aborted
+    && lifetime.current && stageRef.current === 'setup-hosted' && operation.current === opening.source;
+  const finishSetupOpening = async (opening: typeof setupHostedOpening) => {
+    if (!opening || !setupOpeningCurrent(opening)) return;
+    const current = () => setupOpeningCurrent(opening);
+    try {
+      const result = await opening.source.finishHostedSetup({signal: opening.life.signal, isCurrent: current});
+      if (result && current()) consume(result);
+    } catch (error) {if (current()) throw error;}
+  };
+  useEffect(() => {if (stage === 'setup-hosted' && appActive && setupOpeningCurrent(setupHostedOpening)) void run(() => finishSetupOpening(setupHostedOpening));}, [stage, appActive, setupHostedOpening]);
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
     requirement={requiredSetup.requirement} url={new URL('/settings/profile', requiredSetup.serverOrigin).href} busy={busy}
@@ -825,10 +837,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       <Button variant="glass" disabled={busy} onPress={() => {if (current()) void run(() => restart(true));}}>{t('accounts.setup.useLocalInstead')}</Button>);
   }
   if (stage === 'setup-hosted') return layout(t('web.claim.title', {server: server!.name}), t('accounts.setup.waiting'), undefined,
-    action('setup-resume', t('action.continue'), async () => {
-      const result = await operation.current!.finishHostedSetup();
-      if (result) consume(result);
-    }), setupApprovalURL && <Button variant="glass" disabled={busy} onPress={() => {void run(async () => {await Linking.openURL(setupApprovalURL);});}}>{t('accounts.signIn.continuePortico')}</Button>);
+    action('setup-resume', t('action.continue'), () => finishSetupOpening(setupHostedOpening)),
+    setupHostedOpening?.url && <Button variant="glass" disabled={busy} onPress={() => {const opening = setupHostedOpening;if (!opening || !setupOpeningCurrent(opening) || !opening.url) return;void run(async () => {if (setupOpeningCurrent(opening)) await Linking.openURL(opening.url!);});}}>{t('accounts.signIn.continuePortico')}</Button>);
   if (stage === 'setup-local') return layout(t('web.setup.ownerTitle'), t('web.setup.localSignInBody'),
     fields(field(t('auth.username'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password'),
       <Text key="strength" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{password ? t(passwordStrength(password).level >= 3 ? 'services.password.strong' : passwordStrength(password).level === 2 ? 'accounts.password.fair' : 'accounts.password.weak') : ''}</Text>,

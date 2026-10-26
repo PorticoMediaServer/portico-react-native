@@ -67,6 +67,11 @@ export class NativeServerSignIn {
   private ownerResetGrant?: Extract<DirectSignIn, {kind: 'signed-in'}>;
   private hostedSetup?: ReturnType<typeof createNativeSetupClaim>;
   private hostedLease?: () => boolean;
+  private setupFinishLife?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+  private setupFinishCurrent() {
+    const life = this.setupFinishLife;
+    try {return !life || !life.signal.aborted && life.isCurrent() === true;} catch {return false;}
+  }
   private directoryFactor?: Readonly<{api: HttpLocalApi; token: string; expiresAt: string; assert: () => void; retire: (fresh: LocalSession) => Promise<void>}>;
   private memberMove?: {dispose: () => void};
   private porticoInvitation?: NativePorticoInvitation<Awaited<ReturnType<NativeServerSignIn['signInLocal']>>>;
@@ -79,7 +84,7 @@ export class NativeServerSignIn {
     this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
     this.unfence = owner.onCancel(() => this.cancel());
   }
-  private current = (): boolean => !this.controller.signal.aborted && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease()) && (!this.localInvitation || this.localInvitation.current()) && (!this.invitationBinding || this.invitationBinding()) && (!this.porticoInvitation || this.porticoInvitation.current());
+  private current = (): boolean => !this.controller.signal.aborted && this.setupFinishCurrent() && installationIdentity() === this.installation && (!this.hostedLease || this.hostedLease()) && (!this.localInvitation || this.localInvitation.current()) && (!this.invitationBinding || this.invitationBinding()) && (!this.porticoInvitation || this.porticoInvitation.current());
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   /** Read-only lifetime fence for the original phone directory contact; never admission evidence. */
   ownerRecoveryCurrent() {return this.current() && !this.complete;}
@@ -220,15 +225,21 @@ export class NativeServerSignIn {
       this.hostedSetup = undefined; this.server = checked;
     });
   }
-  finishHostedSetup() {
+  finishHostedSetup(lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) {
     return this.run(async () => {
+      const retire = () => this.dispose();
+      this.setupFinishLife = lifetime;
+      lifetime?.signal.addEventListener('abort', retire, {once: true});
+      try {
+      this.assertCurrent();
       const claim = this.hostedSetup;
       if (!claim || !this.server) throw mismatch();
       const completed = await claim.finishInstalled();
       if (!completed) {this.assertCurrent(); return undefined;}
       try {
       const {api, result, admission, hosted, draft} = completed, routes = api.getRouteConnection();
-      const retained = await nativeAppSessions.read();
+      this.assertCurrent();
+      const retained = await nativeAppSessions.read(); this.assertCurrent();
       if (!routes || retained.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) throw mismatch();
       this.api = api; this.admission = admission; this.hosted = hosted;
       this.setupIssuers.set(result.session.sessionFamilyId, {origin: api.baseUrl, routes, pin: {...routes.pin}});
@@ -237,13 +248,19 @@ export class NativeServerSignIn {
         this.assertCurrent(); this.server = {...this.server, signIn: 'portico', setupRequired: false};
         const accepted = await this.consume(result);
         await nativeSetupDraft(result.snapshot.serverId).change(old => {
-          this.assertCurrent();
+          // An accepted publication can itself unmount this form. Its cleanup
+          // spends only the original setup draft, never successor authority.
+          if (!this.complete) this.assertCurrent();
           if (!old || old.requestId !== draft.requestId || old.setupToken !== draft.setupToken || old.authMode !== 'hosted') throw mismatch();
           return undefined;
         });
         return accepted;
       } catch (error) {await this.retire(result.session); throw error;}
       } catch (error) {await completed.release(); throw error;}
+      } finally {
+        lifetime?.signal.removeEventListener('abort', retire);
+        if (this.setupFinishLife === lifetime) this.setupFinishLife = undefined;
+      }
     });
   }
   prepareOwnerReset() {
