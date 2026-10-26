@@ -1276,7 +1276,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   if (stage === 'servers' && directoryList === 'loading') return <StateLayout testID="accounts-server-list-loading" title={t('web.chooser.loading')}/>;
   if (stage === 'servers' && directoryList === 'failed') return <StateLayout testID="accounts-server-list-failed" icon="i-warn" tone="error"
     title={t('web.chooser.loadFailed')} body={t('web.chooser.loadFailedBody')}
-    primaryAction={{id: 'retry-server-list', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => {void run(directory);}}}/>;
+    // connect#13: the one button that helps holds the starting focus.
+    primaryAction={{id: 'retry-server-list', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, hasTVPreferredFocus: true, onPress: () => {void run(directory);}}}/>;
   if (stage === 'servers' && target && directoryIdentityUnconfirmed(error)) return <StateLayout testID="accounts-server-unconfirmed" icon="i-question"
     title={t('web.chooser.unconfirmedTitle', {server: target.name})} body={t('web.chooser.unconfirmedBody')}
     primaryAction={{id: 'retry-identity', label: t('web.chooser.tryAgain'), icon: 'i-retry', loading: busy, disabled: busy, onPress: () => connectDirectory(target, true)}}

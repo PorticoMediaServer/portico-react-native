@@ -9,6 +9,7 @@ export function DirectoryAccessRefused({serverName, busy, onOther, onRefresh}: R
   const t = defaultI18n.t;
   return <StateLayout testID="accounts-server-refused" icon="i-userx" tone="error"
     title={t('web.chooser.refusedTitle', {server: serverName})} body={t('web.chooser.refusedBody')}
-    primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, onPress: onOther}}
+    // connect#12: Choose another server goes back to the list and holds the starting focus.
+    primaryAction={{id: 'choose-another', label: t('web.chooser.otherServer'), disabled: busy, hasTVPreferredFocus: true, onPress: onOther}}
     secondaryAction={{id: 'refresh-servers', label: t('accounts.servers.refresh'), loading: busy, disabled: busy, onPress: onRefresh}}/>;
 }
