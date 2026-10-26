@@ -309,8 +309,8 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   const shelfWidth = expanded ? 142 : theme.platform === 'phone' ? 118 : 150, shelfHeight = shelfWidth * 3 / 2;
   const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: expanded ? 28 : 30}}>
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: expanded ? 14 : 10, paddingHorizontal: inset, marginBottom: expanded ? 14 : 10}}>
-      <Text accessibilityRole="header" style={[browseType(theme, expanded ? 21 : 19, 700, -.015), {color: theme.colors.text}]}>{t('next.kit.booksInSeries')}</Text>
-      <Text numberOfLines={1} style={[browseType(theme, expanded ? 14 : 13, expanded ? 400 : 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{series.name}</Text>
+      <Text accessibilityRole="header" style={[browseType(theme, expanded ? 21 : 19, 700, -.015), {color: theme.colors.text}]}>{t('next.reader.restOfSeries')}</Text>
+      <Text numberOfLines={1} style={[browseType(theme, expanded ? 14 : 13, expanded ? 400 : 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.reader.seriesInOrder', {series: series.name})}</Text>
       <Focusable testID="native-read-book-series-all" accessibilityRole="link" accessibilityLabel={t('next.layout.seeAll')} hitSlop={10}
         onPress={() => onSeries(series, manifest)} style={{marginLeft: 'auto'}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: expanded ? 2 : 4}}>
