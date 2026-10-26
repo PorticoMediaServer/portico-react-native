@@ -132,12 +132,19 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   </View>;
 }
 
-/** The drawn volume card, shared with the book page's series shelf. */
-export function VolumeCard({item, width, height, comic, theme, runtime, progression, onOpen}: {
+/** The drawn volume card, shared with the book page's series shelf. The shelf
+ * variant only changes the measured title/number metrics and their order to the
+ * frame's card (title above its "Book N" line); the series page keeps its own. */
+export function VolumeCard({item, width, height, comic, theme, runtime, progression, onOpen, variant = 'default'}: {
   item: ReadingItem; width: number; height: number; comic: boolean; theme: ReturnType<typeof useTheme>;
-  runtime: NativeShellRuntime; progression?: number; onOpen: () => void;
+  runtime: NativeShellRuntime; progression?: number; onOpen: () => void; variant?: 'default' | 'shelf';
 }) {
-  const number = item.series?.number;
+  const number = item.series?.number, shelf = variant === 'shelf';
+  const numberLabel = number === undefined ? undefined : t(comic ? 'next.reader.volumeNumber' : 'next.reader.bookNumber', {number: defaultI18n.number(number, {maximumFractionDigits: 20})});
+  const numberText = numberLabel === undefined ? null : <Text numberOfLines={1} style={[browseType(theme, shelf ? 13 : 11.5, shelf ? 400 : 600), {color: theme.colors.textTertiary, marginTop: shelf ? 2 : 7}]}>
+    {numberLabel}
+  </Text>;
+  const titleText = <Text numberOfLines={shelf ? 1 : 2} style={[browseType(theme, shelf ? 13.5 : 13, 600), {color: theme.colors.text, marginTop: shelf ? 10 : number !== undefined ? 2 : 7}]}>{item.title}</Text>;
   return <Focusable accessibilityRole="button" accessibilityLabel={item.title} focusKind="row" focusRadius={10} onPress={onOpen} style={{width}}>
     <View style={{width, height, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {runtime.artwork(item.coverUrl) ? <Artwork source={runtime.artwork(item.coverUrl)} width={width} height={height}/>
@@ -146,10 +153,7 @@ export function VolumeCard({item, width, height, comic, theme, runtime, progress
         <View style={{width: `${progression * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
       </View> : null}
     </View>
-    {number !== undefined ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 600), {color: theme.colors.textTertiary, marginTop: 7}]}>
-      {t(comic ? 'next.reader.volumeNumber' : 'next.reader.bookNumber', {number: defaultI18n.number(number, {maximumFractionDigits: 20})})}
-    </Text> : null}
-    <Text numberOfLines={2} style={[browseType(theme, 13, 600), {color: theme.colors.text, marginTop: number !== undefined ? 2 : 7}]}>{item.title}</Text>
-    {item.author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
+    {shelf ? <>{titleText}{numberText}</> : <>{numberText}{titleText}</>}
+    {item.author && !shelf ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
   </Focusable>;
 }
