@@ -241,3 +241,29 @@ test('a motion-policy change immediately retires the prior admission and remeasu
     assert.equal(r.deliveries.length, 1, 'late old animation and native callbacks stay retired');
   } finally {r.close();}
 });
+
+// Authored source vector, UNRUN: this hook/native-prop fixture does not measure
+// physical glass, decoded outgoing video or a native presentation handover.
+test('a touch occupant handover keeps settled glass in place and admits only the new slot completion', async () => {
+  const r = await rig();
+  try {
+    await r.start();
+    const first = r.timings.filter(timing => !!timing.complete).at(-1)!;
+    await r.complete(first);
+    assert.equal(r.translatedY(), 0);
+    const nextFence = {...fence, generation: 2, sourceId: 'second-source', itemId: 'second-item'};
+    r.dock.start({...video, fence: nextFence});
+    await r.render({presentation: {local: {...presentation, fence: nextFence}}});
+    const handover = r.timings.filter(timing => !!timing.complete).at(-1)!;
+    assert.notEqual(handover, first);
+    assert.equal(r.translatedY(), 0, 'the existing glass never resets to its insertion offset');
+    const before = r.deliveries.length;
+    await r.complete(first); r.layoutEvent();
+    for (const measurement of r.measurements) measurement.deliver();
+    assert.equal(r.deliveries.length, before, 'a retired completion cannot admit successor geometry');
+    await r.complete(handover);
+    r.measurements.at(-1)!.deliver();
+    assert.equal(r.deliveries.length, before + 1);
+    assert.equal(r.translatedY(), 0);
+  } finally {r.close();}
+});

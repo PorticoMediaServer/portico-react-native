@@ -37,7 +37,11 @@ export function useDockPresence(wanted: DockRenderOccupant | null, tv: boolean) 
     entering.current = next ? {version, isCurrent: () => ownedEpoch.current === version && intent.current === target} : null;
     if (!next) {
       animation.value = withTiming(0, motion.timing('quick', 'in'), finished => {if (finished) runOnJS(finishExit)(version);});
-    } else if (old && sameDockFence(old.playback.fence, next.playback.fence) && old.mode === next.mode) {
+    } else if (old && (!tv || sameDockFence(old.playback.fence, next.playback.fence) && old.mode === next.mode)) {
+      // A touch handover changes the contents of the existing glass. Retarget
+      // from its actual paint if an insertion/exit was interrupted; resetting
+      // this ancestor would blank and move both old and new contents together.
+      // The new slot still waits for this run's own settled ancestor.
       animation.value = withTiming(1, motion.timing('standard'), finished => {if (finished) runOnJS(finishEnter)(version);});
     } else {
       const returningPaused = !next.remote && !next.playback.playing && (next.mode === 'music' || next.mode === 'audiobook');
