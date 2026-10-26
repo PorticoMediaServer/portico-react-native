@@ -11,7 +11,7 @@ import {offlineDownloads} from '../../../platform/offline-downloads';
 import type {ReadingHostSession} from '../../../../../packages/client-core/src/reading-host';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
-import {StateView, SkeletonBlock} from '../../kit/states';
+import {LoadingPaint, StateView, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
@@ -196,7 +196,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active ? 1 : 0}}>
     {state.failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
       primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active, onPress: () => setRetry(value => value + 1)}}/>
-      : state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
+      : <LoadingPaint ready={!!state.url} immediate={!!state.url} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}>
+        {state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
         originWhitelist={['*']} onShouldStartLoadWithRequest={request => readerNavigationAllowed(state.url!, request.url, request.isTopFrame)}
         injectedJavaScriptBeforeContentLoaded={__DEV__ ? readerStartupProbe : undefined}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly
@@ -211,7 +212,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
         onError={failRenderedReader}
         onContentProcessDidTerminate={failRenderedReader}
-        onRenderProcessGone={failRenderedReader}/>
-      : <SkeletonBlock width="100%" style={{flex: 1}}/>}
+        onRenderProcessGone={failRenderedReader}/> : null}
+      </LoadingPaint>}
   </View>;
 }
