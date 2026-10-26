@@ -15,7 +15,7 @@ import {registerOverlayKeys} from '../../../platform/overlay-keys';
 import {NativeWatchEqualizer, type NativeEqualizerCopy} from '../../watch/Equalizer';
 import {MusicSignalLine, MusicSignalSheet} from './MusicSignal';
 import {NativeListeningNotice} from './ListeningNotice';
-import {NowPlayingQueue, nowPlayingQueueRows, nowPlayingQueueFocusScope} from './NowPlayingQueue';
+import {NowPlayingQueue, nowPlayingQueueRows, nowPlayingQueueFocusScope, nowPlayingQueueEditPort} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import type {NowPlayingScreenProps} from './NowPlayingScreen';
 import {useTVQueuePolicy} from './TVQueuePolicy';
@@ -27,7 +27,7 @@ export function TVNowPlayingScreen(props: NowPlayingScreenProps & {equalizerCopy
   return <TVPageTransition open={props.tvOpen ?? true} onExited={props.onTVExited ?? (() => {})}><TVNowPlayingContent {...props}/></TVPageTransition>;
 }
 
-function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, onClose, signal, notice,
+function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, policyLifetime, queueEdit, onClose, signal, notice,
   reportError = () => {}, testID = 'now-playing', lyrics, equalizerCopy}: NowPlayingScreenProps & {equalizerCopy: NativeEqualizerCopy}) {
   const theme = useTheme(), t = defaultI18n.t, id = useId(), canvas = shellLayout(width, height, true);
   const page = useTVPageMotion();
@@ -128,6 +128,8 @@ function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction,
         {queue && <TVPageGroup index={2} style={{position: 'absolute', left: 1440, right: 96, top: 230, height: 750}}>
           <Text style={[type(32, 700, -0.019), {color: theme.colors.text, marginBottom: 6}]}>{t('next.music.upNext')}</Text>
           <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork}
+            queueEdit={nowPlayingQueueEditPort(queue, occupant.playback.fence, queueEdit)}
+            menuScope={{fenceKey: JSON.stringify(occupant.playback.fence), lease: queueEdit?.lease ?? policyLifetime}}
             interactive={page.open && page.ready} focusScopeKey={nowPlayingQueueFocusScope(occupant.playback.fence)} regionId={`${id}.queue`} edges={{left: `${id}.transport`}}/>
         </TVPageGroup>}
       </View>

@@ -8,6 +8,8 @@ import {durationText} from '../../../../../../packages/client-core/src/presentat
 import {Artwork} from '../../../kit/artwork';
 import {Focusable} from '../../../kit/controls';
 import {FocusRegion, type FocusEdges} from '../../../kit/focus';
+import type {NowPlayingScreenProps} from './NowPlayingScreen';
+import {useTVQueueSongMenu} from './TVQueueSongMenu';
 import {useStableFocusOrder} from '../../../kit/focus/useStableFocusOrder';
 import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {useTheme} from '../../../kit/theme';
@@ -36,6 +38,7 @@ export type NowPlayingQueueProps = Readonly<{
   /** The actual listening fence, so no order can cross a viewer/playback lifetime. */
   focusScopeKey?: string;
   interactive?: boolean;
+  menuScope?: Readonly<{fenceKey: string; lease?: object}>;
   edges?: FocusEdges;
   /** The guarded queue edit. `entry` is the accepted window's own fact for a row; without it
    * no row advertises an edit, so a drawn slot is never mistaken for admission. */
@@ -45,9 +48,10 @@ export type NowPlayingQueueProps = Readonly<{
   testID?: string;
 }>;
 
-type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean;
+export type NowPlayingQueueRow = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean;
   position?: number; available?: boolean; segmentId?: string}>;
 /** Everything one open sheet may act on; never read from a later render. */
+type Row = NowPlayingQueueRow;
 const queueRowKey = (row: Row) => row.entryId;
 type RowOpening = Readonly<{row: Row; previous?: Row; next?: Row; queueId: string; revision: string; fenceKey: string; lease?: object;
   apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
@@ -92,10 +96,18 @@ export function nowPlayingQueueRows(view: QueuePlaybackView, options: Readonly<{
   });
 }
 
+/** The same accepted-window binding the touch presenter already uses; no command guard changes. */
+export function nowPlayingQueueEditPort(view: QueuePlaybackView | undefined, fence: PlaybackFence, edit: NowPlayingScreenProps['queueEdit']): NowPlayingQueueProps['queueEdit'] {
+  const window = view ? nowPlayingQueueWindow(view) : undefined;
+  return edit?.enabled && window ? {enabled: true, lease: edit.lease, fenceKey: JSON.stringify(fence),
+    entry: entryId => nowPlayingQueueEntry(window, entryId),
+    apply: (intent, queueId, revision) => edit.apply(fence, intent, queueId, revision)} : undefined;
+}
+
 /** tv#7: bounded memory belongs to the actual queue run, including its viewer scope. */
 const rememberedRow = new Map<string, string>();
 
-export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey, interactive = true, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
+export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey, interactive = true, menuScope, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
   const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view), [rowMenu, setRowMenu] = useState<RowOpening>(), rowMenuRef = useRef<RowOpening | undefined>(undefined);
   const current = rows.filter(row => row.current), upcoming = rows.filter(row => !row.current), window = nowPlayingQueueWindow(view);
   // Only a real segment label names a run; an unlabeled run keeps the plain Up next heading
@@ -112,6 +124,10 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
     items: upcoming, allItems: tv ? nowPlayingQueueRows(view, {includePlayed: true}) : rows,
     memberIds: new Set(visibleEntries(view).map(entry => entry.id))});
   const tvUpcoming = stable.map(row => row.current === (row.entryId === view.queue.currentEntryId) ? row : {...row, current: row.entryId === view.queue.currentEntryId});
+  const songMenu = useTVQueueSongMenu({enabled: tv && interactive, queueId: view.queue.id, revision: view.queue.revision,
+    context: focusScopeKey && menuScope ? {...menuScope, scopeKey: focusScopeKey} : undefined,
+    upcomingIds: new Set(upcoming.map(row => row.entryId)), entry: entryId => nowPlayingQueueEntry(window, entryId),
+    onPlay, edit: queueEdit, testID});
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
   const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
@@ -201,7 +217,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
     </View>;
   };
   /** tv#7's row: 88 high, the album cover 72 squared and rounded 10, the title at 22, the artist
-   * at 19 and the duration at 19; only the entries the engine will really play next. */
+   * at 19 and the duration at 19; held native rows keep their actual playing marker. */
   const tvRow = (value: Row) => {
     const source = artwork?.(value.posterUrl);
     const body = <>
@@ -215,8 +231,10 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
     </>;
     const props = {testID: `${testID}-row-${value.entryId}`, focusId: `${testID}-${value.entryId}`, focusKind: 'row' as const, focusRadius: 10,
       accessibilityRole: 'button' as const, accessibilityLabel: t('player.queuePlay', {title: value.title})};
-    return <Focusable key={value.entryId} {...props} disabled={!canPlay || !interactive} focusableWhenDisabled={interactive}
+    const canHold = songMenu.canOpen(value);
+    return <Focusable key={value.entryId} {...props} disabled={!interactive || !canPlay && !canHold} focusableWhenDisabled={interactive}
       onFocus={() => remember(value.entryId)} onPress={canPlay && interactive ? () => onPlay!(view.queue.id, value.entryId, view.queue.revision) : undefined}
+      onLongPressAction={canHold ? () => songMenu.open(value) : undefined}
       style={({focused}) => ({height: 88, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 18, borderRadius: 15,
         backgroundColor: focused ? theme.colors.raisedHigh : 'transparent'})}>{body}</Focusable>;
   };
@@ -247,6 +265,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
         ? <FocusRegion id={regionId} enabled={interactive} entry={entry ? `${testID}-${entry}` : undefined} order={tvUpcoming.map(row => `${testID}-${row.entryId}`)}
           orientation="vertical" edges={edges} style={{flex: 1}}>{rows}</FocusRegion>
         : rows}
+      {songMenu.menu}
     </View>;
   }
   return <View testID={testID} style={{flex: 1, minHeight: 0}}>

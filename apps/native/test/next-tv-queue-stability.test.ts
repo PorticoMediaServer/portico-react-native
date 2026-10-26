@@ -29,12 +29,15 @@ async function fixture() {
   const {useStableFocusOrder} = await screenModule(new URL('../src-next/kit/focus/useStableFocusOrder.ts', import.meta.url), {
     ...modules, './FocusRegion': {useOptionalFocusRegistry: () => registry}, './stable-order': {createStableFocusOrder},
   });
-  const {NowPlayingQueue, nowPlayingQueueFocusScope} = await screenModule(new URL('../src-next/screens/destinations/music/NowPlayingQueue.tsx', import.meta.url), {
+  const {useTVQueueSongMenu} = await screenModule(new URL('../src-next/screens/destinations/music/TVQueueSongMenu.tsx', import.meta.url), {
+    ...modules, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/overlays': {Menu: 'Menu'},
+  });
+  const {NowPlayingQueue, nowPlayingQueueFocusScope, nowPlayingQueueEditPort} = await screenModule(new URL('../src-next/screens/destinations/music/NowPlayingQueue.tsx', import.meta.url), {
     ...modules, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     '../../../../../../packages/i18n/src': {defaultI18n}, '../../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
     '../../../kit/artwork': {Artwork: 'Artwork'}, '../../../kit/controls': {Focusable: 'Focusable'},
     '../../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../../kit/focus/useStableFocusOrder': {useStableFocusOrder},
-    '../../../kit/overlays': {Menu: 'Menu'}, '../../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})},
+    './TVQueueSongMenu': {useTVQueueSongMenu}, '../../../kit/overlays': {Menu: 'Menu'}, '../../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})},
     '../../../kit/browse/presentation': {browseType: () => ({})},
   });
   const entries = ['a', 'b', 'c', 'd'].map(id => ({id, hidden: false, removed: false}));
@@ -46,7 +49,7 @@ async function fixture() {
     const region = nodes(tree).find(node => node.type === 'FocusRegion'); registry.configure(region.props);
     for (const row of nodes(tree).filter(node => node.type === 'Focusable')) registry.attach({regionId: 'queue-region', childId: row.props.focusId}, {requestTVFocus() {requests++;}});
   };
-  return {props, calls, registry, render, bind, nowPlayingQueueFocusScope, requests: () => requests};
+  return {props, calls, registry, render, bind, nowPlayingQueueFocusScope, nowPlayingQueueEditPort, requests: () => requests};
 }
 const rows = (tree: any) => nodes(tree).filter(node => node.type === 'Focusable');
 const ids = (tree: any) => rows(tree).map(row => row.props.focusId);
@@ -91,4 +94,35 @@ test('the actual queue-run scope survives an entry fence change but rejects anot
   f.props.interactive = false; const tree = f.render();
   assert.equal(nodes(tree).find(node => node.type === 'FocusRegion').props.enabled, false);
   for (const row of rows(tree)) {assert.equal(row.props.disabled, true); assert.equal(row.props.focusableWhenDisabled, false); assert.equal(row.props.onPress, undefined);}
+});
+
+
+test('the TV song binding needs an accepted exact queue window and forwards the original fence and revision to its existing guard', async () => {
+  const f = await fixture(), calls: unknown[] = [], fence: any = {kind: 'queue', playback: {scope: {}, run: 1}};
+  const lease = {}, edit = {enabled: true, lease, apply: (...args: unknown[]) => calls.push(args)};
+  assert.equal(f.nowPlayingQueueEditPort(f.props.view, fence, edit), undefined);
+  const view = {...f.props.view, window: {queueId: 'real-queue', revision: '1', segments: [], entries: [{entryId: 'b', position: 1, available: true}]}};
+  const port = f.nowPlayingQueueEditPort(view, fence, edit)!;
+  assert.equal(port.lease, lease); assert.deepEqual(port.entry('b'), view.window.entries[0]);
+  port.apply({action: 'remove', entryId: 'b'}, 'real-queue', '1');
+  assert.deepEqual(calls, [[fence, {action: 'remove', entryId: 'b'}, 'real-queue', '1']]);
+  for (const window of [{...view.window, revision: 'retired'}, {...view.window, queueId: 'another'}, {...view.window, entries: [...view.window.entries, ...view.window.entries]}]) {
+    assert.equal(f.nowPlayingQueueEditPort({...view, window}, fence, edit), undefined);
+  }
+  assert.equal(f.nowPlayingQueueEditPort(view, fence, {...edit, enabled: false}), undefined);
+});
+
+test('the actual TV row supplies Hold OK only from its current accepted source and keeps the shared menu mounted for exit', async () => {
+  const f = await fixture(), lease = {}, fenceKey = 'original-track-fence', edits: unknown[] = [];
+  f.props.menuScope = {lease, fenceKey};
+  f.props.view = {...f.props.view, window: {queueId: 'real-queue', revision: '1', segments: [], entries: [{entryId: 'b', available: true, position: 1}]}};
+  f.props.queueEdit = {enabled: true, lease, fenceKey, entry: () => f.props.view.window.entries[0], apply: (...args: unknown[]) => edits.push(args)};
+  let tree = f.render(), row = rows(tree)[0]; assert.equal(typeof row.props.onLongPressAction, 'function');
+  assert.equal(rows(tree)[1].props.onLongPressAction, undefined, 'an unknown row has no invented admission');
+  row.props.onLongPressAction(); tree = f.render();
+  let menu = nodes(tree).find(node => node.type === 'Menu'); assert.equal(menu.props.open, true); assert.equal(menu.props.presentation, 'sideSheet');
+  assert.deepEqual(menu.props.items.map((item: any) => item.id), ['play-now', 'remove']);
+  const old = menu.props.items[1].onSelect; menu.props.onOpenChange(false); tree = f.render(); menu = nodes(tree).find(node => node.type === 'Menu');
+  assert.equal(menu.props.open, false, 'logical close preserves the shared menu host for actual-exit restoration');
+  old(); assert.deepEqual(edits, [], 'a retired outgoing paint callback has no command');
 });
