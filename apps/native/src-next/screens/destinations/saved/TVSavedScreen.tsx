@@ -10,7 +10,7 @@ import {Button, Chip, Focusable} from '../../../kit/controls';
 import {PosterCard, SquareCard} from '../../../kit/cards';
 import {Menu} from '../../../kit/overlays';
 import {StateView} from '../../../kit/states';
-import {FocusRegion} from '../../../kit/focus';
+import {FocusRegion, focusTestID} from '../../../kit/focus';
 import type {NativeSavedSelectionPort} from '../../saved/SavedScreen';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
@@ -326,11 +326,18 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     : tab === 'history' ? (snapshot.entries[0] ? `saved-history-${encodeURIComponent(snapshot.entries[0].id)}` : undefined)
       : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
         : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
-  useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
+  // An empty page draws its own Browse Home action, and that is where entry focus belongs when
+  // there is no card to land on: the same child the empty state gives its primary action.
+  const emptyEntry = !firstChild && snapshot.phase === 'ready'
+    && (tab === 'history' ? snapshot.entries.length === 0
+      : tab === 'watchlist' || tab === 'favorites' ? !posters.length && !squares.length : false)
+    ? focusTestID('saved-empty', JSON.stringify(['action', 'browse-home'])) : undefined;
+  const entryChild = firstChild ?? emptyEntry;
+  useDestinationEntryFocus(active, entryChild ? {regionId: ids.savedGrid, childId: entryChild} : undefined);
   useTVPageBack(runtime, {kind: 'saved'}, theme.isTV, {
     registerTop: true, scope: JSON.stringify([active.revision, tab, sort, filter, period]),
     current: () => activation.getSnapshot().visible,
-    start: () => firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined,
+    start: () => entryChild ? {regionId: ids.savedGrid, childId: entryChild} : undefined,
     atTop: () => scrollY <= 0, scrollTop: () => page.current?.scrollTo({y: 0, animated: false}),
   });
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
