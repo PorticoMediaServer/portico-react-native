@@ -10,7 +10,7 @@ import type {DockVideoExitPaint} from './video-exit-paint';
 import type {PlaybackFence} from '../../../../../packages/player-core/src';
 
 type Pose = Readonly<{alpha: number; x: number; y: number; scale: number}>;
-type Paint = Readonly<{alpha: SharedValue<number>; x: SharedValue<number>; y: SharedValue<number>; scale: SharedValue<number>; videoPortal?: boolean}>;
+type Paint = Readonly<{alpha: SharedValue<number>; x: SharedValue<number>; y: SharedValue<number>; scale: SharedValue<number>; hideArt?: boolean}>;
 const Phase = createContext<Paint | undefined>(undefined);
 const noSubscribe = () => () => {};
 type ExitCanvas = Readonly<{publish(key: string, node: React.ReactNode): () => void; entries: ReadonlyMap<string, React.ReactNode>}>;
@@ -47,7 +47,7 @@ export type DockPaintRowProps = Readonly<{
 export function DockPaintRow({opener, art, words, controls, tools, line, expanded, containerStyle, textStyle, rowGap}: DockPaintRowProps) {
   const paint = useContext(Phase), motion = useMotion();
   const alpha = paint?.alpha, x = paint?.x, y = paint?.y, scale = paint?.scale;
-  const artStyle = useAnimatedStyle(() => ({opacity: paint?.videoPortal ? 0 : alpha?.value ?? 1, transform: [{scale: motion.transforms ? scale?.value ?? 1 : 1}]}));
+  const artStyle = useAnimatedStyle(() => ({opacity: paint?.hideArt ? 0 : alpha?.value ?? 1, transform: [{scale: motion.transforms ? scale?.value ?? 1 : 1}]}));
   const wordsStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{translateX: motion.transforms ? x?.value ?? 0 : 0}, {translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
   const controlStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
   const lineStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1}));
@@ -66,7 +66,7 @@ export function DockPaintRow({opener, art, words, controls, tools, line, expande
   </View>;
 }
 
-type Retiring = Readonly<{key: string; node: OverlayPaintNode; pose: Pose; targetX: number; video?: DockVideoExitPaint}>;
+type Retiring = Readonly<{key: string; node: OverlayPaintNode; pose: Pose; targetX: number; skipArt?: boolean; video?: DockVideoExitPaint}>;
 const sameTarget = (a: DockRenderOccupant, b: DockRenderOccupant) => sameDockFence(a.playback.fence, b.playback.fence)
   && a.mode === b.mode && a.remote?.id === b.remote?.id && a.remote?.phase === b.remote?.phase;
 // Receiver sequence/position updates still retire input callbacks in MediaBar;
@@ -104,7 +104,7 @@ function RetiringRow({entry, done}: {entry: Retiring; done: (key: string) => voi
   useEffect(() => {if (!valid) done(entry.key);}, [valid, done, entry.key]);
   if (!valid) return null;
   return <OverlayPaintProvider mode={OVERLAY_PAINT_INERT}><View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{position: 'absolute', inset: 0}}>
-    <Phase.Provider value={{alpha, x, y, scale, videoPortal: portal}}>{entry.node}</Phase.Provider>
+    <Phase.Provider value={{alpha, x, y, scale, hideArt: portal || entry.skipArt}}>{entry.node}</Phase.Provider>
   </View></OverlayPaintProvider>;
 }
 
@@ -140,7 +140,7 @@ export function DockHandover({occupant, row, allowedTypes, takeVideoExit}: {occu
           node = React.cloneElement(node, {art: captured});
         }
       }
-      if (node) setRetiring(current => [...current, {key: `dock-swap-${++sequence.current}`, node: node!, pose, targetX: pose.x - delta, video}]);
+      if (node) setRetiring(current => [...current, {key: `dock-swap-${++sequence.current}`, node: node!, pose, targetX: pose.x - delta, skipArt: old.occupant.mode === 'video' && !video, video}]);
       cancelAnimation(alpha); cancelAnimation(x); cancelAnimation(y); cancelAnimation(scale);
       if (node) {
         alpha.value = 0; x.value = motion.transforms ? delta : 0; y.value = motion.transforms ? 6 : 0; scale.value = motion.transforms ? .85 : 1;

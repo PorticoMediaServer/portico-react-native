@@ -138,3 +138,18 @@ test('only an offered original video file is painted, and retirement disposes th
   } finally {outgoing.host.unmount(); r.close(); await Promise.resolve();}
   assert.equal(releases, 1);
 });
+
+
+test('missing original video permission skips old picture pixels while retaining inert words and controls', async () => {
+  const r = await rig();
+  await r.mount({occupant: occupant('video', 'video'), row: r.row('Video', 80)});
+  await r.update({occupant: occupant('audio'), row: r.row('Audio', 44)});
+  const entry = r.retiring()[0], outgoing = r.mountRetiring(entry);
+  try {
+    assert.equal(entry.props.entry.video, undefined);
+    assert.equal(entry.props.entry.skipArt, true);
+    assert.equal(outgoing.phase().hideArt, true);
+    assert.equal(entry.props.entry.node.props.words.props.children, 'Video');
+    assert.equal(outgoing.tree.props.mode, INERT);
+  } finally {outgoing.host.unmount(); r.close();}
+});
