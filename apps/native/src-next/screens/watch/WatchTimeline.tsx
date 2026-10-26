@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
+import Animated, {runOnJS, useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -73,17 +74,62 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
       previewRef.current = next; setPreview(next); onPreview?.(next); controls.scrub(fence, true);
     } else void playback.seek(fence, next).catch(reportError);
   });
-  const target = useCallback((x: number) => width.current > 0 && span > 0 ? Math.max(start, Math.min(end, start + x / width.current * span)) : undefined, [start, end, span]);
-  const gesture = useMemo(() => Gesture.Pan().enabled(enabled && source.capabilities.seek).minDistance(0).runOnJS(true)
-    .onBegin(event => {if (!fence || !current()) return; dragging.current = true; controls.scrub(fence, true); const landing = target(event.x); setPreview(landing); onPreview?.(landing);})
-    .onUpdate(event => {if (!dragging.current || !current()) return; const landing = target(event.x); setPreview(landing); onPreview?.(landing);})
-    .onEnd(event => {
-      const seconds = target(event.x);
-      if (fence && dragging.current && current() && seconds !== undefined) void playback.seek(fence, seconds).catch(reportError);
-    }).onFinalize(() => {dragging.current = false; setPreview(undefined); onPreview?.(undefined); if (fence) controls.scrub(fence, false);}),
-    [enabled, fence, source.capabilities.seek, playback, controls, reportError, current, target, onPreview]);
+  // The touch bar paints its own progress and knob from the real pointer on the UI
+  // thread; the preview seconds, the time label and the single lift seek stay on
+  // the existing callbacks below, so nothing here commits a position.
+  const travel = useSharedValue(0), paintFraction = useSharedValue(0), dragFraction = useSharedValue<number | null>(null);
+  // No fraction, no span or no measured travel means no preview and no seek, exactly as the
+  // previous unmeasured track behaved.
+  const secondsAt = useCallback((fraction: number | undefined) => fraction === undefined || !(span > 0) ? undefined : Math.max(start, Math.min(end, start + fraction * span)), [start, end, span]);
+  const beginDrag = useCallback((fraction: number | undefined) => {
+    if (!fence || !current()) return;
+    dragging.current = true; controls.scrub(fence, true);
+    const landing = secondsAt(fraction); setPreview(landing); onPreview?.(landing);
+  }, [controls, current, fence, onPreview, secondsAt]);
+  const updateDrag = useCallback((fraction: number) => {
+    if (!dragging.current || !current()) return;
+    const landing = secondsAt(fraction); setPreview(landing); onPreview?.(landing);
+  }, [current, onPreview, secondsAt]);
+  const finishDrag = useCallback((fraction: number, success: boolean) => {
+    // Only the library's own success argument proves a lift; a cancel reaches
+    // onEnd(event, false) and commits nothing.
+    if (success !== true) return;
+    const seconds = secondsAt(fraction);
+    if (fence && dragging.current && current() && seconds !== undefined) void playback.seek(fence, seconds).catch(reportError);
+  }, [current, fence, playback, reportError, secondsAt]);
+  const endDrag = useCallback(() => {
+    dragging.current = false; setPreview(undefined); onPreview?.(undefined); if (fence) controls.scrub(fence, false);
+  }, [controls, fence, onPreview]);
+  const gesture = useMemo(() => Gesture.Pan().enabled(enabled && source.capabilities.seek).minDistance(0)
+    .onBegin(event => {
+      if (!(travel.value > 0)) {runOnJS(beginDrag)(undefined); return;}
+      const fraction = Math.max(0, Math.min(1, event.x / travel.value));
+      dragFraction.value = fraction;
+      runOnJS(beginDrag)(fraction);
+    })
+    .onUpdate(event => {
+      if (!(travel.value > 0)) return;
+      const fraction = Math.max(0, Math.min(1, event.x / travel.value));
+      dragFraction.value = fraction;
+      runOnJS(updateDrag)(fraction);
+    })
+    .onEnd((event, success) => {
+      if (success !== true || !(travel.value > 0)) return;
+      runOnJS(finishDrag)(Math.max(0, Math.min(1, event.x / travel.value)), true);
+    }).onFinalize(() => {dragFraction.value = null; runOnJS(endDrag)();}),
+    [enabled, source.capabilities.seek, beginDrag, updateDrag, finishDrag, endDrag, travel, dragFraction]);
   const position = preview ?? source.playback.positionSeconds, progress = span > 0 ? Math.max(0, Math.min(1, (position - start) / span)) : 0;
   const played = span > 0 ? Math.max(0, Math.min(1, (source.playback.positionSeconds - start) / span)) : 0;
+  // An external position only retargets the paint when no finger is down.
+  useEffect(() => {if (dragFraction.value === null) paintFraction.value = tv ? played : progress;}, [dragFraction, paintFraction, played, progress, tv]);
+  useEffect(() => () => {dragFraction.value = null;}, [dragFraction]);
+  // Fixed geometry, moved by transform only: the fill scales about its centre and is
+  // translated back to the left edge, the knob translates from the bar's start.
+  const fillPaint = useAnimatedStyle(() => {
+    const fraction = dragFraction.value ?? paintFraction.value;
+    return {transform: [{translateX: -(1 - fraction) * travel.value / 2}, {scaleX: fraction}]};
+  });
+  const knobPaint = useAnimatedStyle(() => ({transform: [{translateX: (dragFraction.value ?? paintFraction.value) * travel.value}]}));
   const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
   const marks = markers.filter(marker => ['intro', 'recap', 'credits'].includes(marker.type) && marker.endMs > marker.startMs && marker.startMs / 1000 < end && marker.endMs / 1000 > start);
   const adjust = (seconds: number) => {if (fence && current()) void playback.seek(fence, Math.max(start, Math.min(end, position + seconds))).catch(reportError);};
@@ -98,7 +144,9 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
     style={{height: size, justifyContent: 'center'}}>
     {({focused: ring}) => <View pointerEvents="none" style={{height: track, backgroundColor: liveEdge === undefined ? 'rgba(237,245,250,.22)' : 'rgba(237,245,250,.1)', borderRadius: tv ? track / 2 : compact ? 0 : 4}}>
       {liveEdge !== undefined && span > 0 && <View style={{position: 'absolute', top: 0, bottom: 0, left: 0, width: `${Math.max(0, Math.min(1, (liveEdge - start) / span)) * 100}%`, backgroundColor: 'rgba(237,245,250,.3)', borderRadius: 4}}/>}
-      <View style={{position: 'absolute', top: 0, bottom: 0, left: 0, width: `${(tv ? played : progress) * 100}%`, backgroundColor: theme.colors.accentStrong, borderRadius: tv ? track / 2 : 2}}/>
+      {tv
+        ? <View style={{position: 'absolute', top: 0, bottom: 0, left: 0, width: `${played * 100}%`, backgroundColor: theme.colors.accentStrong, borderRadius: track / 2}}/>
+        : <Animated.View style={[{position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.accentStrong, borderRadius: 2}, fillPaint]}/>}
       {liveEdge !== undefined && span > 0 && <View style={{position: 'absolute', top: '50%', left: `${Math.max(0, Math.min(1, (liveEdge - start) / span)) * 100}%`, width: 4, height: 30, marginTop: -15, marginLeft: -2, borderRadius: 2, backgroundColor: theme.colors.record}}/>}
       {tv && preview !== undefined && preview > source.playback.positionSeconds && <View style={{position: 'absolute', top: 0, bottom: 0, left: `${played * 100}%`, width: `${Math.max(0, progress - played) * 100}%`, backgroundColor: 'rgba(92,179,226,.42)'}}/>}
       {span > 0 && marks.map((marker, index) => {
@@ -109,11 +157,14 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
           first && {borderTopLeftRadius: tv ? track / 2 : 0, borderBottomLeftRadius: tv ? track / 2 : 0}, last && {borderTopRightRadius: tv ? track / 2 : 0, borderBottomRightRadius: tv ? track / 2 : 0}]}/>;
       })}
       {tv && preview !== undefined && <View style={{position: 'absolute', top: '50%', left: `${played * 100}%`, width: 4, height: 26, marginTop: -13, marginLeft: -2, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.9)'}}/>}
-      <View style={{position: 'absolute', top: '50%', left: `${progress * 100}%`, width: knob, height: knob, marginTop: -knob / 2, marginLeft: -knob / 2, borderRadius: knob / 2,
-        backgroundColor: theme.colors.white, boxShadow: tv && ring ? `0 0 0 4px ${theme.colors.ink}, 0 0 0 8px ${theme.colors.focus}, 0 10px 40px 4px rgba(92,179,226,.45)` : '0 2px 10px rgba(0,0,0,.55)'}}/>
+      {tv
+        ? <View style={{position: 'absolute', top: '50%', left: `${progress * 100}%`, width: knob, height: knob, marginTop: -knob / 2, marginLeft: -knob / 2, borderRadius: knob / 2,
+            backgroundColor: theme.colors.white, boxShadow: ring ? `0 0 0 4px ${theme.colors.ink}, 0 0 0 8px ${theme.colors.focus}, 0 10px 40px 4px rgba(92,179,226,.45)` : '0 2px 10px rgba(0,0,0,.55)'}}/>
+        : <Animated.View style={[{position: 'absolute', top: '50%', left: 0, width: knob, height: knob, marginTop: -knob / 2, marginLeft: -knob / 2, borderRadius: knob / 2,
+            backgroundColor: theme.colors.white, boxShadow: '0 2px 10px rgba(0,0,0,.55)'}, knobPaint]}/>}
     </View>}
   </Focusable>;
-  return <GestureDetector gesture={gesture}><View onLayout={event => {width.current = event.nativeEvent.layout.width;}} style={{height: tv ? preview !== undefined ? 80 : 40 : 44, justifyContent: 'flex-start'}}>
+  return <GestureDetector gesture={gesture}><View onLayout={event => {width.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}} style={{height: tv ? preview !== undefined ? 80 : 40 : 44, justifyContent: 'flex-start'}}>
     {tv && preview !== undefined && <NativeTrickplayStrip trickplay={source.options?.trickplay} seconds={preview} start={start} end={end}/>}
     {!tv && preview !== undefined && <View pointerEvents="none" style={{position: 'absolute', bottom: 44, left: `${Math.min(.9, Math.max(.1, progress)) * 100}%`, padding: 8, borderRadius: 6, backgroundColor: theme.colors.ink}}><Text style={[theme.type.caption, {color: theme.colors.text}]}>{clockText(preview)}</Text></View>}
     {tv && <View style={{height: 40, justifyContent: 'center'}}>{seek(40)}</View>}
