@@ -42,8 +42,9 @@ export function LoadingPaint({ready, skeleton, children, immediate = false, quie
   // Quiet window: owned by ready, quietMs and the derived cycle, never by policy.
   useEffect(() => {
     if (ready) {setDoneCycle(cycle); return;}
-    const timer = setTimeout(() => setDoneCycle(cycle), quietMs);
-    return () => clearTimeout(timer);
+    let live = true;
+    const timer = setTimeout(() => {if (live) setDoneCycle(cycle);}, quietMs);
+    return () => {live = false; clearTimeout(timer);};
   }, [ready, quietMs, cycle]);
   // Paint only: fresh entries start transparent, later policy changes time from
   // the current opacity instead of jumping.
