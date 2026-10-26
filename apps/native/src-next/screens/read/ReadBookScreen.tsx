@@ -282,11 +282,11 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   const widePanel = contents.length ? <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 36, paddingHorizontal: 32, marginTop: 38}}>
     <View style={{flex: 1, minWidth: 0}}>
       <Text style={[browseType(theme, 20, 700, -.015), {color: theme.colors.text, marginBottom: 10}]}>{t('next.reader.contents')}</Text>
-      <ContentsList entries={contents} currentSection={currentSection} onOpen={index => onRead(manifest, index)}/>
+      <ContentsList entries={contents} currentSection={currentSection} onOpen={index => onRead(manifest, index)} wide/>
     </View>
     <View style={{width: 292, minWidth: 0}}>
       <Text style={[browseType(theme, 20, 700, -.015), {color: theme.colors.text, marginBottom: 10}]}>{t('next.reader.details')}</Text>
-      <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
+      <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries} wide/>
     </View>
   </View> : <View style={{paddingHorizontal: 32, marginTop: 38}}>
     <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
@@ -340,10 +340,27 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   </View>;
 }
 
-function ContentsList({entries, currentSection, onOpen}: {
-  entries: NonNullable<ReadingManifest['contents']>; currentSection?: string; onOpen: (index: number) => void;
+function ContentsList({entries, currentSection, onOpen, wide = false}: {
+  entries: NonNullable<ReadingManifest['contents']>; currentSection?: string; onOpen: (index: number) => void; wide?: boolean;
 }) {
   const theme = useTheme();
+  // tablet-read#2's wide split: the frame's computed row is 36 / 1fr / 70 at 52 high
+  // (74 and a .08 fill for the current section) with a flat, unindented title. The
+  // right 70 pt column is the printed page, which the contents DTO does not carry
+  // (depth/fragment/section/title only), so it is not drawn and the honest ordinal
+  // stays on the left instead of being moved into a page column.
+  if (wide) return <View testID="native-read-book-contents">
+    {entries.map((entry, index) => {
+      const current = currentSection !== undefined && entry.section === currentSection;
+      return <Focusable key={`${index}-${entry.section}`} accessibilityRole="button" accessibilityLabel={entry.title} onPress={() => onOpen(index)}
+        focusKind="row" focusRadius={10}
+        style={{minHeight: current ? 74 : 52, flexDirection: 'row', alignItems: 'center', columnGap: 14, paddingLeft: 8, paddingRight: 12, borderRadius: 10,
+          ...(current ? {backgroundColor: alpha(theme.colors.text, .08)} : {})}}>
+        <Text style={[browseType(theme, 14, 600), {width: 36, textAlign: 'center', color: current ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{index + 1}</Text>
+        <Text numberOfLines={1} style={[browseType(theme, 15.5, entry.depth > 0 ? 500 : 600), {flex: 1, color: current ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
+      </Focusable>;
+    })}
+  </View>;
   return <View testID="native-read-book-contents" style={{marginTop: 4, marginHorizontal: 20}}>
     {entries.map((entry, index) => {
       const current = currentSection !== undefined && entry.section === currentSection;
@@ -359,11 +376,28 @@ function ContentsList({entries, currentSection, onOpen}: {
   </View>;
 }
 
-function DetailsList({manifest, rows, series, comic, onSeries}: {
+function DetailsList({manifest, rows, series, comic, onSeries, wide = false}: {
   manifest: ReadingManifest; rows: readonly Readonly<{label: string; value: string}>[];
-  series?: SeriesLink; comic: boolean; onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
+  series?: SeriesLink; comic: boolean; onSeries: (series: SeriesLink, manifest: ReadingManifest) => void; wide?: boolean;
 }) {
   const theme = useTheme();
+  // tablet-read#2's About column: a 92 pt label column, a 14 pt gap and a flexible
+  // value at 14.5/400 with 24 pt between rows and no hairlines. 186 is only what a
+  // 292 pt aside leaves; the value stays flexible at every width. The same rows and
+  // the same guarded series link are drawn - no fact is added or inferred.
+  if (wide) return <View testID="native-read-book-details" style={{rowGap: 24}}>
+    {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8}
+      style={{flexDirection: 'row', columnGap: 14, alignItems: 'baseline'}}>
+      <Text style={[browseType(theme, 14.5, 400), {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
+      <Text numberOfLines={2} style={[browseType(theme, 14.5, 600), {flex: 1, color: theme.colors.text}]}>
+        {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
+      </Text>
+    </Focusable> : null}
+    {rows.map(row => <View key={row.label + row.value} style={{flexDirection: 'row', columnGap: 14, alignItems: 'baseline'}}>
+      <Text style={[browseType(theme, 14.5, 400), {width: 92, color: theme.colors.textTertiary}]}>{row.label}</Text>
+      <Text style={[browseType(theme, 14.5, 400), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
+    </View>)}
+  </View>;
   return <View testID="native-read-book-details">
     {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8}
       style={{paddingVertical: 10, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
