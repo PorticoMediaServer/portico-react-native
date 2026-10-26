@@ -71,7 +71,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     && (!docked || dockSlot !== undefined) ? fence : undefined;
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
   const miniExitProof = useRef<{fence: PlaybackFence; bounds: NativeShellBounds; viewport: {width: number; height: number};
-    host: View; prepared: boolean; claimed: boolean; claimSettled: boolean} | undefined>(undefined);
+    host: View; sourceCurrent: () => boolean; prepared: boolean; claimed: boolean; claimSettled: boolean} | undefined>(undefined);
   const exitImages = useMemo(() => new DockVideoExitImages(() => currentWindow.current, runtime.reportError), [runtime.reportError]);
   useEffect(() => () => exitImages.dispose(), [exitImages]);
   const watchRevision = useRef(0), lastExpandedFrame = useRef<NativeShellBounds | undefined>(undefined);
@@ -173,7 +173,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const {dockX, dockFade, dockTravelFade} = morph;
   const miniExitCurrent = useCallback((proof: NonNullable<typeof miniExitProof.current>) => {
     const now = adapter.getSnapshot(), view = currentWindow.current;
-    return alive.current && !now.retired && miniExitProof.current === proof && host.current === proof.host && sameAuthority(now.authority, authority)
+    return alive.current && !now.retired && proof.sourceCurrent() && miniExitProof.current === proof && host.current === proof.host && sameAuthority(now.authority, authority)
       && sameFence(now.fence, proof.fence) && !!now.dock.local && !now.dock.local.expanded
       && ['video', 'live'].includes(now.dock.local.kind) && now.pictureInPicture?.active !== true
       && view.width === proof.viewport.width && view.height === proof.viewport.height
@@ -194,8 +194,13 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   }, [theme.isTV, miniExitCurrent, capture, runtime]);
   useEffect(() => {
     const proof = miniExitProof.current, frame = picture?.owner === capture ? picture.image : undefined;
-    if (!proof || proof.claimed || !frame || !frame.retainForExit || exitDecoded !== frame
-      || !sameFence(frame.fence, proof.fence) || !miniExitCurrent(proof)) return;
+    if (!proof || proof.claimed || !frame || !sameFence(frame.fence, proof.fence) || !miniExitCurrent(proof)) return;
+    if (!frame.retainForExit) {
+      proof.claimed = true; proof.claimSettled = true;
+      if (!touching.current && !moving.current) void capture.clear();
+      return;
+    }
+    if (exitDecoded !== frame) return;
     proof.claimed = true;
     void exitImages.offer(frame, true, proof.bounds, () => miniExitCurrent(proof) && retainedImage.current?.owner === capture
       && retainedImage.current.image === frame).finally(() => {
@@ -257,7 +262,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     if (original?.aborted) off();
     return () => {original?.removeEventListener('abort', off);off();};
   }, [adapter, authority, runtime, theme.isTV]);
-  const onSlot = useCallback((bounds: NativeShellBounds) => {
+  const onSlot = useCallback((bounds: NativeShellBounds, sourceCurrent?: () => boolean) => {
     slot.current = bounds;
     const node = host.current, source = adapter.getSnapshot().fence, revision = ++slotRevision.current;
     if (!node || !source || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) || bounds.width <= 0 || bounds.height <= 0) return;
@@ -269,14 +274,14 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
         || !sameFence(current.fence, source) || !Number.isFinite(x) || !Number.isFinite(y)) return;
       const next = {...bounds, x: bounds.x - x, y: bounds.y - y};
       const previousProof = miniExitProof.current, view = currentWindow.current;
-      if (!previousProof || !sameFence(previousProof.fence, source) || previousProof.host !== node
+      if (sourceCurrent && (!previousProof || !previousProof.sourceCurrent() || !sameFence(previousProof.fence, source) || previousProof.host !== node
         || previousProof.viewport.width !== view.width || previousProof.viewport.height !== view.height
-        || Object.keys(bounds).some(key => previousProof.bounds[key as keyof NativeShellBounds] !== bounds[key as keyof NativeShellBounds])) {
+        || Object.keys(bounds).some(key => previousProof.bounds[key as keyof NativeShellBounds] !== bounds[key as keyof NativeShellBounds]))) {
         exitImages.retireUnconsumed();
-        miniExitProof.current = {fence: source, bounds: Object.freeze({...bounds}), viewport: Object.freeze({...view}), host: node,
+        miniExitProof.current = {fence: source, bounds: Object.freeze({...bounds}), viewport: Object.freeze({...view}), host: node, sourceCurrent,
           prepared: false, claimed: false, claimSettled: false};
       }
-      prepareMiniExit();
+      if (sourceCurrent) prepareMiniExit();
       setDockMeasurement(previous => previous && sameFence(previous.fence, source)
         && Object.keys(next).every(key => previous.bounds[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds])
         ? previous : {fence: source, bounds: next});
@@ -320,7 +325,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const Surface = adapter.Surface;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
   const decodeProof = miniExitProof.current;
-  const exitDecodeImage = image && decodeProof?.prepared && !decodeProof.claimSettled && miniExitCurrent(decodeProof) ? image : undefined;
+  const exitDecodeImage = image?.retainForExit && decodeProof?.prepared && !decodeProof.claimSettled && miniExitCurrent(decodeProof) ? image : undefined;
   const imageSettled = (state: 'ready' | 'failed') => {
     const current = adapter.getSnapshot();
     if (alive.current && image && retainedImage.current?.owner === capture && retainedImage.current.image === image && sameAuthority(current.authority, authority) && sameFence(current.fence, image.fence)) setImageState({image, state});
