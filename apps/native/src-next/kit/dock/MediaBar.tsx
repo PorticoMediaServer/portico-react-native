@@ -129,7 +129,14 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     })
     .onFinalize(() => {scrubActive.value = 0; scrubAt.value = -1;}),
     [seekAllowed, visible, scrubAt, scrubWidth, scrubActive, scrubEpoch, scrubVersion, lifetime, run, commitScrub]);
-  const scrubFill = useAnimatedStyle(() => ({width: `${Math.max(0, Math.min(1, scrubAt.value < 0 ? progress ?? 0 : scrubAt.value)) * 100}%`}), [progress]);
+  // The fill is a fixed full-width layer scaled from its left edge, so a scrub
+  // frame never re-lays-out the bar; the fraction and every seek callback are
+  // unchanged.
+  const scrubFill = useAnimatedStyle(() => {
+    const fraction = Math.max(0, Math.min(1, scrubAt.value < 0 ? progress ?? 0 : scrubAt.value));
+    const width = Math.max(1, scrubWidth.value);
+    return {transform: [{translateX: -(width * (1 - fraction)) / 2}, {scaleX: fraction}]};
+  }, [progress]);
   const aside = useMemo(() => Gesture.Pan().enabled(visible && !expandedBar).activeOffsetX([-10, 10]).failOffsetY([-12, 12])
     .onBegin(() => {
       if (!gestureSource.visible || lifetime.value !== gestureSource.epoch) return;
