@@ -181,3 +181,22 @@ test('a non-enumerable function inside plain data refuses the capture', () => {
   Object.defineProperty(data, 'hidden', {enumerable: false, value: () => 1});
   assert.equal(freezeOverlayPaint(child(View, {value: data}), [View]), undefined);
 });
+
+// Owner composition: real pinned React19 tags and hidden executable array methods.
+test('real React elements retain their type and key under the pinned React tag', () => {
+  const element = React.createElement(Allowed, {key: 'original', title: 'real'});
+  const paint = freezeOverlayPaint(element as never, [Allowed]);
+  assert.ok(paint); assert.equal(paint.type, Allowed); assert.equal(paint.key, 'original');
+});
+test('array subclasses and extra methods cannot survive through unchanged data identity', () => {
+  const extra = [1, 2]; Object.defineProperty(extra, 'map', {value: () => {throw Error('must_not_run');}});
+  const subclass = new (class extends Array<number> {})(1, 2);
+  for (const values of [extra, subclass]) assert.equal(freezeOverlayPaint(child(View, {values}) as never, [View]), undefined);
+});
+test('hidden callback objects and root prototype keys refuse capture without invocation', () => {
+  const values = {}; Object.defineProperty(values, 'hidden', {value: {onSelect: () => {throw Error('must_not_run');}}});
+  assert.equal(freezeOverlayPaint(child(View, {values}) as never, [View]), undefined);
+  const props = Object.create(null); Object.defineProperty(props, '__proto__', {value: {poison: true}, enumerable: true});
+  const raw = {...child(View), props};
+  assert.equal(freezeOverlayPaint(raw as never, [View]), undefined);
+});

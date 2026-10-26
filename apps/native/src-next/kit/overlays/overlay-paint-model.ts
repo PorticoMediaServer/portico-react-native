@@ -41,6 +41,19 @@ function ownDescriptor(value: object, key: string): PropertyDescriptor | undefin
   return Object.getOwnPropertyDescriptor(value, key);
 }
 
+/** Preserve an array only when normal array methods cannot hide executable data. */
+function plainArray(value: unknown[], context: Context): boolean {
+  if (Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length) return false;
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (!spend(context)) return false;
+    if (key === 'length') continue;
+    const index = Number(key), descriptor = ownDescriptor(value, key);
+    if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key
+      || !descriptor || descriptor.get || descriptor.set) return false;
+  }
+  return true;
+}
+
 function styleIsPaintable(value: unknown, context: Context, depth: number): boolean {
   if (!spend(context) || depth > MAX_DEPTH) return false;
   if (value === undefined || value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return true;
@@ -49,7 +62,7 @@ function styleIsPaintable(value: unknown, context: Context, depth: number): bool
   context.path.add(value);
   try {
     if (Array.isArray(value)) {
-      if (Object.getOwnPropertySymbols(value).length) return false;
+      if (!plainArray(value, context)) return false;
       const length = value.length;
       for (let index = 0; index < length; index++) {
         if (!spend(context)) return false;
@@ -67,7 +80,7 @@ function styleIsPaintable(value: unknown, context: Context, depth: number): bool
       const descriptor = ownDescriptor(value, key);
       if (!descriptor) return false;
       if (descriptor.get || descriptor.set) return false;
-      if (!descriptor.enumerable) continue;
+      if (key === '__proto__') return false;
       if (!styleIsPaintable(descriptor.value, context, depth + 1)) return false;
     }
     return true;
@@ -81,7 +94,12 @@ function elementProbe(value: unknown): 'element' | 'data' | 'reject' {
   const descriptor = Object.getOwnPropertyDescriptor(value, '$$typeof');
   if (!descriptor) return 'data';
   if (descriptor.get || descriptor.set) return 'reject';
-  return descriptor.value === Symbol.for('react.element') ? 'element' : 'data';
+  if (descriptor.value !== Symbol.for('react.element') && descriptor.value !== Symbol.for('react.transitional.element')) return 'data';
+  for (const key of ['type', 'props', 'key']) {
+    const field = Object.getOwnPropertyDescriptor(value, key);
+    if (!field || field.get || field.set) return 'reject';
+  }
+  return 'element';
 }
 
 export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: OverlayPaintTypes, omitTypes: OverlayPaintTypes = []): OverlayPaintNode | undefined {
@@ -102,6 +120,7 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
         // Reserved keys are skipped before descriptor checks: a development React
         // element exposes a `key` warning accessor that must never be read.
         if (key === 'key' || key === 'ref') continue;
+        if (key === '__proto__') throw REJECT;
         const descriptor = ownDescriptor(element.props, key);
         if (!descriptor) throw REJECT;
         if (descriptor.get || descriptor.set) throw REJECT;
@@ -111,7 +130,8 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
         if (key === 'initialFocusRef') continue;
         if (ROOT_REF_KEYS.has(key)) {
           if (root) {
-            const usable = !!prop && typeof prop === 'object' && 'current' in (prop as object);
+            const current = prop && typeof prop === 'object' ? ownDescriptor(prop, 'current') : undefined;
+            const usable = !!current && !current.get && !current.set && typeof current.value !== 'function';
             if (usable) define(props, key, prop);
           }
           continue;
@@ -128,7 +148,7 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
         const next = freezeValue(prop, false, depth + 1);
         if (next === REJECT) throw REJECT;
         if (next === OMIT) continue;
-        props[key] = next;
+        define(props, key, next);
       }
       if (hasChildren) {
         const next = freezeValue(children, false, depth + 1);
@@ -153,7 +173,7 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
       context.path.add(value);
       try {
         if (Array.isArray(value)) {
-          if (Object.getOwnPropertySymbols(value).length) throw REJECT;
+          if (!plainArray(value, context)) throw REJECT;
           const length = value.length;
           let changed = false;
           const frozen: unknown[] = [];
@@ -177,12 +197,13 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
         let changed = false;
         const frozen = accumulator();
         for (const key of Object.getOwnPropertyNames(value)) {
-          if (!spend(context)) throw REJECT;
+          if (!spend(context) || key === '__proto__') throw REJECT;
           const descriptor = ownDescriptor(value, key);
           if (!descriptor) throw REJECT;
           if (descriptor.get || descriptor.set) throw REJECT;
           if (!descriptor.enumerable) {
-            if (typeof descriptor.value === 'function') throw REJECT;
+            const passive = freezeValue(descriptor.value, false, depth + 1);
+            if (passive === REJECT || passive === OMIT || passive !== descriptor.value) throw REJECT;
             continue;
           }
           const entry = descriptor.value;
