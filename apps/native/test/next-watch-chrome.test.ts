@@ -25,6 +25,7 @@ const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watc
   'react-native-reanimated': {default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
   'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'GestureDetector'},
   '../../../../../packages/client-core/src/up-next': upNext, '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds},
+  './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})},
   './TVControlLabel': {TVControlLabel: 'TVControlLabel'}, '../settings-live/GroupPill': {NativeTVGroupPill: 'GroupPill'},
   './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: () => ({})},
   './live-actions': {noLiveActionsSubscription: () => () => {}, emptyLiveActions: () => ({})},
@@ -123,7 +124,7 @@ for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, tr
     assert.ok(prompt); if (kind !== 'up-next') assert.equal(prompt.props.hasTVPreferredFocus, false);
     if (visible) {
       assert.deepEqual(requested, []); assert.equal(focusRegistry.capture()?.childId, 'watch-option-quality');
-      const region = descendants(tree).find(node => node.props.id === 'watch-controls');
+      const region = descendants(tree).find(node => node.props.id === 'watch-transport');
       assert.equal(region.props.edges.right, 'watch-skip');
     } else {
       assert.ok(requested.length > 0); assert.equal(controls.getSnapshot().visible, false);
@@ -136,4 +137,33 @@ for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, tr
       assert.equal(descendants(tree).some(node => node.props.testID === entry || kind === 'up-next' && node.type === 'UpNextCard'), false);
     }
   } finally {host.unmount(); focusRegistry.attach({regionId: 'watch-skip', childId: entry}, null); release(); controls.dispose();}
+});
+
+test('seek preview keeps transport native targets mounted for a guide-based Down return', () => {
+  isTV = true;
+  const controls = new NativeWatchControls(true);
+  const source = {fence, retired: false, dock: {local: {expanded: true}}, queue: {}, capabilities: {play: true, pause: true, seek: true}, playback: {intent: 'paused', positionSeconds: 17, duration: 100}};
+  const playback = {getSnapshot: () => source};
+  controls.source(fence, {expanded: true, autoHide: true, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: false}); controls.reveal(fence);
+  focusRegistry.didFocus({regionId: 'watch-seek-region', childId: 'watch-seek'});
+  let tree: any;
+  const host = createHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false,
+    skipBackSeconds: 10, skipForwardSeconds: 30, skipModes: {intro: 'ask', recap: 'ask', credits: 'ask'}, onMinimize() {}, reportError: assert.fail});});
+  host.mount();
+  try {
+    const find = (id: string) => descendants(tree).find(node => node.props.id === id);
+    const timeline = descendants(tree).find(node => node.type === 'Timeline' && node.props.tv && node.props.enabled);
+    timeline.props.onPreview(25); host.flush();
+    const hidden = find('watch-transport');
+    assert.equal(hidden.props.style.opacity, 0);
+    assert.ok(descendants(hidden).some(node => node.props.focusId === 'watch-option-quality'));
+    assert.equal(find('watch-seek-region').props.edges.down, 'watch-transport');
+    assert.equal(hidden.props.edges.up, 'watch-seek-region');
+    assert.equal(find('watch-group').props.edges.down, 'watch-seek-region');
+    assert.equal(timeline.props.nextFocusUp, undefined);
+    assert.equal(timeline.props.onExitPreview, undefined, 'no delayed JS focus mover');
+    focusRegistry.didFocus({regionId: 'watch-transport', childId: 'watch-option-quality'}); host.flush();
+    assert.equal(find('watch-transport').props.style.opacity, 1);
+    assert.equal(focusRegistry.capture()?.childId, 'watch-option-quality');
+  } finally {host.unmount(); controls.dispose();}
 });

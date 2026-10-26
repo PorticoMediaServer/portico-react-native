@@ -195,10 +195,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     ?? Gesture.Pan().enabled(false), [pictureMorph, theme.isTV, state.panel, liveOverlayOpen]);
   const pictureProgress = pictureMorph?.progress;
   const chromeMorphStyle = useAnimatedStyle(() => ({opacity: pictureProgress ? 1 - Math.max(0, Math.min(1, pictureProgress.value)) : 1}));
-  const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-controls' && focus.childId === 'watch-seek';
-  const [groupPillHost, setGroupPillHost] = useState<number | undefined>(undefined);
+  const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-seek-region' && focus.childId === 'watch-seek';
+  const [groupPillPresent, setGroupPillPresent] = useState(false);
+  const groupPillHost = useCallback((host: number | undefined) => setGroupPillPresent(host !== undefined), []);
   const groupSheetChange = useCallback((open: boolean) => {if (fence) controls.holdOverlay(fence, open);}, [controls, fence]);
-  const exitSeekPreview = useCallback(() => {toggle.current?.requestTVFocus?.();}, []);
   // tv-player 3: the prompt offers the segment the viewer is in, and an unattended
   // skip leaves a six-second note whose Undo goes back to where the skip happened.
   const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
@@ -581,11 +581,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#03080c" stopOpacity={.92}/><Stop offset=".5" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>
       {theme.isTV && !compact && <View pointerEvents="box-none" style={{position: 'absolute', top: 80, left: 96, right: 96, alignItems: 'flex-end'}}>
-        <FocusRegion id="watch-group" entry="player-group-pill" orientation="horizontal" edges={{down: 'watch-controls'}}>
-          <NativeTVGroupPill onHost={setGroupPillHost} onSheetChange={groupSheetChange}/>
+        <FocusRegion id="watch-group" entry="player-group-pill" orientation="horizontal" edges={{down: 'watch-seek-region'}} stops={{up: true}}>
+          <NativeTVGroupPill onHost={groupPillHost} onSheetChange={groupSheetChange}/>
         </FocusRegion>
       </View>}
-      <FocusRegion id="watch-controls" orientation="horizontal" entry={barEntry} edges={{...(barUp ? {up: 'watch-failed'} : {}), ...(theme.isTV && promptEntry ? {right: 'watch-skip'} : {})}} style={{position: 'absolute', inset: 0}}>
+      <FocusRegion id="watch-controls" orientation={theme.isTV ? "free" : "horizontal"} entry={theme.isTV ? undefined : barEntry} entryRegion={theme.isTV ? "watch-transport" : undefined} style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
           {theme.isTV && linear && <>{channelMark}<View style={{flexShrink: 1, minWidth: 0}}>
@@ -639,7 +639,9 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
         {theme.isTV && <View style={{position: 'absolute', left: 96 + (props.edgeInsets?.left ?? 0), right: 96 + (props.edgeInsets?.right ?? 0), bottom: 80}}>
-          <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={controlsEnabled} tv focused={seekFocused} nextFocusUp={groupPillHost} onExitPreview={exitSeekPreview} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+          <FocusRegion id="watch-seek-region" entry="watch-seek" stops={{left: true, right: true, up: !groupPillPresent}} edges={{up: groupPillPresent ? 'watch-group' : undefined, down: 'watch-transport'}}>
+            <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={controlsEnabled} tv focused={seekFocused} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+          </FocusRegion>
           {landing !== undefined && <View style={{height: 30, marginTop: 10}}>
             {[...new Map<string, SegmentMarker>(segments.filter(segment => segment.kind === 'intro' || segment.kind === 'recap' || segment.kind === 'credits')
               .map(segment => [segment.kind, segment] as const)).values()].map(segment => {
@@ -662,14 +664,16 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                 </Focusable>
               : <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>}
           </View>}
-          {seekFocused && landing !== undefined
-            ? <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center'}}>
+          <View style={{height: 88, marginTop: 20}}>
+            {seekFocused && landing !== undefined && <View pointerEvents="none" style={{position: 'absolute', inset: 0, flexDirection: 'row', alignItems: 'center'}}>
               {hint(0, keycap('', ['i-left', 'i-right']), t('player.hint.move'))}
               {hint(1, keycap(t('player.hint.hold')), t('player.hint.faster'))}
               {hint(2, keycap(t('title.ok')), t('player.hint.playFrom', {time: clockText(landing ?? returnAt)}))}
               {hint(3, keycap(t('action.back')), t('player.hint.returnTo', {time: clockText(returnAt)}))}
-            </View>
-            : <View style={{height: 88, marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+            </View>}
+            <FocusRegion id="watch-transport" orientation="horizontal" entry={barEntry} stops={{down: true}} edges={{up: barUp ? 'watch-failed' : 'watch-seek-region', right: promptEntry ? 'watch-skip' : undefined}}
+              accessibilityElementsHidden={seekFocused && landing !== undefined} importantForAccessibility={seekFocused && landing !== undefined ? 'no-hide-descendants' : 'auto'}
+              style={{height: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: seekFocused && landing !== undefined ? 0 : 1}}>
               <View style={{flex: 1}}>{linear
                 ? (props.onGuide ? <Focusable ref={guideButton} focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled} onPress={() => {if (controlsCurrent() && props.onGuide) props.onGuide();}}
                     style={{height: 64, paddingHorizontal: 26, borderRadius: 32, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
@@ -684,7 +688,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                 {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
                 {pipOffered && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
               </View>
-            </View>}
+            </FocusRegion>
+          </View>
         </View>}
         {!theme.isTV && <View style={{position: 'absolute', left: (side ?? (compact ? 14 : 60)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : 60)) + (props.edgeInsets?.right ?? 0), bottom: compact ? 8 : 15}}>
           {!compact && <View style={{marginBottom: 8}}>
@@ -724,7 +729,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     {skipNodes && <Animated.View pointerEvents="box-none" style={[{position: 'absolute', right: theme.isTV ? 96 : 60,
       bottom: theme.isTV ? 284 : skipNodes === skipPromptNode && !motion.reduce ? 20 : visible ? 110 : 20}, skipNodes === skipPromptNode ? promptMotion.positionStyle : undefined]}>
       {theme.isTV
-        ? <FocusRegion id="watch-skip" orientation="horizontal" entry={promptEntry} edges={visible ? {left: 'watch-controls'} : undefined} screenStart={{regionId: 'watch-surface', childId: 'watch-picture'}}>
+        ? <FocusRegion id="watch-skip" orientation="horizontal" entry={promptEntry} edges={visible ? {left: 'watch-transport'} : undefined} screenStart={{regionId: 'watch-surface', childId: 'watch-picture'}}>
             <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
           </FocusRegion>
         : <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>}

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {Text, View, findNodeHandle, useTVEventHandler} from 'react-native';
+import {Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
@@ -26,9 +26,7 @@ type Props = Readonly<{
   tv?: boolean;
   focused?: boolean;
   /** The live group pill's native host while one is drawn, so TV Up from the seek reaches it. */
-  nextFocusUp?: number;
   /** Down leaves the preview and restores the transport after its hosts remount. */
-  onExitPreview?: () => void;
   /** The landing time while the bar is being moved, for the TV key hints. */
   onPreview?: (seconds: number | undefined) => void;
   /** Live: the retained window's live edge. The stretch behind it is what the
@@ -37,11 +35,10 @@ type Props = Readonly<{
 }>;
 
 /** Actual time/window only. Scrub commits on lift; absent trickplay never becomes invented imagery. */
-export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge, nextFocusUp, onExitPreview}: Props) {
+export function NativeWatchTimeline({source, playback, controls, compact, enabled, reportError, skipBackSeconds, skipForwardSeconds, tv = false, focused = false, onPreview, liveEdge}: Props) {
   const theme = useTheme(), fence = source.fence, width = useRef(0), dragging = useRef(false);
   const [preview, setPreview] = useState<number>();
   const previewRef = useRef<number | undefined>(undefined), seekRef = useRef<View>(null), mounted = useRef(false);
-  const [seekHost, setSeekHost] = useState<number | undefined>(undefined);
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
   const span = end - start;
   useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
@@ -61,12 +58,10 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
     const unregister = controls.registerScrubCancel(fence, clearRemotePreview);
     return () => {unregister(); clearRemotePreview();};
   }, [clearRemotePreview, controls, enabled, fence, focused, remoteScrubbing, tv]);
-  useLayoutEffect(() => {if (tv) setSeekHost(findNodeHandle(seekRef.current) ?? undefined);}, [tv]);
   useTVEventHandler(event => {
     if (!tv || !focused || !enabled || !fence || !current() || !source.capabilities.seek || !(span > 0) || event.eventKeyAction === 1) return;
     if (event.eventType === 'down' && previewRef.current !== undefined) {
       clearRemotePreview();
-      requestAnimationFrame(() => {if (current()) onExitPreview?.();});
       return;
     }
     const left = event.eventType === 'left' || event.eventType === 'longLeft';
@@ -95,8 +90,7 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const track = tv ? focused ? 12 : 8 : compact ? 3 : 4, knob = tv ? focused ? 30 : 22 : 14;
   const label = (marker: typeof marks[number]) => marker.type === 'intro' ? defaultI18n.t('player.marker.intro') : marker.type === 'recap' ? defaultI18n.t('player.marker.recap') : defaultI18n.t('player.marker.credits');
   const seek = (size: number) => <Focusable ref={seekRef} accessibilityRole="adjustable" accessibilityLabel={defaultI18n.t('player.position')} accessibilityValue={{min: start, max: Math.max(start, end), now: Math.max(start, Math.min(end, position))}}
-    focusId="watch-seek" testID="watch-seek" focusable={enabled} disabled={!enabled || !source.capabilities.seek} {...(nextFocusUp ? {nextFocusUp} : {})}
-    {...(tv && seekHost ? {nextFocusLeft: seekHost, nextFocusRight: seekHost} : {})}
+    focusId="watch-seek" testID="watch-seek" focusable={enabled} disabled={!enabled || !source.capabilities.seek}
     accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'increment') adjust(skipForwardSeconds); else if (event.nativeEvent.actionName === 'decrement') adjust(-skipBackSeconds);}}
     onPress={() => {if (!fence || !current()) return; const landing = previewRef.current ?? position;
       clearRemotePreview();
