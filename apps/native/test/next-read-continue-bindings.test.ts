@@ -29,6 +29,7 @@ function fixture(reply: (call: Call) => Promise<Response> | Response, options: R
   const navigation = new NativeShellNavigation(authority, () => authority,
     (route, origin) => nativeReadRouteAllowed(route, [{id: 'library', kind: 'book', name: 'Books'}], options.tv === true, origin));
   const context: NativeReadNavigationContext = {navigation, authority: () => authority, current: () => current, session: () => session,
+    libraries: () => [{id: 'library', name: 'Books', kind: 'book'}],
     api: new HttpLocalApi('http://127.0.0.1:39135', 'throwaway-continue-test', async (url, init = {}) => {
       const call = {url: new URL(String(url)), method: init.method ?? 'GET', init}; calls.push(call); return reply(call);
     })};

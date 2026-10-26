@@ -20,6 +20,7 @@ function fixture(reply: (call: Call) => Promise<Response> | Response, tv = false
   const route: NativeReadTitleRoute = {kind: 'title', entry: {id: 'item', title: 'Stored title', kind: 'book', libraryId: 'library'}};
   if (!tv) {navigation.open(library, authority); navigation.open(route, authority);}
   const context: NativeReadTitleContext = {navigation, authority: () => authority, current: () => true, session: () => session,
+    libraries: () => [{id: 'library', name: 'Books', kind: 'book'}],
     api: new HttpLocalApi('http://127.0.0.1:39131', 'throwaway-read-test', async (url, init = {}) => {
       const call = {url: new URL(String(url)), method: init.method ?? 'GET', init}; calls.push(call); return reply(call);
     })};
