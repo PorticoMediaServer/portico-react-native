@@ -227,16 +227,22 @@ export class NativeTVMusicController {
     await this.loadSimilar(signal);
   }
   private async loadArtist(signal: AbortSignal): Promise<void> {
-    // The optional entity projection supplies real Details and Similar revisions;
-    // its refusal leaves the artist's own songs and releases usable.
-    const [capabilities,favorite,albums,details]=await Promise.all([
-      this.capabilities('songs',signal),this.favoriteState(signal),this.artistAlbums(signal),this.entityDetails('artist',signal),
+    // The Details producer is secondary: it may arrive after the songs and
+    // releases, and its refusal leaves the real grid-entry facts in place.
+    const [capabilities,favorite,albums]=await Promise.all([
+      this.capabilities('songs',signal),this.favoriteState(signal),this.artistAlbums(signal),
     ]);
     if (!this.current() || signal.aborted) return;
     const page = await this.browse(capabilities, builder => builder.where('artist', 'equals', this.options.entry.title).sort('playCount', 'desc').limit(Math.min(5, capabilities.queryLimits.maximumLimit)), signal);
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
-    this.publish({phase:'ready',songs:page.entries,songTotal:page.pageInfo.total,albums,artistDetails:details,favorite});
+    this.publish({phase:'ready',songs:page.entries,songTotal:page.pageInfo.total,albums,favorite});
+    // The optional entity projection supplies real Details and the Similar
+    // revision; neither ever holds the artist's own songs and releases.
+    if (!this.current() || signal.aborted) return;
+    const details=await this.entityDetails('artist',signal);
+    if (!this.current() || signal.aborted) return;
+    if(details)this.publish({artistDetails:details});
     await this.loadSimilar(signal);
   }
   /** The page's own bounded entity projection, independent of its track pages.

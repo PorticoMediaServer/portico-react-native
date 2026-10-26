@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {readListeningSimilar} from '../../../packages/client-core/src/library-content.ts';
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
@@ -18,7 +19,7 @@ class Builder {
   build() { return {pivot: 'songs', ...this.body}; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number}};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number};waitEntity?:Promise<void>;onEntity?:()=>void};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
   const calls:any[]=[],browseBodies:any[]=[],reads:string[]=[];
@@ -28,7 +29,7 @@ async function controller(entry: any, options: Fixture = {}) {
   class FakeLibraryContentService {
     projection:any;disposed=false;
     constructor(){this.projection=options.entityMissing?null:{entity:options.artistDetails??entry,scope:{serverId:'server',libraryId:'music',libraryKind:'music',view:entry.kind,entityId:entry.id,viewerFence:'real-projection-viewer'},revision};services.push(this);}
-    select=async()=>{};
+    select=async()=>{options.onEntity?.();await options.waitEntity;};
     getSnapshot=()=>({phase:this.disposed?'error':'ready',projection:this.projection});
     dispose=()=>{this.disposed=true;};
   }
@@ -309,4 +310,98 @@ test('held Similar responses cannot cross destination or entity-projection retir
   const loading=f.value.load();await entered;if(retireProjection)f.replaceProjection();else current=false;release();await loading;
   assert.deepEqual(f.value.getSnapshot().similar,[]);f.value.dispose();
  }
+});
+
+test('held entity details never delay the artist pages own songs and releases',async()=>{
+ let release!:()=>void,arrived!:()=>void;
+ const held=new Promise<void>(resolve=>{release=resolve;}),entered=new Promise<void>(resolve=>{arrived=resolve;});
+ const f=await controller(artistEntry,{songs:[song('song-1',1,180,'Track')],albums:[{id:'album-9',libraryId:'music',title:'LP'}],
+   waitEntity:held,onEntity:arrived,similar:[{kind:'artist',id:'other',libraryId:'music',title:'Other'}]});
+ const loading=f.value.load();
+ await entered;
+ const early=f.value.getSnapshot();
+ assert.equal(early.phase,'ready');
+ assert.equal(early.songs.length,1);
+ assert.deepEqual(early.albums.map((value:any)=>value.id),['album-9']);
+ assert.equal(early.artistDetails,undefined);
+ assert.deepEqual(early.similar,[]);
+ assert.equal(f.browseBodies.length,1,'the artist song request completed before the projection');
+ release();await loading;
+ const done=f.value.getSnapshot();
+ assert.equal(done.artistDetails?.id,'artist-1');
+ assert.equal(done.similar.length,1);
+ assert.equal(done.similarError,undefined);
+ f.value.dispose();
+});
+
+test('a late entity projection and Similar cannot cross a retired route',async()=>{
+ let release!:()=>void,arrived!:()=>void,current=true;
+ const held=new Promise<void>(resolve=>{release=resolve;}),entered=new Promise<void>(resolve=>{arrived=resolve;});
+ const f=await controller(artistEntry,{songs:[song('song-1',1,180,'Track')],waitEntity:held,onEntity:arrived,current:()=>current,
+   similar:[{kind:'artist',id:'other',libraryId:'music',title:'Other'}]});
+ const loading=f.value.load();
+ await entered;
+ current=false;release();await loading;
+ const retired=f.value.getSnapshot();
+ assert.equal(retired.artistDetails,undefined);
+ assert.deepEqual(retired.similar,[]);
+ assert.equal(f.reads.some(path=>path.includes('similar')),false,'a retired route makes no Similar request');
+ f.value.dispose();
+});
+
+test('the renderer keeps one page per exact route object and navigation revision',async()=>{
+ let factory!:(context:any)=>any; let made:any[]=[], navBacks=0, current=true;
+ class FakeController {
+  options:any;loads=0;disposed=false;
+  constructor(options:any){this.options=options;made.push(this);}
+  getSnapshot=()=>({phase:'idle',songs:[],albums:[],similar:[],favorite:false,allSongs:{phase:'idle',songs:[]}});
+  subscribe=()=>()=>{};contains=()=>true;similarCurrent=()=>true;
+  load(){this.loads++;return Promise.resolve();}
+  albumMembership=async()=>[];
+  dispose(){this.disposed=true;}
+ }
+ const picker={render:()=>null,dispose:()=>{},openAlbum:()=>{}};
+ await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
+  react:{default:React},'react-native':{Platform:{isTV:false}},
+  '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
+  '../lifetime':{nativeDestinationLifetime:()=>({scope:{serverId:'server',viewerId:'viewer'},current:()=>current})},
+  '../entry-actions':{createNativeEntryActions:()=>({menu:()=>{},dispose:()=>{},isMenuOpen:()=>false})},
+  './model':{NativeTVMusicController:FakeController},
+  './TVMusicScreens':{TVAlbumScreen:'TVAlbumScreen',TVArtistScreen:'TVArtistScreen'},
+  './PhoneMusicScreens':{PhoneAlbumScreen:'PhoneAlbumScreen',PhoneArtistScreen:'PhoneArtistScreen'},
+  './MusicPlaylistPicker':{createMusicPlaylistPicker:()=>picker},
+  '../../watch/download-request':{nativeDownloadRequest:()=>undefined},
+  '../../downloads/request':{askNativeDownload:()=>{}},
+ });
+ const viewer={serverId:'server',authority:'local',accountId:'account',profileId:'profile'};
+ const routeA={kind:'music',entry:artistEntry},routeB={kind:'music',entry:artistEntry};
+ const navigation:any={route:routeA,revision:1};
+ const context={api:{request:async()=>{throw new Error('rendering must not read')}},session:()=>({viewer}),
+  authority:()=>({serverId:'server',accountId:'account',profileId:'profile'}),current:()=>current,
+  navigation:{getSnapshot:()=>navigation,open:()=>{},back:()=>{navBacks++;}}};
+ const renderer=factory(context);
+ const first=renderer.render(routeA,{});
+ assert.equal(first.type,'PhoneArtistScreen');
+ assert.equal(made.length,1);
+ assert.equal(first.props.controller,made[0]);
+ assert.deepEqual(made[0].options.similarScope,{serverId:'server',authority:'local',accountId:'account',profileId:'profile',controllerId:'v1',controllerEpoch:'v1',commandLaneId:'v1'});
+ assert.equal(made[0].options.lifetime.current(),true);
+ assert.equal(renderer.render(routeA,{}).props.controller,made[0],'the same route object and revision reuse the one page');
+ navigation.revision=2;
+ const second=renderer.render(routeA,{});
+ assert.equal(made.length,2);
+ assert.equal(second.props.controller,made[1]);
+ first.props.onBack();
+ assert.equal(navBacks,0,'the retired revision cannot navigate');
+ second.props.onBack();
+ assert.equal(navBacks,1);
+ assert.equal(renderer.render(routeB,{}),null,'a different route object is not this page');
+ navigation.route=routeB;
+ const third=renderer.render(routeB,{});
+ assert.equal(made.length,3,'a replaced route object opens a live page, never the dead one');
+ assert.equal(third.props.controller,made[2]);
+ current=false;
+ assert.equal(renderer.render(routeB,{}),null);
+ renderer.dispose();
+ assert.ok(made[2].disposed);
 });

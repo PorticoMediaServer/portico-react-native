@@ -123,15 +123,18 @@ function AlbumCard({album,runtime,actions,openEntry,original,current}: {album:Mu
 /** music-plus16c: the existing album recommendation row, with the server's reason. */
 function SimilarAlbums({snapshot,controller,runtime,actions,openEntry}:{snapshot:NativeTVMusicSnapshot;controller:NativeTVMusicController;runtime:NativeShellRuntime;actions:Actions;openEntry:(entry:ContentEntry)=>void}){
   const theme=useTheme();
-  if(!snapshot.similar.length&&!snapshot.similarError)return null;
+  // Only album cards belong to this row; an artist page's similar artists are
+  // drawn by its own page, so an empty row is not given a heading.
+  const cards=snapshot.similar.filter(value=>value.kind==='album'&&value.libraryId);
+  if(!cards.length&&!snapshot.similarError)return null;
   return <View style={{marginTop:30,paddingHorizontal:theme.platform==='phone'?20:32}}>
     <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginBottom:10}]}>{t('next.controls.moreLikeThis')}</Text>
-    {snapshot.similar.length?<Text style={[browseType(theme,13,500),{color:theme.colors.textSecondary,marginBottom:10}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
+    {cards.length?<Text style={[browseType(theme,13,500),{color:theme.colors.textSecondary,marginBottom:10}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
     {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}}/>:null}
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
-      {snapshot.similar.flatMap(value=>value.kind==='album'&&value.libraryId?[<AlbumCard key={value.id} album={{id:value.id,libraryId:value.libraryId,title:value.title,year:value.year,posterUrl:value.posterUrl}} original={value}
-        current={()=>controller.similarCurrent(snapshot,value)} runtime={runtime} actions={actions} openEntry={openEntry}/>]:[])}
-    </ScrollView>
+    {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
+      {cards.map(value=>{const id=value.id,libraryId=value.libraryId!;return <AlbumCard key={id} album={{id,libraryId,title:value.title,year:value.year,posterUrl:value.posterUrl}} original={value}
+        current={()=>controller.similarCurrent(snapshot,value)} runtime={runtime} actions={actions} openEntry={openEntry}/>;})}
+    </ScrollView>:null}
   </View>;
 }
 

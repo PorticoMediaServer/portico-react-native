@@ -11,7 +11,7 @@ import {createMusicPlaylistPicker, type MusicPlaylistPickerHandle} from './Music
 import {nativeDownloadRequest} from '../../watch/download-request';
 import {askNativeDownload} from '../../downloads/request';
 
-type Page = Readonly<{current:()=>boolean;key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
+type Page = Readonly<{current:()=>boolean;key: string; route: {kind: 'music'; entry: ContentEntry}; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
 
 /** tv-more6–9: TV's album and artist pages. One route-owned controller per entry;
  * the shared queue player and the borrowed Watch menu do the work. */
@@ -19,7 +19,7 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
   const lifetime = nativeDestinationLifetime(context),viewer=context.session()?.viewer;
   if(!viewer||viewer.authority!=='local'&&viewer.authority!=='hosted')throw new Error('native_destination_authority_required');
   // Canonical V1 read-scope labels, as in the native runtime; never a playback fence.
-  const similarScope=Object.freeze({serverId:viewer.serverId,authority:viewer.authority,accountId:viewer.accountId,profileId:viewer.profileId,
+  const similarScope=Object.freeze({serverId:viewer.serverId,authority:viewer.authority as 'local'|'hosted',accountId:viewer.accountId,profileId:viewer.profileId,
     controllerId:'v1',controllerEpoch:'v1',commandLaneId:'v1'});
   let pages = new Map<string, Page>(), disposed = false;
   const close = (page: Page) => {page.abort.abort(); page.picker.dispose(); page.actions.dispose(); page.controller.dispose();};
@@ -32,11 +32,14 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
     const pageCurrent=()=>current()&&context.navigation.getSnapshot().route===route&&context.navigation.getSnapshot().revision===revision;
     const key=JSON.stringify([route.entry.kind,route.entry.id,route.entry.libraryId,revision]);
     let page = pages.get(key);
+    // A page belongs to the exact route object it was opened for: a cached page
+    // whose original object was replaced is retired, never drawn dead.
+    if(page&&page.route!==route){close(page);pages.delete(key);page=undefined;}
     if (!page) {
       const controller = new NativeTVMusicController({api: context.api, entry:route.entry,similarScope,lifetime:{scope:lifetime.scope,current:pageCurrent},playback: context.playback});
       const actions = createNativeEntryActions(context, {current:pageCurrent,
         contains: entry => controller.contains(entry), subscribe: controller.subscribe});
-      page = Object.freeze({current:pageCurrent,key,entry: route.entry, controller, actions, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
+      page = Object.freeze({current:pageCurrent,key,route,entry: route.entry, controller, actions, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
       pages.set(key, page);
       while (pages.size > 3) {
         const oldest = pages.entries().next().value as [string, Page] | undefined;
