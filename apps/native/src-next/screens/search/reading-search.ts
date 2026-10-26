@@ -12,6 +12,14 @@ type SearchRoute = Extract<NativeShellRoute, {kind: 'search-reading'}>;
  * longer holds and is refused. */
 export type ReadingSearchOpening = Readonly<{readonly admission: true}>;
 
+/** The opaque witness of one published page: the exact query, drawn hits, cursor
+ * and index revision a handler was rendered with. It is never a value the caller
+ * can rebuild; it must be the very token this controller last published. */
+export type ReadingSearchPageWitness = Readonly<{readonly page: true}>;
+
+type WitnessData = Readonly<{query: string; cursor: string | undefined; indexRevision: number | undefined;
+  hits: readonly ReadingIndexedSearchHit[]; moreError: unknown | undefined}>;
+
 /** One bounded, explicit book-text search. The words are the person's own literal
  * text: nothing here trims, folds, lowercases, expands or rewrites them before the
  * canonical validator and the official `/v1/reading/search` request see them. */
@@ -28,6 +36,8 @@ export type NativeReadingSearchState = Readonly<{
   moreError?: unknown;
   /** True while one admitted hit is opening the reader for its exact source. */
   busy: boolean;
+  /** The page witness this render's handlers must present; a newer publish retires it. */
+  witness: ReadingSearchPageWitness;
 }>;
 
 export type NativeReadingSearchPort = Readonly<{
@@ -39,12 +49,14 @@ export type NativeReadingSearchPort = Readonly<{
   /** Synchronously retires that opening: its commands and any activation stop being
    * authoritative before the next render, without publishing while hidden. */
   retire: (opening: ReadingSearchOpening) => void;
-  search: (opening: ReadingSearchOpening | undefined, text: string) => void;
-  more: (opening: ReadingSearchOpening | undefined) => void;
+  /** A new search of literal words. A page witness, when supplied, must still be the
+   * published one this control was drawn for (the failed-page recovery path). */
+  search: (opening: ReadingSearchOpening | undefined, text: string, witness?: ReadingSearchPageWitness) => void;
+  more: (opening: ReadingSearchOpening | undefined, witness: ReadingSearchPageWitness | undefined) => void;
   /** Explicit retry of the retained cursor after a transient continuation failure. */
-  retry: (opening: ReadingSearchOpening | undefined) => void;
+  retry: (opening: ReadingSearchOpening | undefined, witness: ReadingSearchPageWitness | undefined) => void;
   /** Opens the exact hit object this page drew; a hit from another page is refused. */
-  open: (opening: ReadingSearchOpening | undefined, hit: ReadingIndexedSearchHit) => void;
+  open: (opening: ReadingSearchOpening | undefined, witness: ReadingSearchPageWitness | undefined, hit: ReadingIndexedSearchHit) => void;
   attachReporter: (report: (error: unknown) => void) => void;
   dispose: () => void;
 }>;
@@ -55,7 +67,8 @@ const PAGE = 20;
 /** A page request only exists while its own opening, query and ticket are current. */
 type Page = Readonly<{query: string; indexRevision: number; hits: readonly ReadingIndexedSearchHit[]}>;
 
-const EMPTY: NativeReadingSearchState = Object.freeze({query: '', phase: 'idle', hits: Object.freeze([]), hasNext: false, busy: false});
+const EMPTY_WITNESS: ReadingSearchPageWitness = Object.freeze({page: true as const});
+const EMPTY: NativeReadingSearchState = Object.freeze({query: '', phase: 'idle', hits: Object.freeze([]), hasNext: false, busy: false, witness: EMPTY_WITNESS});
 
 const position = (hit: ReadingIndexedSearchHit): string =>
   JSON.stringify([hit.itemId, hit.sourceId, hit.sourceRevision, hit.sectionPath, hit.sectionIndex, hit.utf16Offset]);
@@ -83,6 +96,8 @@ export function createNativeReadingSearch(context: NativeShellBootstrapContext, 
   let current: ReadingSearchOpening | undefined;
   const snapshots = new Map<ReadingSearchOpening, NativeRouteSnapshot>();
   let page: Page | undefined, cursor: string | undefined;
+  let currentWitness: ReadingSearchPageWitness = EMPTY_WITNESS;
+  const witnesses = new Map<ReadingSearchPageWitness, WitnessData>();
   let sequence = 0, inflight: AbortController | undefined, activationTicket = 0;
   let activation: Readonly<{controller: AbortController; ticket: number; opening: ReadingSearchOpening}> | undefined;
   const liveSession = (): boolean => {
@@ -97,11 +112,20 @@ export function createNativeReadingSearch(context: NativeShellBootstrapContext, 
     const snapshot = snapshots.get(opening);
     return snapshot && context.navigation.getSnapshot() === snapshot ? snapshot : undefined;
   };
-  const publish = (next: NativeReadingSearchState): void => {
+  /** Every publish hands out a new immutable page witness bound to the exact query,
+   * hits, cursor and index revision of that page. Older witnesses are dropped, so a
+   * handler that rendered under them can never act on a newer page. */
+  const publish = (next: Omit<NativeReadingSearchState, 'witness'>): void => {
     if (!alive) return;
-    state = Object.freeze(next);
+    const witness: ReadingSearchPageWitness = Object.freeze({page: true as const});
+    witnesses.clear();
+    witnesses.set(witness, Object.freeze({query: next.query, cursor, indexRevision: page?.indexRevision, hits: next.hits, moreError: next.moreError}));
+    currentWitness = witness;
+    state = Object.freeze({...next, witness});
     for (const listener of [...listeners]) listener();
   };
+  const witnessData = (witness: ReadingSearchPageWitness | undefined): WitnessData | undefined =>
+    witness && witness === currentWitness ? witnesses.get(witness) : undefined;
   const cancelRequest = (): void => {inflight?.abort(); inflight = undefined; sequence++;};
   const cancelActivation = (): void => {activation?.controller.abort(); activation = undefined; activationTicket++;};
   const release = (opening: ReadingSearchOpening): void => {
@@ -192,26 +216,31 @@ export function createNativeReadingSearch(context: NativeShellBootstrapContext, 
       cancelRequest(); cancelActivation();
       release(opening);
     },
-    search: (opening, text: string) => {
+    search: (opening, text: string, witness?: ReadingSearchPageWitness) => {
       if (!opening || !authority(opening)) return;
+      if (witness !== undefined && !witnessData(witness)) return;
       if (!validReadingIndexedSearchQuery(text)) return;
       // Replacing the words cancels an activation that was opening under this page.
       cancelActivation();
       run(opening, text, undefined);
     },
-    more: (opening) => {
-      if (!opening || !authority(opening) || state.phase !== 'ready' || !state.hasNext || cursor === undefined || state.moreError) return;
-      run(opening, state.query, cursor);
+    more: (opening, witness) => {
+      // The original published page only: its own query and next cursor, never the
+      // newest state's.
+      const drawn = witnessData(witness);
+      if (!opening || !authority(opening) || !drawn || state.phase !== 'ready' || drawn.moreError || drawn.cursor === undefined) return;
+      run(opening, drawn.query, drawn.cursor);
     },
-    retry: (opening) => {
-      if (!opening || !authority(opening) || state.phase !== 'ready' || !state.moreError || cursor === undefined) return;
-      run(opening, state.query, cursor);
+    retry: (opening, witness) => {
+      const failed = witnessData(witness);
+      if (!opening || !authority(opening) || !failed || state.phase !== 'ready' || !failed.moreError || failed.cursor === undefined) return;
+      run(opening, failed.query, failed.cursor);
     },
-    open: (opening, hit: ReadingIndexedSearchHit) => {
-      const admitted = opening ? authority(opening) : undefined;
-      // The hit must be the exact object this admitted page drew, for this query and
-      // index revision; a rendered row from an older page can never open anything.
-      if (!admitted || !opening || !page || state.phase !== 'ready' || state.busy || !page.hits.includes(hit)) return;
+    open: (opening, witness, hit: ReadingIndexedSearchHit) => {
+      const admitted = opening ? authority(opening) : undefined, drawn = witnessData(witness);
+      // The hit must be the exact object this page witness drew, for that page's query
+      // and index revision; a rendered row from an older page can never open anything.
+      if (!admitted || !opening || !drawn || state.phase !== 'ready' || state.busy || !drawn.hits.includes(hit)) return;
       const ticket = ++activationTicket, controller = new AbortController();
       activation = Object.freeze({controller, ticket, opening});
       const owns = () => activation?.controller === controller && activationTicket === ticket;
