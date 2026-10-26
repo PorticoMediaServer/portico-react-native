@@ -63,6 +63,7 @@ export const dockHandoverFixture = {DockHandover: 'DockHandover', DockPaintRow: 
 // default without a publication is no shared cover and an unchanged local slot.
 export const listeningCoverFixture = {
   ListeningCoverProvider: ({children}) => children,
+  ListeningCoverLocalPaint: 'ListeningCoverLocalPaint',
   useListeningCoverPublication() {},
   useListeningCoverSlot: () => ({measure() {}, style: {}}),
 };

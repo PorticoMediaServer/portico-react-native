@@ -299,7 +299,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     accessibilityActions={[{name: 'activate', label: remote ? label : t('next.dock.native.openPlayer')}, {name: 'stop', label: t('action.stop')}]}
     onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'stop') dismiss(); else if (event.nativeEvent.actionName === 'activate') act(remote ? 'open-remote' : 'expand');}}/>;
   const artPaint = <View ref={art} collapsable={false} onLayout={() => {artLayout.current++; measureArt(); audioCover.measure();}} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
-      <ListeningCoverLocalPaint fence={!video && !remote ? playback.fence : undefined} style={{width: artWidth, height: artHeight}}>
+      <ListeningCoverLocalPaint fence={!video && !remote && playback.fence.kind !== 'cast-view' ? playback.fence : undefined} style={{width: artWidth, height: artHeight}}>
       {!video && <Artwork source={p.artwork} width={artWidth} height={artHeight} visible={visible} priority imageStyle={{opacity: connecting || terminal ? .55 : 1}}/>}
       {video && <View style={[s.expand, {backgroundColor: alpha(theme.colors.dim, .62)}]}><Icon name="i-full" size={11}/></View>}
       {remote && <View style={[s.fill, s.center, {backgroundColor: alpha(theme.colors.dim, .55)}]}>{connecting ? <ActivityIndicator size={20} color={theme.colors.text}/> : <Icon name="i-tvdev" size={18}/>}</View>}

@@ -196,15 +196,22 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   else if (!listeningOpen && coverOpening.current.open) coverOpening.current = {...coverOpening.current, open: false};
   const coverOpeningKey = coverOpening.current.key;
   const coverCurrent = useCallback(() => {
+    if (runtime.retirementSignal?.aborted) return false;
     const current = adapter.getSnapshot();
-    return alive.current && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
+    return alive.current && !current.retired && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
       && (!navigation || navigation.getSnapshot() === navigationState);
-  }, [adapter, authority, audioFence, navigation, navigationState]);
+  }, [adapter, authority, audioFence, navigation, navigationState, runtime.retirementSignal]);
+  const coverSubscribe = useCallback((listener: () => void) => {
+    const signal = runtime.retirementSignal;
+    if (signal?.aborted) return () => {};
+    signal?.addEventListener('abort', listener, {once: true});
+    return () => signal?.removeEventListener('abort', listener);
+  }, [runtime.retirementSignal]);
   const audioArtwork = useMemo(() => audioFence && sameAuthority(snapshot.authority, authority) ? runtime.artwork(snapshot.entry?.posterUrl) : undefined,
     [audioFence, snapshot.authority, authority, runtime, snapshot.entry?.posterUrl]);
   const coverPublication = useMemo(() => audioFence && audioArtwork ? {fence: audioFence, source: audioArtwork,
-    controller: morph, scope: navigationState, opening: coverOpeningKey, current: coverCurrent} : undefined,
-    [audioFence, audioArtwork, morph, navigationState, coverOpeningKey, coverCurrent]);
+    controller: morph, scope: navigationState, opening: coverOpeningKey, current: coverCurrent, subscribe: coverSubscribe} : undefined,
+    [audioFence, audioArtwork, morph, navigationState, coverOpeningKey, coverCurrent, coverSubscribe]);
   useListeningCoverPublication(coverPublication);
   usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV ? audioFence ?? (expandedReady ? pictureFence : undefined) : undefined);
   const {dockX, dockFade, dockTravelFade} = morph;
