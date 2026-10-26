@@ -1,3 +1,5 @@
+import {retainRecognizerReturn} from '../src-next/kit/focus/recognizer-return.ts';
+import {sameAuthority} from '../src-next/shell/model.ts';
 import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -59,7 +61,8 @@ async function screen(react: unknown) {
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/browse/presentation': presentation,
     '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {homeSubject: (content: unknown) => content},
     './model': {nativeSearchEntryKey}, './TVSearchSection': {TVSearchSection: 'TVSearchSection'}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
-    './genre-tiles': {nativeSearchGenreTiles},
+    '../settings-live/use-tv-voice-search': {useTVVoiceSearch: () => ({start: undefined, begin: undefined, busy: false})},
+    '../../kit/focus/recognizer-return': {retainRecognizerReturn}, '../../shell/model': {sameAuthority}, './genre-tiles': {nativeSearchGenreTiles},
   });
 }
 

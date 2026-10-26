@@ -1,3 +1,5 @@
+import {retainRecognizerReturn} from '../src-next/kit/focus/recognizer-return.ts';
+import {sameAuthority} from '../src-next/shell/model.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {nativeSearchGenreTiles} from '../src-next/screens/search/genre-tiles.ts';
@@ -35,7 +37,8 @@ test('the actual TV Search caller binds genuine query, navigation activation and
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards/primitives': {},
     '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => registry}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {}, '../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
     '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {}, './model': {nativeSearchEntryKey},
-    './TVSearchSection': {TVSearchSection: 'TVSearchSection'}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'}, './genre-tiles': {nativeSearchGenreTiles},
+    './TVSearchSection': {TVSearchSection: 'TVSearchSection'}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'}, '../settings-live/use-tv-voice-search': {useTVVoiceSearch: () => ({start: undefined, begin: undefined, busy: false})},
+    '../../kit/focus/recognizer-return': {retainRecognizerReturn}, '../../shell/model': {sameAuthority}, './genre-tiles': {nativeSearchGenreTiles},
   });
   const props = {destination: {subscribe() {}, getSnapshot: () => state, setText: (text: string) => calls.push(text)},
     runtime: {getSnapshot: () => ({authority}), registerScrollToTop: () => () => {},

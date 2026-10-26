@@ -20,6 +20,9 @@ import {homeSubject} from '../home/model';
 import {NativeSearchDestination, nativeSearchEntryKey} from './model';
 import {TVSearchSection} from './TVSearchSection';
 import {NativeTVKeyboard} from './TVKeyboard';
+import {useTVVoiceSearch} from '../settings-live/use-tv-voice-search';
+import {retainRecognizerReturn} from '../../kit/focus/recognizer-return';
+import {sameAuthority} from '../../shell/model';
 import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from './types';
 import {nativeSearchGenreTiles} from './genre-tiles';
 
@@ -76,6 +79,16 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
       return registry.focusRegion(keyboardRow ?? ids.searchKeyboardRow(0));
     }, {kind: 'search'});
   }, [activation, active.visible, active.revision, ids, keyboardRow, registry, runtime]);
+  const voiceLifetime = useMemo(() => {
+    const signal = runtime.retirementSignal ?? new AbortController().signal;
+    return {signal, current: () => {
+      if (signal.aborted) return false;
+      const now = activation.getSnapshot();
+      return now.visible && now.revision === active.revision && sameAuthority(authority, runtime.getSnapshot().authority);
+    }};
+  }, [runtime, activation, active.revision, authority]);
+  const voice = useTVVoiceSearch(theme.isTV && active.visible && !!runtime.retirementSignal, voiceLifetime,
+    text => destination.setText(text), runtime.reportError);
   const typed = !!state.text.trim(), groups = orderedSearchGroups(state.groups);
   const genreTiles = nativeSearchGenreTiles(landing.genres, 'tv');
   const empty = typed && state.search.phase === 'ready' && groups.every(group => group.status === 'success' && group.totalCount === 0);
@@ -107,10 +120,16 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
     </View>
     <View style={{position: 'absolute', left: theme.gutter, top: 176}}><NativeTVKeyboard id={ids.searchKeyboard} value={state.text} onRowFocus={setKeyboardRow}
       onChangeText={value => destination.setText(value)} activation={active} leftRegionId={ids.rail} rightRegionId={ids.searchResults}/></View>
-    {!empty && <View style={{position: 'absolute', left: theme.gutter, top: 792, width: 500, flexDirection: 'row', alignItems: 'flex-start', gap: 18}}>
+    {!empty && <FocusRegion id={`${ids.searchKeyboard}.voice`} entry="voice" enabled={active.visible && !!voice.begin} edges={{left: ids.rail, right: ids.searchResults, up: keyboard}} style={{position: 'absolute', left: theme.gutter, top: 792, width: 500, flexDirection: 'row', alignItems: 'flex-start', gap: 18}}>
+      <Focusable focusId="voice" disabled={!voice.begin || voice.busy || !active.visible} focusableWhenDisabled={voice.busy} accessibilityRole="button" accessibilityLabel={t(copy.preferToTalk)}
+        onPress={() => {
+          const finish = retainRecognizerReturn(registry, keyboardKey ? {regionId: keyboard, childId: keyboardKey} : undefined);
+          if (!voice.begin?.(finish)) finish(false);
+        }} style={{flexDirection: 'row', alignItems: 'flex-start', gap: 18, width: '100%'}}>
       <View style={{width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08)}}><Icon name="i-mic" size={28} color={theme.colors.textSecondary}/></View>
       <Text style={[browseType(theme, 20, 400, 0, 29), {color: theme.colors.textTertiary, flex: 1}]}><Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t(copy.preferToTalk)}</Text>{' '}{t(copy.voiceHint)}</Text>
-    </View>}
+      </Focusable>
+    </FocusRegion>}
     <FocusRegion id={ids.searchResults} entryRegion={typed && !empty && !problem && top ? ids.searchTop : sections[0] ? ids.searchSection(sections[0].id) : genreTiles.length ? ids.searchLanding : state.recent.length ? ids.searchRecent : chipsDrawn ? ids.searchChips : undefined}
       enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}} style={tvSearchR46.results}>
       <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
