@@ -27,6 +27,8 @@ export type StateContentProps = Readonly<{
   secondaryAction?: StateAction;
   additionalActions?: readonly StateAction[];
   children?: React.ReactNode;
+  /** The drawn sentence under the actions; states.html's TV help is 22 over 1.5, 880 wide. */
+  help?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }>;

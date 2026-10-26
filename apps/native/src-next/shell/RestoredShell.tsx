@@ -201,7 +201,14 @@ export function RestoredShell() {
     // (connect.html 10) starts on Try again, so the recovery declares it instead of relying
     // on the platform's first focusable after a failed restore.
     const restore = error.action === 'try-again' || error.action === 'refresh';
-    return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone="error"
+    // connect.html 10: a quiet server draws the warning emblem and the same help line as the
+    // mounted recovery; other restore failures keep the neutral error emblem.
+    const connection = error.category === 'offline' || error.category === 'unreachable' || error.category === 'timeout';
+    const quietServer = connection && theme.isTV;
+    return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone={quietServer ? 'warning' : 'error'}
+      icon={quietServer ? 'i-srvoff' : undefined}
+      iconMetrics={quietServer ? {size: 88, glyphSize: 40, marginBottom: 34} : undefined}
+      help={quietServer ? defaultI18n.t('next.states.native.tvConnectionHelp') : undefined}
       primaryAction={restore ? {id: 'restore', label: error.actionLabel, onPress: complete, hasTVPreferredFocus: theme.isTV} : undefined}
       secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts, hasTVPreferredFocus: theme.isTV && !restore}}/>);
   }
