@@ -31,9 +31,12 @@ import type {NativePlaybackCapacityWait} from './capacity-retry';
 import type {ListeningSnapshot} from '../../../../../packages/client-core/src/listening';
 import type {AudiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import type {PlayerChapter, PlayerChaptersData, PlayerChaptersSnapshot} from '../../../../../packages/client-core/src/player-chapters';
+import type {NativeStartArtworkOffer, NativeStartPresentation, NativeFirstVideoFrame} from './start-presentation';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
+  /** Optional pixels measured at this original touch, never playback authority. */
+  presentation?: NativeStartArtworkOffer;
   /** A group prepares this title paused until its authoritative clock plays. */
   state?: 'playing' | 'paused';
   /** Real caller lifetime through options/create/adoption. It excludes an old output fence. */
@@ -121,6 +124,9 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   retired: boolean;
   startFailure?: NativePlaybackStartFailure;
   capacityWait?: NativePlaybackCapacityWait;
+  initialPresentation?: NativeStartPresentation;
+  /** Only an admitted renderer firstFrame fact for this exact current binding. */
+  firstVideoFrame?: NativeFirstVideoFrame;
 }>;
 
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */

@@ -37,6 +37,7 @@ import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
 import {captureNativePreparingOwner, nativePreparingStarts} from './preparing-owner';
 import type {NativeStartRegistration} from './preparing-start';
+import {captureNativeStartPresentation, nativeFirstVideoFrame, type NativeStartPresentationOwner, type NativeFirstVideoFrame} from './start-presentation';
 import {NativeOfflinePlayback, type NativeOfflineSource} from './offline-playback';
 import type {OfflineEntry} from '../../../platform/offline-downloads';
 import {captionStyle} from './caption-style';
@@ -172,6 +173,9 @@ export class NativePlaybackRuntime {
   private completionKey = '';
   private skipped = new Set<string>();
   private cleanupSessions = new Set<string>();
+  private initialPresentation?: NativeStartPresentationOwner;
+  private initialPresentationTarget?: {owner: NativeStartPresentationOwner; epoch: number; itemId: string; session?: Session};
+  private firstVideoFrame?: NativeFirstVideoFrame;
 
   constructor(options: NativePlaybackRuntimeOptions) {
     this.o = options;
@@ -204,6 +208,11 @@ export class NativePlaybackRuntime {
     }) : originalHttp;
     this.optionsClient = new PlaybackOptionsClient(this.http);
     this.path = new NativePlayback({http: startHttp, key: options.requestId, timers: options.timers, preparingStarts: this.preparingStarts,
+      offeredStart: session => {
+        const original = this.initialPresentationTarget;
+        if (original && original.owner === this.initialPresentation && this.startAdmission && this.startOperationCurrent(original.epoch)
+          && session.kind === 'vod' && session.role === 'local' && session.itemId === original.itemId && session.queue) original.session = session;
+      },
       captureStartCurrent: () => {
         const epoch = this.startEpoch, principal = startupPrincipal(this.o.session()), initial = this.startAdmission, original = this.startContext;
         // The queue's own later start has its current core context, not the
@@ -355,6 +364,11 @@ export class NativePlaybackRuntime {
 
   private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
+    this.initialPresentationTarget = undefined;
+    const previousPresentation = this.initialPresentation; this.initialPresentation = undefined;
+    // The epoch invalidates paint synchronously. Deliver its passive abort/off
+    // after this command's synchronous setup, so a subscriber cannot reenter it.
+    if (previousPresentation) queueMicrotask(previousPresentation.retire);
     this.startContext = this.o.captureStartContext?.();
     this.startPrincipal = startupPrincipal(this.o.session());
     this.startFailure = undefined;this.capacityWait = undefined;this.startAdmission = false;
@@ -604,6 +618,30 @@ export class NativePlaybackRuntime {
     if (caller?.signal.aborted) abort();
     const current = () => this.active() && this.startOperationCurrent(epoch) && !controller.signal.aborted && callerCurrent();
     const scoped = this.selectionScope(controller.signal, current);
+    // Paint retains the original page/actor, not the command scope that closes
+    // on successful completion. It has no ability to start/restart playback.
+    const originalContext = this.startContext, api = this.o.api, route = api.getRouteSnapshot(), principal = this.o.session();
+    const connection = api.getRouteConnection(), pin = connection?.pin.publicKey, certificate = api.getCertificateSessionEpoch();
+    const paintUntil = principal ? Math.min(Date.parse(principal.expiresAt), Date.parse(principal.authorizationHorizon)) : NaN;
+    const paintCurrent = () => this.currentAuthority() && this.startOperationCurrent(epoch) && callerCurrent()
+      && !!principal && Number.isFinite(paintUntil) && Date.now() < paintUntil && this.o.session()?.accessToken === principal.accessToken
+      && this.o.session()?.expiresAt === principal.expiresAt && this.o.session()?.viewer.role === principal.viewer.role
+      && api.getRouteConnection() === connection && !!pin && connection?.pin.publicKey === pin && api.getCertificateSessionEpoch() === certificate
+      && this.startContext === originalContext && originalContext?.() !== false
+      && this.o.api === api && (route ? api.getRouteSnapshot()?.phase === 'ready'
+        && api.getRouteSnapshot()?.revision === route.revision && api.getRouteSnapshot()?.origin === route.origin : api.getRouteSnapshot() === null);
+    const presentation = captureNativeStartPresentation(caller && originalContext ? input.presentation : undefined, {current: paintCurrent,
+      sourceCurrent: original => sameFence(this.fence(), original) && !['error', 'ended'].includes(this.playback.getSnapshot().phase),
+      changed: () => {if (this.snapshot && !this.retired) this.publish();},
+      subscribe: listener => {
+        const offs = [this.subscribe(listener), this.o.subscribeAuthority(listener), this.o.subscribeStartContext?.(listener), api.subscribeRoute(listener)];
+        caller?.signal.addEventListener('abort', listener, {once: true});
+        return () => {offs.forEach(off => off?.());caller?.signal.removeEventListener('abort', listener);};
+      }});
+    if (paintCurrent()) {
+      this.initialPresentation = presentation;
+      this.initialPresentationTarget = presentation ? {owner: presentation, epoch, itemId: input.target.itemId} : undefined;
+    } else presentation?.retire();
     try {
       await this.queue.cancel(); if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
       await this.o.capabilitiesReady(); if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
@@ -613,7 +651,16 @@ export class NativePlaybackRuntime {
       ]);
       if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
       await this.startOffered(input, offered, capabilities, epoch, undefined, {signal: scoped.signal, isCurrent: current});
-    } catch (error) {if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});throw error;}
+      const accepted = this.fence(), session = this.currentSession();
+      if (presentation && this.initialPresentation === presentation && current() && !audioKind(offered.kind)
+        && accepted?.kind === 'queue' && accepted.itemId === input.target.itemId && session?.id === accepted.sessionId
+        && session.role === 'local' && session.presentation.generation === accepted.generation && session.versionId === accepted.sourceId
+        && session.queue?.entryId === accepted.entryId) presentation.bind(accepted);
+      else if (this.initialPresentation === presentation) {this.initialPresentation = undefined;this.initialPresentationTarget = undefined;presentation?.retire();}
+    } catch (error) {
+      if (this.initialPresentation === presentation) {this.initialPresentation = undefined;this.initialPresentationTarget = undefined;presentation?.retire();}
+      if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});throw error;
+    }
     finally {
       caller?.signal.removeEventListener('abort', abort); scoped.close();
       if (this.startController === controller) this.startController = undefined;
@@ -992,6 +1039,11 @@ export class NativePlaybackRuntime {
           ...(linear?.programme?.title ? {programmeTitle: linear.programme.title} : {}), live: true};
       }
       if (fence) {
+        const opening = this.initialPresentationTarget, accepted = opening?.session;
+        if (opening && opening.owner === this.initialPresentation && this.startOperationCurrent(opening.epoch)
+          && accepted && accepted === this.currentSession() && fence.kind === 'queue' && fence.itemId === opening.itemId
+          && fence.sessionId === accepted.id && fence.generation === accepted.presentation.generation
+          && fence.sourceId === accepted.versionId && fence.entryId === accepted.queue?.entryId) opening.owner.bind(fence, false);
         if (fence.kind === 'queue' && this.expandAtStart === this.startEpoch) {
           this.expanded = !audioKind(this.queue.getSnapshot().view?.items.find(item => item.entryId === fence.entryId)?.kind);
           this.expandAtStart = undefined;
@@ -1247,6 +1299,14 @@ export class NativePlaybackRuntime {
       && currentFact?.available === true && currentPosition !== undefined
       && rowFacts?.some(entry => entry.entryId !== fence.entryId && entry.available === true && entry.position !== undefined && videoRows.has(entry.entryId)) === true;
     const nativeBinding = this.coordinator.getBinding(), acknowledgement = this.externalPresentationBinding;
+    const localPicture = this.dock.getSnapshot().local;
+    const firstVideoFrame = fence && !this.retired && nativeBinding && this.firstVideoFrame
+      && this.firstVideoFrame.engine === this.coordinator.getEngine() && this.firstVideoFrame.instanceId === this.coordinator.getInstanceId()
+      && sameNativePresentation(this.firstVideoFrame, nativeBinding) && this.firstVideoFrame.intentId === playback.intentId
+      && this.firstVideoFrame.sessionId === fence.sessionId && this.firstVideoFrame.generation === fence.generation
+      && this.firstVideoFrame.itemId === playback.itemId && localPicture && sameFence(localPicture.fence, fence)
+      && (localPicture.kind === 'video' || localPicture.kind === 'live')
+      ? this.firstVideoFrame : undefined;
     const externalPresentationBinding = acknowledgement === undefined ? undefined : acknowledgement && fence && !this.retired
       && !playback.pendingSeek && !playback.failedSeek && playback.phase !== 'error' && nativeBinding
       && sameNativePresentation(acknowledgement, nativeBinding) && acknowledgement.intentId === playback.intentId
@@ -1257,7 +1317,8 @@ export class NativePlaybackRuntime {
       ...(fence?.kind === 'channel' && this.channelGuide && legacyChannel(this.channelGuide.row)?.id === fence.channelId
         && legacyChannel(this.channelGuide.row)?.sourceId === fence.sourceId && legacyChannel(this.channelGuide.row)?.provenance === fence.channelKind
         && legacyChannel(this.channelGuide.row)?.generation === fence.channelGeneration ? {channelGuide: this.channelGuide} : {}),
-      startFailure: this.startFailure, capacityWait: this.capacityWait,
+      startFailure: this.startFailure, capacityWait: this.capacityWait, firstVideoFrame,
+      initialPresentation: this.initialPresentation?.read(fence),
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
@@ -1290,6 +1351,12 @@ export class NativePlaybackRuntime {
     }
   }
   private applyFact(fact: any): void {
+    // Called only after the coordinator admits the current instance, command
+    // barrier, sequence and binding. ready/playing/buffering are not this proof.
+    if (fact.type === 'firstFrame') {
+      const binding = nativeFirstVideoFrame(fact, this.coordinator.getBinding(), this.coordinator.getEngine(), this.coordinator.getInstanceId());
+      if (binding) this.firstVideoFrame = binding;
+    }
     this.externalPresentationBinding = nativeExternalPresentationBinding(fact, this.coordinator.getBinding());
     this.path.engineFact(fact);
     const before = this.playback.getSnapshot();

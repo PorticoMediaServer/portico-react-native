@@ -85,6 +85,8 @@ export class NativePlaybackCoordinator {
   getSnapshot = () => this.lease?.lease ?? '';
   /** The engine in use (or about to be): "native" or "mpv". Published with the lease. */
   getEngine = () => this.engine;
+  /** Identity of the actual acquired renderer instance, for read-only frame proof. */
+  getInstanceId = () => this.lease?.instanceId;
   /** The exact command binding currently attached to the leased native view. */
   getBinding = (): NativeBinding | undefined => this.binding ? Object.freeze({...this.binding}) : undefined;
   subscribe = (f: () => void) => {

@@ -25,6 +25,7 @@ import {NativeSeasonsSheet} from './SeasonsSheet';
 import {TVEpisodeBrowser} from './TVEpisodeBrowser';
 import {NativeShowSettingsSheet} from './ShowSettingsSheet';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
+import type {NativeStartArtworkOffer} from '../../platform/playback/start-presentation';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {usePlatformPosture} from '../../platform/platformPosture';
@@ -88,6 +89,14 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const openEpisode = useSyncExternalStore(controller.episode.subscribe, controller.episode.getSnapshot);
   const menuIsOpen = (entry: ContentEntry) => !!menuEntry && menuEntry.id === entry.id && menuEntry.kind === entry.kind && menuEntry.libraryId === entry.libraryId;
   const theme = useTheme(), viewport = useWindowDimensions(), t = defaultI18n.t;
+  const titleArt = useRef<View>(null), readyArt = useRef<ArtworkSource | undefined>(undefined), artScrollRevision = useRef(0);
+  const drawnArt = useRef<{controller: NativeTitleController; key: string} | undefined>(undefined);
+  const artListeners = useRef(new Set<() => void>()), artMounted = useRef(false);
+  useLayoutEffect(() => {for (const listener of [...artListeners.current]) listener();});
+  useLayoutEffect(() => {
+    artMounted.current = true;
+    return () => {artMounted.current = false;for (const listener of [...artListeners.current]) listener();};
+  }, [controller]);
   const posture = usePlatformPosture(), registry = useOptionalFocusRegistry();
   useSyncExternalStore(registry?.subscribe ?? noMenuSubscribe, registry?.getSnapshot ?? noFocusSnapshot, registry?.getSnapshot ?? noFocusSnapshot);
   const activeFocus = registry?.capture();
@@ -152,6 +161,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const title = workspace?.show.title ?? snapshot.entry.displayTitle ?? detail?.item.title ?? snapshot.entry.title;
   const backdrop = workspace?.show.backdropUrl ?? detail?.item.backdropUrl ?? snapshot.entry.backdropUrl;
   const source = props.ambient(backdrop), foreground = props.artwork(backdrop);
+  const artKey = JSON.stringify([snapshot.entry.libraryId, snapshot.entry.kind, snapshot.entry.id,
+    foreground?.cacheKey, foreground?.uri, viewport.width, viewport.height]);
+  drawnArt.current = {controller, key: artKey};
   const selectedTab = snapshot.place.tab;
   const tabItems = [...(show ? [{value: 'episodes', label: t('title.episodes')}] : []), {value: 'related', label: t('next.controls.moreLikeThis')}, {value: 'details', label: t('title.details')}];
   const focusScope = JSON.stringify([props.authority, snapshot.entry.kind, snapshot.entry.libraryId, snapshot.entry.id]);
@@ -164,7 +176,30 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const tabs = <Tabs testID="watch-title-tabs" passive={theme.isTV} value={theme.isTV ? focusedSection : selectedTab}
     onValueChange={theme.isTV ? undefined : value => controller.tab(value as NativeTitleTab)} items={tabItems}
     contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, justifyContent: centered ? 'center' : undefined}}/>;
-  const play = () => {void controller.play().catch(props.reportError);};
+  const originalArt = (): NativeStartArtworkOffer | undefined => {
+    const node = titleArt.current, decoded = readyArt.current;
+    if (theme.isTV || props.watch || !artMounted.current || !node || !foreground || decoded?.cacheKey !== foreground.cacheKey || decoded.uri !== foreground.uri) return undefined;
+    // Start the real measurement on this press, before controller/HTTP awaits.
+    // The callback can supply only this mounted art; it never measures a later
+    // source or falls back to the player's dock/window rectangle.
+    const scrollRevision = artScrollRevision.current;
+    const paintCurrent = () => artMounted.current && titleArt.current === node && drawnArt.current?.controller === controller && drawnArt.current.key === artKey
+      && artScrollRevision.current === scrollRevision && readyArt.current?.cacheKey === foreground.cacheKey && readyArt.current?.uri === foreground.uri;
+    const bounds = new Promise<Readonly<{x: number; y: number; width: number; height: number}> | undefined>(resolve => {
+      try {node.measureInWindow((x, y, width, height) => {
+        if (!paintCurrent()
+          || ![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0
+          || x >= viewport.width || y >= viewport.height || x + width <= 0 || y + height <= 0) {resolve(undefined);return;}
+        resolve(Object.freeze({x, y, width, height}));
+      });} catch {resolve(undefined);}
+    });
+    const subscribe = (listener: () => void) => {
+      artListeners.current.add(listener);if (!paintCurrent()) listener();
+      return () => {artListeners.current.delete(listener);};
+    };
+    return Object.freeze({artwork: foreground, bounds, paintCurrent, subscribe});
+  };
+  const play = () => {void controller.play(undefined, false, originalArt()).catch(props.reportError);};
   const toggle = () => {const watch = props.watch, fence = watch?.source.fence;
     if (watch && fence && !watch.source.retired && sameFence(watch.playback.getSnapshot().fence, fence)) void watch.playback.toggle(fence).catch(props.reportError);
   };
@@ -307,9 +342,13 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: defaultI18n.list(castNames.slice(0, 3))})}</Text>}
     </View> : null}
   </>;
+  const heroArt = <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}
+    onReady={!theme.isTV && !props.watch ? value => {readyArt.current = value;} : undefined}
+    onError={!theme.isTV && !props.watch ? value => {if (readyArt.current === value) readyArt.current = undefined;} : undefined}/>;
   const heroNode = (
       <View style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
-        <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}/>
+        {!theme.isTV && !props.watch ? <View ref={titleArt} collapsable={false} pointerEvents="none"
+          style={{position: 'absolute', top: 0, left: 0, right: 0, height: heroHeight + 120}}>{heroArt}</View> : heroArt}
         <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
           {(theme.isTV || wide) && !props.watch && detail?.collections?.[0] ? <TitleRegion {...regions.collection}><Focusable focusId="watch-title-collection" testID="watch-title-collection" focusKind="row" focusRadius={8}
             onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
@@ -502,11 +541,15 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <View style={{width: rightWidth}}>
         <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
         <ScrollView ref={scroll} onScroll={event => {
+          artScrollRevision.current++;
+          for (const listener of [...artListeners.current]) listener();
           const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
           if ((theme.isTV || selectedTab === 'episodes') && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
         }} scrollEventThrottle={32}>{bodyNode}</ScrollView>
       </View>
     </View> : titleOnly ? <View style={{flex: 1, overflow: 'hidden'}}>{heroNode}</View> : <ScrollView ref={scroll} stickyHeaderIndices={theme.isTV ? undefined : [episodesOnly ? 0 : 1]} onScroll={event => {
+      artScrollRevision.current++;
+      for (const listener of [...artListeners.current]) listener();
       remember(event.nativeEvent.contentOffset.y);
       const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
       if ((theme.isTV || selectedTab === 'episodes') && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);

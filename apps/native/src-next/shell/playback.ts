@@ -13,12 +13,14 @@ import {sameFence, type DockState, type DockTransition, type PlaybackDock, type 
 import {sameAuthority, type ShellAuthority} from './model';
 import type {NativePlaybackStartFailure} from '../platform/playback/start-failure';
 import type {NativePlaybackCapacityWait} from '../platform/playback/capacity-retry';
+import type {NativeStartArtworkOffer} from '../platform/playback/start-presentation';
 
 export type NativeShellPlaybackStart = Readonly<{
   /** The real display record and the server-selected target stay separate for show continuations. */
   entry: ContentEntry;
   target: NonNullable<ContentEntry['playback']>;
   origin?: Readonly<{kind: 'home-row'; rowId: string}>;
+  presentation?: NativeStartArtworkOffer;
 }>;
 export type NativeShellBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativeShellVideoSnapshot = Readonly<{
@@ -34,6 +36,8 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   playback: PlaybackSnapshot;
   startFailure?: NativePlaybackStartFailure;
   capacityWait?: NativePlaybackCapacityWait;
+  initialPresentation?: NativePlaybackRuntimeSnapshot['initialPresentation'];
+  firstVideoFrame?: NativePlaybackRuntimeSnapshot['firstVideoFrame'];
   fence?: PlaybackFence;
   subject?: PlaybackSubject;
   entry?: ContentEntry;

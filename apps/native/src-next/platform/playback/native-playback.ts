@@ -66,6 +66,8 @@ export type NativePlaybackHost = Readonly<{
   timers?: Timers;
   preparingStarts?: NativeStartRegistration;
   captureStartCurrent?: () => (() => boolean);
+  /** Observe an original start's real accepted response for paint only. */
+  offeredStart?: (session: Session) => void;
 }>;
 
 /**
@@ -474,6 +476,7 @@ export class NativePlayback {
             if (callerPreparing) callerPreparing(wait, notice);
             else if (service && drawn) service.reportStartPreparation(drawn.intentId, notice);
           }}));
+        if (current() && !signal?.aborted) {try {self.host.offeredStart?.(session);} catch { /* Paint cannot alter start acceptance. */ }}
       } finally {
         original?.finish();
         if (!callerPreparing && service && drawn && current()) service.reportStartPreparation(drawn.intentId, undefined);
@@ -486,8 +489,10 @@ export class NativePlayback {
       start,
       duration,
       adopt: (session: Session, durationSeconds: number) => {
+        const originalCurrent = self.host.captureStartCurrent?.();
         const playback = toPlaybackSession(session, durationSeconds);
         self.keep(session, () => self.selectionAdoptions.set(playback, {id: session.id, registration: self.captureSelectionRegistration(session.id)}));
+        if (originalCurrent?.() === true) {try {self.host.offeredStart?.(session);} catch { /* Paint cannot alter adoption. */ }}
         return playback;
       },
       retire(id: string) { self.retired.add(id); if (self.retired.size > 64) self.retired.delete(self.retired.values().next().value!); self.dropped(id); },

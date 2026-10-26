@@ -4,6 +4,7 @@ import {getContainerState, setContainerState} from '../../../../../packages/clie
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import type {NativeShellPlaybackAdapter} from '../../shell/playback';
+import type {NativeStartArtworkOffer} from '../../platform/playback/start-presentation';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {NativeTitleMemory, type NativeTitleAnchor, type NativeTitleTab} from './title-memory';
 import {NativeTitlePages} from './title-pages';
@@ -175,7 +176,7 @@ export class NativeTitleController {
       return true;
     } finally {this.saves.delete(entry);}
   };
-  play = async (entry = this.entry, fromStart = false): Promise<void> => {
+  play = async (entry = this.entry, fromStart = false, presentation?: NativeStartArtworkOffer): Promise<void> => {
     if (!this.current()) return;
     const data = this.detail.getSnapshot().data;
     const primary = data?.actions.find(action => action.enabled && action.playback && (fromStart ? ['start_over', 'play_from_start'].includes(action.id) : ['resume', 'play'].includes(action.id)));
@@ -184,7 +185,7 @@ export class NativeTitleController {
     // Shows play only the actual server-projected continuation. No guessed first episode.
     const actual = fromStart ? primary?.playback : target ?? (entry.id === this.entry.id ? this.workspace.getSnapshot().data?.nextUp?.playback ?? entry.playback : entry.playback);
     if (!actual || fromStart && entry.id !== data?.item.id) return;
-    await this.options.playback.start({entry, target: actual});
+    await this.options.playback.start({entry, target: actual, ...(presentation ? {presentation} : {})});
   };
   personal = async (intent: PersonalIntent): Promise<void> => {if (this.current()) await this.detail.mutate(intent);};
   dispose = (): void => {
