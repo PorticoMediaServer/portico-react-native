@@ -154,8 +154,8 @@ test('a cached initial ready mount paints immediately with no quiet timer', asyn
 
 test('a retired quiet completion cannot paint in the next cycle, cannot hide the current shape, and is inert after unmount', async () => {
   const paint = mountPaint({ready: false, skeleton: shape, children: child});
+  const retired = timers.get(liveTimer())!.fn;
   try {
-    const retired = timers.get(liveTimer())!.fn;
     paint.update({ready: true, skeleton: shape, children: child});
     await act(() => {});
     paint.update({ready: false, skeleton: shape, children: child});
@@ -172,7 +172,10 @@ test('a retired quiet completion cannot paint in the next cycle, cannot hide the
     assert.ok(overlay(paint.tree), 'a late retired timer leaves the current shape visible');
   } finally {
     paint.host.unmount();
-    assert.doesNotThrow(() => {timers.forEach(timer => timer.fn);});
+    const timings = state.timings.length, queued = live().length;
+    assert.doesNotThrow(() => {retired();}, 'the captured retired callback is inert after unmount');
+    assert.equal(state.timings.length, timings, 'a late retired callback starts no animation');
+    assert.equal(live().length, queued, 'a late retired callback queues no timer');
   }
 });
 
