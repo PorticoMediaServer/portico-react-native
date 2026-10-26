@@ -86,7 +86,7 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
   const route=this.route?.getSnapshot();
   try{
    const raw=await this.bridge.adoptListeningSession({owner:active.owner,origin:this.principal.origin,transport:route?{ready:route.phase==='ready',origin:route.origin,revision:route.revision}:undefined,principalKey:principalKey(this.principal),
-    session:context.session,queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
+    session:context.session,...(context.playbackRun===undefined?{}:{playbackRun:context.playbackRun}),queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
    if(this.current!==active)return;
    this.accept(active,raw);
    if(this.route){const update=()=>{if(this.current!==active)return;const r=this.route!.getSnapshot();if(!this.bridge.listeningRoute){this.fail(active,new Error('Native route handoff is unavailable.'));return;}void this.bridge.listeningRoute(active.owner,{ready:r.phase==='ready',origin:r.origin,revision:r.revision}).catch(error=>this.fail(active,error));};const off=this.route.subscribe(update),offEvent=active.unsubscribe;active.unsubscribe=()=>{off();offEvent();};update();}

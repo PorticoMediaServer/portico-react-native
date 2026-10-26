@@ -448,3 +448,22 @@ processing/acceptance observations, not measurements of the physical output. Pre
 crossfade successors installed before their original session binding is available stay
 untagged even after commit; bypass batches, encoded passthrough/offload, unknown mappings,
 ramps and mixed pieces produce no facts. Coverage of those omitted paths is not claimed.
+
+## Listening sleep boundaries
+
+End-item and chapter policies carry the admitted session, presentation generation, item,
+queue occurrence, client playback run and optional native owner. The original run is supplied
+at native handover; an older handover without it can play, but cannot arm these end policies.
+An end-book policy additionally carries the bounded ordered parts and revision read from the
+scoped book timeline. Only an accepted immediate automatic successor in the same queue can
+carry its custody. Manual navigation, source replacement, another book or unknown membership
+retires the boundary; the same item ID never restores it.
+
+New end policies are refused while an advance, start or uncertain/admitted commit owns the
+edge. An accepted policy revokes uncommitted preparation, and a late prepare response cannot
+reuse its old policy revision. Native persistence/acceptance must complete before the client
+shows an armed timer. An already expired receipt is not armed. Existing minute/inactivity
+clocks remain absolute; an expired policy cannot be overwritten by successor promotion.
+A source-bound Pause remains available during committed handover, without promoting it;
+other guarded source commands refuse that ambiguous transition. These are policy and source
+custody rules, not measurements of rendered audio or runtime qualification.

@@ -129,6 +129,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private var metadataRequest: Exchange? = null
   private var artworkRequest: Exchange? = null
   private var policy: Map<String, Any?>? = null
+  private var timerCustody: Map<String, Any?>? = null
+  private var playbackRun: Double? = null
   private var metadata: Map<String, Any?>? = null
   private val deadlines = HashMap<String, Any?>()
   private val deadlineMono = HashMap<String, Double>()
@@ -170,6 +172,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     journalKey = "listening-v1:$principal"
     pausedAt = 0.0; wasPlaying = false
     this.session = session!!
+    playbackRun = if(whole(handover["playbackRun"],0.0,MAX_INTEGER)) num(handover["playbackRun"]) else null
     audible = null; end = null; queueHeader = null
     queue = if (queueId != null) hashMapOf("id" to queueId, "revision" to queueRevision) else null
     duration = num(handover["durationSeconds"])!!
@@ -185,7 +188,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     nativeSeek = seekTo(startSeconds(session))
     lastFact = null; transition = null; prepared = null; committed = null; audioReady = false; commitWanted = false; audioAttempt = null; error = null; notice = null
     lostCommit = null; parkedCommit = null; startPending = null; checkEnd = false; renderFailures = 0; replayTries = 0; noRender = null; albumFor = null
-    actions.clear(); policy = null; metadata = null; timerStopped = false; expiredTimerRevision = -1; activityWall = wall() * 1000; policyRateKey = null
+    actions.clear(); policy = null; timerCustody = null; metadata = null; timerStopped = false; expiredTimerRevision = -1; activityWall = wall() * 1000; policyRateKey = null
     deadlines.clear(); deadlines["sleepAtMs"] = null; deadlines["passoutAtMs"] = null; deadlineMono.clear()
     // A commit whose answer was lost (the app was killed) is replayed: it is idempotent by token.
     val journal = readJournal()
@@ -592,6 +595,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   fun advance(reason: String?, entryId: String?, owner: String): Boolean {
     if (activeOwner != owner || terminal || reason !in ADVANCES || queue == null) return false
     if ((reason == "entry") != v1Id(entryId)) return false
+    finishBoundaryTimer()
     resetInactivity()
     // Between commit and boundary the server's queue is already on the successor: Next, Previous
     // and a lock-screen skip mean "that one, now". A chosen entry then moves from there.
@@ -638,16 +642,16 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       }
       acceptQueue(moved!!)
       @Suppress("UNCHECKED_CAST") val started2 = result?.get("session") as? Map<String, Any?>
-      if (v1Session(started2)) { moveTo(started2!!, started, moved); return@send }
+      if (v1Session(started2)) { moveTo(started2!!, started, moved, action["reason"] == "completion"); return@send }
       val current = moved["current"] as? Map<*, *>
       val entry = current?.get("entryId")
-      if (v1Id(entry)) startEntry(entry as String, moved) else { safetyPaused = true; apply(); emit() }
+      if (v1Id(entry)) startEntry(entry as String, moved, action["reason"] == "completion") else { safetyPaused = true; apply(); emit() }
     }
   }
 
   /** An advance that didn't start the next session itself: the owner starts it, and the loop retries until the server answers. */
-  private fun startEntry(entryId: String, moved: Map<String, Any?>?) {
-    startPending = mapOf("key" to newId(), "previous" to session["id"], "queue" to moved,
+  private fun startEntry(entryId: String, moved: Map<String, Any?>?, automatic: Boolean = false) {
+    startPending = mapOf("key" to newId(), "previous" to session["id"], "queue" to moved, "automatic" to automatic,
         "body" to mapOf("queue" to mapOf("queueId" to queue!!["id"], "entryId" to entryId), "state" to intent, "startFrom" to "resume", "replacesSessionId" to session["id"]))
     tick()
   }
@@ -665,7 +669,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       startPending = null
       @Suppress("UNCHECKED_CAST") val answer = value as? Map<String, Any?>
       @Suppress("UNCHECKED_CAST") val moved = pending["queue"] as? Map<String, Any?>
-      if ((status == 200 || status == 201) && v1Session(answer)) { moveTo(answer!!, started, moved); return@send }
+      if ((status == 200 || status == 201) && v1Session(answer)) { moveTo(answer!!, started, moved, pending["automatic"] == true); return@send }
       fail("The next item couldn’t start. Open the queue to choose it again.", false)
     }
   }
@@ -678,14 +682,15 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   }
 
   /** The owner moved to another session (an advance, a start): report it from now on. */
-  private fun moveTo(next: Map<String, Any?>, started: Double, moved: Map<String, Any?>?) {
+  private fun moveTo(next: Map<String, Any?>, started: Double, moved: Map<String, Any?>?, automatic: Boolean = false) {
+    carryTimer(next, automatic)
     val previous = (audible?.get("id") ?: session["id"]) as? String
     transition = mapOf("previousSessionId" to (transition?.get("previousSessionId") ?: previous), "queue" to moved)
     transitionSequence = sequence + 1
     session = next; audible = null; seq = 0; leaseUntil = started + 120; nextReport = 0.0; reportNow = true; ended = false; endedReported = false; error = null; notice = null
     prepared = null; committed = null; commitWanted = false; audioReady = false; renderFailures = 0; startPending = null; parkedCommit = null; replayTries = 0
     pausedAt = 0.0; wasPlaying = false
-    intent = if (next["state"] == "paused") "paused" else "playing"
+    intent = if (timerStopped || next["state"] == "paused") "paused" else "playing"
     safetyPaused = false; audioAttempt = null; rendering = false; policyRateKey = null
     duration = PorticoAudioPlan.durationSeconds(decodePlan(presentation(next)))
     nativeSeek = seekTo(startSeconds(next))
@@ -708,8 +713,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (duration <= 0 || remaining <= 0 || remaining > Math.min(40.0, 30 * rate) || !timerAllowsEdge(remaining / Math.max(0.25, rate))) return
     audioAttempt = session["id"] as String // one try per track
     val id = session["id"]
+    val timerPolicy = policy?.get("revision")
     send("POST", queuePath("prepare-next"), mapOf("sessionId" to id, "sessionGeneration" to generation(session)), mapOf("If-Match" to (queue!!["revision"] as String), "Idempotency-Key" to newId())) { status, value, _, _ ->
-      if (session["id"] != id || actions.isNotEmpty() || audioAttempt == null) return@send
+      if (session["id"] != id || actions.isNotEmpty() || audioAttempt == null || timerPolicy != policy?.get("revision")) return@send
       @Suppress("UNCHECKED_CAST") val answer = value as? Map<String, Any?>
       @Suppress("UNCHECKED_CAST") val presentation = answer?.get("presentation") as? Map<String, Any?>
       val expires = timestamp(answer?.get("expiresAt"))
@@ -764,6 +770,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     // A commit that can't be confirmed before the current track runs out is given up at once: the
     // track then ends and advances as usual, rather than leaving silence while the network recovers.
     val remaining = duration - (num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0)
+    if (!recovered && !timerAllowsEdge(Math.max(0.0, remaining) / Math.max(0.25, rate))) { commitWanted = false; dropPrepared(null); return }
     if (!recovered && ((num(reserved["expiresAtMs"]) ?: 0.0) <= wall() * 1000 || ++commitTries > 4 || (commitTries > 1 && remaining < 1.0))) {
       // No answer came: the commit may have landed. Keep its token; the track ends as usual, and
       // the token is replayed before any :advance (or when the old session reads as completed).
@@ -829,12 +836,13 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     @Suppress("UNCHECKED_CAST") val next = committed?.get("session") as? Map<String, Any?>
     if (!v1Session(next)) return
     controller.resetListeningEngine(activeOwner ?: return)
-    moveTo(next!!, mono(), queueHeader)
+    moveTo(next!!, mono(), queueHeader, true)
   }
 
   private fun boundary(fact: Map<String, Any?>) {
     val done = committed ?: return
     if (done["token"] != fact["token"]) return
+    carryTimer(session, true)
     val previous = (audible?.get("id") ?: session["id"]) as? String
     transition = mapOf("previousSessionId" to (transition?.get("previousSessionId") ?: previous), "queue" to queueHeader)
     transitionSequence = sequence + 1
@@ -860,7 +868,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     }
     if (type == "audioBoundary") { boundary(fact); return }
     // The successor failed, or the old track ended with no boundary: start it as an ordinary track.
-    if (committed != null && type in PROMOTING) { promoteCommitted(); return }
+    if (committed != null && type in PROMOTING) { if(type == "ended") ended = true; checkDeadlines(); promoteCommitted(); return }
     if (type == "audioPreparationFailed") dropPrepared("The next track couldn’t be buffered; it plays normally.")
     if (type == "seekApplied" && num(fact["seekRevision"]) == num(nativeSeek?.get("revision"))) { nativeSeek = null; reportNow = true; apply() }
     if (type == "seekFailed") { nativeSeek = null; safetyPaused = true; error = "That position isn’t available. Seek again or press Retry."; dropPrepared(null); apply() }
@@ -900,7 +908,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   /** JS commands carry the original output, not just this long-lived owner token. */
   fun actionFor(expected: Map<String, Any?>?, action: String?, value: Double?, owner: String): Boolean {
-    if (activeOwner != owner || terminal || expected == null || committed != null || audible != null) return false
+    if (activeOwner != owner || terminal || expected == null || (committed != null || audible != null) && action != "pause") return false
     val heard = heard()
     val actual = controller.listeningSnapshot()
     val binding = actual["binding"] as? Map<*, *> ?: return false
@@ -1008,7 +1016,13 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       val choice = t["choice"]
       if (choice is Number) { if (num(choice) !in SLEEP_MINUTES || !whole(t["wallDeadline"], 1.0, MAX_INTEGER)) return false }
       else if (choice in TIMER_CHOICES) {
-        if (!v1Id(t["itemId"])) return false
+        if (!v1Id(t["itemId"]) || !validTimerOccurrence(t["occurrence"])) return false
+        if (choice == "book") {
+          val boundary = t["bookBoundary"] as? Map<*, *> ?: return false
+          val revision = boundary["revision"] as? Map<*, *> ?: return false
+          val parts = boundary["items"] as? List<*> ?: return false
+          if (!whole(revision["catalog"],0.0,MAX_INTEGER) || !whole(revision["viewer"],0.0,MAX_INTEGER) || parts.isEmpty() || parts.size > 1000 || parts.any { !v1Id(it) } || parts.toSet().size != parts.size || parts.last() != t["itemId"]) return false
+        }
         if (choice == "chapter" && (!v1Id(t["sessionId"]) || !whole(t["generation"], 0.0, MAX_INTEGER) || !inRange(t["endSeconds"], 0.0, 1e9))) return false
         if (choice == "book" && !v1Id(t["bookId"])) return false
       } else return false
@@ -1044,11 +1058,55 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   /** Music or a book: the item's kind from its metadata, else music. */
   private fun kind(): String = if (metadata?.get("kind") == "audiobook_file") "audiobook_file" else "song"
 
+  private fun validTimerOccurrence(value: Any?): Boolean {
+    val o = value as? Map<*, *> ?: return false
+    if (!v1Id(o["sessionId"]) || !v1Id(o["itemId"]) || !whole(o["generation"],0.0,MAX_INTEGER) || !whole(o["playbackRun"],0.0,MAX_INTEGER) || o["owner"] != null && !v1Id(o["owner"])) return false
+    val q = o["queue"]
+    return q == null || q is Map<*, *> && v1Id(q["queueId"]) && v1Id(q["entryId"])
+  }
+
+  private fun matchesTimer(o: Map<*, *>?, media: Map<String, Any?> = heard()): Boolean {
+    if (o == null || playbackRun == null || num(o["playbackRun"]) != playbackRun || o["sessionId"] != media["id"] || o["itemId"] != media["itemId"] || num(o["generation"]) != generation(media) || o["owner"] != null && o["owner"] != activeOwner) return false
+    val target = o["queue"] as? Map<*, *>
+    val actual = media["queue"] as? Map<*, *>
+    return if(actual == null) target == null else target != null && target["queueId"] == actual["queueId"] && target["entryId"] == actual["entryId"]
+  }
+
+  private fun finishBoundaryTimer() { if ((activeTimer()?.get("choice")) in TIMER_CHOICES) finishPolicyTimer() }
+
+  private fun carryTimer(next: Map<String, Any?>, automatic: Boolean) {
+    val timer = activeTimer() ?: return
+    if (timer["choice"] !in TIMER_CHOICES) return
+    val before = heard()
+    val oldQueue = before["queue"] as? Map<*, *>
+    val nextQueue = next["queue"] as? Map<*, *>
+    val parts = (timer["bookBoundary"] as? Map<*, *>)?.get("items") as? List<*>
+    val index = parts?.indexOf(before["itemId"]) ?: -1
+    if(timer["choice"] == "book" && automatic && matchesTimer(timerCustody) && oldQueue != null && nextQueue != null && oldQueue["queueId"] == nextQueue["queueId"] && oldQueue["entryId"] != nextQueue["entryId"] && index >= 0 && parts?.getOrNull(index+1) == next["itemId"]) {
+      timerCustody = HashMap(timerCustody!!).apply {put("sessionId",next["id"]);put("generation",generation(next));put("itemId",next["itemId"]);put("queue",HashMap(nextQueue))}
+    } else finishPolicyTimer()
+  }
+
   fun policy(value: Map<String, Any?>?, owner: String): Boolean {
     if (activeOwner != owner || terminal || value == null || !validPolicy(value)) return false
     val previous = policy
     if (previous != null && num(value["revision"])!! < num(previous["revision"])!!) return true
     if (previous != null && num(value["revision"]) == num(previous["revision"])) return previous == value
+    val newTimer = previous == null || num(previous["timerRevision"]) != num(value["timerRevision"])
+    val timer = value["timer"] as? Map<*, *>
+    if (!newTimer && previous?.get("timer") != value["timer"] && !(value["timer"] == null && num(value["timerRevision"])?.toLong() == expiredTimerRevision)) return false
+    if (newTimer && timer != null && timer["choice"] in TIMER_CHOICES) {
+      val occurrence = timer["occurrence"] as? Map<*, *> ?: return false
+      if (!matchesTimer(occurrence) || ended || actions.isNotEmpty() || startPending != null || committed != null || audible != null || commitWanted || lostCommit != null || parkedCommit != null) return false
+      val binding = controller.listeningSnapshot()["binding"] as? Map<*, *> ?: return false
+      if(binding["sessionId"] != occurrence["sessionId"] || binding["itemId"] != occurrence["itemId"] || num(binding["generation"]) != num(occurrence["generation"])) return false
+      if (timer["choice"] == "book" && (((timer["bookBoundary"] as? Map<*, *>)?.get("items") as? List<*>)?.contains(heard()["itemId"]) != true) return false
+      if (timer["choice"] != "book" && timer["itemId"] != occurrence["itemId"]) return false
+      if (timer["choice"] == "chapter" && (timer["sessionId"] != occurrence["sessionId"] || num(timer["generation"]) != num(occurrence["generation"]))) return false
+      if (timer["choice"] == "book" && metadata?.containsKey("bookId") == true && metadata?.get("bookId") != timer["bookId"]) return false
+      @Suppress("UNCHECKED_CAST")
+      timerCustody = HashMap(occurrence as Map<String, Any?>)
+    } else if(newTimer) timerCustody = null
     policy = value
     val activity = previous == null || num(previous["activityRevision"]) != num(value["activityRevision"])
     if (activity) activityWall = num(value["activityAtMs"])!!
@@ -1057,18 +1115,20 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if ((previous == null || num(previous["timerRevision"]) != num(value["timerRevision"])) && num(value["timerRevision"])!!.toLong() != expiredTimerRevision) {
       installDeadline("sleepAtMs", num((value["timer"] as? Map<*, *>)?.get("wallDeadline")))
     }
-    if (previous != null && (previous["effects"] != value["effects"] || !mayAdvance())) dropPrepared(null)
+    if (newTimer && timer?.get("choice") in TIMER_CHOICES || previous != null && (previous["effects"] != value["effects"] || !mayAdvance())) dropPrepared(null)
     if (previous?.get("effects") != value["effects"] && !rendering && effectsWanted() && renders(presentation(heard())) && lastFact != null && audible == null) {
       // The plan starts mid-track: from where the listener is.
       nativeSeek = seekTo(num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0)
     }
-    applyPreferredRate(); checkDeadlines(); persist(); apply(); emit()
+    applyPreferredRate(); checkDeadlines(); if(!persist()) {apply();emit();return false}; apply(); emit()
     return !terminal
   }
 
   private fun activeTimer(): Map<*, *>? {
     if (num(policy?.get("timerRevision"))?.toLong() == expiredTimerRevision) return null
-    return policy?.get("timer") as? Map<*, *>
+    val timer = policy?.get("timer") as? Map<*, *> ?: return null
+    if(timer["choice"] in TIMER_CHOICES && !matchesTimer(timerCustody)) {finishPolicyTimer();return null}
+    return timer
   }
 
   private fun timerAllowsEdge(remaining: Double): Boolean {
@@ -1082,7 +1142,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     return true
   }
 
-  private fun finishPolicyTimer() { expiredTimerRevision = num(policy?.get("timerRevision"))?.toLong() ?: 0; installDeadline("sleepAtMs", null) }
+  private fun finishPolicyTimer() { timerCustody = null; expiredTimerRevision = num(policy?.get("timerRevision"))?.toLong() ?: 0; installDeadline("sleepAtMs", null) }
 
   private fun expireListening() {
     if (timerStopped) return
@@ -1106,7 +1166,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val engine = controller.listeningSnapshot()
     if (timer?.get("choice") == "chapter") {
       if (timer["sessionId"] != heard["id"] || num(timer["generation"]) != generation(heard)) finishPolicyTimer()
-      else if (engine["seeking"] != true && engine["observed"] == true && (num(engine["positionSeconds"]) ?: 0.0) >= (num(timer["endSeconds"]) ?: Double.POSITIVE_INFINITY)) expired = true
+      else if ((engine["binding"] as? Map<*, *>)?.get("sessionId") == heard["id"] && num((engine["binding"] as? Map<*, *>)?.get("generation")) == generation(heard) && engine["seeking"] != true && engine["observed"] == true && (num(engine["positionSeconds"]) ?: 0.0) >= (num(timer["endSeconds"]) ?: Double.POSITIVE_INFINITY)) expired = true
     }
     val choice = timer?.get("choice")
     if (ended && (choice == "item" || choice == "book") && timer?.get("itemId") == heard["itemId"]) expired = true
@@ -1193,7 +1253,11 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val known = metadata
     // JavaScript's metadata does not carry the album position.
     if (clean["albumId"] == null && known?.get("albumId") != null && known["itemId"] == value["itemId"]) for (key in listOf("albumId", "discNumber", "trackNumber")) known[key]?.let { clean[key] = it }
+    if (value.containsKey("bookId")) clean["bookId"] = (value["bookId"] as? String)?.takeIf { v1Id(it) } ?: ""
+    else if(known != null && known["itemId"] == value["itemId"] && known.containsKey("bookId")) clean["bookId"] = known["bookId"]
     metadata = clean
+    val timer = activeTimer()
+    if(timer != null && timer["choice"] == "book" && clean.containsKey("bookId") && clean["bookId"] != timer["bookId"]) finishPolicyTimer()
     loadArtwork(value["posterUrl"])
     applyPreferredRate()
     onSystemChange?.invoke()
@@ -1218,7 +1282,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       val length = (num(answer["durationMs"]) ?: 0.0) / 1000.0
       if (duration <= 0 && length > 0 && audible == null) duration = length
       metadata(mapOf("playbackId" to playback, "itemId" to item, "title" to (answer["title"] ?: "Audio"), "artist" to (song?.get("artist") ?: ""),
-          "album" to (song?.get("albumTitle") ?: book?.get("bookTitle") ?: ""), "kind" to (answer["kind"] as? String ?: ""), "posterUrl" to answer["posterUrl"],
+          "album" to (song?.get("albumTitle") ?: book?.get("bookTitle") ?: ""), "bookId" to (book?.get("bookId") ?: ""), "kind" to (answer["kind"] as? String ?: ""), "posterUrl" to answer["posterUrl"],
           "albumId" to ((song?.get("albumId") as? String) ?: ""), "discNumber" to (num(song?.get("discNumber")) ?: 0.0), "trackNumber" to (num(song?.get("trackNumber")) ?: 0.0)), owner)
     }
     exchange.start(origin + "/v1/items/" + Uri.encode(item), token, "GET", null, null)
