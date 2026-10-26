@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import {findNodeHandle, Platform, ScrollView, Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Svg, {Path} from 'react-native-svg';
-import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {nativeEqualizer, type DeviceEqualizer, type DeviceEqualizerStore} from '../../platform/playback/equalizer';
 import {Button, Focusable, Switch} from '../../kit/controls';
 import {FocusProvider, FocusRegion} from '../../kit/focus';
@@ -10,6 +10,7 @@ import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
 import {nativeEqualizerControls, nativeEqualizerFlat, nativeEqualizerGain, type NativeEqualizerTarget} from './equalizer-controls';
+import {equalizerDragFraction, equalizerDragGain, equalizerFillTransform, equalizerFractionFromGain, equalizerThumbTranslate, equalizerTooltipTranslate} from './equalizer-gesture-paint';
 
 export type NativeEqualizerCopy = Readonly<{
   title: string; back: string; thisDevice: string; bands: string; preamp: string; reset: string; musicAndAudiobooks: string;
@@ -102,23 +103,54 @@ export function NativeWatchEqualizer({onBack, copy, reportError, store = nativeE
   </View>;
 }
 
-function EqualizerBand({target, value, height, disabled, horizontal, label, accessibilityLabel, copy, onChange, onNudge, onFocus, onBlur}: {
+function EqualizerBand({target, value, height, disabled, horizontal = false, label, accessibilityLabel, copy, onChange, onNudge, onFocus, onBlur}: {
   target: NativeEqualizerTarget; value: number; height: number; disabled: boolean; horizontal?: boolean; label: string; accessibilityLabel: string;
   copy: NativeEqualizerCopy; onChange: (value: number) => void; onNudge: (direction: -1 | 1) => void; onFocus: (target: NativeEqualizerTarget) => void; onBlur: (target: NativeEqualizerTarget) => void;
 }) {
-  const theme = useTheme(), motion = useMotion(), origin = useRef(value), width = useRef(0), last = useRef(value), dragging = useRef(false);
+  const theme = useTheme(), motion = useMotion(), last = useRef(value), dragging = useRef(false);
   const [draft, setDraft] = useState<number>(), [draggingNow, setDraggingNow] = useState(false), [focused, setFocused] = useState(false), [nativeHandle, setNativeHandle] = useState<number>();
   const scale = useSharedValue(1);
+  // The drawn position lives on the UI thread: paintFraction is the current
+  // gain's fraction, dragFraction only exists while a finger is down, so a
+  // release or a cancellation falls straight back to the real value.
+  const travel = useSharedValue(0), paintFraction = useSharedValue(equalizerFractionFromGain(value)), dragFraction = useSharedValue<number | null>(null), dragOrigin = useSharedValue(0);
   const focusFace = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const attach = useCallback((node: View | null) => {if (node) setNativeHandle(findNodeHandle(node) ?? undefined);}, []);
   useEffect(() => {scale.value = withTiming(theme.isTV && focused && motion.transforms ? 1.06 : 1, motion.timing('quick')); return () => cancelAnimation(scale);}, [theme.isTV, focused, motion, scale]);
   useEffect(() => {if (!dragging.current) setDraft(undefined);}, [value]);
+  // An external gain only retargets the preview when no finger is down.
+  useEffect(() => {if (dragFraction.value === null) paintFraction.value = equalizerFractionFromGain(draft ?? value);}, [draft, value, paintFraction, dragFraction]);
+  useEffect(() => () => {dragFraction.value = null;}, [dragFraction]);
   const shown = draft ?? value, fraction = (12 - shown) / 24;
   const commit = (asked: number) => {const gain = nativeEqualizerGain(asked); if (gain !== undefined && gain !== last.current && !disabled) {last.current = gain; setDraft(gain); onChange(gain);}};
-  const pan = Gesture.Pan().enabled(!disabled && !theme.isTV).runOnJS(true).minDistance(0)
-    .onBegin(() => {origin.current = value; last.current = value; dragging.current = true; setDraggingNow(true);})
-    .onUpdate(event => {if (horizontal ? width.current > 0 : height > 0) commit(origin.current + (horizontal ? event.translationX / width.current : -event.translationY / height) * 24);})
-    .onFinalize(() => {dragging.current = false; setDraggingNow(false); setDraft(undefined);});
+  const markDrag = (active: boolean) => {dragging.current = active; setDraggingNow(active); if (active) last.current = value; else setDraft(undefined);};
+  // The paint runs on the UI thread from the pointer displacement; the original
+  // commit callback still crosses once per update with its own validation and
+  // ordering, exactly as the previous runOnJS(true) gesture did.
+  // The origin is frozen once at begin; every update derives from it plus the
+  // TOTAL measured displacement, so a repeated event cannot move the preview
+  // twice. Unmeasured travel paints and commits nothing.
+  const pan = Gesture.Pan().enabled(!disabled && !theme.isTV).minDistance(0)
+    .onBegin(() => {dragOrigin.value = paintFraction.value; dragFraction.value = paintFraction.value; runOnJS(markDrag)(true);})
+    .onUpdate(event => {
+      const next = equalizerDragFraction(dragOrigin.value, horizontal ? event.translationX : event.translationY, travel.value, horizontal);
+      if (next === undefined) return;
+      const gain = equalizerDragGain(dragOrigin.value, horizontal ? event.translationX : event.translationY, travel.value, horizontal);
+      dragFraction.value = next;
+      if (gain !== undefined) runOnJS(commit)(gain);
+    })
+    .onFinalize(() => {dragFraction.value = null; runOnJS(markDrag)(false);});
+  // Translation comes before scale so the offset stays in track pixels and the
+  // fill keeps its drawn edge on both axes.
+  const fillPaint = useAnimatedStyle(() => {
+    const t = equalizerFillTransform(dragFraction.value ?? paintFraction.value, travel.value, horizontal);
+    return {transform: horizontal ? [{translateX: t.offset}, {scaleX: t.length}] : [{translateY: t.offset}, {scaleY: t.length}]};
+  });
+  const thumbPaint = useAnimatedStyle(() => {
+    const offset = equalizerThumbTranslate(dragFraction.value ?? paintFraction.value, travel.value, horizontal);
+    return {transform: horizontal ? [{translateX: offset}] : [{translateY: offset}]};
+  });
+  const tooltipPaint = useAnimatedStyle(() => ({transform: [{translateY: equalizerTooltipTranslate(dragFraction.value ?? paintFraction.value, travel.value)}]}));
   const knob = horizontal ? 18 : theme.isTV ? focused ? 34 : 28 : draggingNow ? 28 : 16;
   return <GestureDetector gesture={pan}><Focusable ref={attach} focusId={`equalizer-${target}`} testID={`equalizer-${target}`} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel}
     accessibilityValue={{min: -12, max: 12, now: shown, text: copy.gain(shown, true)}} disabled={disabled} focusable={!disabled}
@@ -132,17 +164,24 @@ function EqualizerBand({target, value, height, disabled, horizontal, label, acce
       </View>}
       {horizontal && <Text style={[nativeType({size: 15.5, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{label}</Text>}
       {!horizontal && <Text style={[nativeType({size: theme.isTV ? focused ? 22 : 20 : 10.5, weight: focused ? 800 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {height: theme.isTV ? 34 : 16, marginBottom: theme.isTV ? 22 : 4, color: focused || draggingNow || target === 'preamp' ? theme.colors.text : theme.colors.textSecondary}]}>{copy.gain(shown, false)}</Text>}
-      <View onLayout={event => {width.current = event.nativeEvent.layout.width;}} style={horizontal ? {flex: 1, height: 4, borderRadius: 2, backgroundColor: '#edf5fa24'} : {width: theme.isTV ? 6 : 4, height, borderRadius: theme.isTV ? 3 : 2, backgroundColor: '#edf5fa24'}}>
-        <View style={horizontal ? {position: 'absolute', left: `${Math.min(.5, 1 - fraction) * 100}%`, width: `${Math.abs(.5 - fraction) * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}
-          : {position: 'absolute', left: 0, right: 0, top: Math.min(.5, fraction) * height, height: Math.abs(.5 - fraction) * height, borderRadius: 3, backgroundColor: theme.colors.accentStrong}}/>
-        <View style={{position: 'absolute', ...(horizontal ? {left: `${(1 - fraction) * 100}%`, top: 2, marginLeft: -knob / 2} : {top: fraction * height, left: '50%', marginLeft: -knob / 2}), marginTop: -knob / 2,
-          width: knob, height: knob, borderRadius: knob / 2, backgroundColor: theme.colors.text,
-          shadowColor: draggingNow || theme.isTV && focused ? theme.colors.accentStrong : '#000', shadowOffset: {width: 0, height: draggingNow || theme.isTV && focused ? 0 : 2}, shadowOpacity: .55, shadowRadius: draggingNow || theme.isTV && focused ? 8 : 4,
-          ...(draggingNow || theme.isTV && focused ? {borderWidth: 0, elevation: 4} : {})}}/>
-        {!horizontal && draggingNow && <View pointerEvents="none" style={{position: 'absolute', top: fraction * height - 60, left: '50%', width: 76, marginLeft: -38, height: 30, borderRadius: 8, backgroundColor: theme.colors.text, alignItems: 'center', justifyContent: 'center'}}>
+      <View onLayout={event => {travel.value = horizontal ? event.nativeEvent.layout.width : height;}} style={horizontal ? {flex: 1, height: 4, borderRadius: 2, backgroundColor: '#edf5fa24'} : {width: theme.isTV ? 6 : 4, height, borderRadius: theme.isTV ? 3 : 2, backgroundColor: '#edf5fa24'}}>
+        {theme.isTV
+          ? <View style={horizontal ? {position: 'absolute', left: `${Math.min(.5, 1 - fraction) * 100}%`, width: `${Math.abs(.5 - fraction) * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}
+              : {position: 'absolute', left: 0, right: 0, top: Math.min(.5, fraction) * height, height: Math.abs(.5 - fraction) * height, borderRadius: 3, backgroundColor: theme.colors.accentStrong}}/>
+          : <Animated.View style={[{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: horizontal ? 2 : 3, backgroundColor: theme.colors.accentStrong}, fillPaint]}/>}
+        {theme.isTV
+          ? <View style={{position: 'absolute', ...(horizontal ? {left: `${(1 - fraction) * 100}%`, top: 2, marginLeft: -knob / 2} : {top: fraction * height, left: '50%', marginLeft: -knob / 2}), marginTop: -knob / 2,
+              width: knob, height: knob, borderRadius: knob / 2, backgroundColor: theme.colors.text,
+              shadowColor: focused ? theme.colors.accentStrong : '#000', shadowOffset: {width: 0, height: focused ? 0 : 2}, shadowOpacity: .55, shadowRadius: focused ? 8 : 4,
+              ...(focused ? {borderWidth: 0, elevation: 4} : {})}}/>
+          : <Animated.View style={[{position: 'absolute', ...(horizontal ? {left: 0, top: 2} : {left: '50%', top: 0}), marginTop: -knob / 2, marginLeft: -knob / 2,
+              width: knob, height: knob, borderRadius: knob / 2, backgroundColor: theme.colors.text,
+              shadowColor: draggingNow ? theme.colors.accentStrong : '#000', shadowOffset: {width: 0, height: draggingNow ? 0 : 2}, shadowOpacity: .55, shadowRadius: draggingNow ? 8 : 4,
+              ...(draggingNow ? {borderWidth: 0, elevation: 4} : {})}, thumbPaint]}/>}
+        {!horizontal && draggingNow && <Animated.View pointerEvents="none" style={[{position: 'absolute', top: 0, left: '50%', width: 76, marginLeft: -38, height: 30, borderRadius: 8, backgroundColor: theme.colors.text, alignItems: 'center', justifyContent: 'center'}, tooltipPaint]}>
           <View style={{position: 'absolute', width: 10, height: 10, bottom: -4, borderRadius: 2, backgroundColor: theme.colors.text, transform: [{rotate: '45deg'}]}}/>
           <Text style={[nativeType({size: 14, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.ink}]}>{copy.gain(shown, true)}</Text>
-        </View>}
+        </Animated.View>}
         {theme.isTV && focused && (['up', 'down'] as const).map(direction => <View pointerEvents="none" key={direction} style={{position: 'absolute', left: '50%', marginLeft: -15, top: fraction * height + (direction === 'up' ? -62 : 32), width: 30, height: 30, borderRadius: 15, backgroundColor: theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'}}><Icon name={direction === 'up' ? 'i-up' : 'i-down'} size={26}/></View>)}
       </View>
       {horizontal ? <Text style={[nativeType({size: 14, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {width: 58, textAlign: 'right', color: theme.colors.textSecondary}]}>{copy.gain(shown, true)}</Text>
