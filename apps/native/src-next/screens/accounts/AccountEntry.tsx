@@ -66,8 +66,12 @@ const t = defaultI18n.t;
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
 export function AccountEntry({downloads, incomingInvitation, onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {downloads?: AccountDownloadsEntry; incomingInvitation?: NativeInvitationLink; onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
   const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
-  // One direct-auth preparation for the non-TV root; the existing portico() path owns it.
-  const initialAuthStarted = useRef(false);
+  const invitationActive = !!incomingInvitation?.current();
+  // One direct-auth opening per actual non-TV root entry. reset() advances the
+  // generation; a replay gets a fresh entry and the old prepared source is retired.
+  const [rootAuthGeneration, setRootAuthGeneration] = useState(0), [authPrepareFailed, setAuthPrepareFailed] = useState(false);
+  const rootEntry = useRef<{active: boolean} | undefined>(undefined), rootPrepare = useRef<{active: boolean; entry: {active: boolean}} | undefined>(undefined);
+  const preparedAuthSource = useRef<NativePorticoSignIn | undefined>(undefined);
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   // Root 43: only the server's confirmed public-handle collision may mark this
@@ -285,7 +289,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
-  const reset = () => {retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
+  const reset = () => {retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; preparedAuthSource.current = undefined; setAuthPrepareFailed(false); setRootAuthGeneration(value => value + 1); operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
@@ -309,7 +313,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const externalTarget = external ? NativeServerSignIn.parseInvitationEntry(external.raw, '') : undefined;
     if (external && !externalTarget) return;
     retireInvitationEntry(); retireInvitationSwitch(); retireInvitation(); stopMemberMove(); cancelDirectory(); operation.current = undefined;
-    account.current?.dispose(); account.current = undefined;
+    account.current?.dispose(); account.current = undefined; preparedAuthSource.current = undefined;
     invitationIntent.current = undefined; invitationEntryOpening.current = {active: true, returnAddress, external};
     setAddress(externalTarget?.server ?? returnAddress ?? ''); setUsername(''); setCode(''); setPassword(''); setSetupPasswordConfirm(''); setError(undefined); setScannedInvitationLink(undefined); setInvitationScanning(false);
     stageRef.current = 'invitation-entry'; setStage('invitation-entry');
@@ -478,21 +482,54 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     });
     setStage('tv'); await service.start();
   };
-  const portico = async () => {
+  const portico = async (auto?: {active: boolean; entry: {active: boolean}}) => {
+    const autoCurrent = () => !auto || (auto.active && auto.entry === rootEntry.current && stageRef.current === 'welcome');
+    if (auto && !autoCurrent()) return;
     const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
+    if (auto && !autoCurrent()) return;
     if (credentials.getSnapshot().session) return directory();
     if (Platform.isTV) return startTV('portico');
-    account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
-    const available = await next.prepare(); if (lifetime.current && stageRef.current === 'welcome') {setOptions(available); setStage('portico');}
+    account.current?.dispose(); preparedAuthSource.current = undefined;
+    const next = account.current = new NativePorticoSignIn();
+    const available = await next.prepare(); if (!lifetime.current) return;
+    // The automatic root prepare is the only caller with an opening; a late one
+    // retires its own source instead of overriding a special path.
+    if (auto && !autoCurrent()) {
+      if (account.current === next) {next.dispose(); account.current = undefined;}
+      return;
+    }
+    preparedAuthSource.current = next;
+    setOptions(available); setStage('portico');
   };
-  // The direct non-TV root prepares through the same portico() path once. Invitation,
-  // ended-sign-in, setup and TV entry never take this branch.
+  const retryRootAuth = () => {
+    if (Platform.isTV || stageRef.current !== 'welcome' || invitationActive || busyRef.current || acting.current) return;
+    setAuthPrepareFailed(false); setRootAuthGeneration(value => value + 1);
+  };
+  // A new root-entry lifetime is created for each reset/re-entry and for a replay.
+  useLayoutEffect(() => {
+    if (Platform.isTV || initialStage !== 'welcome' || stage !== 'welcome' || invitationActive) {rootEntry.current = undefined; return;}
+    const entry = {active: true}; rootEntry.current = entry;
+    return () => {entry.active = false; if (rootEntry.current === entry) rootEntry.current = undefined;};
+  }, [stage, rootAuthGeneration, initialStage, invitationActive]);
+  // Prepare once per live root entry, waiting out the existing busy owner. The
+  // failed state stops an automatic loop; Try again advances the entry generation.
   useEffect(() => {
-    if (initialAuthStarted.current || Platform.isTV || initialStage !== 'welcome' || endedSignIn || incomingInvitation) return;
-    initialAuthStarted.current = true;
-    void run(portico);
+    if (Platform.isTV || initialStage !== 'welcome' || invitationActive) return;
+    if (stage !== 'welcome' || busy || authPrepareFailed || acting.current || adoptingTV.current || !lifetime.current) return;
+    const entry = rootEntry.current;
+    if (!entry?.active || rootPrepare.current?.entry === entry) return;
+    const opening = {active: true, entry}; rootPrepare.current = opening;
+    void run(async () => {
+      try {await portico(opening);}
+      catch (failure) {
+        // A retired root entry or a special path publishes neither failure nor error.
+        if (!opening.active || rootEntry.current !== entry || stageRef.current !== 'welcome') return;
+        setAuthPrepareFailed(true); throw failure;
+      } finally {if (rootPrepare.current === opening) rootPrepare.current = undefined;}
+    });
+    // Entry/stage changes retire the opening; portico checks it around its awaits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stage, busy, rootAuthGeneration, authPrepareFailed, initialStage, invitationActive]);
   const signInWithProvider = (id: IdentityOptions['providers'][number]['id']) => {void run(async () => {
     const tx = await account.current!.provider(id); setTransaction(tx);
     if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {await account.current!.finishProvider(); await directory();} else setStage('provider');
@@ -652,7 +689,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false); setStage('tv-credentials');
   };
   const returnToTVCode = async () => {
-    account.current?.dispose(); account.current = undefined;
+    account.current?.dispose(); account.current = undefined; preparedAuthSource.current = undefined;
     setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false); setRequiredSetup(undefined);
     if (tvKind === 'local') await inspect(address); else await startTV('portico');
   };
@@ -780,17 +817,19 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   }
   if (stage === 'welcome' && theme.isTV) return <TVFrontDoor busy={busy} error={status}
     onPortico={() => {void run(portico);}} onLocal={() => {if (!busy) setStage('address');}}/>;
-  const availableProviders = options?.providers.filter(value => value.enabled
+  const authOptions = account.current && preparedAuthSource.current === account.current ? options : undefined;
+  const availableProviders = authOptions?.providers.filter(value => value.enabled
     && (NativeModules.PorticoAccountAuth.canOpenBrowser || value.id === 'apple' && value.native
       && value.nativeClientIds.includes(NativeModules.PorticoAccountAuth.bundleId) && NativeModules.PorticoAccountAuth.canSignInApple)) ?? [];
-  if (stage === 'welcome' && !incomingInvitation) return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
-    passwordEnabled={!!options?.password} registration={!!options?.registration} recovery={options?.recovery !== false}
+  if (stage === 'welcome' && !invitationActive) return <PhoneAccountSignIn busy={busy || (!authOptions && !authPrepareFailed)} error={status} providers={availableProviders}
+    passwordEnabled={!!authOptions?.password} registration={!!authOptions?.registration} recovery={authOptions?.recovery !== false}
     username={username} password={password} onUsernameChange={setUsername} onPasswordChange={setPassword}
     onProvider={signInWithProvider}
-    onContinue={() => {if (busy || !options?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
-    onForgot={() => {if (busy) return; setPassword(''); setStage('forgot');}}
-    onCreate={() => {if (busy) return; setPassword(''); setStage('register');}}
-    onLocal={() => {if (busy) return; setPassword(''); setStage('address');}}/>;
+    onContinue={() => {if (busy || !authOptions?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
+    onForgot={() => {if (busy || !authOptions?.recovery) return; setPassword(''); setStage('forgot');}}
+    onCreate={() => {if (busy || !authOptions?.registration) return; setPassword(''); setStage('register');}}
+    onLocal={() => {if (busy) return; setPassword(''); setStage('address');}}
+    onRetry={authPrepareFailed && !authOptions ? retryRootAuth : undefined}/>;
   if (stage === 'welcome' && theme.platform === 'phone') return <PhoneFrontDoor busy={busy} error={status}
     onInvitation={() => openInvitationEntry()} onPortico={() => {void run(portico);}} onLocal={() => {if (!busy) setStage('address');}}/>;
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
@@ -1187,12 +1226,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setCode('');
   }, !code));
   if (stage === 'portico' && !theme.isTV) return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
-    passwordEnabled={!!options?.password} registration={!!options?.registration} recovery={options?.recovery !== false}
+    passwordEnabled={!!authOptions?.password} registration={!!authOptions?.registration} recovery={authOptions?.recovery !== false}
     username={username} password={password} onUsernameChange={setUsername} onPasswordChange={setPassword}
     onProvider={signInWithProvider}
-    onContinue={() => {if (busy || !options?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
-    onForgot={() => {if (busy) return; setPassword(''); setStage('forgot');}}
-    onCreate={() => {if (busy) return; setPassword(''); setStage('register');}}
+    onContinue={() => {if (busy || !authOptions?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
+    onForgot={() => {if (busy || !authOptions?.recovery) return; setPassword(''); setStage('forgot');}}
+    onCreate={() => {if (busy || !authOptions?.registration) return; setPassword(''); setStage('register');}}
     onLocal={() => {if (busy) return; setPassword(''); setStage('address');}}/>;
   if (stage === 'portico') return layout(t('accounts.signIn.portico'), t('auth.accountLead'), options?.password ? fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')) : undefined,
     options?.password ? action('account-password', t('auth.signIn'), async () => {await account.current!.password(username, password); await directory();}, !username || !password) : undefined,
