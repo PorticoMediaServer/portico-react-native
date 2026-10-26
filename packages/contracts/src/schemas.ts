@@ -114065,7 +114065,8 @@ export const schemas = {
                 "cbz",
                 "mobi",
                 "azw3",
-                "cb7"
+                "cb7",
+                "cbr"
               ],
               "type": "string"
             },
@@ -145796,7 +145797,8 @@ export const schemas = {
                     "cbz",
                     "mobi",
                     "azw3",
-                    "cb7"
+                    "cb7",
+                    "cbr"
                   ],
                   "type": "string"
                 },
@@ -145920,7 +145922,8 @@ export const schemas = {
                         "epub",
                         "pdf",
                         "cbz",
-                        "cb7"
+                        "cb7",
+                        "cbr"
                       ],
                       "type": "string"
                     },
@@ -146037,7 +146040,8 @@ export const schemas = {
                       "cbz",
                       "mobi",
                       "azw3",
-                      "cb7"
+                      "cb7",
+                      "cbr"
                     ],
                     "type": "string"
                   },
@@ -146200,7 +146204,8 @@ export const schemas = {
                           "cbz",
                           "mobi",
                           "azw3",
-                          "cb7"
+                          "cb7",
+                          "cbr"
                         ],
                         "type": "string"
                       },
@@ -146378,7 +146383,8 @@ export const schemas = {
                             "cbz",
                             "mobi",
                             "azw3",
-                            "cb7"
+                            "cb7",
+                            "cbr"
                           ],
                           "type": "string"
                         },
@@ -146570,7 +146576,8 @@ export const schemas = {
                             "cbz",
                             "mobi",
                             "azw3",
-                            "cb7"
+                            "cb7",
+                            "cbr"
                           ],
                           "type": "string"
                         },
@@ -146749,7 +146756,8 @@ export const schemas = {
                           "cbz",
                           "mobi",
                           "azw3",
-                          "cb7"
+                          "cb7",
+                          "cbr"
                         ],
                         "type": "string"
                       },
@@ -147004,7 +147012,8 @@ export const schemas = {
                 "cbz",
                 "mobi",
                 "azw3",
-                "cb7"
+                "cb7",
+                "cbr"
               ],
               "type": "string"
             },
@@ -147193,7 +147202,8 @@ export const schemas = {
                         "cbz",
                         "mobi",
                         "azw3",
-                        "cb7"
+                        "cb7",
+                        "cbr"
                       ],
                       "type": "string"
                     },
@@ -147436,7 +147446,8 @@ export const schemas = {
                     "cbz",
                     "mobi",
                     "azw3",
-                    "cb7"
+                    "cb7",
+                    "cbr"
                   ],
                   "type": "string"
                 },
@@ -147797,7 +147808,8 @@ export const schemas = {
                 "cbz",
                 "mobi",
                 "azw3",
-                "cb7"
+                "cb7",
+                "cbr"
               ],
               "type": "string"
             },
@@ -148056,7 +148068,8 @@ export const schemas = {
                       "enum": [
                         "pdf",
                         "cbz",
-                        "cb7"
+                        "cb7",
+                        "cbr"
                       ],
                       "type": "string"
                     },
@@ -148215,7 +148228,8 @@ export const schemas = {
                   "epub",
                   "pdf",
                   "cbz",
-                  "cb7"
+                  "cb7",
+                  "cbr"
                 ],
                 "type": "string"
               },
@@ -179995,7 +180009,8 @@ export const schemas = {
                             "epub",
                             "pdf",
                             "cbz",
-                            "cb7"
+                            "cb7",
+                            "cbr"
                           ],
                           "type": "string"
                         },
@@ -198484,6 +198499,171 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "PostDirectSecurityReturnCancelRequest": {
+    "properties": {
+      "context": {
+        "properties": {
+          "payload": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "signature"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "context"
+    ],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnCancelResponse": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnCheckRequest": {
+    "properties": {
+      "context": {
+        "properties": {
+          "payload": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "signature"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "context"
+    ],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnCheckResponse": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnConfirmRequest": {
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "context": {
+        "properties": {
+          "payload": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "transactionId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "context",
+      "transactionId",
+      "code"
+    ],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnConfirmResponse": {
+    "properties": {
+      "payload": {
+        "type": "string"
+      },
+      "signature": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "payload",
+      "signature"
+    ],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnPrepareRequest": {
+    "properties": {
+      "expiresAt": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "nonce": {
+        "type": "string"
+      },
+      "openingId": {
+        "type": "string"
+      },
+      "operationId": {
+        "type": "string"
+      },
+      "origin": {
+        "type": "string"
+      },
+      "providerIdentityId": {
+        "type": "string"
+      },
+      "providerRevision": {
+        "type": "string"
+      },
+      "purpose": {
+        "type": "string"
+      },
+      "target": {
+        "type": "string"
+      },
+      "taskId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "purpose",
+      "target",
+      "origin",
+      "openingId",
+      "taskId",
+      "operationId",
+      "providerIdentityId",
+      "providerRevision",
+      "nonce",
+      "expiresAt"
+    ],
+    "type": "object"
+  },
+  "PostDirectSecurityReturnPrepareResponse": {
+    "properties": {
+      "payload": {
+        "type": "string"
+      },
+      "signature": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "payload",
+      "signature"
+    ],
+    "type": "object"
+  },
   "PostDirectSignInRequest": {
     "properties": {
       "password": {
@@ -212171,6 +212351,31 @@ export const schemas = {
               "pageIndex"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "const": "cbr",
+                "type": "string"
+              },
+              "pageIndex": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "progression": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "format",
+              "progression",
+              "pageIndex"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -212228,7 +212433,8 @@ export const schemas = {
                       "epub",
                       "pdf",
                       "cbz",
-                      "cb7"
+                      "cb7",
+                      "cbr"
                     ],
                     "type": "string"
                   },
@@ -212391,7 +212597,8 @@ export const schemas = {
                       "epub",
                       "pdf",
                       "cbz",
-                      "cb7"
+                      "cb7",
+                      "cbr"
                     ],
                     "type": "string"
                   },
@@ -212633,6 +212840,31 @@ export const schemas = {
                       "pageIndex"
                     ],
                     "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "format": {
+                        "const": "cbr",
+                        "type": "string"
+                      },
+                      "pageIndex": {
+                        "maximum": 1000000,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "progression": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "format",
+                      "progression",
+                      "pageIndex"
+                    ],
+                    "type": "object"
                   }
                 ]
               },
@@ -212831,7 +213063,8 @@ export const schemas = {
           "epub",
           "pdf",
           "cbz",
-          "cb7"
+          "cb7",
+          "cbr"
         ],
         "type": "string"
       },
@@ -226984,7 +227217,8 @@ export const schemas = {
                     "enum": [
                       "pdf",
                       "cbz",
-                      "cb7"
+                      "cb7",
+                      "cbr"
                     ],
                     "type": "string"
                   },
@@ -227103,7 +227337,8 @@ export const schemas = {
               "epub",
               "pdf",
               "cbz",
-              "cb7"
+              "cb7",
+              "cbr"
             ],
             "type": "string"
           },
@@ -227147,7 +227382,8 @@ export const schemas = {
                   "epub",
                   "pdf",
                   "cbz",
-                  "cb7"
+                  "cb7",
+                  "cbr"
                 ],
                 "type": "string"
               },
@@ -233115,7 +233351,8 @@ export const schemas = {
                             "epub",
                             "pdf",
                             "cbz",
-                            "cb7"
+                            "cb7",
+                            "cbr"
                           ],
                           "type": "string"
                         },
@@ -233500,7 +233737,8 @@ export const schemas = {
                             "epub",
                             "pdf",
                             "cbz",
-                            "cb7"
+                            "cb7",
+                            "cbr"
                           ],
                           "type": "string"
                         },
