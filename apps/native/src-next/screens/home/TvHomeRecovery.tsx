@@ -26,14 +26,17 @@ export function TvHomeRecovery({session, onRetryNow, onSwitchServer, connectionF
   const progress = session.dueAt === undefined || session.delayMs <= 0 ? undefined : Math.min(1, Math.max(0, 1 - remaining / (session.delayMs / 1000)));
   const label = session.dueAt === undefined ? t('next.states.retrying') : t('next.states.retryIn', {seconds: remaining});
   const detail = session.attempts > 0 && session.firstAt ? t('next.states.triesSince', {count: session.attempts, time: defaultI18n.time(session.firstAt)}) : undefined;
-  const facts = [detail, connectionFacts?.connectionAddress ? `${t('next.states.address')} · ${connectionFacts.connectionAddress}` : undefined, label, t('next.states.native.tvConnectionHelp')].filter((line): line is string => !!line);
+  // Frame 5 draws the connection help under the actions, not inside Details; the panel keeps
+  // the attempt and address facts it was opened for.
+  const facts = [detail, connectionFacts?.connectionAddress ? `${t('next.states.address')} · ${connectionFacts.connectionAddress}` : undefined, label].filter((line): line is string => !!line);
   return <>
     <StateLayout icon="i-srvoff" tone="warning" testID="tv-home-recovery"
       title={session.presented.title} body={session.presented.body}
       retry={{progress: progress ?? null, label, detail}}
       primaryAction={{id: 'retry', label: t('next.states.tryNow'), icon: 'i-retry', hasTVPreferredFocus: true, onPress: () => onRetryNow(session.ticket)}}
       secondaryAction={onSwitchServer ? {id: 'switch-server', label: t('next.states.switchServer'), icon: 'i-server', onPress: () => onSwitchServer(session.ticket)} : undefined}
-      detailsAction={{id: 'details', label: t('next.states.details'), ref: opener, accessibilityState: {expanded: details}, onPress: () => {if (!ticket.retired) setDetailsTicket(ticket);}}}/>
+      detailsAction={{id: 'details', label: t('next.states.details'), ref: opener, accessibilityState: {expanded: details}, onPress: () => {if (!ticket.retired) setDetailsTicket(ticket);}}}
+      help={t('next.states.native.tvConnectionHelp')}/>
     <SidePanel testID="tv-home-recovery-details" open={details} onOpenChange={value => {if (!value) setDetailsTicket(current => current === ticket ? undefined : current);}} title={t('next.states.details')} topInset={0} width={700} returnFocusRef={opener}>
       <View style={{gap: 18}}>{facts.map(line => <Text key={line} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{line}</Text>)}</View>
     </SidePanel>
