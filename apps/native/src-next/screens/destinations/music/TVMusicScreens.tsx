@@ -1,5 +1,6 @@
-import React, {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, type View as NativeView} from 'react-native';
+import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
@@ -42,11 +43,16 @@ function usePlayback(runtime: NativeShellRuntime) {
 }
 
 function Backdrop({runtime, path, accent}: {runtime: NativeShellRuntime; path: string | undefined; accent?: boolean}) {
-  const source = runtime.ambient(path);
+  const source = runtime.ambient(path), gradient = useId();
   return <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: '#071018', overflow: 'hidden'}}>
     {source ? <AmbientArt source={source} treatment="title" style={{position: 'absolute', inset: 0}}/> : null}
     <View style={{position: 'absolute', inset: 0, backgroundColor: accent ? 'rgba(7,16,24,.42)' : 'rgba(7,16,24,.58)'}}/>
-    <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 520, backgroundColor: 'rgba(7,16,24,.5)'}}/>
+    {/* tv-more .np-shade: the bottom fade covers the canvas continuously. */}
+    <Svg width="100%" height="100%" style={{position: 'absolute', inset: 0}} accessible={false}>
+      <Defs><LinearGradient id={gradient} x1="0" y1="100%" x2="0" y2="0%">
+        <Stop offset="0" stopColor="#071018" stopOpacity={.94}/><Stop offset=".4" stopColor="#071018" stopOpacity={.4}/><Stop offset=".62" stopColor="#071018" stopOpacity={0}/>
+      </LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${gradient})`}/>
+    </Svg>
   </View>;
 }
 
