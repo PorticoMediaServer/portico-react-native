@@ -19,13 +19,15 @@ import {closeNativeDownload, getNativeDownloadSnapshot, nativeDownloadRequestKey
 
 import {createNativeDownloadOpening, type NativeDownloadOpening} from './download-opening';
 import {linkNativeAbortSignals} from '../../platform/abort-signals';
+import {containerDownloadBytes, downloadSheetMeaning, type ContainerDownloadOption} from './download-sheet-facts';
+import {downloadRequestLines} from './presentation';
 
 type SheetOpening = NativeDownloadOpening & Readonly<{lease: ReturnType<typeof createNativeDownloadsDevice>; deviceId?: string}>;
-type ContainerOptions = Readonly<{quality: string; label: string; available: boolean; estimated: boolean; estimatedBytes: number; unavailableCount: number; sameAsOriginal?: boolean}>;
 
 /** The phone's drawn download sheet (collections 31a/32a-c): the server's real
  * quality menu, the whole-container episode policy, the sizes it will be, the
- * server's room and this device's, then today's confirmation. */
+ * known server room, then today's confirmation. Device room stays unknown
+ * until a measured storage fact is available. */
 export function NativeDownloadSheet({context}: {context: NativeShellBootstrapContext}) {
   const request = useSyncExternalStore(subscribeNativeDownload, getNativeDownloadSnapshot);
   return request?.reading ? <NativeReadingDownloadSheet context={context} request={request}/> : request ? <NativeDownloadSheetBody context={context} request={request} key={nativeDownloadRequestKey(request)}/> : null;
@@ -47,7 +49,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
     return () => {original.retire(); offs.forEach(off => off()); request.lifetime?.signal.removeEventListener('abort', closeOnAbort); lease.dispose();};
   }, [context, request]);
   const container = request.container, deviceId = opening?.deviceId;
-  const [view, setView] = useState<DownloadOptionsView>(), [choices, setChoices] = useState<readonly ContainerOptions[]>(), [policy, setPolicy] = useState<DownloadEpisodes>('all'), [keepNext, setKeepNext] = useState(1);
+  const [view, setView] = useState<DownloadOptionsView>(), [choices, setChoices] = useState<readonly ContainerDownloadOption[]>(), [policy, setPolicy] = useState<DownloadEpisodes>('all'), [keepNext, setKeepNext] = useState(1);
   const [busy, setBusy] = useState(''), [done, setDone] = useState(''), [error, setError] = useState<unknown>();
   const [acceptedSingle, setAcceptedSingle] = useState(false);
   useEffect(() => {
@@ -79,7 +81,11 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
         if (!deviceId) throw Object.assign(new Error('downloads.noDevice'), {code: 'noDevice'});
         const followed = await service.requestContainer({target: {kind: container.kind, id: container.id, title: request.title}, deviceId, quality,
           policy: policy === 'next' ? {episodes: policy, keepNext} : {episodes: policy}});
-        if (opening.owns(ticket)) setDone(followed.totalKnown ? t('downloads.addedMany', {count: followed.total}) : t('downloads.requestPreparing'));
+        // A captured membership total is not an accepted-title count. Reuse the
+        // request's real preparation progress, including any failed members.
+        if (opening.owns(ticket)) setDone(downloadRequestLines(followed).map(line =>
+          line.key === 'downloads.requestProgress' ? t(line.key, line.values as {ready: number; total: number})
+            : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key)).join(' · '));
         return;
       }
       if (!request.itemId) return;
@@ -108,10 +114,13 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
     </View>
     <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{option.meta ?? (option.available ? t('action.download') : '')}</Text>
   </Focusable>;
-  const titleOption = (option: DownloadQualityOption) => qualityRow({quality: option.quality, label: option.label, available: option.available,
-    size: option.available ? option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes) : downloadReasonMessage(option.reason ?? ''),
-    note: [option.available && option.sameAsOriginal ? t('quality.sameAsOriginal') : undefined, option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter(Boolean).join(' · ') || undefined,
-    meta: busy === option.quality ? t('downloads.adding') : undefined});
+  const titleOption = (option: DownloadQualityOption) => {
+    const meaning = view && downloadSheetMeaning(option, view.source);
+    return qualityRow({quality: option.quality, label: option.label, available: option.available,
+      size: option.available ? option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes) : downloadReasonMessage(option.reason ?? ''),
+      note: [meaning ? t(meaning) : undefined, option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter(Boolean).join(' · ') || undefined,
+      meta: busy === option.quality ? t('downloads.adding') : undefined});
+  };
   const engine = ((): EngineSetting | undefined => {try {const value = nativeDeviceSettings(context).read('playerEngine'); return value === 'native' || value === 'mpv' ? value : 'automatic';} catch {return undefined;}})();
   const cannotOpen = !!view && originalMayNotPlay(view.source.container, {platform: Platform.OS === 'ios' ? 'apple' : 'android',
     mpv: Platform.OS === 'android' && (NativeModules.PorticoMpvPlaybackModule as undefined | {available?: boolean})?.available === true, player: engine ?? 'automatic'});
@@ -135,7 +144,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
         {!done && !container && !view && error === undefined && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.checking')}</Text>}
         {view && !blocked && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{view.options.map(titleOption)}</View>}
         {container && choices && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{choices.map(option => qualityRow({quality: option.quality, label: option.label, available: option.available && !!deviceId,
-          size: option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes),
+          size: containerDownloadBytes(option) === undefined ? undefined : option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes),
           note: option.available && option.sameAsOriginal ? t('quality.sameAsOriginal') : undefined, meta: busy === option.quality ? t('downloads.adding') : undefined}))}</View>}
         {storage != null && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.spaceLeft', {size: downloadBytes(storage)})}</Text>}
       </>}
