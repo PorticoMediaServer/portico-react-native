@@ -132,7 +132,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
     ? <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
       saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
       versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
-      listed={state.listed} onList={toggleList} readMark={state.read} onReadMark={toggleRead} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
+      listed={state.listed} onList={toggleList} onMore={editLease ? () => {if (editLease.isCurrent()) setMore(true);} : undefined} readMark={state.read} onReadMark={toggleRead} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
       shelf={shelf} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
       onShelfRetry={() => {void controller.retrySeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
       onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>
@@ -184,13 +184,13 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, readMark, onReadMark, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, onMore, readMark, onReadMark, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean; rowHero: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
-  listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
+  listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void; onMore?: () => void;
   readMark?: ReadingReadMark; onReadMark: (mark: ReadingReadMark) => void;
   canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>; onHeroHeight: (height: number) => void;
   shelf: NativeReadSeriesShelfState; onShelfMore: () => void; onShelfRetry: () => void; onShelfItem: (item: ReadingItem) => void;
@@ -251,7 +251,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
   </Focusable> : null;
   const actions = phone ? <>
-    <BookDetailActions saved={saved} readMark={readMark} canDownload={canDownload} onRead={() => onRead(manifest)}
+    <BookDetailActions format={manifest.format} saved={saved} listed={listed} onList={onList} onMore={onMore} readMark={readMark} canDownload={canDownload} onRead={() => onRead(manifest)}
       onReadMark={onReadMark} onDownload={() => onDownload(manifest)} downloadRef={downloadRef} horizontalPadding={20} roundSize={46}/>
     {versionChoice ? <View style={{paddingHorizontal: 20}}>{versionChoice}</View> : null}
   </> : <View style={{paddingHorizontal: rowHero ? 0 : 20, marginTop: 18}}>
