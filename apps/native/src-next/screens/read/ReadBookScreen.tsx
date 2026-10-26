@@ -297,29 +297,34 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
     onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
   }))}/>;
-  // Frame 2b's card geometry: 190 pt expanded, 118 pt on the phone, 2:3 art.
+  // Frame 2b metrics (kit.css .row/.row-head/.track/.card). The page already insets
+  // its own content by 32 expanded / 28 medium / 20 phone, so the shelf reuses that
+  // effective inset instead of adding the frame's 64 pt gutter a second time.
+  const inset = wide ? 32 : rowHero ? 28 : 20;
   const shelfWidth = wide ? 190 : theme.platform === 'phone' ? 118 : 150, shelfHeight = shelfWidth * 3 / 2;
-  const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: 30}}>
-    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingHorizontal: 20, marginBottom: 10}}>
-      <Text accessibilityRole="header" style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{t('next.kit.booksInSeries')}</Text>
-      <Text numberOfLines={1} style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{series.name}</Text>
+  const shelfHeadings = wide ? 22 : 19;
+  const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: wide ? 44 : 28}}>
+    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 14, paddingHorizontal: inset, marginBottom: wide ? 14 : 4}}>
+      <Text accessibilityRole="header" style={[browseType(theme, shelfHeadings, 700, -.015), {color: theme.colors.text}]}>{t('next.kit.booksInSeries')}</Text>
+      <Text numberOfLines={1} style={[browseType(theme, 14, 400), {color: theme.colors.textTertiary, flexShrink: 1}]}>{series.name}</Text>
       <Focusable testID="native-read-book-series-all" accessibilityRole="link" accessibilityLabel={t('next.layout.seeAll')} hitSlop={10}
         onPress={() => onSeries(series, manifest)} style={{marginLeft: 'auto'}}>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-          <Text style={[browseType(theme, 13, 600), {color: theme.colors.accentStrong}]}>{t('next.layout.seeAll')}</Text>
-          <Icon name="i-right" size={14} color={theme.colors.accentStrong}/>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 2}}>
+          <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{t('next.layout.seeAll')}</Text>
+          <Icon name="i-right" size={16} color={theme.colors.textTertiary}/>
         </View>
       </Focusable>
     </View>
     {shelf.phase === 'error' ? <StateView {...runtime.error(shelf.error, onShelfRetry, 'library')}/>
-      : <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: 20, gap: 10, paddingBottom: 4}}
+      : <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100}
+        contentContainerStyle={{paddingHorizontal: inset, paddingTop: wide ? 10 : 8, paddingBottom: wide ? 14 : 10, gap: wide ? 16 : 12}}
         onScroll={event => {
           // Only a real cursor pages, and only when the track reaches its end.
           const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
           if (shelf.nextCursor && contentOffset.x + layoutMeasurement.width >= contentSize.width - shelfWidth / 2) onShelfMore();
         }}>
         {shelf.items.map(item => <VolumeCard key={`${item.id}:${item.sourceId}`} item={item} width={shelfWidth} height={shelfHeight} comic={comic} theme={theme} runtime={runtime}
-          onOpen={() => onShelfItem(item)}/>)}
+          variant="shelf" onOpen={() => onShelfItem(item)}/>)}
       </ScrollView>}
     {shelf.moreError ? <StateView {...runtime.error(shelf.moreError, onShelfRetry, 'library')}/> : null}
   </View> : null;
