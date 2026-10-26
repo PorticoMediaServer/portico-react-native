@@ -24,7 +24,7 @@ test('actual playback layer converts measured window slot to its own origin and 
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
-    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview'},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground'},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},

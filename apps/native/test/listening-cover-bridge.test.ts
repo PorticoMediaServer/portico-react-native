@@ -17,10 +17,11 @@ async function rig() {
   const ctx = () => tree.props.value;
   const {ListeningCoverProvider, useListeningCoverSlot} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
     react: {...React, default: React, createContext: () => ({Provider: 'Provider'}), useContext: () => ctx()},
-    'react-native': {View: 'View'}, 'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (read: () => unknown) => ({read})},
+    'react-native': {View: 'View'}, 'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current,
+      useAnimatedReaction() {}, cancelAnimation() {}, withTiming: (value: number) => value, withDelay: (_delay: number, value: number) => value, useAnimatedStyle: (read: () => unknown) => ({read})},
     '../../../../../packages/player-core/src': {sameFence}, '../theme': {useTheme: () => ({layers: {player: 30}})},
     '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive: true})},
-    '../useMotion': {useMotion: () => ({transforms: true})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'}, './model': {validRect},
+    '../useMotion': {useMotion: () => ({transforms: true, timing: () => ({duration: 180})})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'}, './model': {validRect},
   });
   const provider = createHookHost(() => {tree = ListeningCoverProvider({children: null});}); provider.mount();
   const canvas = () => nodes(tree).find(node => node.props.collapsable === false).props.ref;
