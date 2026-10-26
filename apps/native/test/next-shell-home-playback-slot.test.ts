@@ -1,3 +1,4 @@
+import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
 import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -22,6 +23,7 @@ test('actual playback layer converts measured window slot to its own origin and 
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     './listening-presentation': {expandedListeningOccupant},
+    '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
@@ -32,7 +34,7 @@ test('actual playback layer converts measured window slot to its own origin and 
     '../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
-    './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture: class {}},
+    './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture: class {async clear() {} async prepare() {}}},
     './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
   });
   const runtime = {text: {}, reportError() {}, artwork: () => undefined, ambient: () => undefined};

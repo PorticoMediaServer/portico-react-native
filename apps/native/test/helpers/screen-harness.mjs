@@ -55,3 +55,7 @@ export const surfacePaintFixture = {
   SurfacePaintHost: 'SurfacePaintHost', RetainedOverlay: ({children}) => children,
   overlayPaintPermit: current => ({current, subscribe: () => () => {}}),
 };
+
+// These shallow input/slot cases inspect the materialised current row; the
+// actual handover hooks have separate source vectors and are not run here.
+export const dockHandoverFixture = {DockHandover: 'DockHandover', DockPaintRow: 'DockPaintRow'};

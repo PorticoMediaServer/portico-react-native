@@ -31,12 +31,17 @@ export function DockHost({dock, snapshot, presentation, castView, onAction, bott
     return paint ? Object.freeze({...paint, paintCurrent: () => sameFrame() && paint.paintCurrent()}) : undefined;
   }, [takeVideoExit]);
   const presence = useDockPresence(wanted, theme.isTV);
-  const reportVideoSlot = useCallback((rect: DockRect) => {
+  const reportVideoSlot = useCallback((rect: DockRect, slotCurrent?: () => boolean) => {
     const latest = readOccupant();
     if (visible && !theme.isTV && wanted?.mode === 'video' && presence.slotAdmission?.isCurrent() && latest?.mode === 'video' &&
       sameDockFence(latest.playback.fence, wanted.playback.fence)) {
       originalVideoSlot.current = {fence: wanted.playback.fence, bounds: Object.freeze({...rect}), frame: Object.freeze({...frameNow.current})};
-      onVideoSlot?.(rect);
+      const originalCurrent = slotCurrent ? () => {
+        const current = readOccupant();
+        return slotCurrent() && !!current && current.mode === 'video' && sameDockFence(current.playback.fence, wanted.playback.fence)
+          && presence.slotAdmission?.isCurrent() === true;
+      } : undefined;
+      onVideoSlot?.(rect, originalCurrent);
     }
   }, [readOccupant, visible, theme.isTV, presence.slotAdmission, wanted, onVideoSlot]);
   const action = useCallback((command: DockCommand) => {

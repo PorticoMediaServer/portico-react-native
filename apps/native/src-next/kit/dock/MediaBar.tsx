@@ -22,7 +22,7 @@ import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMor
 const dockPaintTypes = [DockPaintRow, View, Text, Image, React.Fragment, Artwork, Button, Focusable, Icon, DockFacts, ActivityIndicator];
 
 export type MediaBarProps = DockRenderProps & {
-  onVideoSlot?: (rect: DockRect) => void;
+  onVideoSlot?: (rect: DockRect, sourceCurrent?: () => boolean) => void;
   /** Host closes this while its ancestor moves; standalone bars have no presence transform. */
   slotAdmission?: DockSlotAdmission | null;
   onMenuOpenChange?: (open: boolean) => void;
@@ -212,7 +212,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const slotSource = useRef(playback.fence);
   if (!sameDockFence(slotSource.current, playback.fence)) slotSource.current = playback.fence;
   const measuredFence = slotSource.current;
-  const measurement = useRef(0), measuring = useRef(false);
+  const measurement = useRef(0), measuring = useRef(false), artLayout = useRef(0);
   const slotNow = useRef({video, visible, onVideoSlot, slotAdmission, fence: playback.fence});
   slotNow.current = {video, visible, onVideoSlot, slotAdmission, fence: playback.fence};
   useEffect(() => {
@@ -221,13 +221,21 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     return () => {live.current = false; request.current++;};
   }, []);
   const measureArt = useCallback(() => {
-    const version = ++measurement.current, node = art.current;
+    const version = ++measurement.current, node = art.current, layout = artLayout.current;
     if (!measuring.current || active.value || x.value !== 0 || fade.value !== 1 || held.value !== 1 || !video || !visible || !onVideoSlot || !node || slotAdmission === null || slotAdmission?.isCurrent() === false) return;
+    // Callback identity still guards delivery below. Once admitted, ordinary
+    // position/playing rerenders do not retire the original native slot proof.
+    const sourceCurrent = () => {
+      const now = slotNow.current;
+      return measuring.current && artLayout.current === layout && node === art.current && !active.value && x.value === 0 && fade.value === 1 && held.value === 1
+        && now.video && now.visible && now.slotAdmission === slotAdmission
+        && sameDockFence(now.fence, measuredFence) && slotAdmission?.isCurrent() !== false;
+    };
     node.measureInWindow((ax, ay, w, h) => {
       const now = slotNow.current, rect = {x: ax, y: ay, width: w, height: h};
       if (measuring.current && !active.value && x.value === 0 && fade.value === 1 && held.value === 1 && version === measurement.current && node === art.current && now.video && now.visible &&
         now.onVideoSlot === onVideoSlot && now.slotAdmission === slotAdmission && sameDockFence(now.fence, measuredFence) &&
-        slotAdmission?.isCurrent() !== false && validRect(rect)) onVideoSlot(rect);
+        slotAdmission?.isCurrent() !== false && sourceCurrent() && validRect(rect)) onVideoSlot(rect, sourceCurrent);
     });
   }, [video, visible, onVideoSlot, slotAdmission, measuredFence, active, x, fade, held]);
   // Ancestor transforms do not produce a child onLayout at animation completion.
@@ -238,6 +246,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   }, [measureArt]);
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const measured = event.nativeEvent.layout.width;
+    artLayout.current++;
     width.value = measured;
     setExpandedWidth(current => current === Math.round(measured) ? current : Math.round(measured));
     measureArt();
@@ -267,6 +276,14 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const scrubSize = Math.round(Math.max(dock.minScrub, Math.min(dock.scrubWidth, expandedWidth - 2 * (dock.sideLeft + dock.edgeGap + dock.bodyWidth))));
   const bodySize = Math.round(Math.max(dock.minBody, Math.min(dock.bodyWidth, (expandedWidth - scrubSize) / 2 - dock.sideLeft - dock.edgeGap)));
   const titleSize = expandedBar ? 15 : 14.5, subtitleSize = expandedBar ? 13 : 12.5;
+  const takeOriginalVideo = useCallback((original: PlaybackFence) => {
+    const paint = takeVideoExit?.(original);
+    if (paint && (active.value || localX.value !== 0 || localFade.value !== 1 || held.value !== 1 || morph?.dragging.value
+      || morph && (morph.dockX.value !== 0 || morph.dockFade.value !== 1 || (morph.dockTravelFade?.value ?? 1) !== 1))) {
+      void paint.release().catch(() => {}); return;
+    }
+    return paint;
+  }, [takeVideoExit, active, localX, localFade, held, morph]);
   const menuRows = [
     {id: 'open', icon: 'i-up' as const, label: t('next.dock.native.openPlayer'), action: 'expand' as const},
     ...(p.capabilities.cast ? [{id: 'cast', icon: 'i-cast' as const, label: t('next.dock.native.playOnMenu'), action: 'cast' as const}] : []),
@@ -278,7 +295,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     onPressOut={endHold}
     accessibilityActions={[{name: 'activate', label: remote ? label : t('next.dock.native.openPlayer')}, {name: 'stop', label: t('action.stop')}]}
     onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'stop') dismiss(); else if (event.nativeEvent.actionName === 'activate') act(remote ? 'open-remote' : 'expand');}}/>;
-  const artPaint = <View ref={art} collapsable={false} onLayout={measureArt} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
+  const artPaint = <View ref={art} collapsable={false} onLayout={() => {artLayout.current++; measureArt();}} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
       {!video && <Artwork source={p.artwork} width={artWidth} height={artHeight} visible={visible} priority imageStyle={{opacity: connecting || terminal ? .55 : 1}}/>}
       {video && <View style={[s.expand, {backgroundColor: alpha(theme.colors.dim, .62)}]}><Icon name="i-full" size={11}/></View>}
       {remote && <View style={[s.fill, s.center, {backgroundColor: alpha(theme.colors.dim, .55)}]}>{connecting ? <ActivityIndicator size={20} color={theme.colors.text}/> : <Icon name="i-tvdev" size={18}/>}</View>}
@@ -342,10 +359,10 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     <GestureDetector gesture={gestures}><Animated.View ref={bar} testID={testID} onLayout={onLayout} style={[{shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: menu ? 24 : 14}, shadowOpacity: .85, shadowRadius: 15}, animated, style]}>
       <View style={[expandedBar ? s.expanded : s.phone, !expandedBar && wide && s.video, !expandedBar && theme.platform === 'tablet' && s.medium, {paddingLeft: 0, paddingRight: 0, backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
         <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>
-        <DockHandover occupant={occupant} allowedTypes={dockPaintTypes} takeVideoExit={takeVideoExit} row={<DockPaintRow opener={opener} art={artPaint} words={wordsPaint}
+        <DockHandover occupant={occupant} allowedTypes={dockPaintTypes} takeVideoExit={takeOriginalVideo} row={<DockPaintRow opener={opener} art={artPaint} words={wordsPaint}
           controls={terminal ? undefined : mid} tools={tools} expanded={expandedBar} artWidth={artWidth}
           openerGap={expandedBar ? 12 : theme.platform === 'tablet' ? mediumDockMetrics.gap : wide ? 11 : 12}
-          rowGap={theme.platform === 'tablet' ? mediumDockMetrics.gap : 12} textStyle={s.text}
+          rowGap={expandedBar ? 0 : theme.platform === 'tablet' ? mediumDockMetrics.gap : 12} textStyle={s.text}
           containerStyle={[expandedBar ? s.expanded : s.phone, !expandedBar && wide && s.video, !expandedBar && theme.platform === 'tablet' && s.medium, {height: undefined, borderRadius: 0, overflow: 'visible'}]}
           line={!expandedBar && !connecting && !terminal && progress !== undefined ? <View pointerEvents="none" style={[s.line, {backgroundColor: alpha(theme.colors.text, .14)}]}><View style={{height: 2, width: '100%', transformOrigin: 'left center', transform: [{scaleX: progress}], backgroundColor: wide ? theme.colors.accentStrong : theme.colors.text}}/></View> : undefined}/>} />
       </View>
