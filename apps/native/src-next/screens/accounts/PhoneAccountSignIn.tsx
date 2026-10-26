@@ -1,5 +1,5 @@
 import React from 'react';
-import {Image, Linking, ScrollView, Text, View} from 'react-native';
+import {Image, Keyboard, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {IdentityOptions} from '../../../../../packages/client-core/src/hosted-security';
@@ -18,10 +18,22 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
   onContinue: () => void; onProvider: (id: Provider['id']) => void; onForgot: () => void; onCreate: () => void; onLocal: () => void; onRetry?: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
+  // Fabric can report a hidden Android keyboard at screenY=0, which would pad the
+  // whole form. Mirror the existing auth pattern: enable RN avoidance only while
+  // the keyboard is actually visible, then let the ScrollView scroll the focused
+  // field and Continue above the IME.
+  const [avoidKeyboard, setAvoidKeyboard] = React.useState(Platform.OS !== 'android' || Keyboard.isVisible());
+  React.useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', () => setAvoidKeyboard(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setAvoidKeyboard(false));
+    return () => {show.remove(); hide.remove();};
+  }, []);
   const ordered = [...providers].sort((a, b) => a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0);
   const label = (value: string) => <Text style={{fontSize: 13 * theme.textScale, fontWeight: '600', color: theme.colors.textSecondary}}>{value}</Text>;
   return <View testID="accounts-welcome" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
+    <KeyboardAvoidingView style={{flex: 1}} behavior="padding" enabled={avoidKeyboard}>
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
       contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22, paddingTop: Math.max(70, insets.top), paddingBottom: Math.max(42, insets.bottom)}}>
       <View style={{width: '100%', maxWidth: 520, alignSelf: 'center', flexGrow: 1}}>
@@ -75,5 +87,6 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
         </Text>
       </View>
     </ScrollView>
+    </KeyboardAvoidingView>
   </View>;
 }
