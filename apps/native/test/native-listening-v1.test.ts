@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {NativeListeningV1Adapter, parseNativeListeningV1Event, type NativeListeningBridge} from '../src/bridge/NativeListeningAdapter.ts';
-import type {NativeListeningV1Event} from '../../../packages/client-core/src/playback/native-listening.ts';
+import {NativeListeningV1Adapter as CurrentNativeListeningV1Adapter} from '../src-next/platform/playback/NativeListeningAdapter.ts';
+import type {NativeListeningPolicy, NativeListeningV1Context, NativeListeningV1Event} from '../../../packages/client-core/src/playback/native-listening.ts';
 
 const session = (id: string, over: Record<string, unknown> = {}) => ({
   id, revision: '1', kind: 'audio', role: 'local', state: 'playing', itemId: `item-${id}`,
@@ -82,6 +83,9 @@ test('a terminal snapshot carries the server’s end; video is refused', () => {
 
 function bridge() {
   const calls: {name: string; args: unknown[]}[] = [];
+  const policies: {owner: string; policy: NativeListeningPolicy}[] = [];
+  const held: ((value: unknown) => void)[] = [];
+  let answer: unknown = true;
   let sink: ((e: unknown) => void) | undefined;
   let sequence = 0;
   let latest: unknown;
@@ -94,9 +98,14 @@ function bridge() {
     listeningAdvance: async (owner, reason, entryId) => { calls.push({name: 'advance', args: [owner, reason, entryId]}); return true; },
     listeningDeadlines: async () => true,
     listeningCredentials: async (owner, token) => { calls.push({name: 'credentials', args: [owner, token]}); return true; },
+    // The unified policy port: records what the owner would apply and answers as the test says.
+    listeningPolicy: async (owner, policy) => {
+      policies.push({owner, policy});
+      return answer === 'hold' ? await new Promise<unknown>(resolve => { held.push(resolve); }) : answer;
+    },
     retireListening: async (owner, stop) => { calls.push({name: 'retire', args: [owner, stop]}); return true; },
   };
-  return {b, calls, push: (e: unknown) => { latest = e; sink?.(e); }, deliver: (e: unknown) => sink?.(e), subscribe: (s: (e: unknown) => void) => { sink = s; return () => { sink = undefined; }; }, next: () => ++sequence};
+  return {b, calls, policies, held, answer: (value: unknown) => { answer = value; }, push: (e: unknown) => { latest = e; sink?.(e); }, deliver: (e: unknown) => sink?.(e), subscribe: (s: (e: unknown) => void) => { sink = s; return () => { sink = undefined; }; }, next: () => ++sequence};
 }
 
 test('the adapter hands the session over once, acknowledges snapshots and follows the owner’s moves', async () => {
@@ -186,3 +195,170 @@ test('a caller target is retained exactly and cannot fall back to owner-only dis
  await assert.rejects(adapter.action('pause'),/no longer available/);
  await adapter.detach(false);
 });
+
+// ---- policy acceptance (main 64e7b77d): the owner captured before the caller's getters, the
+// attempt ordinal kept across the accept await, and the occurrence/ordered boundary frozen.
+// Source-only regressions: authored, not executed here.
+const policyPrincipal = {origin: 'https://portico.test', serverId: 'srv', authority: 'local' as const, accountId: 'acc', profileId: 'pro'};
+type PolicyTimer = {choice: string | number; label: string; occurrence?: {sessionId: string; generation: number; itemId: string; playbackRun: number; queue: {queueId: string; entryId: string} | null}; bookBoundary?: {revision: {catalog: number; viewer: number}; items: string[]}};
+type PolicyDraft = {revision: number; preferences: {bookRate: number; passoutMinutes: number}; activityRevision: number; activityAtMs: number; timerRevision: number; effects: {gapless: boolean; crossfadeSeconds: number; normalization: 'off' | 'track' | 'album'}; timer: PolicyTimer | null};
+type PolicyAdapter = {adopt: (context: NativeListeningV1Context, sink: (event: NativeListeningV1Event) => void) => Promise<void>; configure: (policy: NativeListeningPolicy) => Promise<boolean>; detach: (stop: boolean) => Promise<void>};
+type PolicyBridge = ReturnType<typeof bridge>;
+const policyDraft = (revision: number, timer: PolicyTimer | null = null): PolicyDraft => ({revision, preferences: {bookRate: 1, passoutMinutes: 45}, activityRevision: 3, activityAtMs: 1_760_000_000_000, timerRevision: revision, effects: {gapless: true, crossfadeSeconds: 0, normalization: 'off'}, timer});
+const policyAdapters: readonly (readonly [string, (x: PolicyBridge) => PolicyAdapter])[] = [
+  ['current', x => new CurrentNativeListeningV1Adapter({bridge: x.b, principal: policyPrincipal, bearer: () => 'token', id: () => 'owner-1', subscribe: x.subscribe})],
+  ['legacy', x => new NativeListeningV1Adapter({bridge: x.b, principal: policyPrincipal, bearer: () => 'token', id: () => 'owner-1', subscribe: x.subscribe})],
+];
+for (const [path, make] of policyAdapters) {
+  const open = () => {const x = bridge(); return {x, adapter: make(x)};};
+  const play = (adapter: PolicyAdapter, id = 's1') => adapter.adopt({session: session(id) as never, queueId: 'q1', queueRevision: '7', durationSeconds: 200, lastSeq: 0, leaseMs: 118000, transitions: true, intent: 'playing'}, () => {});
+  const handover = (x: PolicyBridge) => x.calls.filter(call => call.name === 'adopt').at(-1)!.args[0] as {session: {id: string}; policy: NativeListeningPolicy | null};
+
+  test(`${path}: a timer getter that retires and re-adopts refuses the superseded policy without dispatching it`, async () => {
+    const {x, adapter} = open();
+    await play(adapter);
+    let armed = true, readopt: Promise<void> = Promise.resolve();
+    const superseded: PolicyDraft = {...policyDraft(4), get timer() {
+      if (armed) {
+        armed = false;
+        // Synchronous inside the capture: the current owner is retired and a successor adopted.
+        void adapter.detach(false);
+        readopt = play(adapter, 's9');
+      }
+      return null;
+    }};
+    assert.equal(await adapter.configure(superseded), false);
+    await readopt;
+    assert.equal(x.policies.length, 0, 'the superseded policy never reaches the successor');
+    assert.equal(handover(x).session.id, 's9');
+    // Nothing was ever cached before this attempt (the cache write happens only after the
+    // capture and its owner check), so this successor is handed null. A replacement after a
+    // policy was already cached keeps that earlier frozen intent instead; see the held-ACK case.
+    assert.equal(handover(x).policy, null, 'no earlier policy existed to carry');
+  });
+
+  test(`${path}: a getter that nests a newer configure keeps the newer policy; the outer attempt never dispatches`, async () => {
+    const {x, adapter} = open();
+    await play(adapter);
+    let armed = true, inner: Promise<boolean> | undefined;
+    const newer = policyDraft(9, {choice: 'end-of-book', label: 'End of book', occurrence: {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}}});
+    const outer: PolicyDraft = {...policyDraft(8), get timer() {
+      if (armed) {armed = false; inner = adapter.configure(newer);}
+      return {choice: 'off', label: 'Off'};
+    }};
+    assert.equal(await adapter.configure(outer), false);
+    assert.ok(inner, 'the getter submits the newer policy synchronously while the outer one is captured');
+    assert.equal(await inner!, true);
+    assert.equal(x.policies.length, 1, 'the replaced outer attempt never dispatches');
+    assert.equal(x.policies[0]!.policy.revision, 9);
+    assert.equal(x.policies.some(entry => entry.policy.revision === 8), false);
+    // The newer capture is what a later handover carries, not the withdrawn outer one.
+    await adapter.detach(false);
+    await play(adapter, 's2');
+    assert.equal(handover(x).policy?.revision, 9);
+    assert.equal(handover(x).policy?.timer?.occurrence?.playbackRun, 7);
+  });
+
+  test(`${path}: a held acknowledgement is refused after replacement, and the cached intent keeps its old scope`, async () => {
+    const {x, adapter} = open();
+    await play(adapter);
+    const occurrence = {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}};
+    const boundary = {revision: {catalog: 11, viewer: 22}, items: ['b1', 'b2']};
+    const intent: PolicyDraft = policyDraft(5, {choice: 90, label: '90 minutes', occurrence, bookBoundary: boundary});
+    x.answer('hold');
+    const pending = adapter.configure(intent);
+    assert.equal(x.policies.length, 1);
+    await adapter.detach(false);
+    await play(adapter, 's2');
+    // The frozen intent stays cached for the successor's native re-admission, but it still names
+    // the original occurrence. This fake bridge only records the JS intent the owner is handed;
+    // it makes no claim that a native owner accepted or requalified it.
+    const successor = handover(x);
+    assert.equal(successor.policy?.revision, 5);
+    assert.deepEqual(successor.policy?.timer?.occurrence, {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}});
+    assert.deepEqual(successor.policy?.timer?.bookBoundary, {revision: {catalog: 11, viewer: 22}, items: ['b1', 'b2']});
+    assert.equal(Object.isFrozen(successor.policy?.timer?.occurrence), true);
+    assert.equal(Object.isFrozen(successor.policy?.timer?.bookBoundary?.items), true);
+    // The successor's own session and later caller mutation never retarget that cached intent.
+    occurrence.sessionId = 's2'; occurrence.playbackRun = 8; boundary.items.push('b3');
+    x.held.shift()!(true);
+    assert.equal(await pending, false, 'the superseded acknowledgement is refused');
+    assert.equal(x.policies.length, 1, 'no configure dispatch reaches the successor');
+    assert.equal(x.policies[0]!.owner, 'owner-1');
+    assert.deepEqual(handover(x).policy?.timer?.occurrence, {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}});
+    // A still later handover carries the same old frozen tuple, never the latest one.
+    await adapter.detach(false);
+    await play(adapter, 's3');
+    assert.deepEqual(handover(x).policy?.timer?.occurrence, {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}});
+    assert.deepEqual(handover(x).policy?.timer?.bookBoundary, {revision: {catalog: 11, viewer: 22}, items: ['b1', 'b2']});
+  });
+
+  test(`${path}: a held acknowledgement cannot overtake a newer policy; only the newer literal true stands`, async () => {
+    const {x, adapter} = open();
+    await play(adapter);
+    x.answer('hold');
+    const older = adapter.configure(policyDraft(6));
+    const newer = adapter.configure(policyDraft(7));
+    assert.equal(x.policies.length, 2);
+    x.held[0]!(true);
+    assert.equal(await older, false);
+    x.held[1]!(true);
+    assert.equal(await newer, true);
+    assert.deepEqual(x.policies.map(entry => entry.policy.revision), [6, 7]);
+  });
+
+  test(`${path}: only a literal native true for a current owner is accepted`, async () => {
+    const {x, adapter} = open();
+    assert.equal(await adapter.configure(policyDraft(1)), false, 'no owner is not acceptance');
+    assert.equal(x.policies.length, 0);
+    await play(adapter);
+    x.answer(false);
+    assert.equal(await adapter.configure(policyDraft(2)), false);
+    x.answer(undefined);
+    assert.equal(await adapter.configure(policyDraft(3)), false);
+    x.answer({accepted: true});
+    assert.equal(await adapter.configure(policyDraft(4)), false, 'a truthy object is not the literal true');
+    delete x.b.listeningPolicy;
+    assert.equal(await adapter.configure(policyDraft(5)), false, 'a host without the port refuses instead of throwing');
+  });
+
+  test(`${path}: an own accepted snapshot that pauses and moves the queue is not a rejection`, async () => {
+    const {x, adapter} = open();
+    await play(adapter);
+    x.answer('hold');
+    const pending = adapter.configure(policyDraft(10, {choice: 90, label: '90 minutes', occurrence: {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}}}));
+    // While the accept is in flight the same owner pauses and moves the queue by itself.
+    x.push(raw('owner-1', x.next(), session('s2'), {intent: 'paused', transition: {previousSessionId: 's1', queue: null}}));
+    x.held[0]!(true);
+    assert.equal(await pending, true, 'the header moved; the accepted occurrence and owner did not');
+  });
+
+  test(`${path}: the dispatched policy keeps its frozen occurrence and book boundary through caller mutation`, async () => {
+    const {x, adapter} = open();
+    await play(adapter);
+    const occurrence = {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}};
+    const boundary = {revision: {catalog: 11, viewer: 22}, items: ['b1', 'b2', 'b3']};
+    const timer: PolicyTimer = {choice: 'end-of-book', label: 'End of book', occurrence, bookBoundary: boundary};
+    const draft = policyDraft(11, timer);
+    x.answer('hold');
+    const pending = adapter.configure(draft);
+    // Everything the caller still holds changes after dispatch.
+    occurrence.queue.entryId = 'e-mutated'; occurrence.playbackRun = 99; occurrence.sessionId = 's9';
+    boundary.items.push('b4'); boundary.revision.viewer = 23;
+    timer.label = 'Mutated'; draft.timerRevision = 88; draft.effects.gapless = false;
+    x.held[0]!(true);
+    assert.equal(await pending, true);
+    const sent = x.policies.at(-1)!.policy;
+    assert.deepEqual(sent.timer?.occurrence, {sessionId: 's1', generation: 1, itemId: 'item-s1', playbackRun: 7, queue: {queueId: 'q1', entryId: 'e-s1'}});
+    assert.deepEqual(sent.timer?.bookBoundary, {revision: {catalog: 11, viewer: 22}, items: ['b1', 'b2', 'b3']});
+    assert.equal(sent.effects.gapless, true);
+    assert.equal(sent.timerRevision, 11);
+    assert.equal(Object.isFrozen(sent.timer?.occurrence), true);
+    assert.equal(Object.isFrozen(sent.timer?.bookBoundary?.items), true);
+    // What was acknowledged is still what a later handover carries.
+    await adapter.detach(false);
+    await play(adapter, 's3');
+    assert.deepEqual(handover(x).policy?.timer?.occurrence?.queue, {queueId: 'q1', entryId: 'e-s1'});
+    assert.equal(handover(x).policy?.timer?.bookBoundary?.items.length, 3);
+  });
+}
