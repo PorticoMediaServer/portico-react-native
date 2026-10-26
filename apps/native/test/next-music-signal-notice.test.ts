@@ -76,3 +76,128 @@ test('stopped, errors and invalid rewinds stay quiet; message strings create no 
     assert.equal(nativeListeningNotice(listening({rewind: {seconds, fromSeconds: 100, toSeconds: 90, messageKey: 'listening.rewound'}}), identity, identity), undefined);
   }
 });
+
+const dsd = (multiple: number, deliveredRate: number): MusicSignalInput => ({
+  source: {codec: 'dsd', dsdMultiple: multiple, channels: 2},
+  server: {route: 'converted', dsdConverted: true, delivered: {codec: 'flac', sampleRate: deliveredRate}},
+  output: {platform: 'apple', device: 'appleTv'},
+  eqOn: false, eqApplied: false, normalization: 'off', levelingApplied: false,
+});
+
+test('DSD converted to PCM folds the source once at the delivered rate', () => {
+  for (const [multiple, deliveredRate, khz] of [[64, 88200, 88.2], [128, 176400, 176.4]] as const) {
+    const view = nativeSignalPath(dsd(multiple, deliveredRate), t);
+    const rate = t('player.signal.rate', {khz});
+    assert.equal(view.rule, 1);
+    assert.equal(view.state, t('player.signal.line.dsdToPcm', {source: t('player.signal.source.dsd', {multiple}), rate}));
+    // Folded, not repeated: the line carries the source and the visual line shows it once.
+    assert.equal(view.source, undefined);
+    assert.equal(view.accessibleName?.split(`DSD${multiple}`).length, 2);
+    assert.ok(view.accessibleName?.includes(khz.toFixed(1)));
+    assert.equal(view.pill, t('player.signal.pill.notBitPerfect'));
+    assert.equal(view.healthy, false);
+  }
+});
+
+test('an absent delivered rate stays unknown and claims no PCM rate or capability', () => {
+  const view = nativeSignalPath({...dsd(64, 88200), server: {route: 'converted', dsdConverted: true, delivered: {codec: 'flac'}}}, t);
+  assert.equal(view.rule, 1);
+  assert.equal(view.state, t('player.signal.server.converted', {format: 'FLAC'}));
+  assert.equal(view.source, 'DSD64');
+  assert.equal(view.accessibleName?.split('DSD64').length, 2);
+  for (const text of [view.state ?? '', view.accessibleName ?? '', JSON.stringify(view.steps)]) {
+    assert.ok(!/kHz|DoP|passthrough/i.test(text), `no invented rate or passthrough in: ${text}`);
+  }
+  // The pill may say "not bit-perfect"; it may never say the output was bit-perfect.
+  assert.equal(view.pill, t('player.signal.pill.notBitPerfect'));
+  assert.equal(view.steps.find(step => step.id === 'output')?.value, undefined);
+});
+
+const layoutInput = (source: MusicSignalInput['source']): MusicSignalInput => ({
+  source, server: {route: 'original'}, output: {platform: 'apple', device: 'appleTv'},
+  eqOn: false, eqApplied: false, normalization: 'off', levelingApplied: false,
+});
+const fileValue = (input: MusicSignalInput) => nativeSignalPath(input, t).steps.find(step => step.id === 'file')?.value ?? '';
+
+test('measured 5.1 and 7.1 layouts survive, and a channel count invents neither', () => {
+  const lossless = {codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 6} as const;
+  assert.ok(fileValue(layoutInput({...lossless, layout: '5.1'})).includes('5.1'));
+  assert.ok(fileValue(layoutInput({...lossless, layout: '7.1', channels: 8})).includes('7.1'));
+  const countOnly = fileValue(layoutInput(lossless));
+  assert.ok(!/5\.1|7\.1|6\.0|8\.0/.test(countOnly), `a 6-channel count names no layout: ${countOnly}`);
+});
+
+test('source Atmos alone claims no passthrough and no output fact', () => {
+  const view = nativeSignalPath(layoutInput({codec: 'truehd', atmos: true, lossless: true, bitDepth: 24, sampleRate: 48000, channels: 8, layout: '7.1'}), t);
+  assert.equal(view.rule, 6);
+  assert.equal(view.state, undefined);
+  assert.equal(view.healthy, false);
+  assert.ok(fileValue(layoutInput({codec: 'truehd', atmos: true, lossless: true, bitDepth: 24, sampleRate: 48000, channels: 8, layout: '7.1'})).includes('Atmos'));
+  for (const text of [view.state ?? '', view.pill, view.accessibleName ?? '', JSON.stringify(view.steps)]) {
+    assert.ok(!/passthrough|bit-perfect parity/i.test(text), `no passthrough claim in: ${text}`);
+  }
+  assert.equal(view.steps.find(step => step.id === 'output')?.value, undefined);
+});
+
+test('Atmos lost is drawn from measured server or output facts only', () => {
+  const converted = nativeSignalPath({...layoutInput({codec: 'truehd', atmos: true, channels: 8, layout: '7.1'}),
+    server: {route: 'converted', atmosLost: true, delivered: {codec: 'eac3', channels: 6, layout: '5.1'}}}, t);
+  assert.equal(converted.rule, 1);
+  assert.equal(converted.state, t('player.signal.line.atmosLost', {layout: '5.1'}));
+  assert.equal(converted.pill, t('player.signal.pill.atmosLost'));
+  const decoded = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 48000, channels: 8, layout: '7.1'}),
+    output: {platform: 'apple', device: 'appleTv', decodedLayout: '5.1', atmosLost: true}}, t);
+  assert.equal(decoded.rule, 4);
+  assert.equal(decoded.state, t('player.signal.output.decoded', {layout: '5.1'}));
+  assert.equal(decoded.stateLoss, t('player.signal.pill.atmosLost'));
+});
+
+test('baked loudness gain stays visible with normalization off, and explicit zero is not a gain', () => {
+  const baked = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2}),
+    server: {route: 'original', loudnessAppliedDb: -3.5}}, t);
+  assert.equal(baked.rule, 3);
+  assert.equal(baked.state, t('player.signal.line.loudness', {gain: '−3.5'}));
+  assert.equal(baked.steps.find(step => step.id === 'leveling')?.value, t('player.signal.line.loudness', {gain: '−3.5'}));
+  const zero = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2}),
+    server: {route: 'original', loudnessAppliedDb: 0}}, t);
+  assert.notEqual(zero.rule, 3);
+  assert.equal(zero.steps.find(step => step.id === 'leveling')?.value, t('player.signal.off'));
+});
+
+test('a requested EQ claims no applied gain, and an original format is sent as it is', () => {
+  const base = layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2});
+  const requested = nativeSignalPath({...base, eqOn: true}, t);
+  assert.equal(requested.rule, 2);
+  assert.equal(requested.state, t('player.signal.line.eqUnavailable'));
+  assert.equal(requested.steps.find(step => step.id === 'eq')?.value, t('player.signal.notApplied'));
+  assert.equal(requested.steps.find(step => step.id === 'eq')?.changed, false);
+  const original = nativeSignalPath(base, t);
+  assert.equal(original.steps.find(step => step.id === 'server')?.value, t('player.signal.server.asIs'));
+  // A renderer gain that was not applied is not claimed as applied gain.
+  const unused = nativeSignalPath({...base, levelingGainDb: -6}, t);
+  assert.equal(unused.steps.find(step => step.id === 'leveling')?.value, t('player.signal.off'));
+});
+
+test('a bit-perfect flag alone claims no bit-perfect output', () => {
+  const view = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2}),
+    output: {platform: 'apple', device: 'appleTv', sampleRate: 96000, bitDepth: 24, bitPerfect: true}}, t);
+  assert.equal(view.healthy, false);
+  assert.notEqual(view.rule, 5);
+  assert.equal(view.pill, t('player.signal.pill.notBitPerfect'));
+  assert.equal(view.steps.find(step => step.id === 'output')?.value, undefined);
+  for (const text of [view.state ?? '', view.accessibleName ?? '']) {
+    assert.ok(!/bit-perfect|passthrough/i.test(text), `no output claim in: ${text}`);
+  }
+});
+
+test('conversion outranks baked loudness, and applied leveling reports its own mode and gain', () => {
+  const converted = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2}),
+    server: {route: 'converted', loudnessAppliedDb: -3.5, delivered: {codec: 'flac'}}}, t);
+  assert.equal(converted.rule, 1);
+  assert.equal(converted.state, t('player.signal.server.converted', {format: 'FLAC'}));
+  const levelled = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2}),
+    normalization: 'track', levelingApplied: true, levelingGainDb: -2}, t);
+  assert.equal(levelled.rule, 3);
+  assert.equal(levelled.state, t('player.signal.line.loudness', {gain: '−2.0'}));
+  assert.equal(levelled.steps.find(step => step.id === 'leveling')?.value, t('player.signal.leveling.applied', {mode: 'track', gain: '−2.0'}));
+});
