@@ -182,7 +182,7 @@ export function RestoredShell() {
   if (isSecureRecordsLost(state.error) && renderedRoot?.attempt === attempt && renderedRoot.recoveryCurrent?.())
     return <SecureRecordsRecovery key={attempt} opening={renderedRoot}/>;
   if (renderedRoot && !renderedCurrent()) return <HomeSkeleton elapsedMs={elapsed} visible/>;
-  if (recovered?.opening === renderedRoot && renderedCurrent()) return <StateLayout testID="native-secure-records-recovered"
+  if (recovered && recovered.opening === renderedRoot && renderedCurrent()) return <StateLayout testID="native-secure-records-recovered"
     title={defaultI18n.t('web.hostedAccount.ended')} body={defaultI18n.t('web.hostedAccount.signInAgain')}
     primaryAction={{id: 'continue', label: defaultI18n.t('action.continue'), onPress: () => {
       if (!renderedCurrent()) return; acknowledgeSecureRecordsRecovered(recovered.notice);
