@@ -10,6 +10,7 @@ import {Popover} from '../overlays';
 import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {useListeningCoverSlot} from './ListeningCoverBridge';
 import {BlurView} from '../../platform/native-blur';
 import {selectionHaptic} from '../../platform/haptics';
 import {sameDockFence, commandAllowed, dockCommand, dockSourceIdentity, expandedDockMetrics, mediumDockMetrics, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekBounds, seekTo, validRect} from './model';
@@ -39,6 +40,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const sourceIdentity = dockSourceIdentity(playback.fence);
   const menuSource = useRef(playback.fence), menuRemote = useRef(remote?.id);
   const video = occupant.mode === 'video', wide = video || !!remote;
+  const audioCover = useListeningCoverSlot(!remote && playback.fence.kind !== 'cast-view' && (occupant.mode === 'music' || occupant.mode === 'audiobook') ? playback.fence : undefined, 'mini', art, visible && slotAdmission !== null && slotAdmission?.isCurrent() !== false);
   // tablet-play 4a/13: an expanded window draws the dock at the content's foot.
   const expandedBar = !theme.isTV && theme.platform === 'web';
   const sharedPicture = video && morph?.dockMotionHosted === true, x = sharedPicture ? morph.dockX : localX, fade = sharedPicture ? morph.dockFade : localFade;
@@ -233,12 +235,13 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     measureArt();
     return () => {request.current++;};
   }, [measureArt]);
+  const measureAudioCover = audioCover.measure;
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const measured = event.nativeEvent.layout.width;
     width.value = measured;
     setExpandedWidth(current => current === Math.round(measured) ? current : Math.round(measured));
-    measureArt();
-  }, [width, measureArt]);
+    measureArt(); measureAudioCover();
+  }, [width, measureArt, measureAudioCover]);
   const label = remote ? t('next.dock.native.openRemote', {title: p.identity.title, device: p.device ?? t('cast.theTV')}) : t('next.dock.native.openPlayerLabel', {title: p.identity.title});
   const button = (type: DockAction, icon: IconName, name: string, size = 22, close = false, skip?: 'back' | 'forward', primary = false) => {
     const enabled = commandAllowed(occupant, type);
@@ -275,10 +278,12 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     onPressOut={endHold}
     accessibilityActions={[{name: 'activate', label: remote ? label : t('next.dock.native.openPlayer')}, {name: 'stop', label: t('action.stop')}]}
     onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'stop') dismiss(); else if (event.nativeEvent.actionName === 'activate') act(remote ? 'open-remote' : 'expand');}}>
-    <View ref={art} collapsable={false} onLayout={measureArt} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
+    <View ref={art} collapsable={false} onLayout={() => {measureArt(); audioCover.measure();}} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
+      <Animated.View style={[{width: artWidth, height: artHeight}, audioCover.style]}>
       {!video && <Artwork source={p.artwork} width={artWidth} height={artHeight} visible={visible} priority imageStyle={{opacity: connecting || terminal ? .55 : 1}}/>}
       {video && <View style={[s.expand, {backgroundColor: alpha(theme.colors.dim, .62)}]}><Icon name="i-full" size={11}/></View>}
       {remote && <View style={[s.fill, s.center, {backgroundColor: alpha(theme.colors.dim, .55)}]}>{connecting ? <ActivityIndicator size={20} color={theme.colors.text}/> : <Icon name="i-tvdev" size={18}/>}</View>}
+      </Animated.View>
     </View>
     <Animated.View style={[s.text, textMotion]}><Text numberOfLines={1} ellipsizeMode="tail" style={[dockType(theme, titleSize, 700), {color: theme.colors.text}]}>{p.identity.title}</Text>
       <DockFacts parts={subtitle} style={{...dockType(theme, subtitleSize, 400), color: theme.colors.textSecondary}} gap={12}/>

@@ -55,3 +55,11 @@ export const surfacePaintFixture = {
   SurfacePaintHost: 'SurfacePaintHost', RetainedOverlay: ({children}) => children,
   overlayPaintPermit: current => ({current, subscribe: () => () => {}}),
 };
+
+// Geometry is outside these shallow command/focus fixtures. The production
+// default without a publication is no shared cover and an unchanged local slot.
+export const listeningCoverFixture = {
+  ListeningCoverProvider: ({children}) => children,
+  useListeningCoverPublication() {},
+  useListeningCoverSlot: () => ({measure() {}, style: {}}),
+};

@@ -1,3 +1,4 @@
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -33,6 +34,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
+    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     '../platform/menu-key': {registerTVMenuFallback: (run: () => void) => {menuFallback = run; return () => {if (menuFallback === run) menuFallback = undefined;};}},
     '../platform/tv-menu': {useTVMenuCapture: (capture: boolean) => {menuCapture.push(capture);}},
