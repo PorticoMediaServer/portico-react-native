@@ -13,6 +13,12 @@ export function useOverlayPaintMode(): OverlayPaintMode {
   return React.useContext(OverlayPaintModeContext);
 }
 
+/** Host integration point: publish one immutable mode for the painted surface. */
+export function OverlayPaintProvider({mode, children}: {mode: OverlayPaintMode; children?: React.ReactNode}) {
+  const value = React.useMemo<OverlayPaintMode>(() => Object.freeze({visible: mode.visible, interactive: mode.interactive, root: mode.root}), [mode.visible, mode.interactive, mode.root]);
+  return <OverlayPaintModeContext.Provider value={value}>{children}</OverlayPaintModeContext.Provider>;
+}
+
 /** Marks everything below as a descendant: still visible and interactive as the
  * parent says, but never the root. Adds no native view of its own. */
 export function OverlayPaintDescendants({children}: {children?: React.ReactNode}) {
