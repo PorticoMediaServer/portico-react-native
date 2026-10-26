@@ -15,7 +15,7 @@ import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, re
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
 import {COMMON_LANGUAGES, languageName, MAX_LANGUAGES} from '../../../../../packages/client-core/src/presentation/language-list';
 import {localeChoices} from '../../../../../packages/client-core/src/presentation/region-choices';
-import {defaultI18n} from '../../../../../packages/i18n/src';
+import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {resetRecommendations} from '../../../../../packages/client-core/src/recommendation-feedback';
 import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
@@ -330,9 +330,17 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     try {return new URL('/settings/profile', ports.context.api.baseUrl).href;} catch {return undefined;}
   })();
   // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
-  const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string}>[]; apply: (value: string) => void}>>();
+  const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string; description?: string}>[]; apply: (value: string) => void}>>();
   const [languages, setLanguages] = useState<Readonly<{testID: string; title: string; help?: string; value: readonly LanguageOption[]; available: readonly LanguageOption[]; limit: number; apply: (value: readonly LanguageOption[]) => void}>>();
-  type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token: number; page: string; revision: number; controller: typeof controller}>;
+  /** playback-info frame 13b draws one hint under each Player choice; the runtime settings
+ * structure has no hint field yet, so the drawn copy is attached by the device row that uses
+ * it. The labels remain the spec's own. */
+const playerEngineHints: Readonly<Record<string, MessageId>> = Object.freeze({
+  automatic: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.hint',
+  native: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.hint',
+  mpv: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.hint',
+});
+type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token: number; page: string; revision: number; controller: typeof controller}>;
   const [confirmOpen, setConfirmOpen] = useState<AccountConfirm>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
   // The confirmation belongs to one opening and one rendered page/route; the flight holds that
   // same object, so no delayed close, result or busy release can reach a successor. Refs are
@@ -476,7 +484,10 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
             return <SettingsRow key={id} testID={id} {...copy} value={selected.length ? defaultI18n.list(selected.map(language => language.label)) : t('next.shell.native.noLanguages')}
               onPress={() => setLanguages({testID: id, title: copy.label, help: copy.description, value: selected, available, limit: MAX_LANGUAGES, apply: next => change(row, next.map(language => language.id))})}/>;
           }
-          const options = control.type === 'choice' ? control.choices.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues)})) : localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}));
+          const options = control.type === 'choice' ? control.choices.map(choice => {
+            const hint = row.id === 'playerEngine' ? playerEngineHints[String(choice.value)] : undefined;
+            return {value: String(choice.value), label: t(choice.label, choice.labelValues), description: hint ? t(hint) : undefined};
+          }) : localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}));
           const current = String(value);
           const currentLabel = options.find(option => option.value === current)?.label;
           return <SettingsRow key={id} testID={id} {...copy} value={currentLabel}
@@ -484,6 +495,15 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
               if (control.type === 'choice') {const choice = control.choices.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}
               else change(row, next);
             }})}/>;
+        }
+        if (control.type === 'choice' && row.id === 'playerEngine') {
+          const options = control.choices.map(choice => {
+            const hint = playerEngineHints[String(choice.value)];
+            return {value: String(choice.value), label: t(choice.label, choice.labelValues), description: hint ? t(hint) : undefined};
+          });
+          return <SettingsRow key={id} testID={id} {...copy} value={options.find(option => option.value === String(value))?.label}
+            onPress={() => setChoices({title: copy.label, help: copy.description, value: String(value), options,
+              apply: next => {const choice = control.choices.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}})}/>;
         }
         const choiceList = control.type === 'choice' ? control.choices : undefined;
         return <SettingsRow key={id} testID={id} {...copy}
@@ -550,9 +570,9 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
           setActionBusy(false);
         });
       }}>{t(shown?.kind === 'signOut' ? 'action.signOut' : 'settings.resetRecommendations.confirm')}</Button></View>}><View/></Dialog>
-    {theme.isTV && <Menu testID="settings-value-sheet" open={choices !== undefined} onOpenChange={open => {if (!open) setChoices(undefined);}} presentation="sideSheet"
+    <Menu testID="settings-value-sheet" open={choices !== undefined} onOpenChange={open => {if (!open) setChoices(undefined);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'}
       title={choices?.title} description={choices?.help} initialFocusId={choices?.value}
-      items={choices ? choices.options.map(option => ({id: option.value, label: option.label, selected: option.value === choices.value, onSelect: () => {const apply = choices.apply; setChoices(undefined); apply(option.value);}})) : []}/>}
+      items={choices ? choices.options.map(option => ({id: option.value, label: option.label, description: option.description, selected: option.value === choices.value, onSelect: () => {const apply = choices.apply; setChoices(undefined); apply(option.value);}})) : []}/>
     {theme.isTV && <Dialog testID="settings-language-sheet" open={languages !== undefined} onOpenChange={open => {if (!open) setLanguages(undefined);}} title={languages?.title} description={languages?.help} placement="side" width={640}>
       {languages && <LanguageList testID={languages.testID} label={languages.title} value={languages.value} available={languages.available} limit={languages.limit} onChange={languages.apply}/>}
     </Dialog>}
