@@ -1,6 +1,6 @@
 import * as homeStart from '../../src-next/screens/home/home-start.ts';
 import {DockVideoExitImages} from '../../src-next/kit/dock/video-exit-paint.ts';
-import {expandedListeningOccupant, localListeningOccupant} from '../../src-next/shell/listening-presentation.ts';
+import {captureListeningOpening, expandedListeningOccupant, localListeningOccupant} from '../../src-next/shell/listening-presentation.ts';
 import {listeningCoverFixture} from './screen-harness.mjs';
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
 import * as signalPath from '../../src-next/screens/destinations/music/signal-path-model.ts';
@@ -105,12 +105,12 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
   const signalView = await screenModule(new URL('../../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
-    './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
+    './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/DockHandover': {DockVideoExitProvider: Container, DockVideoExitCanvas: () => null},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
-    './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
+    './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},...common,
     '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme}, '../kit/focus': {focusTestID: () => 'playback'}, './tv-focus': {tvFocusIds: () => ({surface: () => 'playback'})},
@@ -145,7 +145,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
-    './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
+    './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},...common,
       'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},

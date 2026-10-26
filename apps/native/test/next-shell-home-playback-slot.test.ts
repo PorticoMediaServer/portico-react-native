@@ -1,6 +1,6 @@
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
-import {expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
+import {captureListeningOpening, expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PlaybackDock, playbackFence} from '../../../packages/player-core/src';
@@ -23,7 +23,7 @@ test('actual playback layer converts measured window slot to its own origin and 
   const adapter = {getSnapshot: () => current, subscribe: () => () => {}, Surface: 'ActualSurface', dock};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
-    './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
+    './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
     '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground'},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},

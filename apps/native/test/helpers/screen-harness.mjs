@@ -65,8 +65,9 @@ export const listeningCoverFixture = {
   ListeningCoverProvider: ({children}) => children,
   ListeningCoverLocalPaint: 'ListeningCoverLocalPaint',
   ListeningGroup: ({children}) => children,
+  ListeningSeekPaint: 'ListeningSeekPaint', useListeningScrubberPublication: () => false,
   useListeningCoverPublication() {},
   useListeningPageStyle: () => ({}),
-  useListeningPaintPermit: () => undefined, useListeningPageOwner() {}, useListeningPageHeight: () => () => {}, useListeningPagePresent: () => false,
+  useListeningPaintPermit: () => undefined, useListeningPageActive: () => true, useListeningPageOwner() {}, useListeningPageHeight: () => () => {}, useListeningPagePresent: () => false,
   useListeningCoverSlot: () => ({measure() {}, style: {}}),
 };

@@ -17,3 +17,13 @@ export function localListeningOccupant(dock: PlaybackDock, snapshot: DockState, 
     || local.kind !== 'music' && local.kind !== 'audiobook' || !sameFence(local.fence, presentation.fence)) return null;
   return {mode: local.kind, playback: local, presentation};
 }
+
+
+export type ListeningPaintOpening<T> = Readonly<{open: boolean; key: object; scope: T}>;
+/** A pure UI opening keeps its original page while full. Mini paint may capture
+ * a new current page, but a still-open full page never adopts that successor. */
+export function captureListeningOpening<T>(previous: ListeningPaintOpening<T> | undefined, open: boolean, scope: T): ListeningPaintOpening<T> {
+  if (open && previous?.open) return previous;
+  if (!open && previous && !previous.open && previous.scope === scope) return previous;
+  return Object.freeze({open, key: open || !previous ? Object.freeze({}) : previous.key, scope});
+}

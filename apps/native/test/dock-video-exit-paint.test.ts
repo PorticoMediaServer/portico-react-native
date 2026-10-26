@@ -1,10 +1,10 @@
+import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN UI-resource vectors. No native capture, transfer or decoder is
  * executed; no original-frame, native-file or playback acceptance is claimed. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
-import type {PlaybackFence} from '../../../packages/player-core/src/index.ts';
-const fence = {kind: 'local', playId: 'original', sessionId: 'session', itemId: 'item', generation: 1} as PlaybackFence;
+const fence = dockFence();
 const bounds = {x: 24, y: 700, width: 80, height: 45};
 function rig() {
   let view = {width: 390, height: 844}, original = true, paint = true, releases = 0, claims = 0;

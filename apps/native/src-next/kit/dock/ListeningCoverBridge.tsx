@@ -1,5 +1,6 @@
 import React, {createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {View, type StyleProp, type ViewStyle} from 'react-native';
+import {Gesture, GestureDetector, type PanGesture} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withTiming, type SharedValue} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import type {ArtworkSource} from '../artwork';
@@ -12,11 +13,15 @@ import {validRect} from './model';
 import type {DockRect, PlayerMorphController} from './types';
 
 type Publication = Readonly<{fence: PlaybackFence; source?: ArtworkSource; controller: PlayerMorphController; scope: object | undefined; opening: object; current: () => boolean; subscribe?: (listener: () => void) => () => void}>;
+export type ListeningScrubber = Readonly<{fence: PlaybackFence; gesture: PanGesture; scope: number;
+  activeScope: SharedValue<number>; ticket: SharedValue<number>; drag: SharedValue<number | null>; base: SharedValue<number>; travel: SharedValue<number>}>;
 type Slot = 'full' | 'mini';
 type Frame = Readonly<{fence: PlaybackFence; scope: object | undefined; opening: object; revision: number; bounds: DockRect}>;
 type ContextValue = Readonly<{canvas: RefObject<View | null>; revision: number; binding?: Publication; full?: Frame; mini?: Frame; decoded: boolean; active: boolean; pageAlpha: SharedValue<number>; pageHeight: SharedValue<number>; reportPageHeight: (height: number) => void; groups: readonly SharedValue<number>[]; pageOwner?: Readonly<{fence: PlaybackFence}>; holdPage: (owner: Readonly<{fence: PlaybackFence}>) => () => void;
   publish: (value: Publication) => () => void; report: (kind: Slot, value: Frame) => void}>;
 const Context = createContext<ContextValue | undefined>(undefined);
+const ScrubberPublication = createContext<((value: ListeningScrubber) => () => void) | undefined>(undefined);
+const ScrubberValue = createContext<ListeningScrubber | undefined>(undefined);
 const noSubscribe = () => () => {};
 const notCurrent = () => false;
 const sameSource = (a: ArtworkSource, b: ArtworkSource) => a.cacheKey === b.cacheKey && a.uri === b.uri
@@ -34,6 +39,11 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
   const groups = useMemo(() => [first, second, third] as const, [first, second, third]);
   const [revision, setRevision] = useState(0);
   const [binding, setBinding] = useState<Publication>();
+  const [scrubber, setScrubber] = useState<ListeningScrubber>();
+  const publishScrubber = useCallback((value: ListeningScrubber) => {
+    setScrubber(value);
+    return () => setScrubber(current => current === value ? undefined : current);
+  }, []);
   const [pageOwner, setPageOwner] = useState<Readonly<{fence: PlaybackFence}>>();
   const holdPage = useCallback((owner: Readonly<{fence: PlaybackFence}>) => {
     setPageOwner(owner);
@@ -95,12 +105,12 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
   const decoded = !!binding?.source && !!decodedSource && !!decodeFrame && sameSource(binding.source, decodedSource.source)
     && decodedSource.width === decodeFrame.width && decodedSource.height === decodeFrame.height;
   const value = useMemo(() => ({canvas, revision, binding, full, mini, decoded, active, pageAlpha, pageHeight, reportPageHeight, groups, pageOwner, holdPage, publish, report}), [revision, binding, full, mini, decoded, active, pageAlpha, pageHeight, reportPageHeight, groups, pageOwner, holdPage, publish, report]);
-  return <Context.Provider value={value}>{children}{!theme.isTV && <View ref={canvas} collapsable={false} pointerEvents="none" accessible={false}
+  return <Context.Provider value={value}><ScrubberPublication.Provider value={publishScrubber}><ScrubberValue.Provider value={scrubber}>{children}{!theme.isTV && <View ref={canvas} collapsable={false} pointerEvents="none" accessible={false}
     accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={() => setRevision(value => value + 1)}
     style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>
     {active && binding?.source && miniFrame && decodeFrame && <CoverLayer binding={binding as Publication & {source: ArtworkSource}} full={fullFrame} mini={miniFrame} decoded={decoded}
       onReady={source => {if (latestRequest.current === request && binding.current() && binding.source && sameSource(source, binding.source)) setDecodedSource({source, width: decodeFrame.width, height: decodeFrame.height});}}/>}
-  </View>}</Context.Provider>;
+  </View>}</ScrubberValue.Provider></ScrubberPublication.Provider></Context.Provider>;
 }
 
 function CoverLayer({binding, full, mini, decoded, onReady}: {binding: Publication & {source: ArtworkSource}; full?: DockRect; mini: DockRect; decoded: boolean; onReady: (source: ArtworkSource) => void}) {
@@ -234,4 +244,51 @@ export function useListeningMiniPaint(fence: PlaybackFence | undefined) {
   const context = useContext(Context), binding = context?.binding;
   return {active: !!fence && !!binding && sameFence(fence, binding.fence) && context.active,
     progress: binding?.controller.progress, dragging: binding?.controller.dragging, page: context?.pageAlpha};
+}
+
+/** Missing optional bridge keeps standalone callers' ordinary paint. A real
+ * published opening is active only in its original current page and fence. */
+export function useListeningPageActive(fence: PlaybackFence): boolean {
+  const context = useContext(Context);
+  return !context || !!context.binding && sameFence(context.binding.fence, fence) && context.active;
+}
+
+
+/** Live recogniser/preview handles belong to the business publisher and are
+ * removed in its layout cleanup. The retained widget keeps only its own pixels. */
+export function useListeningScrubberPublication(value: ListeningScrubber | undefined): boolean {
+  const publish = useContext(ScrubberPublication);
+  useLayoutEffect(() => {if (publish && value) return publish(value);}, [publish, value]);
+  return !!publish;
+}
+export function ListeningSeekPaint({fence, fraction, span, seconds, label, testID, fallbackGesture}: {
+  fence: PlaybackFence; fraction: number; span: number; seconds: number; label: string; testID?: string; fallbackGesture?: PanGesture;
+}) {
+  const context = useContext(Context), mode = useOverlayPaintMode(), theme = useTheme();
+  const published = useContext(ScrubberValue);
+  const channel = published && sameFence(published.fence, fence) ? published : undefined;
+  const live = mode.interactive && (!context || context.active), hasChannel = !!channel, owner = channel?.scope;
+  const active = channel?.activeScope, ticket = channel?.ticket, drag = channel?.drag, base = channel?.base;
+  const at = useSharedValue(fraction), width = useSharedValue(0);
+  useAnimatedReaction(() => ({live, valid: hasChannel && active?.value === owner && (ticket?.value ?? 0) > 0, value: drag?.value ?? base?.value ?? fraction}), now => {
+    // INERT holds the last actual preview; retiring the live publisher cannot
+    // overwrite it with a guessed engine/rest position or a successor's cursor.
+    if (now.live && now.valid) at.value = Math.max(0, Math.min(1, now.value));
+  }, [live, hasChannel, active, owner, ticket, drag, base, fraction, at]);
+  useLayoutEffect(() => {if (!context && mode.interactive) at.value = fraction;}, [context, mode.interactive, at, fraction]);
+  useLayoutEffect(() => {if (live && channel && width.value > 0) channel.travel.value = width.value;}, [live, channel, width]);
+  const fill = useAnimatedStyle(() => ({transform: [{translateX: -(1 - at.value) * width.value / 2}, {scaleX: at.value}]}));
+  const disabled = useMemo(() => Gesture.Pan().enabled(false), []);
+  const gesture = live ? channel?.gesture ?? fallbackGesture ?? disabled : disabled;
+  return <GestureDetector gesture={gesture}><View testID={testID} accessibilityRole="adjustable" accessibilityLabel={label}
+    accessibilityValue={{min: 0, max: Math.round(span), now: Math.round(Math.max(0, Math.min(span, seconds)))}}
+    onLayout={event => {
+      const next = event.nativeEvent.layout.width;
+      width.value = Number.isFinite(next) && next > 0 ? next : 0;
+      if (live && channel && active?.value === owner && (ticket?.value ?? 0) > 0) channel.travel.value = width.value;
+    }} style={{height: 28, justifyContent: 'center'}}>
+    <View style={{height: 4, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
+      <Animated.View style={[{position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, fill]}/>
+    </View>
+  </View></GestureDetector>;
 }

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PlaybackDock, type DockPlayback, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
-import {expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
+import {captureListeningOpening, expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import type {DockPresentation} from '../src-next/kit/dock/types.ts';
 
 const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'};
@@ -53,4 +53,26 @@ for (const kind of ['music', 'audiobook'] as const) test(`mini ${kind} offers on
   assert.equal(dock.getSnapshot(), original, 'projection publishes no model transition');
   assert.equal(expandedListeningOccupant(dock, original, presentation), null);
   assert.equal(localListeningOccupant(dock, original, {...presentation, fence: {...fence, generation: 2}}), null);
+});
+
+
+test('a full UI opening retains its original page even when navigation supplies a successor', () => {
+  const original = {}, successor = {};
+  const mini = captureListeningOpening(undefined, false, original);
+  const full = captureListeningOpening(mini, true, original);
+  assert.equal(full.scope, original);
+  assert.notEqual(full.key, mini.key);
+  const stillFull = captureListeningOpening(full, true, successor);
+  assert.equal(stillFull, full);
+  assert.equal(stillFull.scope, original, 'the original current-page getter must now refuse, never rebind');
+});
+test('close and same-source reopen capture distinct actual UI openings on the current mini page', () => {
+  const original = {}, successor = {};
+  const first = captureListeningOpening(undefined, true, original);
+  const mini = captureListeningOpening(first, false, successor);
+  assert.equal(mini.scope, successor); assert.equal(mini.key, first.key);
+  const second = captureListeningOpening(mini, true, successor);
+  assert.notEqual(second.key, first.key); assert.equal(second.scope, successor);
+  assert.equal(captureListeningOpening(second, true, successor), second);
+  assert.equal(Object.isFrozen(second), true); assert.equal(Object.isFrozen(second.key), true);
 });
