@@ -6,6 +6,7 @@ import {sameFence, type PlaybackFence} from '../../../../../packages/player-core
 import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {useMotion} from '../../kit/useMotion';
+import {TVPanelTransition, TVPanelSlide, TVPanelScrim, useTVPanelPresence} from '../../kit/overlays/TVPanelMotion';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import type {NativeWatchNotice} from './playback-info';
 import type {NativePlaybackFailure} from './PlaybackFailed';
@@ -217,7 +218,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         tvPanelRight={television?.backdropRight} failureAction={failureAction}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
-    {panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
+    {isTV ? <TVWatchPanel context={context} render={bindings.panel}/> : panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
     {failed && <View testID="watch-failed-pane" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{failed}</View>}
     </>}
   </Animated.View>;
@@ -226,4 +227,18 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     {television ? <View testID="watch-tv-canvas" pointerEvents="box-none" style={{position: 'absolute', left: television.canvas.left, top: television.canvas.top,
       width: television.canvas.width, height: television.canvas.height, transformOrigin: 'top left', transform: [{scale: television.canvas.scale}]}}>{content}</View> : content}
   </View>;
+}
+
+/** The live controls state closes immediately; only inert outgoing paint is retained. */
+function TVWatchPanel({context, render}: {context: NativeWatchHostContext; render: NativeWatchHostBindings['panel']}) {
+  const presence = useTVPanelPresence(context.state.panel ? context : undefined, JSON.stringify(context.fence));
+  const shown = presence.value;
+  if (!shown) return null;
+  const pane = shown.renderer.panel;
+  return <TVPanelTransition open={presence.open} onExited={presence.exited}>
+    <TVPanelScrim/>
+    <View testID="watch-panel-pane" pointerEvents="box-none" style={pane ? positioned(pane) : {position: 'absolute', inset: 0}}>
+      <TVPanelSlide width={pane?.width ?? shown.renderer.width}>{render(shown)}</TVPanelSlide>
+    </View>
+  </TVPanelTransition>;
 }

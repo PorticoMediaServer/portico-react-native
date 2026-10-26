@@ -11,6 +11,7 @@ import {Artwork} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
 import {Dialog} from '../../kit/overlays';
+import {useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
 import {PanelBackground} from '../../kit/overlays/surface';
 import {Icon, type IconName} from '../../kit/Icon';
@@ -72,6 +73,7 @@ type NativeUpNextOpening = Readonly<{
  * positions it inside its accepted pane/canvas. It owns no Surface or engine. */
 export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes, subtitleControls, sleep, style}: NativeWatchPanelsProps) {
   const {source, fence, state} = context, theme = useTheme(), t = defaultI18n.t;
+  const panelInteractive = useTVPanelInteractive();
   // tablet-play2b: an expanded-size-class device draws its choice rows at 48 pt
   // and its Timing buttons at 44 pt; the phone keeps 52 pt rows.
   const tablet = !theme.isTV && Math.min(context.renderer.width, context.renderer.height) >= 600;
@@ -159,12 +161,12 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     && sameFence(latest.current.fence, fence) && sameFence(latest.current.state.fence, fence)
     && latest.current.state.panel === state.panel && !!state.panel, [playback, fence, state.panel]);
   const back = () => {if (current()) context.backPanel();};
-  useOverlayLifecycle(!!state.panel, true, back, first, undefined, 0, 'watch-panel');
+  useOverlayLifecycle(!!state.panel, true, back, theme.isTV ? undefined : first, undefined, 0, 'watch-panel');
   useEffect(() => {const expected = latest.current.fence; void options.load(expected); return () => options.clear();}, [options, fenceKey]);
   useEffect(() => {const epoch = commandEpoch.current + 1; commandEpoch.current = epoch; busy.current = false; setPending(false);
     return () => {commandEpoch.current = epoch + 1;};}, [fenceKey, state.panel]);
   useEffect(() => {scroll.current?.scrollTo({y: state.panelOffset, animated: false});}, [state.panel, state.panelOffset]);
-  useEffect(() => {first.current?.requestTVFocus?.();}, [state.panel, state.panelFocus, choices.phase]);
+  useEffect(() => {if (panelInteractive) first.current?.requestTVFocus?.();}, [state.panel, state.panelFocus, choices.phase, panelInteractive]);
   useEffect(() => {setReportSent(false);}, [fenceKey]);
   // Unmount retirement writes no state at all, and the setup restores the mounted
   // witness if the effect replays; a passive cleanup would leave a window in which a

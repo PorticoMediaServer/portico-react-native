@@ -6,6 +6,7 @@ import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
 import {FocusBoundary} from '../../kit/overlays/surface';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
+import {TVPanelSlide, TVPanelScrim, useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeWatchOverlay} from './presenters';
@@ -14,10 +15,12 @@ import type {NativeWatchOverlay} from './presenters';
  * checks, radio selection, confirmation step or remembered preference. */
 export function NativeVersionChooser({value, choose, close}: {value: NativeWatchOverlay; choose: (id: string) => void; close: () => void}) {
   const theme = useTheme(), window = useWindowDimensions(), first = useRef<View>(null), done = useRef<View>(null), t = defaultI18n.t;
+  const interactive = useTVPanelInteractive();
   const destination = value.destination, rows = destination?.rows ?? [];
   const selected = rows.findIndex(row => row.id === destination?.selectedRowId);
   const entry = selected >= 0 ? selected : Math.min(1, rows.length - 1);
-  useOverlayLifecycle(theme.isTV, true, close, first, value.anchorRef, 0, 'watch-version-chooser');
+  useOverlayLifecycle(theme.isTV, true, close, undefined, value.anchorRef, 0, 'watch-version-chooser');
+  React.useEffect(() => {if (theme.isTV && interactive) first.current?.requestTVFocus?.();}, [theme.isTV, interactive, entry]);
   const body = <ScrollView testID="watch-version-rows" contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0}}>
     {/* The server is analyzing the chosen disc title: the existing neutral word, and
         no claim that anything is playing or ready. */}
@@ -25,7 +28,7 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
       {color: theme.colors.textTertiary, paddingHorizontal: theme.isTV ? 0 : 16, paddingBottom: 12}]}>{t('next.browse.native.markAllPreparing')}</Text>}
     <View style={theme.isTV ? undefined : {marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
       {rows.map((row, index) => <Focusable key={row.id} ref={index === entry ? first : undefined} focusId={`watch-version-${row.id}`} testID={`watch-version-${row.id}`}
-        focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && index === entry}
+        focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && interactive && index === entry}
         onPress={() => {if (!value.busy) choose(row.id);}} style={({focused}) => ({minHeight: theme.isTV ? 54 : 64, paddingHorizontal: theme.isTV ? 14 : 16,
           paddingVertical: theme.isTV ? 14 : 10, marginBottom: theme.isTV ? 14 : 0, borderRadius: theme.isTV ? 12 : 0,
           backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'})}>
@@ -45,9 +48,9 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
     const key = (label: string) => <View style={{height: 36, minWidth: 44, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', alignItems: 'center', justifyContent: 'center'}}>
       <Text style={[nativeType({size: 17, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{label}</Text></View>;
     return <Modal transparent visible animationType="none" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
-      <View style={[StyleSheet.absoluteFill, {backgroundColor: '#0710189e'}]} accessibilityViewIsModal>
+      <View style={StyleSheet.absoluteFill} accessibilityViewIsModal><TVPanelScrim/>
         <View pointerEvents="box-none" testID="watch-versions-tv-canvas" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
-          <FocusBoundary modal testID="watch-versions-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 760, boxShadow: '-40px 0 80px -20px rgba(0,0,0,.7)', paddingTop: 60, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
+          <TVPanelSlide width={760} style={StyleSheet.absoluteFill}><FocusBoundary modal testID="watch-versions-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 760, boxShadow: '-40px 0 80px -20px rgba(0,0,0,.7)', paddingTop: 60, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
             <View pointerEvents="none" style={StyleSheet.absoluteFill}><Svg width="100%" height="100%" accessible={false}>
               <Defs><LinearGradient id="watch-versions-panel" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#132836"/><Stop offset="0.6" stopColor="#0d1c27"/><Stop offset="1" stopColor="#0b1822"/></LinearGradient></Defs>
               <Rect width="100%" height="100%" fill="url(#watch-versions-panel)"/>
@@ -57,7 +60,7 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
             <View style={{flex: 1, marginHorizontal: -24, paddingHorizontal: 24}}>{body}</View>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('title.ok'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('action.play')}</Text>
               <View style={{width: 16}}/><View style={{width: 16}}/>{key(t('action.back'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>
-          </FocusBoundary>
+          </FocusBoundary></TVPanelSlide>
         </View>
       </View>
     </Modal>;

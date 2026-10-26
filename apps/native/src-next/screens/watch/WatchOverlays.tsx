@@ -12,6 +12,7 @@ import {StateView} from '../../kit/states';
 import {BottomSheet, Dialog, Menu, type MenuEntry} from '../../kit/overlays';
 import {TouchMenuHeader} from '../../kit/overlays/Menu';
 import {FocusBoundary, PanelBackground} from '../../kit/overlays/surface';
+import {TVPanelTransition, TVPanelSlide, TVPanelScrim, useTVPanelPresence, useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeScreenServices} from '../screen-services';
@@ -25,20 +26,22 @@ const named = (entry: NativeWatchOverlay['capture']['entry']) => entry.displayTi
  * host below this overlay. TV chrome alone uses the1920 canvas once. */
 function FileInfoSurface({value, presenters}: {value: NativeWatchOverlay; presenters: NativeWatchPresenters}) {
   const theme = useTheme(), window = useWindowDimensions(), done = useRef<View>(null), t = defaultI18n.t;
-  useOverlayLifecycle(theme.isTV, true, presenters.close, done, value.anchorRef, 0, 'watch-file-info');
-  const action = <Button ref={done} testID="watch-file-info-done" variant={theme.isTV ? 'primary' : 'glass'} size={theme.isTV ? 'hero' : 'small'} hasTVPreferredFocus onPress={presenters.close}>{t('next.overlays.done')}</Button>;
+  const interactive = useTVPanelInteractive();
+  React.useEffect(() => {if (theme.isTV && interactive) done.current?.requestTVFocus?.();}, [theme.isTV, interactive]);
+  useOverlayLifecycle(theme.isTV, true, presenters.close, undefined, value.anchorRef, 0, 'watch-file-info');
+  const action = <Button ref={done} testID="watch-file-info-done" variant={theme.isTV ? 'primary' : 'glass'} size={theme.isTV ? 'hero' : 'small'} hasTVPreferredFocus={interactive} onPress={presenters.close}>{t('next.overlays.done')}</Button>;
   if (theme.isTV) {
     const canvas = shellLayout(window.width, window.height, true);
     return <Modal transparent visible animationType="none" onRequestClose={presenters.close} statusBarTranslucent navigationBarTranslucent>
-      <View style={[StyleSheet.absoluteFill, {backgroundColor: '#04090d9e'}]} accessibilityViewIsModal>
+      <View style={StyleSheet.absoluteFill} accessibilityViewIsModal><TVPanelScrim color="#04090d9e"/>
         <View pointerEvents="box-none" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
-          <FocusBoundary modal testID="watch-file-info-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 900, paddingTop: 64, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
+          <TVPanelSlide width={900} style={StyleSheet.absoluteFill}><FocusBoundary modal testID="watch-file-info-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 900, paddingTop: 64, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
             <PanelBackground/>
             <Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 33}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.overlays.fileInfo')}</Text>
             <Text style={[nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 48}, theme.textScale), {color: theme.colors.text, marginTop: 18}]}>{named(value.capture.entry)}</Text>
             <View style={{flex: 1, marginTop: 14}}>{value.content}</View>
             <View style={{marginTop: 24, height: 72, alignItems: 'flex-start'}}>{action}</View>
-          </FocusBoundary>
+          </FocusBoundary></TVPanelSlide>
         </View>
       </View>
     </Modal>;
@@ -87,12 +90,17 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
 }
 
 export function NativeWatchOverlays({presenters, runtime, common}: {presenters: NativeWatchPresenters; runtime: NativeShellRuntime; common: NativeScreenServices}) {
-  const value = useSyncExternalStore(presenters.subscribe, presenters.getSnapshot), t = defaultI18n.t, theme = useTheme();
-  if (!value || !presenters.overlayCurrent(value)) return null;
-  if (value.phase === 'disc-titles' && value.disc) return <NativeDiscTitlesSheet controller={value.disc} subject={named(value.capture.entry)} close={() => presenters.closeDisc(value)}
-    renderError={(error, retry) => <StateView variant="inline" {...common.error(error, retry, 'detail')}/>}/>;
-  if (value.phase === 'versions') return <NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(value, id);}} close={() => presenters.closeVersions(value)}/>;
-  if (value.phase === 'file-info') return <FileInfoSurface value={value} presenters={presenters}/>;
+  const live = useSyncExternalStore(presenters.subscribe, presenters.getSnapshot), t = defaultI18n.t, theme = useTheme();
+  const current = live && presenters.overlayCurrent(live) ? live : undefined;
+  const moving = theme.isTV && current && ['versions', 'file-info', 'disc-titles'].includes(current.phase) ? current : undefined;
+  const presence = useTVPanelPresence(moving, runtime);
+  const value = current ?? presence.value;
+  if (!value) return null;
+  const transition = (node: React.ReactNode) => theme.isTV ? <TVPanelTransition key={value.phase} open={presence.open} onExited={presence.exited}>{node}</TVPanelTransition> : node;
+  if (value.phase === 'disc-titles' && value.disc) return transition(<NativeDiscTitlesSheet controller={value.disc} subject={named(value.capture.entry)} close={() => presenters.closeDisc(value)}
+    renderError={(error, retry) => <StateView variant="inline" {...common.error(error, retry, 'detail')}/>}/>);
+  if (value.phase === 'versions') return transition(<NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(value, id);}} close={() => presenters.closeVersions(value)}/>);
+  if (value.phase === 'file-info') return transition(<FileInfoSurface value={value} presenters={presenters}/>);
   if (value.phase !== 'menu' && value.phase !== 'file-pending' && value.phase !== 'versions-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
   if (value.phase === 'file-pending' || value.phase === 'versions-pending') return null;
   const entry = value.capture.entry, art = runtime.artwork(entry.posterUrl), subject = named(entry);
