@@ -110,6 +110,7 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
   const canvasScale = canvas ? Math.min(hostWidth / canvas.width, Math.max(0, hostHeight - topInset) / canvas.height) : 1;
   const actualWidth = canvas ? canvas.width * canvasScale : width ?? (theme.isTV ? 640 : 440);
   const animation = useSurfaceMotion(open, 'side', actualWidth);
+  const scrimStyle = useScrimStyle(animation.progress);
   const closeRef = useRef<View>(null);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
   useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID, restoreFocus);
@@ -125,6 +126,8 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
         {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16}}>{footer}</View>}
       </FocusBoundary></>;
   return <OverlayPortal rect={rect} onOutsidePress={closeOnOutsidePress ? () => dismiss('outside') : undefined}>
+    {theme.isTV && <Animated.View testID={testID ? `${testID}-scrim` : undefined} pointerEvents="none" accessible={false}
+      style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.colors.ink, .62)}, scrimStyle]}/>}
     <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu}, canvas ? undefined : padding, animation.style, canvas ? undefined : style]}>
       {canvas ? <View style={[padding, style, {position: 'absolute', top: 0, left: 0, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvasScale}]}]}>{content}</View> : content}
     </Animated.View>
