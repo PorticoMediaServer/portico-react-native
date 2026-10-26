@@ -10,21 +10,49 @@ const principalOf = (context: Context) => {
     session.authorizationHorizon, session.deviceId, session.installationId]) : undefined;
 };
 
+type Binding = Readonly<{
+  context: Context; api: Context['api']; navigation: Context['navigation'];
+  route: ReturnType<Context['navigation']['getSnapshot']>['route'];
+  revision: ReturnType<Context['navigation']['getSnapshot']>['revision'];
+  originalAuthority: ReturnType<Context['authority']>; authority: string;
+  principal: string | undefined; lifetime: NativeDownloadRequest['lifetime'];
+}> & {retired: boolean; command?: object};
+// Request custody outlives a component instance. StrictMode may replay the same
+// original tuple, but a resident request never captures a successor's context.
+// null reserves capture before supplied getters can reenter another constructor.
+const bindings = new WeakMap<NativeDownloadRequest, Binding | null>();
+function bindingFor(context: Context, request: NativeDownloadRequest): Binding | undefined {
+  if (bindings.has(request)) return bindings.get(request) ?? undefined;
+  if (getNativeDownloadSnapshot() !== request) return undefined;
+  bindings.set(request, null);
+  try {
+    const api = context.api, navigation = context.navigation, snapshot = navigation.getSnapshot();
+    const originalAuthority = Object.freeze({...context.authority()});
+    const binding: Binding = {context, api, navigation, route: snapshot.route, revision: snapshot.revision,
+      originalAuthority, authority: authorityKey(originalAuthority), principal: principalOf(context), lifetime: request.lifetime, retired: false};
+    bindings.set(request, binding);
+    return binding;
+  } catch {return undefined;}
+}
+
 /** Business lifetime for exactly one shell sheet opening. Retained exit paint
  * must not retain this object as an interactive controller or restart it. */
 export function createNativeDownloadOpening(context: Context, request: NativeDownloadRequest) {
-  const abort = new AbortController(), api = context.api, route = context.navigation.getSnapshot();
-  const originalAuthority = Object.freeze({...context.authority()}), authority = authorityKey(originalAuthority);
-  const principal = principalOf(context), lifetime = request.lifetime, navigation = context.navigation;
+  const abort = new AbortController(), binding = bindingFor(context, request);
   let retired = false, pending: object | undefined;
   const paintCurrent = () => {
+    if (!binding || binding.retired) return false;
     try {
-      if (lifetime && (lifetime.signal.aborted || lifetime.isCurrent() !== true)) return false;
-      if (!principal || !context.current() || context.navigation !== navigation
-        || context.api !== api || authorityKey(context.authority()) !== authority || principalOf(context) !== principal) return false;
+      const lifetime = binding.lifetime;
+      if (context !== binding.context || lifetime && (lifetime.signal.aborted || lifetime.isCurrent() !== true)
+        || !binding.principal || !context.current() || context.navigation !== binding.navigation
+        || context.api !== binding.api || authorityKey(context.authority()) !== binding.authority || principalOf(context) !== binding.principal) {
+        binding.retired = true; return false;
+      }
       const now = context.navigation.getSnapshot();
-      return now.route === route.route && now.revision === route.revision;
-    } catch {return false;}
+      if (now.route !== binding.route || now.revision !== binding.revision) {binding.retired = true; return false;}
+      return !binding.retired;
+    } catch {binding.retired = true; return false;}
   };
   // Check store identity again after supplied callbacks: they may replace an
   // equal-valued request while this original opening is being inspected.
@@ -37,21 +65,27 @@ export function createNativeDownloadOpening(context: Context, request: NativeDow
      * a route/viewer change must also remove its retained pixels immediately. */
     paintCurrent,
     claim: (): object | undefined => {
-      if (pending || retired) return undefined;
+      if (!binding || binding.command || pending || retired) return undefined;
       const ticket = pending = {};
-      if (current() && pending === ticket) return ticket;
+      binding.command = ticket;
+      if (current() && pending === ticket && binding.command === ticket) return ticket;
       if (pending === ticket) pending = undefined;
+      if (binding.command === ticket) binding.command = undefined;
       return undefined;
     },
-    owns: (ticket: object) => pending === ticket && current(),
-    release: (ticket: object) => {if (pending === ticket) pending = undefined;},
+    owns: (ticket: object) => pending === ticket && binding?.command === ticket && current(),
+    release: (ticket: object) => {
+      if (pending !== ticket) return;
+      pending = undefined;
+      if (binding?.command === ticket) binding.command = undefined;
+    },
     // Compare-close may retire the original request after its page leaves. It
     // can never dismiss a successor, even when every displayed value is equal.
     close,
     viewDownloads: (): boolean => {
-      if (!current() || !close() || getNativeDownloadSnapshot() !== undefined || !paintCurrent()
+      if (!binding || !current() || !close() || getNativeDownloadSnapshot() !== undefined || !paintCurrent()
         || getNativeDownloadSnapshot() !== undefined) return false;
-      navigation.open({kind: 'downloads'}, originalAuthority);
+      binding.navigation.open({kind: 'downloads'}, binding.originalAuthority);
       return true;
     },
   });

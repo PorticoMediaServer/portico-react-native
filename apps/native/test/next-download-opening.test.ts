@@ -14,6 +14,7 @@ function fixture() {
   askNativeDownload({title: 'Film', itemId: 'item'});
   const request = getNativeDownloadSnapshot()!;
   return {context: context as never, request, navigated, authority, opening: createNativeDownloadOpening(context as never, request),
+    contextCopy: () => ({...context}) as never,
     route: () => {route = {...route, revision: route.revision + 1};},
     family: () => {selected = {...selected, sessionFamilyId: 'successor'};},
     generation: () => {selected = {...selected, tokenGeneration: 'two'};},
@@ -146,4 +147,59 @@ test('the store freezes target and lifetime descriptors without changing the off
   assert.equal(Object.isFrozen(request.container), true);
   assert.equal(Object.isFrozen(request.lifetime), true);
   closeNativeDownload(request);
+});
+
+test('retiring without close never rebinds the same resident request to a successor constructor', () => {
+  for (const changed of ['route', 'family', 'generation', 'context'] as const) {
+    const f = fixture();
+    f.opening.retire();
+    assert.equal(getNativeDownloadSnapshot(), f.request, 'layout cleanup left the request resident');
+    if (changed !== 'context') f[changed]();
+    const remount = createNativeDownloadOpening(changed === 'context' ? f.contextCopy() : f.context, f.request);
+    let io = 0;
+    if (remount.current() && remount.claim()) io++;
+    assert.equal(remount.current(), false, changed);
+    assert.equal(remount.claim(), undefined, changed);
+    assert.equal(io, 0, changed);
+    closeNativeDownload(f.request);
+  }
+});
+
+test('StrictMode setup-cleanup-setup may replay only the exact original tuple', () => {
+  const f = fixture();
+  f.opening.retire();
+  const replay = createNativeDownloadOpening(f.context, f.request), ticket = replay.claim();
+  assert.equal(replay.current(), true);
+  assert.ok(ticket);
+  f.opening.release({});
+  assert.equal(replay.owns(ticket), true);
+  const unrelated = createNativeDownloadOpening(f.contextCopy(), f.request);
+  assert.equal(unrelated.current(), false);
+  assert.equal(replay.current(), false, 'a refused successor binding cannot be resurrected');
+  closeNativeDownload(f.request);
+});
+
+test('same-tuple replay cannot duplicate the original request command while its retired owner settles', () => {
+  const f = fixture(), old = f.opening.claim()!;
+  f.opening.retire();
+  const replay = createNativeDownloadOpening(f.context, f.request);
+  assert.equal(replay.current(), true);
+  assert.equal(replay.claim(), undefined);
+  f.opening.release(old);
+  const next = replay.claim();
+  assert.ok(next);
+  f.opening.release(old);
+  assert.equal(replay.owns(next), true);
+  closeNativeDownload(f.request);
+});
+
+test('a refused resident request constructor never closes an equal-valued successor request', () => {
+  const f = fixture(); f.opening.retire(); f.family();
+  const refused = createNativeDownloadOpening(f.context, f.request);
+  assert.equal(refused.current(), false);
+  askNativeDownload({title: 'Film', itemId: 'item'});
+  const successor = getNativeDownloadSnapshot()!;
+  assert.equal(refused.close(), false);
+  assert.equal(getNativeDownloadSnapshot(), successor);
+  closeNativeDownload(successor);
 });
