@@ -525,10 +525,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </View>
         </View>
       </FocusRegion>
-      {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: 32, bottom: 180}}>
-        <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
-      </View>}
     </Animated.View>
+    {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: 32, bottom: 180}}>
+      <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
+    </View>}
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={115} gutter={32} available={width}/>}
   </View></GestureDetector>;
   if (tabletop) return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
@@ -566,10 +566,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </View>
         </View>
       </FocusRegion>
-      {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', left: 22, right: 22, bottom: 52}}>
-        <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
-      </View>}
     </Animated.View>
+    {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', left: 22, right: 22, bottom: 52}}>
+      <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
+    </View>}
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={4} gutter={22} available={width}/>}
   </View></GestureDetector>;
   return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
