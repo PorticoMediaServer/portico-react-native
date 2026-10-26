@@ -22,6 +22,7 @@ import {VolumeCard} from './ReadSeriesScreen';
 import type {NativeReadVersion} from './read-book-model';
 import {ReadOwnerEditSheet} from './ReadOwnerEditSheet';
 import {ReadCollectionSheet} from './ReadCollectionSheet';
+import {BookDetailActions} from './book-detail-actions';
 import {nativeReadingCollectionCapability, type NativeReadingCollectionKind} from './read-collection-capability';
 import {nativeScreenServices} from '../native-screen-services';
 import {isReadingLibraryKind} from './platform';
@@ -133,7 +134,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
         versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
-        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
+        listed={state.listed} onList={toggleList} readMark={state.read} onReadMark={toggleRead} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
         shelf={shelf} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
         onShelfRetry={() => {void controller.retrySeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
         onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>;
@@ -179,17 +180,18 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, readMark, onReadMark, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean; rowHero: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
   listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
+  readMark?: ReadingReadMark; onReadMark: (mark: ReadingReadMark) => void;
   canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>; onHeroHeight: (height: number) => void;
   shelf: NativeReadSeriesShelfState; onShelfMore: () => void; onShelfRetry: () => void; onShelfItem: (item: ReadingItem) => void;
 }) {
-  const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
+  const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false), phone = theme.platform === 'phone';
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
   const title = manifest.metadata.title || controller.item.title, author = manifest.metadata.author || controller.item.author?.value;
   const cover = runtime.artwork(controller.item.coverUrl ?? manifest.metadata.coverUrl), tint = generatedCoverTint(title);
@@ -238,7 +240,17 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
       {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, rowHero ? (wide ? 14.5 : 14) : 13, rowHero ? 400 : index === 0 ? 700 : 600), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
     </View> : null}
   </>;
-  const actions = <View style={{paddingHorizontal: rowHero ? 0 : 20, marginTop: 18}}>
+  const versionChoice = versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
+    onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: rowHero ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
+    <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
+    <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
+    <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
+  </Focusable> : null;
+  const actions = phone ? <>
+    <BookDetailActions saved={saved} readMark={readMark} canDownload={canDownload} onRead={() => onRead(manifest)}
+      onReadMark={onReadMark} onDownload={() => onDownload(manifest)} downloadRef={downloadRef} horizontalPadding={20} roundSize={46}/>
+    {versionChoice ? <View style={{paddingHorizontal: 20}}>{versionChoice}</View> : null}
+  </> : <View style={{paddingHorizontal: rowHero ? 0 : 20, marginTop: 18}}>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
       {saved === undefined
         ? <Button icon="i-book" onPress={() => onRead(manifest)} style={{flex: 1}}>{t('next.reader.read')}</Button>
@@ -249,12 +261,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
       <Button ref={downloadRef} variant="icon" icon="i-dl" iconOnly disabled={!canDownload}
         accessibilityLabel={t('action.download')} onPress={() => onDownload(manifest)} style={{height: 48, width: 48}}/>
     </View>
-    {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
-      onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: rowHero ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
-      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
-      <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
-      <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
-    </Focusable> : null}
+    {versionChoice}
   </View>;
   const hero = rowHero
     ? <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: wide ? 36 : 28, paddingHorizontal: wide ? 32 : 28}}>
@@ -277,7 +284,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     ]}/>
   </View> : <View style={{marginTop: 24, paddingHorizontal: 20}}>
     <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
-    <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
+    <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries} inset={false}/>
   </View>;
   const widePanel = contents.length ? <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 36, paddingHorizontal: 32, marginTop: 38}}>
     <View style={{flex: 1, minWidth: 0}}>
@@ -361,7 +368,8 @@ function ContentsList({entries, currentSection, onOpen, wide = false}: {
       </Focusable>;
     })}
   </View>;
-  return <View testID="native-read-book-contents" style={{marginTop: 4, marginHorizontal: 20}}>
+  const phone = theme.platform === 'phone';
+  if (!phone) return <View testID="native-read-book-contents" style={{marginTop: 4, marginHorizontal: 20}}>
     {entries.map((entry, index) => {
       const current = currentSection !== undefined && entry.section === currentSection;
       return <Focusable key={`${index}-${entry.section}`} accessibilityRole="button" accessibilityLabel={entry.title}
@@ -374,11 +382,23 @@ function ContentsList({entries, currentSection, onOpen, wide = false}: {
       </Focusable>;
     })}
   </View>;
+  return <View testID="native-read-book-contents" style={{marginTop: 6}}>
+    {entries.map((entry, index) => {
+      const current = currentSection !== undefined && entry.section === currentSection;
+      return <Focusable key={`${index}-${entry.section}`} accessibilityRole="button" accessibilityLabel={entry.title}
+        onPress={() => onOpen(index)} focusKind="row" focusRadius={10}
+        style={{minHeight: current ? 68 : 50, paddingHorizontal: 20, paddingVertical: current ? 10 : 0, flexDirection: 'row', alignItems: 'center', columnGap: 12,
+          ...(current ? {backgroundColor: alpha(theme.colors.text, .07)} : {})}}>
+        <Text style={[browseType(theme, 13, 700), {width: 20, textAlign: 'center', color: current ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{index + 1}</Text>
+        <Text numberOfLines={1} style={[browseType(theme, 15, current ? 700 : 600), {flex: 1, minWidth: 0, color: current ? theme.colors.accentStrong : theme.colors.textSecondary}]}>{entry.title}</Text>
+      </Focusable>;
+    })}
+  </View>;
 }
 
-function DetailsList({manifest, rows, series, comic, onSeries, wide = false}: {
+function DetailsList({manifest, rows, series, comic, onSeries, wide = false, inset = true}: {
   manifest: ReadingManifest; rows: readonly Readonly<{label: string; value: string}>[];
-  series?: SeriesLink; comic: boolean; onSeries: (series: SeriesLink, manifest: ReadingManifest) => void; wide?: boolean;
+  series?: SeriesLink; comic: boolean; onSeries: (series: SeriesLink, manifest: ReadingManifest) => void; wide?: boolean; inset?: boolean;
 }) {
   const theme = useTheme();
   // tablet-read#2's About column: a 92 pt label column, a 14 pt gap and a flexible
@@ -398,7 +418,7 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false}: {
       <Text style={[browseType(theme, 14.5, 400), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
     </View>)}
   </View>;
-  return <View testID="native-read-book-details">
+  if (theme.platform !== 'phone') return <View testID="native-read-book-details">
     {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8}
       style={{paddingVertical: 10, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
       <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{t('library.tab.series')}</Text>
@@ -409,6 +429,23 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false}: {
     {rows.map(row => <View key={row.label + row.value} style={{paddingVertical: 9, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
       <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{row.label}</Text>
       <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{row.value}</Text>
+    </View>)}
+  </View>;
+  const rowStyle = {position: 'relative' as const, flexDirection: 'row' as const, alignItems: 'baseline' as const, columnGap: 12, paddingVertical: 8, paddingHorizontal: 14};
+  const separator = <View style={{position: 'absolute', top: 0, left: 14, right: 0, height: 1, backgroundColor: alpha(theme.colors.line, .45)}}/>;
+  return <View testID="native-read-book-details" style={{marginTop: 14, marginHorizontal: inset ? 16 : 0, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+    {series ? <View style={rowStyle}>
+      <Text style={[browseType(theme, 14, 600), {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
+      <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8} style={{flex: 1, minWidth: 0}}>
+        <Text numberOfLines={2} style={[browseType(theme, 14, 600), {color: theme.colors.accentStrong}]}>
+          {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
+        </Text>
+      </Focusable>
+    </View> : null}
+    {rows.map((row, index) => <View key={row.label + row.value} style={rowStyle}>
+      {(series || index > 0) ? separator : null}
+      <Text style={[browseType(theme, 14, 600), {width: 92, color: theme.colors.textTertiary}]}>{row.label}</Text>
+      <Text style={[browseType(theme, 14, 600), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
     </View>)}
   </View>;
 }
