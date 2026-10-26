@@ -16,9 +16,13 @@ export function createNativeReadRenderer(context: NativeShellBootstrapContext, p
   const reconcile = () => {
     if (!alive || !context.current()) {target = undefined; return;}
     const route = context.navigation.getSnapshot().route;
+    // Root54: the reader's own Search all books is pushed above it, and the guest
+    // that sent it must still be the same retained host when Back returns. Settings
+    // already survives the same way; any other route retires the target.
+    const aboveReader = route.kind === 'settings-page' || route.kind === 'search-reading';
     if (route.kind === 'read') {
       if (!target || targetKey(target) !== targetKey(route)) target = route;
-    } else if (route.kind !== 'settings-page' || !context.navigation.retainedRoutes().some(value => value === target)) target = undefined;
+    } else if (!aboveReader || !context.navigation.retainedRoutes().some(value => value === target)) target = undefined;
   };
   return {
     render(route) {if (route.kind !== 'read') throw new Error('native_read_route_mismatch'); reconcile(); return null;},
