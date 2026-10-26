@@ -1,4 +1,4 @@
-import React, {createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import React, {createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Image, View, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming, type SharedValue} from 'react-native-reanimated';
 import {freezeOverlayPaint, type OverlayPaintNode, type OverlayPaintTypes} from '../overlays/overlay-paint-model';
@@ -10,9 +10,31 @@ import type {DockVideoExitPaint} from './video-exit-paint';
 import type {PlaybackFence} from '../../../../../packages/player-core/src';
 
 type Pose = Readonly<{alpha: number; x: number; y: number; scale: number}>;
-type Paint = Readonly<{alpha: SharedValue<number>; x: SharedValue<number>; y: SharedValue<number>; scale: SharedValue<number>}>;
+type Paint = Readonly<{alpha: SharedValue<number>; x: SharedValue<number>; y: SharedValue<number>; scale: SharedValue<number>; videoPortal?: boolean}>;
 const Phase = createContext<Paint | undefined>(undefined);
 const noSubscribe = () => () => {};
+type ExitCanvas = Readonly<{publish(key: string, node: React.ReactNode): () => void; entries: ReadonlyMap<string, React.ReactNode>}>;
+const VideoExitCanvas = createContext<ExitCanvas | undefined>(undefined);
+/** Only audited passive art enters this canvas. It sits above the persistent
+ * video surface; it never owns a player, capture, route or business body. */
+export function DockVideoExitProvider({children}: {children: React.ReactNode}) {
+  const [entries, setEntries] = useState<ReadonlyMap<string, React.ReactNode>>(() => new Map());
+  const publish = useCallback((key: string, node: React.ReactNode) => {
+    setEntries(current => new Map(current).set(key, node));
+    return () => setEntries(current => {
+      if (current.get(key) !== node) return current;
+      const next = new Map(current); next.delete(key); return next;
+    });
+  }, []);
+  const value = useMemo(() => ({entries, publish}), [entries, publish]);
+  return <VideoExitCanvas.Provider value={value}>{children}</VideoExitCanvas.Provider>;
+}
+export function DockVideoExitCanvas({style}: {style?: StyleProp<ViewStyle>}) {
+  const canvas = useContext(VideoExitCanvas);
+  return <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{position: 'absolute', inset: 0}, style]}>
+    {canvas && [...canvas.entries].map(([key, node]) => <React.Fragment key={key}>{node}</React.Fragment>)}
+  </View>;
+}
 export type DockPaintRowProps = Readonly<{
   opener: React.ReactElement; art: React.ReactElement; words: React.ReactNode;
   controls?: React.ReactElement<React.ComponentProps<typeof View>>; tools?: React.ReactNode; line?: React.ReactNode;
@@ -25,7 +47,7 @@ export type DockPaintRowProps = Readonly<{
 export function DockPaintRow({opener, art, words, controls, tools, line, expanded, containerStyle, textStyle, rowGap}: DockPaintRowProps) {
   const paint = useContext(Phase), motion = useMotion();
   const alpha = paint?.alpha, x = paint?.x, y = paint?.y, scale = paint?.scale;
-  const artStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{scale: motion.transforms ? scale?.value ?? 1 : 1}]}));
+  const artStyle = useAnimatedStyle(() => ({opacity: paint?.videoPortal ? 0 : alpha?.value ?? 1, transform: [{scale: motion.transforms ? scale?.value ?? 1 : 1}]}));
   const wordsStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{translateX: motion.transforms ? x?.value ?? 0 : 0}, {translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
   const controlStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
   const lineStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1}));
@@ -52,9 +74,21 @@ const sameTarget = (a: DockRenderOccupant, b: DockRenderOccupant) => sameDockFen
 const baseX = (row: React.ReactElement<DockPaintRowProps>) => row.props.artWidth + row.props.openerGap;
 
 function RetiringRow({entry, done}: {entry: Retiring; done: (key: string) => void}) {
-  const motion = useMotion();
+  const motion = useMotion(), canvas = useContext(VideoExitCanvas);
+  const publish = canvas?.publish;
   const alpha = useSharedValue(entry.pose.alpha), x = useSharedValue(entry.pose.x), y = useSharedValue(entry.pose.y), scale = useSharedValue(entry.pose.scale);
   const valid = React.useSyncExternalStore(entry.video?.subscribe ?? noSubscribe, () => entry.video?.paintCurrent() ?? true);
+  const artStyle = useAnimatedStyle(() => ({opacity: alpha.value, transform: [{scale: motion.transforms ? scale.value : 1}]}));
+  const portal = !!publish && !!entry.video?.canvasBounds;
+  useLayoutEffect(() => {
+    const bounds = entry.video?.canvasBounds;
+    if (!publish || !valid || !bounds) return;
+    const art = (entry.node.props as unknown as DockPaintRowProps).art;
+    return publish(entry.key, <OverlayPaintProvider mode={OVERLAY_PAINT_INERT}>
+      <Animated.View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+        style={[{position: 'absolute', left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height}, artStyle]}>{art}</Animated.View>
+    </OverlayPaintProvider>);
+  }, [entry, valid, publish, artStyle]);
   useEffect(() => {
     const config = {...motion.timing('standard'), duration: motion.duration('standard')};
     alpha.value = withTiming(0, config, finished => {if (finished) runOnJS(done)(entry.key);});
@@ -70,7 +104,7 @@ function RetiringRow({entry, done}: {entry: Retiring; done: (key: string) => voi
   useEffect(() => {if (!valid) done(entry.key);}, [valid, done, entry.key]);
   if (!valid) return null;
   return <OverlayPaintProvider mode={OVERLAY_PAINT_INERT}><View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{position: 'absolute', inset: 0}}>
-    <Phase.Provider value={{alpha, x, y, scale}}>{entry.node}</Phase.Provider>
+    <Phase.Provider value={{alpha, x, y, scale, videoPortal: portal}}>{entry.node}</Phase.Provider>
   </View></OverlayPaintProvider>;
 }
 
@@ -94,9 +128,10 @@ export function DockHandover({occupant, row, allowedTypes, takeVideoExit}: {occu
       const delta = baseX(old.row) + pose.x - baseX(row);
       let node = freezeOverlayPaint(old.row as OverlayPaintNode, allowedTypes);
       let video: DockVideoExitPaint | undefined;
-      if (node && old.occupant.mode === 'video') {
+      if (old.occupant.mode === 'video') {
         video = takeVideoExit?.(old.occupant.playback.fence);
-        if (video) {
+        if (!node) {void video?.release().catch(() => {}); video = undefined;}
+        if (node && video) {
           const art = (node.props as unknown as DockPaintRowProps).art as React.ReactElement<{children?: React.ReactNode}>;
           const captured = React.cloneElement(art as React.ReactElement<{children?: React.ReactNode}>, {}, <>
             <Image accessible={false} source={{uri: video.image.uri}} fadeDuration={0} resizeMode="contain" style={{position: 'absolute', inset: 0}}/>
