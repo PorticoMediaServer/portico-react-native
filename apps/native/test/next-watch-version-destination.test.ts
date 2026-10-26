@@ -10,7 +10,11 @@ function fixture() {
   const destination = new NativeVersionChooserController({capture: {entry: {id: 'movie', kind: 'movie', title: 'Actual movie', playback: {itemId: 'movie', startSeconds: 17}},
     authority, routeRevision: 2, expectedFence: undefined, current: () => host}, options: offered,
     rows: [{id: 'v1', heading: 'First', detail: ''}, {id: 'v2', heading: 'Second', detail: ''}],
-    hostCurrent: () => host, sourceCurrent: () => source, start: async (next, choice) => {input = next; selection = choice; calls++; await pending;}, onDispose: () => {disposed++;}});
+    hostCurrent: () => host, sourceCurrent: () => source,
+    prepare: async () => {throw new Error('disc title preparation is not configured in this destination fixture');},
+    reread: async () => {throw new Error('disc title reread is not configured in this destination fixture');},
+    preview: async () => {throw new Error('disc title preview is not configured in this destination fixture');},
+    start: async (next, choice) => {input = next; selection = choice; calls++; await pending;}, onDispose: () => {disposed++;}});
   return {destination, release, calls: () => calls, selection: () => selection, input: () => input, disposed: () => disposed,
     host: (value: boolean) => {host = value;}, source: (value: boolean) => {source = value;}};
 }
