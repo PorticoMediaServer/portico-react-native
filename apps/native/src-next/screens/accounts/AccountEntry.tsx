@@ -47,6 +47,7 @@ import {EndedMoveCodeAction} from './EndedMoveCodeAction';
 import {DirectoryAccessRefused} from './DirectoryAccessRefused';
 import {directoryAccessRefused, directoryClockSkew, directoryIdentityUnconfirmed} from './directory-refusal';
 import {PhonePINEntry} from './PhonePINEntry';
+import {PhoneAccountSignIn} from './PhoneAccountSignIn';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {directoryFailure, directoryOfflineBody, directoryRows, nextRetryDelay} from './directory-chooser';
 
@@ -62,6 +63,8 @@ const t = defaultI18n.t;
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
 export function AccountEntry({downloads, incomingInvitation, onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {downloads?: AccountDownloadsEntry; incomingInvitation?: NativeInvitationLink; onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
   const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
+  // One direct-auth preparation for the non-TV root; the existing portico() path owns it.
+  const initialAuthStarted = useRef(false);
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   // Root 43: only the server's confirmed public-handle collision may mark this
@@ -475,8 +478,20 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (credentials.getSnapshot().session) return directory();
     if (Platform.isTV) return startTV('portico');
     account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
-    const available = await next.prepare(); if (lifetime.current) {setOptions(available); setStage('portico');}
+    const available = await next.prepare(); if (lifetime.current && stageRef.current === 'welcome') {setOptions(available); setStage('portico');}
   };
+  // The direct non-TV root prepares through the same portico() path once. Invitation,
+  // ended-sign-in, setup and TV entry never take this branch.
+  useEffect(() => {
+    if (initialAuthStarted.current || Platform.isTV || initialStage !== 'welcome' || endedSignIn || incomingInvitation) return;
+    initialAuthStarted.current = true;
+    void run(portico);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const signInWithProvider = (id: IdentityOptions['providers'][number]['id']) => {void run(async () => {
+    const tx = await account.current!.provider(id); setTransaction(tx);
+    if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {await account.current!.finishProvider(); await directory();} else setStage('provider');
+  });};
   const beginMemberMove = async () => {
     const source = operation.current;
     if (!source || !server || server.move !== 'to_portico' || Platform.isTV) return;
@@ -760,6 +775,17 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   }
   if (stage === 'welcome' && theme.isTV) return <TVFrontDoor busy={busy} error={status}
     onPortico={() => {void run(portico);}} onLocal={() => {if (!busy) setStage('address');}}/>;
+  const availableProviders = options?.providers.filter(value => value.enabled
+    && (NativeModules.PorticoAccountAuth.canOpenBrowser || value.id === 'apple' && value.native
+      && value.nativeClientIds.includes(NativeModules.PorticoAccountAuth.bundleId) && NativeModules.PorticoAccountAuth.canSignInApple)) ?? [];
+  if (stage === 'welcome' && !incomingInvitation) return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
+    passwordEnabled={!!options?.password} registration={!!options?.registration} recovery={options?.recovery !== false}
+    username={username} password={password} onUsernameChange={setUsername} onPasswordChange={setPassword}
+    onProvider={signInWithProvider}
+    onContinue={() => {if (busy || !options?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
+    onForgot={() => {if (busy) return; setPassword(''); setStage('forgot');}}
+    onCreate={() => {if (busy) return; setPassword(''); setStage('register');}}
+    onLocal={() => {if (busy) return; setPassword(''); setStage('address');}}/>;
   if (stage === 'welcome' && theme.platform === 'phone') return <PhoneFrontDoor busy={busy} error={status}
     onInvitation={() => openInvitationEntry()} onPortico={() => {void run(portico);}} onLocal={() => {if (!busy) setStage('address');}}/>;
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
@@ -1130,6 +1156,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     } else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(code) : operation.current!.completeSecondFactor(code)));
     setCode('');
   }, !code));
+  if (stage === 'portico' && !theme.isTV) return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
+    passwordEnabled={!!options?.password} registration={!!options?.registration} recovery={options?.recovery !== false}
+    username={username} password={password} onUsernameChange={setUsername} onPasswordChange={setPassword}
+    onProvider={signInWithProvider}
+    onContinue={() => {if (busy || !options?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
+    onForgot={() => {if (busy) return; setPassword(''); setStage('forgot');}}
+    onCreate={() => {if (busy) return; setPassword(''); setStage('register');}}
+    onLocal={() => {if (busy) return; setPassword(''); setStage('address');}}/>;
   if (stage === 'portico') return layout(t('accounts.signIn.portico'), t('auth.accountLead'), options?.password ? fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')) : undefined,
     options?.password ? action('account-password', t('auth.signIn'), async () => {await account.current!.password(username, password); await directory();}, !username || !password) : undefined,
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 10}}>{options?.providers.filter(value => value.enabled && (NativeModules.PorticoAccountAuth.canOpenBrowser || value.id === 'apple' && value.native && value.nativeClientIds.includes(NativeModules.PorticoAccountAuth.bundleId) && NativeModules.PorticoAccountAuth.canSignInApple)).map(value => <Button key={value.id} variant="glass" disabled={busy} onPress={() => {void run(async () => {
