@@ -1,11 +1,12 @@
 import React from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import type {DetailCredit} from '../../../../../packages/client-core/src/detail';
-import {PersonCircle, type ArtworkSource} from '../../kit/artwork';
+import {Artwork, PersonCircle, type ArtworkSource} from '../../kit/artwork';
 import {TVShelf, tvItemKey} from '../../tv/layout/TVShelf';
+import {TVArtFocus} from '../../tv/layout/TVArtFocus';
 import {Focusable} from '../../kit/controls';
 import type {RowProps} from '../../kit/layout/Row';
-import {fontFamilies, useTheme} from '../../kit/theme';
+import {fontFamilies, nativeType, useTheme} from '../../kit/theme';
 
 export type TitlePeopleProps = Readonly<{
   credits: readonly DetailCredit[];
@@ -21,6 +22,24 @@ const initials = (name: string) => name.split(/\s+/u).filter(Boolean).slice(0, 2
  * the drawn circle is the shared initials fallback; a real portrait wins. */
 export function TitlePeople({credits, artwork, onPerson, focus}: TitlePeopleProps) {
   const theme = useTheme();
+  if (theme.isTV) return <TVShelf focus={focus} items={credits} getKey={tvItemKey} itemWidth={200} itemHeight={167 + 80 * theme.textScale} gap={18} renderItem={(credit, slot) => {
+    const portrait = artwork(credit.portraitUrl);
+    const content = (focused: boolean) => <TVArtFocus focused={focused} width={200} faceSize={150} face={<View style={{width: 150, height: 150, borderRadius: 75, overflow: 'hidden'}}>
+      <PersonCircle size={150} initials="" covers={[]} alt={credit.name}/>
+      <Text accessible={false} style={{position: 'absolute', width: 150, height: 150, textAlign: 'center', textAlignVertical: 'center', lineHeight: 150,
+        fontFamily: fontFamilies[800], fontSize: 44 * theme.textScale, letterSpacing: -.88 * theme.textScale, color: focused ? theme.colors.text : theme.colors.textSecondary}}>{initials(credit.name)}</Text>
+      {portrait && <Artwork source={portrait} width={150} height={150} fallback={null} style={{position: 'absolute', inset: 0}}/>}
+    </View>}>
+      <Text numberOfLines={2} style={[nativeType({size: 21, weight: 700, lineHeight: 26.25, tracking: 0}, theme.textScale),
+        {marginTop: 14, textAlign: 'center', color: focused ? theme.colors.text : theme.colors.textSecondary}]}>{credit.name}</Text>
+      {credit.role ? <Text numberOfLines={1} style={[nativeType({size: 19, weight: 400, lineHeight: 'normal', tracking: 0}, theme.textScale),
+        {marginTop: 3, textAlign: 'center', color: theme.colors.textTertiary}]}>{credit.role}</Text> : null}
+    </TVArtFocus>;
+    return onPerson && credit.personId ? <Focusable testID={`watch-person-${credit.id}`} focusKind="card" focusTreatment="none" accessibilityRole="button"
+      accessibilityLabel={[credit.name, credit.role].filter(Boolean).join(', ')} onPress={() => onPerson(credit.personId!)} onFocus={slot.onFocus} onBlur={slot.onBlur}>
+      {({focused}) => content(focused)}
+    </Focusable> : content(false);
+  }}/>;
   const render = (credit: DetailCredit, onFocus?: () => void, onBlur?: () => void) => {
       const face = <View accessibilityLabel={[credit.name, credit.role].filter(Boolean).join(', ')}
         style={{width: 78, alignItems: 'center'}}>
@@ -33,6 +52,5 @@ export function TitlePeople({credits, artwork, onPerson, focus}: TitlePeopleProp
         accessibilityRole="button" accessibilityLabel={credit.name} onPress={() => onPerson!(credit.personId!)} onFocus={onFocus} onBlur={onBlur}>{face}</Focusable>
         : <View key={credit.id}>{face}</View>;
   };
-  return theme.isTV ? <TVShelf focus={focus} items={credits} getKey={tvItemKey} itemWidth={78} itemHeight={125} gap={12} renderItem={(credit, slot) => render(credit, slot.onFocus, slot.onBlur)}/>
-    : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 12, alignItems: 'flex-start'}}>{credits.map(credit => render(credit))}</ScrollView>;
+  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 12, alignItems: 'flex-start'}}>{credits.map(credit => render(credit))}</ScrollView>;
 }
