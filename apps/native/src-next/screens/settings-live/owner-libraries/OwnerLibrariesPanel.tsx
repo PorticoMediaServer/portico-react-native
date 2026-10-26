@@ -1,12 +1,16 @@
 import {MissingTitlesTab} from '../server/storage/MissingTitlesTab';
 import {loadInitialOwnerLibrary} from './initial-library';
 import type {NativeScreenLifetime} from '../lifetime';
-import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import type {ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
 import type {InventorySource} from '../../../../../../packages/client-core/src/library-inventory';
 import type {LibraryAdminDocument, LibrarySettings} from '../../../../../../packages/client-core/src/administration';
 import type {LibraryMetadataAgent} from '../../../../../../packages/client-core/src/server-admin/metadata-agent';
+import {librarySonicStatus} from '../../../../../../packages/client-core/src/server-admin/library-sonic-words';
+import type {LibrarySonicDocument} from '../../../../../../packages/client-core/src/server-admin/library-sonic';
+import {readLibrarySonicSettingsBinding} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
+import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
 import {defaultI18n} from '../../../../../../packages/i18n/src/index';
 import {Button} from '../../../kit/controls/Button';
 import {Focusable} from '../../../kit/controls/Focusable';
@@ -27,7 +31,7 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import {AddFolderPage} from './AddFolderPage';
 import {AddLibraryPage, MetadataAgentChoice} from './AddLibraryPage';
 import {LibraryGroup, LibraryRow, SectionTitle} from './controls';
-import {NativeOwnerLibrariesController, type NativeOwnerLibrariesSnapshot} from './controller';
+import {NativeOwnerLibrariesController, sonicPageLease, type NativeOwnerLibrariesSnapshot, type SonicPageLease} from './controller';
 import {ownerFolderLocation, ownerFolderState, ownerIssueReason, ownerLibraryAudience, ownerLibraryCounts, ownerLibraryInterval, ownerLibraryKind, ownerLibraryScan, ownerLibrarySquare, ownerLibraryState, ownerSkippedFiles} from './presentation';
 
 type Translate = typeof defaultI18n.t;
@@ -41,6 +45,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
   const controller = useMemo(() => new NativeOwnerLibrariesController(api, scope, ports.requestId), [api, scope, ports]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
+  const parentCurrent = useCallback(() => context.current() && context.authority() === authority, [context, authority]);
   const initialOwnerLibrary = context.current() && context.account.canManage && context.account.account.role === 'owner' && !context.account.account.disabled && context.account.account.primaryProfileId === authority.profileId ? initialLibraryId : undefined;
   const [openId, setOpenId] = useState<string | undefined>(initialOwnerLibrary), [tab, setTab] = useState('general');
   const [adding, setAdding] = useState(false), [folderForm, setFolderForm] = useState<{source?: InventorySource}>(),
@@ -84,7 +89,11 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
       dashboard={() => {context.navigation.open({kind: 'server-dashboard'}, authority);}}
       renameLibrary={() => setRename(true)} removeLibrary={() => setLeaving(true)} addFolder={() => setFolderForm({})} folderMenu={setFolderMenu} skipped={() => setSkipped(true)}
       moreUnmatched={() => {void controller.loadUnmatchedMore();}}
-      save={patch => {void controller.save(patch);}} saveAgent={id => {void controller.saveAgent(id);}} scanAll={() => {void controller.scanAll();}}/>
+      save={patch => {void controller.save(patch);}} saveAgent={id => {void controller.saveAgent(id);}} scanAll={() => {void controller.scanAll();}}
+      parentCurrent={parentCurrent}
+      sonicToggle={(enabled, document, sonic, lease) => {void controller.setSonicEnabled(enabled, document, sonic, lease);}}
+      sonicRetry={(document, sonic, lease) => {void controller.retrySonic(document, sonic, lease);}}
+      sonicReload={(document, sonic, lease) => {void controller.reloadSonic(document, sonic, lease);}}/>
     <SkippedSheet open={skipped} onOpenChange={setSkipped} state={state} t={t} scan={() => {void controller.scanNow();}} more={() => {void controller.loadSkippedMore();}}/>
     <RemoveLibrarySheet open={leaving} onOpenChange={setLeaving} library={library} busy={state.busy} error={state.error} t={t}
       remove={confirmation => {void controller.remove(confirmation).then(ok => {if (ok) {setLeaving(false); setOpenId(undefined);}});}}/>
@@ -153,11 +162,14 @@ function LibraryListRow({library, first, t, runtime, state, onOpen, onMenu}: {li
   </View>;
 }
 
-function LibraryPage({library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll}: {
+function LibraryPage({library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll, parentCurrent, sonicToggle, sonicRetry, sonicReload}: {
   library: ManagedLibrary; document?: LibraryAdminDocument; state: NativeOwnerLibrariesSnapshot; tab: string; tabChange: (id: string) => void;
   t: Translate; runtime: NativeShellRuntime; serverName: string; viewerRole: ViewerRole; back: () => void; menu: () => void; scan: () => void; cancel: () => void; dashboard: () => void;
   renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void; skipped: () => void; moreUnmatched: () => void;
-  save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void; scanAll: () => void;
+  save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void; scanAll: () => void; parentCurrent: () => boolean;
+  sonicToggle: (enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
+  sonicRetry: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
+  sonicReload: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
 }) {
   const theme = useTheme(), active = ownerLibraryScan(library), status = ownerLibraryState(library, {t, locale: runtime.text.locale});
   const counts = ownerLibraryCounts(library, t);
@@ -189,7 +201,7 @@ function LibraryPage({library, document, state, tab, tabChange, t, runtime, serv
         {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} addFolder={addFolder} folderMenu={folderMenu} busy={state.busy} save={save}/>}
         {tab === 'metadata' && <MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/>}
         {tab === 'attention' && <AttentionTab state={state} t={t} more={moreUnmatched}/>}
-        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save} scanAll={scanAll}/>}
+        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save} scanAll={scanAll} parentCurrent={parentCurrent} sonicToggle={sonicToggle} sonicRetry={sonicRetry} sonicReload={sonicReload}/>}
         {tab === 'advanced' && <AdvancedTab document={document} t={t} owner={viewerRole === 'owner'} busy={state.busy} save={save}/>}
       </View>
     </ScrollView>
@@ -285,9 +297,24 @@ function AttentionTab({state, t, more}: {state: NativeOwnerLibrariesSnapshot; t:
   </>;
 }
 
-function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, dashboard, save, scanAll}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void; scanAll: () => void}) {
+function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, dashboard, save, scanAll, parentCurrent, sonicToggle, sonicRetry, sonicReload}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void; scanAll: () => void; parentCurrent: () => boolean;
+  sonicToggle: (enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
+  sonicRetry: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
+  sonicReload: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void}) {
   const theme = useTheme(), active = ownerLibraryScan(library), settings = document?.settings;
+  const [pageLease, setPageLease] = useState<SonicPageLease | null>(null);
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    const lease: SonicPageLease = sonicPageLease(controller, parentCurrent);
+    setPageLease(lease);
+    return () => {controller.abort();};
+  }, [parentCurrent]);
   if (!document || !settings) return null;
+  const sonic = state.sonic?.libraryId === document.libraryId ? state.sonic : undefined;
+  const toggle = sonic ? readLibrarySonicSettingsBinding('libraries.sonicAnalysis', document, sonic) : undefined;
+  const sonicLine = sonic ? librarySonicStatus(sonic, t, at => defaultI18n.dateTime(new Date(at))) : undefined;
+  const sonicUnavailable = !!sonic && (!sonic.available || sonic.state === 'unavailable');
+  const sonicErrorText = state.sonicError !== undefined ? presentError(state.sonicError, 'library', {operation: state.sonicErrorOperation ?? 'load'}).body : undefined;
   const skippedCount = ownerSkippedFiles(state.skipped?.items ?? []).length || (library.filesSkipped ?? 0);
   return <>
     {active && <View style={{gap: 8, padding: 12, marginTop: 4, borderRadius: 12, backgroundColor: alpha(theme.colors.accent, .12)}}>
@@ -313,6 +340,17 @@ function ScanningTab({library, document, metadata, state, t, locale, skipped, ca
         onValueChange={value => save({segmentDetection: value as LibrarySettings['segmentDetection']})} style={{backgroundColor: 'transparent', paddingHorizontal: 0}}/>}/>
       <LibraryRow label={t('next.ownerLibraries.metadataSource')} value={metadata?.agent === 'local' ? t('next.ownerLibraries.metadataLocal') : t('next.ownerLibraries.on')}/>
     </LibraryGroup>
+    {(toggle || sonicLine || sonicErrorText || (state.sonicNeedsReload && sonic)) && <LibraryGroup style={{marginTop: 12}}>
+      {toggle && <LibraryRow first label={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.label')} help={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.help')}
+        trailing={<Switch testID="owner-libraries-sonic" checked={toggle.current === true} disabled={state.sonicBusy || state.sonicNeedsReload} accessibilityLabel={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.label')} onCheckedChange={enabled => {if (pageLease) sonicToggle(enabled, document, sonic!, pageLease);}}/>}/>}
+      {sonicLine ? <LibraryRow first={!toggle} label={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.children.0.label')}
+        help={state.sonicRetryUnavailable && sonicUnavailable ? t('next.settings.librarySonic.retryUnavailable') : sonicErrorText}
+        value={<Text style={[shellType(14.5), {color: sonicLine.tone === 'warn' ? theme.colors.amber : sonicLine.tone === 'ok' ? theme.colors.healthy : theme.colors.textSecondary}]}>{sonicLine.text}</Text>}
+        trailing={(sonicUnavailable || state.sonicNeedsReload) && !state.sonicBusy ? <Button variant="glass" size="xs" onPress={() => {if (!pageLease) return; if (state.sonicNeedsReload) sonicReload(document, sonic!, pageLease); else sonicRetry(document, sonic!, pageLease);}}>{t('action.tryAgain')}</Button> : undefined}/>
+                : sonicErrorText ? <LibraryRow first label={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.children.0.label')} value={<Text accessibilityRole="alert" style={[shellType(13, 600, 18), {color: theme.colors.record}]}>{sonicErrorText}</Text>}
+          trailing={state.sonicNeedsReload && sonic && !state.sonicBusy ? <Button variant="glass" size="xs" onPress={() => {if (pageLease) sonicReload(document, sonic!, pageLease);}}>{t('action.tryAgain')}</Button> : undefined}/>
+          : state.sonicNeedsReload && sonic ? <LibraryRow first={!toggle} label={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.children.0.label')} trailing={!state.sonicBusy ? <Button variant="glass" size="xs" onPress={() => {if (pageLease) sonicReload(document, sonic!, pageLease);}}>{t('action.tryAgain')}</Button> : undefined}/> : null}
+    </LibraryGroup>}
     <LibraryGroup style={{marginTop: 12}}>
       {document.sources.map((folder, index) => <LibraryRow key={folder.id} first={index === 0} label={t('next.ownerLibraries.rescan', {folder: folder.name || folder.path})} value={ownerLibraryInterval(folder.intervalSeconds, t)}/>)}
     </LibraryGroup>
