@@ -38,6 +38,7 @@ const state = {
   setValues: [] as number[],
   timings: [] as Timing[],
   motion: baseline,
+  paint: {visible: true, interactive: true, root: true},
 };
 Object.assign(globalThis, {[stateKey]: state});
 
@@ -67,10 +68,12 @@ export const StyleSheet = {create: value => value, flatten: value => value};
 export {Animated as default};
 `);
 const motion = dataModule(`export const useMotion = () => globalThis.${stateKey}.motion;`);
+const paintMode = dataModule(`export const useOverlayPaintMode = () => globalThis.${stateKey}.paint;`);
 
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === 'react-native') return {url: native, shortCircuit: true};
+    if (specifier.endsWith('/OverlayPaintContext')) return {url: paintMode, shortCircuit: true};
     if (specifier.startsWith('.') && context.parentURL?.startsWith('file:') && /\/kit\/useMotion(?:\.ts)?$/.test(new URL(specifier, context.parentURL).pathname)) return {url: motion, shortCircuit: true};
     try {return next(specifier, context);} catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ERR_MODULE_NOT_FOUND' || !specifier.startsWith('.')) throw error;
@@ -90,6 +93,7 @@ registerHooks({
 });
 
 const {LoadingPaint} = await import('../src-next/kit/states/LoadingPaint.tsx');
+const {LoadingBoundary} = await import('../src-next/kit/states/LoadingBoundary.tsx');
 
 /** Controlled timer queue: the callback is captured so a retired one can be invoked late. */
 const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout;
@@ -166,8 +170,7 @@ test('a retired quiet completion cannot paint in the next cycle, cannot hide the
     assert.equal(overlay(paint.tree), undefined, 'the retired completion reveals nothing');
     await act(() => {invoke(current);});
     assert.ok(overlay(paint.tree), 'only the current cycle completion paints');
-    // Known red against current LoadingPaint: a retired timer writes its own cycle
-    // token back through setDoneCycle, hiding the newer cycle's shape.
+    // Exercise the published live-timer guard even when cancellation loses a race.
     await act(() => {retired();});
     assert.ok(overlay(paint.tree), 'a late retired timer leaves the current shape visible');
   } finally {
@@ -237,4 +240,60 @@ test('a policy change retargets the painted value, and a retired completion leav
     third.finish();
     assert.equal(paintValue(paint.tree).value, 1, 'the live successor reaches full opacity');
   } finally {paint.host.unmount(); state.motion = baseline;}
+});
+
+
+// Source vectors only. The hook driver observes rendered elements and the
+// presentation effects; it does not measure a native layout or reconcile hosts.
+test('a quiet boundary keeps its supplied footprint and rejects a retired timer', async () => {
+  let props = {ready: false, skeleton: shape, children: child};
+  let tree: any;
+  const host = createHookHost(() => {tree = LoadingBoundary(props);});
+  host.mount();
+  const stale = timers.get(liveTimer())!.fn;
+  try {
+    assert.equal(tree.type, 'AnimatedView');
+    assert.equal(tree.props.children.props.children, shape);
+    assert.equal(tree.props.children.key, 'quiet');
+    assert.deepEqual(tree.props.children.props.style, {opacity: 0});
+    assert.equal(timers.get(liveTimer())!.delay, 300);
+    props = {...props, ready: true}; host.rerender(); await act(() => {});
+    props = {...props, ready: false}; host.rerender(); await act(() => {});
+    await act(() => {invoke(liveTimer());});
+    assert.equal(tree.props.children.key, 'skeleton');
+    assert.equal(tree.props.children.props.style, undefined);
+    await act(() => {stale();});
+    assert.equal(tree.props.children.key, 'skeleton');
+    assert.equal(tree.props.children.props.children, shape);
+  } finally {host.unmount();}
+});
+
+test('outgoing inert loading paint cancels its quiet window without changing the supplied child', async () => {
+  const paint = mountPaint({ready: false, skeleton: shape, children: child});
+  const stale = timers.get(liveTimer())!.fn;
+  try {
+    state.paint = {visible: true, interactive: false, root: true};
+    paint.update({ready: false, skeleton: shape, children: child});
+    await act(() => {});
+    assert.equal(live().length, 0);
+    await act(() => {stale();});
+    assert.equal(overlay(paint.tree), undefined);
+    assert.equal(contentView(paint.tree).props.children, child);
+  } finally {paint.host.unmount(); state.paint = {visible: true, interactive: true, root: true};}
+});
+
+test('outgoing inert boundary stops a partial content fade at its current paint', async () => {
+  let tree: any;
+  const props = {ready: true, skeleton: shape, children: child};
+  const host = createHookHost(() => {tree = LoadingBoundary(props);});
+  host.mount();
+  try {
+    const fade = state.timings.at(-1)!;
+    fade.tick(0.42);
+    state.paint = {visible: true, interactive: false, root: true};
+    host.rerender(); await act(() => {});
+    assert.equal(fade.stopped, true);
+    assert.equal(tree.props.style[1].opacity.value, 0.42);
+    assert.equal(tree.props.children, child);
+  } finally {host.unmount(); state.paint = {visible: true, interactive: true, root: true};}
 });

@@ -36,7 +36,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
       '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging},
       '../../kit/layout': {Row: 'Row', Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero'},
-      '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {},
+      '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {LoadingPaint: 'LoadingPaint', },
       '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
       './HomeHeroFacts': {}, './model': {authorizedHome: (value: unknown) => value, platformRows: () => [row], homeRowHasContent: () => true, initialHomeFocus: () => ({rowId: row.id, entryId: entry.id}), homeCardText: () => ({title: entry.title}), homePlayTarget: () => entry},
     });

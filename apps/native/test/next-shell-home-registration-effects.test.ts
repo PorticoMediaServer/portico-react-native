@@ -58,7 +58,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../../../../packages/client-core/src/presentation/server-text': serverText, '../../../../../packages/client-core/src/presentation/kit-model': {},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
     '../../kit/layout': {Row, Hero: 'Hero', FocusPreviewHero: 'Preview'}, '../../kit/layout/types': {}, '../../kit/layout/FocusAnchor': {useFocusAnchor},
-    '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
+    '../../kit/states': {LoadingPaint: 'LoadingPaint', SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
     '../../shell/model': shellModel, '../../shell/tv-focus': focusModel, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './HomeHeroFacts': {}, './model': homeModel,
   });
   const screenServices = await screenModule(source('screens/native-screen-services.tsx'), {

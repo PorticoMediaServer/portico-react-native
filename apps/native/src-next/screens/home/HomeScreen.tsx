@@ -24,7 +24,7 @@ import {Hero, FocusPreviewHero, Row, type HeroCandidate} from '../../kit/layout'
 import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
-import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
+import {LoadingPaint, StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
 import {nativeType, useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -127,6 +127,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     || errorFacts.category === 'timeout' || errorFacts.category === 'busy');
   const retainable = theme.isTV || errorFacts === undefined || transportFailure;
   const document = retainable ? authorizedHome(snapshot.document, authority) : undefined;
+  const cachedAtMount = useRef(!!document);
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
   // The recovery session lives here, at the screen's stable scope, so the service clearing
   // its error for the length of a retry cannot unmount it or restart its schedule.
@@ -289,10 +290,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   if (!document) return recovery.visible && recovery.session
     ? <TvHomeRecovery session={recovery.session} onRetryNow={recovery.retryNow} onSwitchServer={recovery.switchServer} connectionFacts={runtime.connectionFacts}/>
     : snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
-    : <HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>;
-  if (!document.spotlight.length && !rows.length) return <>{runtime.renderHomeEmpty()}</>;
+    : <LoadingPaint ready={false} quietMs={0} skeleton={<HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>}/>;
+  if (!document.spotlight.length && !rows.length) return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}>{runtime.renderHomeEmpty()}</LoadingPaint>;
 
-  return <Animated.ScrollView ref={vertical.scrollRef} testID="native-home" style={vertical.scrollStyle} scrollEventThrottle={16} onScroll={onScroll}
+  return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}><Animated.ScrollView ref={vertical.scrollRef} testID="native-home" style={vertical.scrollStyle} scrollEventThrottle={16} onScroll={onScroll}
     refreshControl={theme.isTV ? undefined : <RefreshControl refreshing={refreshing} tintColor={theme.colors.text} onRefresh={() => {
       if (!current() || refreshing) return;
       setRefreshing(true);
@@ -348,9 +349,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
           : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
             gutter={medium ? mediumGutter : theme.gutter} rightGutter={medium ? mediumGutter : theme.isTV ? 96 : theme.gutter} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
-            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={{width, height}}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
+            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={{width, height}}><LoadingPaint ready={!context.waiting} immediate={!context.waiting} skeleton={<View style={{backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={false}
-              current={current}/>{context.waiting && <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}</View>}/>}
+              current={current}/></LoadingPaint></View>}/>}
       </View></HomeWindow>;
     })}
     {pendingRows.map(row => <HomePendingRow key={`pending:${row.id}`} row={row} labels={labels} viewportWidth={viewportWidth}/>)}
@@ -361,7 +362,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         ? <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 30.8}, theme.textScale), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.home.customizeDescriptionTV')}</Text>
         : <Text style={[nativeType({size: 13, weight: 400, tracking: 0, lineHeight: 19.5}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('next.home.customizeDescription')}</Text>}
     </View></HomeRegion>
-  </Animated.ScrollView>;
+  </Animated.ScrollView></LoadingPaint>;
 }
 
 /** A deferred row is real descriptor data, not a Home response: its title, shape and
@@ -375,8 +376,8 @@ function HomePendingRow({row, labels, viewportWidth}: {row: HomeRow; labels: Par
   const gap = theme.isTV ? 28 : 10, count = Math.max(1, Math.ceil(Math.max(0, viewportWidth - theme.gutter) / (width + gap)) + 1);
   return <View testID={`home-pending-${row.id}`} style={{marginBottom: theme.isTV ? 30 : 18}}>
     <View style={{paddingHorizontal: theme.gutter, marginBottom: theme.isTV ? 22 : 12}}><Text style={[theme.type.rowHeading, {color: theme.colors.text}]}>{title}</Text></View>
-    <View style={{flexDirection: 'row', gap, paddingLeft: theme.gutter, overflow: 'hidden'}}>{Array.from({length: count}, (_, index) =>
-      <SkeletonBlock key={index} width={width} height={height} radius={theme.isTV ? 14 : 8} shine={index === 0}/>)}</View>
+    <LoadingPaint ready={false} style={{height, flexGrow: 0, flexShrink: 0, flexBasis: 'auto'}} skeleton={<View style={{flexDirection: 'row', gap, paddingLeft: theme.gutter, overflow: 'hidden'}}>{Array.from({length: count}, (_, index) =>
+      <SkeletonBlock key={index} width={width} height={height} radius={theme.isTV ? 14 : 8} shine={index === 0}/>)}</View>}/>
   </View>;
 }
 

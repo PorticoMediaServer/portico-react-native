@@ -1,9 +1,10 @@
 import React, {useEffect} from 'react';
 import {type StyleProp, type ViewStyle} from 'react-native';
-import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {useOverlayPaintMode} from '../overlays/OverlayPaintContext';
 
 export type SkeletonBlockProps = Readonly<{
   width?: number | `${number}%`;
@@ -18,9 +19,13 @@ export type SkeletonBlockProps = Readonly<{
 
 export function SkeletonBlock({width, height = 14, radius, shine = false, accent = false, style, testID}: SkeletonBlockProps) {
   const theme = useTheme();
-  const motion = useMotion();
+  const motion = useMotion(), paint = useOverlayPaintMode();
   const opacity = useSharedValue(0);
-  useEffect(() => {opacity.value = withTiming(1, motion.timing('quick'));}, [opacity, motion]);
+  useEffect(() => {
+    if (!paint.interactive) {cancelAnimation(opacity); return;}
+    opacity.value = withTiming(1, motion.timing('quick'));
+    return () => cancelAnimation(opacity);
+  }, [opacity, motion, paint.interactive]);
   const arrival = useAnimatedStyle(() => ({opacity: opacity.value}));
   const gradientId = React.useId().replace(/:/g, '');
   return <Animated.View testID={testID} accessible={false} focusable={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"

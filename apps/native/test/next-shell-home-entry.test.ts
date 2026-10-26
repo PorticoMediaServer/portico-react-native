@@ -56,7 +56,7 @@ async function fixture() {
     '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {}, '../../kit/focus': {...focus, useFocusRegistry: () => registry},
     '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Hero: 'Hero'}, '../../kit/layout/FocusAnchor': {useFocusAnchor}, '../../kit/layout/types': {},
-    '../../kit/states': {HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../shell/model': shellModel,
+    '../../kit/states': {LoadingPaint: 'LoadingPaint', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../shell/model': shellModel,
     './HomeHeroFacts': {}, './model': homeModel,
   });
   let props: any = {}, tree: any, guide: any, target: any, requests = 0;
@@ -92,7 +92,7 @@ async function fixture() {
 test('async empty Home acquires Play exactly once only after both real guide and real target mount', async () => {
   const f = await fixture();
   try {
-    assert.equal(f.tree.type, 'HomeSkeleton'); assert.equal(f.requests, 0);
+    assert.equal(f.tree.type, 'LoadingPaint'); assert.equal(f.tree.props.skeleton.type, 'HomeSkeleton'); assert.equal(f.requests, 0);
     await f.publish(); assert.equal(f.requests, 0, 'document arrival is not a focus request');
     const region = f.mountGuide(); await act(() => {});
     assert.equal(f.requests, 0, 'guide alone cannot focus an unmounted target');

@@ -49,7 +49,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Row: 'Row', Hero: 'Hero'}, '../../kit/layout/types': {itemSelection},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({offset: {value: 0}, scrollRef: {current: null}})},
-    '../../kit/states': {}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
+    '../../kit/states': {LoadingPaint: 'LoadingPaint', }, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
     './HomeHeroFacts': {}, './model': homeModel,
   });
   try {

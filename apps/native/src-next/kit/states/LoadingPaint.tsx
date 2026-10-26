@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Animated, Easing, type StyleProp, type ViewStyle} from 'react-native';
 import {useMotion} from '../useMotion';
+import {useOverlayPaintMode} from '../overlays/OverlayPaintContext';
 import {contentFadeDuration, contentFadeEasing, paintSkeletonVisible} from './loading-boundary-model';
 
 export type LoadingPaintProps = Readonly<{
@@ -23,7 +24,7 @@ export type LoadingPaintProps = Readonly<{
  * the supplied static shape over them, never taking layout, focus or input, and
  * the content fades over 180 ms — 160 ms linear under reduced motion. */
 export function LoadingPaint({ready, skeleton, children, immediate = false, quietMs = 300, contentFadeMs = 180, style, testID}: LoadingPaintProps) {
-  const motion = useMotion();
+  const motion = useMotion(), paint = useOverlayPaintMode();
   const cached = useRef(immediate && ready);
   const [cycle, setCycle] = useState(0);
   const [doneCycle, setDoneCycle] = useState(cached.current ? 0 : -1);
@@ -41,14 +42,16 @@ export function LoadingPaint({ready, skeleton, children, immediate = false, quie
   }
   // Quiet window: owned by ready, quietMs and the derived cycle, never by policy.
   useEffect(() => {
+    if (!paint.interactive) return;
     if (ready) {setDoneCycle(cycle); return;}
     let live = true;
     const timer = setTimeout(() => {if (live) setDoneCycle(cycle);}, quietMs);
     return () => {live = false; clearTimeout(timer);};
-  }, [ready, quietMs, cycle]);
+  }, [ready, quietMs, cycle, paint.interactive]);
   // Paint only: fresh entries start transparent, later policy changes time from
   // the current opacity instead of jumping.
   useEffect(() => {
+    if (!paint.interactive) {stop(); return;}
     if (!ready) {stop(); opacity.setValue(0); entered.current = false; return;}
     stop();
     if (cached.current) {opacity.setValue(1); entered.current = true; return;}
@@ -57,7 +60,7 @@ export function LoadingPaint({ready, skeleton, children, immediate = false, quie
     const fade = Animated.timing(opacity, {toValue: 1, duration: contentFadeDuration(motion.reduce, contentFadeMs, motion.duration('standard')), easing, useNativeDriver: true});
     animation.current = fade;
     fade.start(() => {if (animation.current === fade) animation.current = undefined;});
-  }, [ready, motion, contentFadeMs, opacity]);
+  }, [ready, motion, contentFadeMs, opacity, paint.interactive]);
   return <Animated.View testID={testID} style={[{flex: 1}, style]}>
     <Animated.View style={{flex: 1, opacity}}>{children}</Animated.View>
     {paintSkeletonVisible(ready, doneCycle, cycle) && <Animated.View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"

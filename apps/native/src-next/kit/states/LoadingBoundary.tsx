@@ -1,5 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Animated, Easing, type StyleProp, type ViewStyle} from 'react-native';
+import {Animated, Easing, View, type StyleProp, type ViewStyle} from 'react-native';
+import {useOverlayPaintMode} from '../overlays/OverlayPaintContext';
 import {useMotion} from '../useMotion';
 import {cachedAfterLoadingCycle, contentFadeDuration, contentFadeEasing, nextLoadingPhase, type LoadingPhase} from './loading-boundary-model';
 
@@ -24,7 +25,7 @@ export type LoadingBoundaryProps = Readonly<{
  * starts its own quiet window, and a cached mount only skips the very first
  * fade. Presentation only: callers keep their own read, error and admission state. */
 export function LoadingBoundary({ready, skeleton, children, immediate = false, quietMs = 300, contentFadeMs = 180, style, testID}: LoadingBoundaryProps) {
-  const motion = useMotion();
+  const motion = useMotion(), paint = useOverlayPaintMode();
   const cached = useRef(immediate && ready);
   const phaseRef = useRef<LoadingPhase>(nextLoadingPhase('quiet', {type: 'mounted', ready, cached: cached.current}));
   const [phase, setPhase] = useState<LoadingPhase>(phaseRef.current);
@@ -35,21 +36,25 @@ export function LoadingBoundary({ready, skeleton, children, immediate = false, q
   useEffect(() => stop, []);
   // Quiet window and phase only: a policy or duration change must never restart the wait.
   useEffect(() => {
+    if (!paint.interactive) return;
     if (!ready) {
       cached.current = cachedAfterLoadingCycle(cached.current, false);
       const quiet = nextLoadingPhase(phaseRef.current, {type: 'readyChanged', ready: false});
       if (quiet !== phaseRef.current) {phaseRef.current = quiet; setPhase(quiet);}
+      let live = true;
       const timer = setTimeout(() => {
+        if (!live) return;
         const next = nextLoadingPhase(phaseRef.current, {type: 'quietElapsed'});
         if (next !== phaseRef.current) {phaseRef.current = next; setPhase(next);}
       }, quietMs);
-      return () => clearTimeout(timer);
+      return () => {live = false; clearTimeout(timer);};
     }
     const next = nextLoadingPhase(phaseRef.current, {type: 'readyChanged', ready: true});
     if (next !== phaseRef.current) {phaseRef.current = next; setPhase(next);}
-  }, [ready, quietMs]);
+  }, [ready, quietMs, paint.interactive]);
   // Content fade only: retargets from the current opacity when the policy changes.
   useEffect(() => {
+    if (!paint.interactive) {stop(); return;}
     if (phase !== 'content') {entered.current = false; return;}
     stop();
     if (cached.current) {opacity.setValue(1); entered.current = true; return;}
@@ -58,7 +63,7 @@ export function LoadingBoundary({ready, skeleton, children, immediate = false, q
     const fade = Animated.timing(opacity, {toValue: 1, duration: contentFadeDuration(motion.reduce, contentFadeMs, motion.duration('standard')), easing, useNativeDriver: true});
     animation.current = fade;
     fade.start(() => {if (animation.current === fade) animation.current = undefined;});
-  }, [phase, motion, contentFadeMs, opacity]);
-  if (phase === 'quiet') return null;
-  return <Animated.View testID={testID} style={[style, phase === 'content' ? {opacity} : null]}>{phase === 'content' ? children : skeleton}</Animated.View>;
+  }, [phase, motion, contentFadeMs, opacity, paint.interactive]);
+  return <Animated.View testID={testID} style={[style, phase === 'content' ? {opacity} : null]}>{phase === 'content' ? children
+    : <View key={phase} pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={phase === 'quiet' ? {opacity: 0} : undefined}>{skeleton}</View>}</Animated.View>;
 }
