@@ -92,17 +92,32 @@ test('a direct omitted child leaves no child, while sibling children survive', (
   assert.equal(kids(siblings.props.children)[0]!.type, Allowed);
 });
 
-test('accessors are rejected without being invoked', () => {
+test('descendant anchor and return refs are dropped even as plain ref objects', () => {
+  const anchorRef = {current: null}, returnFocusRef = {current: null};
+  const nested = child(Allowed, {anchorRef, returnFocusRef});
+  const frozen = freezeOverlayPaint(child(View, {children: nested}), [View, Allowed], []);
+  assert.ok(frozen);
+  assert.equal(kids(frozen.props.children)[0]!.type, Allowed);
+  assert.equal('anchorRef' in kids(frozen.props.children)[0]!.props, false);
+  assert.equal('returnFocusRef' in kids(frozen.props.children)[0]!.props, false);
+});
+
+test('accessors are rejected without being invoked, including indexed array accessors', () => {
   let reads = 0;
   const value = {};
   Object.defineProperty(value, 'danger', {enumerable: true, get() {reads++; return 1;}});
   assert.equal(freezeOverlayPaint(child(View, {value}), [View]), undefined);
+  const indexed: unknown[] = [1, 2, 3];
+  Object.defineProperty(indexed, '1', {enumerable: true, get() {reads++; return 2;}});
+  assert.equal(freezeOverlayPaint(child(View, {value: indexed}), [View]), undefined);
   assert.equal(reads, 0, 'no getter ran during the audit');
 });
 
-test('the shared visit budget refuses an exhausted capture', () => {
+test('the shared visit budget refuses an exhausted capture, including primitive-heavy data', () => {
   const wide = Array.from({length: 5000}, (_, index) => ({index}));
   assert.equal(freezeOverlayPaint(child(View, {value: wide}), [View]), undefined);
+  const primitives = Array.from({length: 5000}, () => 'title');
+  assert.equal(freezeOverlayPaint(child(View, {value: primitives}), [View]), undefined);
 });
 
 test('unknown components, function children, functional styles and cycles are rejected', () => {
