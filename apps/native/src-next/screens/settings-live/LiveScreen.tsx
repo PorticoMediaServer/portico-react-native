@@ -15,7 +15,8 @@ import {FocusRegion} from '../../kit/focus';
 import {Dialog, ToastHost, type ToastMessage} from '../../kit/overlays';
 import {Artwork, ChannelMark} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
-import {SkeletonBlock, StateView} from '../../kit/states';
+import {GuideLoadingMarker} from './GuideLoadingMarker';
+import {StateView} from '../../kit/states';
 import {alpha, shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
@@ -427,7 +428,7 @@ function NativeLiveGuideCell({cell, focusId, gapLabel, gapBody, loading, failed,
     const clipped = clippedStart || left + (panActive ? start * px - panPosition.value : 0) < 0;
     return {width: clipped ? isTV ? 20 : 10 : 0, opacity: clipped ? 1 : 0};
   }, [clippedStart, left, panActive, start, px, isTV]);
-  if (loading) return <SkeletonBlock testID={`${testID}-loading`} width={cellWidth} height={rowHeight - (compact ? 6 : 0)} radius={compact ? 8 : 12} style={{position: 'absolute', left, top: compact ? 3 : 0}}/>;
+  if (loading) return <GuideLoadingMarker cellWidth={cellWidth} rowHeight={rowHeight} compact={compact} left={left} testID={`${testID}-loading`}/>;
   if (failed) return <Focusable ref={refNode} focusId={focusId} testID={`${testID}-error`} accessibilityRole="button" accessibilityLabel={runtime.text.t('guide.tileFailed')} onPress={retry} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: theme.colors.raised}}><Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}><Text numberOfLines={2} style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textTertiary}]}>{runtime.text.t('guide.tileFailed')}</Text></Animated.View></Focusable>;
   return <Focusable ref={refNode} focusId={focusId} testID={testID} accessibilityRole="button" accessibilityLabel={cell.program?.title ?? gapLabel} onPress={onPress} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: background, borderWidth: !theme.isTV && gap ? 1 : 0, borderColor: theme.colors.line, overflow: 'hidden'}}>
     {!theme.isTV && gap && <View pointerEvents="none" style={{position: 'absolute', inset: 0}}><Svg width="100%" height="100%" accessible={false}><Defs><Pattern id={`${fadeId}-gap`} patternUnits="userSpaceOnUse" width={14} height={14} patternTransform="rotate(45)"><Rect width={7} height={14} fill={theme.colors.text} fillOpacity={.035}/></Pattern></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId}-gap)`}/></Svg></View>}
