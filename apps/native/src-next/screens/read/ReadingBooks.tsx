@@ -25,28 +25,33 @@ import {libraryAppliedFilters} from '../library/applied-filters';
 import {NativeLibraryDestination, nativeLibraryEntryKey} from '../library/model';
 import {LibraryFilters} from '../library/LibraryFilters';
 import type {NativeLibraryFilterDraft} from '../library/filters';
-import {nativeReadOrigin, type NativeReadOrigin} from './eligibility';
+import type {NativeReadOrigin} from './eligibility';
+import {nativeReadingDownloadOffer, nativeReadingRowLifetime, type NativeReadingPageOpening, type NativeReadingDownloadOffer} from './reading-page-opening';
+import {PhoneReadingBookCard, PhoneReadingBookCover} from './PhoneReadingBookCard';
+import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import {openNativeReadingBookEntry} from './reading-books-open';
 
 const noopSubscribe = () => () => {};
 /** One committed layout of the grid: the route it was drawn under, and the
  * lifetime every action from that layout may use. */
-type BooksLease = Readonly<{origin: NativeReadOrigin; life: AbortController}>;
+type BooksLease = Readonly<{origin: NativeReadOrigin; family: string; life: AbortController}>;
 
 /** tablet-read#1b: the Books pivot as the authored browsable grid — the shared
  * Browse toolbar over real capabilities and quick filters — with the real
  * Filters panel docked beside it in landscape. A card opens the item's own
  * Reading book page; this surface never opens the reader itself. */
-export function NativeReadingBooks({context, runtime, library, tab, owner, labels, filterWidth = 360, onCount}: {
+export function NativeReadingBooks({context, runtime, library, tab, owner, labels, filterWidth = 360, onCount, opening, onDownload}: {
   context: NativeShellBootstrapContext; runtime: NativeShellRuntime; library: Library; /** The browsable tab the server's own reading pivots published. */ tab: LibraryTab;
-  owner: boolean; labels: BrowseLabels; filterWidth?: number;
+  owner: boolean; labels: BrowseLabels; filterWidth?: number; opening: NativeReadingPageOpening;
+  onDownload?: (offer: NativeReadingDownloadOffer) => void;
   /** tablet-read#1b: the wide header shows the count of this grid's view, tagged
    * with the owner of the mount that reported it. */
   onCount?: (owner: object, text: string | undefined) => void;
 }) {
-  const theme = useTheme(), dimensions = useWindowDimensions(), lifetime = useMemo(() => nativeDestinationLifetime(context), [context]);
-  const current = () => lifetime.current() && context.libraries().some(value => value.id === library.id && value.kind === library.kind);
-  const destination = useMemo(() => new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, current, tab}), [context, lifetime, library, tab]);
+  const theme = useTheme(), phone = theme.platform === 'phone', dimensions = useWindowDimensions(), lifetime = useMemo(() => nativeDestinationLifetime(context), [context]);
+  const current = useCallback(() => opening.isCurrent() && lifetime.current() && context.libraries().some(value => value.id === library.id && value.kind === library.kind),
+    [opening, lifetime, context, library.id, library.kind]);
+  const destination = useMemo(() => new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, current, tab}), [context, lifetime, library, tab, current]);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>();
   const [paneWidth, setPaneWidth] = useState<number>();
@@ -55,26 +60,17 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const grid = useRef<WindowedGridHandle>(null);
   const [lease, setLease] = useState<BooksLease>();
   const held = useRef<BooksLease | undefined>(undefined), command = useRef<object | undefined>(undefined);
-  // Every commit installs the lease for the route this grid is laid out under;
-  // a card closes over the lease of the render that drew it, so a retained
-  // handler can never act on a Back or a later destination's revision.
+  const navigation = useSyncExternalStore(context.navigation.subscribe, context.navigation.getSnapshot);
+  const {route: renderedRoute, revision: renderedRevision} = navigation;
+  // Install only the route/revision committed by this render. Navigation never
+  // hands a retained handler a successor lease through a subscription callback.
   useLayoutEffect(() => {
-    const install = () => {
-      const snapshot = context.navigation.getSnapshot(), route = snapshot.route;
-      const origin = route.kind === 'shell' && route.destination.kind === 'library' && route.destination.libraryId === library.id
-        ? nativeReadOrigin(context, route) : undefined;
-      const previous = held.current;
-      if (previous && origin && previous.origin.route === route && previous.origin.revision === origin.revision
-        && !previous.life.signal.aborted) return;
-      previous?.life.abort();
-      const next = origin ? Object.freeze({origin, life: new AbortController()}) : undefined;
-      held.current = next;
-      setLease(next);
-    };
-    install();
-    const unsubscribe = context.navigation.subscribe(install);
-    return () => {unsubscribe(); held.current?.life.abort(); held.current = undefined;};
-  }, [context, library.id]);
+    const selected = context.session();
+    const admitted = opening.isCurrent() && renderedRoute === opening.origin.route && renderedRevision === opening.origin.revision;
+    const next = admitted && selected ? Object.freeze({origin: opening.origin, family: selected.sessionFamilyId, life: new AbortController()}) : undefined;
+    held.current = next; setLease(next);
+    return () => {next?.life.abort(); if (held.current === next) held.current = undefined;};
+  }, [context, library.id, opening, tab, renderedRoute, renderedRevision]);
   useEffect(() => {void destination.load(); return () => destination.dispose();}, [destination]);
   useEffect(() => () => filters?.dispose(), [filters]);
   const collection = state.collection, capabilities = state.capabilities, sort = state.sort, pivot = state.tab.pivot;
@@ -120,28 +116,36 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   };
   // tablet-read#1: a card opens the item's own Reading book page, under the
   // exact lease, collection and leaf it was drawn with.
+  const rowLifetime = (leased: BooksLease, entry: ContentEntry) => nativeReadingRowLifetime(opening, entry, state, destination.getSnapshot, {
+    signal: leased.life.signal,
+    isCurrent: () => held.current === leased && !leased.life.signal.aborted && current() && context.session()?.sessionFamilyId === leased.family,
+  });
   const openBook = (leased: BooksLease, entry: ContentEntry) => {
-    const pressed = state.collection, signal = leased.life.signal;
-    if (!pressed || signal.aborted || command.current) return;
-    const ticket = {};
-    const resident = () => {
-      if (signal.aborted || !current()) return false;
-      const latest = destination.getSnapshot();
-      return latest.library.id === library.id && latest.tab.id === tab.id && latest.collection === pressed
-        && latest.collection.residentItems().some(candidate => candidate === entry);
-    };
-    command.current = ticket;
-    void openNativeReadingBookEntry(context, {libraryId: library.id, entry, origin: leased.origin, resident, signal})
+    if (command.current) return;
+    const ticket = {}; command.current = ticket;
+    const offered = rowLifetime(leased, entry);
+    if (!offered.isCurrent()) {if (command.current === ticket) command.current = undefined; return;}
+    void openNativeReadingBookEntry(context, {libraryId: library.id, entry, origin: leased.origin, resident: offered.isCurrent, signal: offered.signal})
       .catch(error => {
         const cancelled = error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
-        if (!signal.aborted && command.current === ticket && !cancelled) runtime.reportError(error);
+        if (offered.isCurrent() && command.current === ticket && !cancelled) runtime.reportError(error);
       })
       .finally(() => {if (command.current === ticket) command.current = undefined;});
+  };
+  const downloadBook = (leased: BooksLease, entry: ContentEntry) => {
+    if (command.current) return;
+    const ticket = {}; command.current = ticket;
+    try {
+      if (!onDownload || (entry.kind !== 'ebook' && entry.kind !== 'comic') || (entry.libraryId !== undefined && entry.libraryId !== library.id)) return;
+      const offered = rowLifetime(leased, entry);
+      const offer = nativeReadingDownloadOffer(opening, entry, offered.isCurrent, offered);
+      if (offer) onDownload(offer);
+    } finally {if (command.current === ticket) command.current = undefined;}
   };
   // The grid fills the actual pane: the shell rail and the docked Filters pane
   // are already outside it, so the window width would overshoot every row. The
   // drawn A-Z rail keeps its own 52 pt clear while it is shown.
-  const docked = dimensions.width > dimensions.height, width = paneWidth ?? dimensions.width;
+  const docked = !phone && dimensions.width > dimensions.height, width = paneWidth ?? dimensions.width;
   const pane = filters && docked ? filterWidth : 0;
   // tablet-read#1b draws the A-Z rail beside the Books grid, beside the docked
   // Filters too; it is shown while the server publishes letters for this sort.
@@ -155,11 +159,13 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   // gap/minimum rule is unchanged, and the tight card keeps its fractional width
   // (492 room -> 112.5) instead of flooring to 112 or rounding up and overflowing.
   const tight = pane > 0, tightGrid = tight && view === 'grid';
-  const gap = tight ? 14 : 20, rowGap = tight ? 22 : 30, minimum = tight ? 112 : 120;
+  // The phone preserves its existing gutter, 16 gap and bounded three-up
+  // tracks. Width follows the actual pane; this is not a 108 pt fidelity claim.
+  const gap = phone ? 16 : tight ? 14 : 20, rowGap = tight ? 22 : 30, minimum = phone ? 96 : tight ? 112 : 120;
   const left = tightGrid ? 28 : theme.gutter;
   const right = tightGrid ? 52 : alphabet ? 52 : theme.gutter;
   const room = Math.max(0, width - left - right - pane);
-  const columns = Math.max(1, Math.min(7, Math.floor((room + gap) / (minimum + gap))));
+  const columns = Math.max(1, Math.min(phone ? 3 : 7, Math.floor((room + gap) / (minimum + gap))));
   const cardWidth = Math.max(1, tightGrid ? (room - gap * (columns - 1)) / columns : Math.floor((room - gap * (columns - 1)) / columns));
   const cardHeight = cardWidth * 1.5 + 48;
   // The drawn grid/list pair: the same bounded collection, the same query and
@@ -175,7 +181,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
   }}>
-    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount="" filtersOpen={!!filters}
+    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount={phone ? resultCount : ''} filtersOpen={!!filters}
       view={{value: view, onValueChange: setView}}
       onFilters={openFilters} onQuickChange={quick} onSortChange={applySort}
       onReshuffle={() => {if (sort) applySort({...sort, seed: (sort.seed ?? 0) + 1});}}/> : null}
@@ -198,7 +204,11 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
                 : <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
               renderItem={(entry: ContentEntry) => {
                 const open = () => {if (lease) openBook(lease, entry);};
-                if (list) return <ReadingListRow entry={entry} width={rowWidth} runtime={runtime} onOpen={open}/>;
+                const download = phone && onDownload && nativePublicationReadsAvailable() ? () => {if (lease) downloadBook(lease, entry);} : undefined;
+                if (list) return <ReadingListRow entry={entry} width={rowWidth} runtime={runtime} onOpen={open} onDownload={download} phone={phone}/>;
+                if (phone) return <PhoneReadingBookCard testID={`reading-book-${entry.id}`} title={entry.displayTitle ?? entry.title} author={entry.author}
+                  width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} periodical={entry.publicationType === 'magazine' || entry.publicationType === 'newspaper'}
+                  onOpen={open} onDownload={download}/>;
                 const text = homeCardText(entry, false, runtime.text);
                 return <PosterCard title={text.title} caption={text.caption} width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} visible
                   testID={`reading-book-${entry.id}`} onNavigate={open}/>;
@@ -219,11 +229,12 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
 /** One Books list row: the item's own cover and the same real title and caption
  * the card draws. A format, page count or reading position appears only when the
  * browse page itself carries it, so nothing here is inferred from the file. */
-function ReadingListRow({entry, width, runtime, onOpen}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void}) {
+function ReadingListRow({entry, width, runtime, onOpen, onDownload, phone}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void; onDownload?: () => void; phone?: boolean}) {
   const theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle || text.title;
-  return <Focusable accessibilityRole="button" accessibilityLabel={title} focusKind="row" onPress={onOpen} testID={`reading-list-${entry.id}`}
+  return <Focusable accessibilityRole="button" accessibilityLabel={title} focusKind="row" onPress={onOpen} onLongPressAction={onDownload} testID={`reading-list-${entry.id}`}
     style={{width, height: 70, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12}}>
-    <MediaArt kind="poster" source={runtime.artwork(entry.posterUrl)} width={36} height={54} style={{borderRadius: 5}}/>
+    {phone ? <View style={{borderRadius: 5, overflow: 'hidden'}}><PhoneReadingBookCover title={title} author={entry.author} artwork={runtime.artwork(entry.posterUrl)} width={36} height={54}/></View>
+      : <MediaArt kind="poster" source={runtime.artwork(entry.posterUrl)} width={36} height={54} style={{borderRadius: 5}}/>}
     <View style={{flex: 1, minWidth: 0, gap: 3}}>
       <Text numberOfLines={1} style={[browseType(theme, 15, 600), {color: theme.colors.text}]}>{title}</Text>
       <Parts parts={text.caption} style={[browseType(theme, 12.5, 400), {color: theme.colors.textSecondary}]}/>

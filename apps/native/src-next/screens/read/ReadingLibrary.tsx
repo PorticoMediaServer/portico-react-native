@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingItem} from '../../../../../packages/client-core/src';
-import {browseCapabilitiesPath, parseBrowseCapabilities, type BrowseCapabilities} from '../../../../../packages/client-core/src/browse';
+import type {BrowseCapabilities} from '../../../../../packages/client-core/src/browse';
 import {readLibrarySummaries, type LibrarySummary} from '../../../../../packages/client-core/src/library-summary';
 import {formatDuration} from '../../../../../packages/client-core/src/presentation/content';
 import {libraryTabs, readingTabModel, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
@@ -24,7 +24,7 @@ import {LibraryCompactHeader, LibraryTabs} from '../library/LibraryScreen';
 import {isReadingLibraryKind} from './platform';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import {askNativeDownload} from '../downloads/request';
-import {nativeDestinationLifetime} from '../destinations/lifetime';
+import {NativeReadingDownloads, nativeReadingPageOpening, nativeReadingDownloadOffer, type NativeReadingPageOpening, type NativeReadingDownloadOffer, type NativeReadingOfferLifetime} from './reading-page-opening';
 import {NativeReadingDiscovery} from './reading-discovery';
 import {NativeReadingLibrary} from './reading-library';
 
@@ -51,69 +51,86 @@ const authorPart = (item: ReadingItem) => item.author ? [{id: 'author', text: it
  * signed series page; the library itself lists no synthetic series row. */
 export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProps) {
   const {context, runtime, libraryId, title, labels, onBack} = props, theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
-  type DownloadOwner = {live: boolean; current?: () => boolean};
-  type DownloadMenu = Readonly<{owner: DownloadOwner; item: ReadingItem}>;
-  const downloadOwner = useMemo<DownloadOwner>(() => ({live: false}), [context, libraryId]);
-  const ownerRef = useRef(downloadOwner), menuRef = useRef<DownloadMenu | undefined>(undefined);
-  const [downloadMenu, setDownloadMenu] = useState<DownloadMenu>();
-  if (ownerRef.current !== downloadOwner) {ownerRef.current.live = false; ownerRef.current = downloadOwner;}
-  useLayoutEffect(() => {
-    const lifetime = nativeDestinationLifetime(context), route = context.navigation.getSnapshot();
-    downloadOwner.live = true; downloadOwner.current = () => downloadOwner.live && lifetime.current() && context.navigation.getSnapshot().route === route.route && context.navigation.getSnapshot().revision === route.revision;
-    return () => {downloadOwner.live = false; if (menuRef.current?.owner === downloadOwner) menuRef.current = undefined;};
-  }, [context, libraryId, downloadOwner]);
-  const offerDownload = (item: ReadingItem) => {if (!downloadOwner.current?.() || !nativePublicationReadsAvailable()) return; const menu = Object.freeze({owner: downloadOwner, item}); menuRef.current = menu; setDownloadMenu(menu);};
-  const dismissDownload = (menu: DownloadMenu | undefined) => {if (!menu || menuRef.current !== menu) return; menuRef.current = undefined; setDownloadMenu(undefined);};
   const library = context.libraries().find(value => value.id === libraryId);
+  const navigation = useSyncExternalStore(context.navigation.subscribe, context.navigation.getSnapshot);
+  const {route: renderedRoute, revision: renderedRevision} = navigation;
+  const [pageOpening, setPageOpening] = useState<NativeReadingPageOpening>();
+  const libraryKind = library?.kind;
+  useLayoutEffect(() => {
+    const opening = libraryKind ? nativeReadingPageOpening(context, {libraryId, kind: libraryKind}, {route: renderedRoute, revision: renderedRevision}) : undefined;
+    setPageOpening(opening);
+    return () => opening?.dispose();
+  }, [context, libraryId, libraryKind, renderedRoute, renderedRevision]);
+  const opening = pageOpening?.context === context && pageOpening.libraryId === libraryId && pageOpening.kind === libraryKind
+    && pageOpening.origin.route === navigation.route && pageOpening.origin.revision === navigation.revision && pageOpening.isCurrent() ? pageOpening : undefined;
+  const scopedContext = useMemo<NativeShellBootstrapContext>(() => ({...context, current: () => opening?.isCurrent() === true}), [context, opening]);
   const kind = library?.kind === 'comic' ? 'comic' : 'book';
   const name = library?.name ?? title, authoredTabs = useMemo(() => libraryTabs(kind), [kind]);
-  const [tab, setTab] = useState<LibraryTabId>('discover'), [switcherOpen, setSwitcherOpen] = useState(false), fellBack = useRef(false);
+  const [tab, setTab] = useState<LibraryTabId>('discover'), [switcherOpen, setSwitcherOpen] = useState(false), fellBack = useRef<NativeReadingPageOpening | undefined>(undefined);
+  const [viewLife, setViewLife] = useState<NativeReadingOfferLifetime & Readonly<{opening: NativeReadingPageOpening; tab: LibraryTabId}>>();
+  useLayoutEffect(() => {
+    if (!opening) return;
+    const life = new AbortController();
+    setViewLife(Object.freeze({opening, tab, signal: life.signal, isCurrent: () => !life.signal.aborted && opening.isCurrent()}));
+    return () => life.abort();
+  }, [opening, tab]);
+  const visibleLife = viewLife && viewLife.opening === opening && viewLife.tab === tab && viewLife.isCurrent() ? viewLife : undefined;
+  const downloads = useMemo(() => new NativeReadingDownloads(opening, () => visibleLife?.isCurrent() === true && nativePublicationReadsAvailable(), askNativeDownload), [opening, visibleLife]);
+  useEffect(() => () => downloads.dispose(), [downloads]);
+  const downloadMenu = useSyncExternalStore(downloads.subscribe, downloads.getSnapshot);
+  const offerDownload = (offer: NativeReadingDownloadOffer) => downloads.offer(() => offer);
   const [paneWidth, setPaneWidth] = useState<number>();
   // tablet-read#1b: the wide header carries the count of the view the grid is
   // showing, tagged with the library and the mount that published it. A line is
   // drawn only for this library, and only its own owner can retire it, so no
   // passive clear can erase a fresh line and no old library's count can show here.
-  const [gridCount, setGridCount] = useState<Readonly<{owner: object; libraryId: string; text: string}>>();
+  const [gridCount, setGridCount] = useState<Readonly<{owner: object; opening: NativeReadingPageOpening; libraryId: string; text: string}>>();
   const projectGridCount = useCallback((owner: object, text: string | undefined) => {
-    setGridCount(current => text ? Object.freeze({owner, libraryId, text}) : current?.owner === owner ? undefined : current);
-  }, [libraryId]);
+    setGridCount(current => {
+      if (!text) return current?.owner === owner ? undefined : current;
+      if (!opening || !opening.isCurrent()) return current;
+      return Object.freeze({owner, opening, libraryId, text});
+    });
+  }, [libraryId, opening]);
   const tablet = !theme.isTV && theme.platform !== 'phone'; // Medium, tablet and native web windows share the wide surface.
-  const [summary, setSummary] = useState<LibrarySummary>();
-  const libraryKind = library?.kind, wideId = library?.id;
+  const [summary, setSummary] = useState<Readonly<{opening: NativeReadingPageOpening; value?: LibrarySummary}>>();
   /** Root §3: the server's own reading pivots decide the Books grid; undefined means this server
    * publishes none, and the authored pair keeps the bounded Reading list on every width. */
-  const [reading, setReading] = useState<Readonly<{id: string; kind: string; phase: 'ready' | 'error'; data?: BrowseCapabilities}>>();
+  const [reading, setReading] = useState<Readonly<{opening: NativeReadingPageOpening; phase: 'ready' | 'error'; data?: BrowseCapabilities}>>();
   useEffect(() => {
-    if (!tablet || !wideId || !libraryKind) return;
-    const ab = new AbortController();
-    void context.api.request<unknown>(browseCapabilitiesPath(wideId, libraryKind === 'comic' ? 'comics' : 'books'), 'GET', undefined, ab.signal)
-      .then(raw => {const data = parseBrowseCapabilities(raw); if (!ab.signal.aborted) setReading({id: wideId, kind: libraryKind, phase: 'ready', data});},
-        () => {if (!ab.signal.aborted) setReading({id: wideId, kind: libraryKind, phase: 'error'});});
-    return () => ab.abort();
-  }, [context, libraryKind, tablet, wideId]);
-  const capability = reading && reading.id === libraryId && reading.kind === libraryKind ? reading : undefined;
-  const gridTab = useMemo(() => reading?.phase === 'ready' && reading.data ? readingTabModel(reading.data)?.find(value => value.id === 'browse') : undefined, [reading]);
+    if (!opening || theme.isTV) return;
+    let active = true;
+    void opening.capabilities().then(data => {
+      if (active && opening.isCurrent()) setReading({opening, phase: 'ready', data});
+    }, () => {if (active && opening.isCurrent()) setReading({opening, phase: 'error'});});
+    return () => {active = false;};
+  }, [opening, theme.isTV]);
+  const capability = reading && opening && reading.opening === opening && opening.isCurrent() ? reading : undefined;
+  const gridTab = useMemo(() => capability?.phase === 'ready' && capability.data
+    ? readingTabModel(capability.data)?.find(value => value.id === 'browse') : undefined, [capability]);
   const tabs = useMemo(() => gridTab ? [authoredTabs[0]!, gridTab] : authoredTabs, [authoredTabs, gridTab]);
   useEffect(() => {
+    if (!opening) return;
     const ab = new AbortController();
-    void readLibrarySummaries(context.api, ab.signal).then(rows => {const row = rows.find(value => value.id === libraryId); if (!ab.signal.aborted) setSummary(row?.summary);}, () => {});
+    void readLibrarySummaries(context.api, ab.signal).then(rows => {const row = rows.find(value => value.id === libraryId); if (!ab.signal.aborted && opening.isCurrent()) setSummary({opening, value: row?.summary});}, () => {});
     return () => ab.abort();
-  }, [context, libraryId]);
-  const discovery = useMemo(() => new NativeReadingDiscovery(context, libraryId), [context, libraryId]);
-  const books = useMemo(() => new NativeReadingLibrary(context, libraryId), [context, libraryId]);
+  }, [context, libraryId, opening]);
+  const discovery = useMemo(() => new NativeReadingDiscovery(scopedContext, libraryId), [scopedContext, libraryId]);
+  const books = useMemo(() => new NativeReadingLibrary(scopedContext, libraryId), [scopedContext, libraryId]);
   useEffect(() => () => {discovery.dispose(); books.dispose();}, [discovery, books]);
   const discoveryState = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
   const booksState = useSyncExternalStore(books.subscribe, books.getSnapshot);
   useEffect(() => {
+    if (!opening) return;
     if (tab === 'discover') void discovery.load().catch(runtime.reportError);
-    else if (!tablet || (capability && !gridTab)) void books.load().catch(runtime.reportError); // Tablet Books owns its own browse destination when the server publishes the pivot.
-  }, [tab, discovery, books, runtime, tablet, capability, gridTab]);
+    else if (theme.isTV || (capability && !gridTab)) void books.load().catch(runtime.reportError);
+  }, [tab, discovery, books, runtime, opening, theme.isTV, capability, gridTab]);
   // A ready Discover with neither real row has nothing to show; the library's
   // own Books/Volumes grid is the honest destination, never a false empty copy.
   useEffect(() => {
-    if (tab === 'discover' && !fellBack.current && discoveryState.phase === 'ready' && !discoveryState.continueItems.length
-      && !discoveryState.recent.length && !discoveryState.shortReads.length) {fellBack.current = true; setTab('browse');}
-  }, [tab, discoveryState]);
+    if (opening?.isCurrent() && tab === 'discover' && fellBack.current !== opening && discoveryState.phase === 'ready' && !discoveryState.continueItems.length
+      && !discoveryState.recent.length && !discoveryState.shortReads.length) {fellBack.current = opening; setTab('browse');}
+  }, [tab, discoveryState, opening]);
   const readingLibraries = context.libraries().filter(value => isReadingLibraryKind(value.kind));
   const switcherItems: MenuEntry[] = readingLibraries.map(value => ({id: value.id, label: value.name, selected: value.id === libraryId,
     onSelect: () => {setSwitcherOpen(false); if (value.id !== libraryId) runtime.onDestination({kind: 'library', libraryId: value.id});}}));
@@ -124,6 +141,13 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   </Focusable>;
   const openDiscover = (item: ReadingItem) => {void discovery.open(item).catch(runtime.reportError);};
   const openBooks = (item: ReadingItem) => {void books.open(item).catch(runtime.reportError);};
+  const offerDiscoverDownload = (item: ReadingItem) => downloads.offer(() => opening && visibleLife ? nativeReadingDownloadOffer(opening, item, () => {
+    const live = discovery.getSnapshot();
+    return live === discoveryState && item.libraryId === libraryId && (live.recent.some(candidate => candidate === item)
+      || live.shortReads.some(row => row.item === item));
+  }, visibleLife) : undefined);
+  const offerBooksDownload = (item: ReadingItem) => downloads.offer(() => opening && visibleLife ? nativeReadingDownloadOffer(opening, item,
+    () => books.getSnapshot() === booksState && item.libraryId === libraryId && booksState.items.some(candidate => candidate === item), visibleLife) : undefined);
   const retryDiscover = () => {void discovery.retry().catch(runtime.reportError);};
   const retryBooks = () => {void books.retry().catch(runtime.reportError);};
   const retry = <StateView testID="reading-library-error" variant="inline" {...runtime.error(tab === 'discover' ? discoveryState.error : booksState.error, tab === 'discover' ? retryDiscover : retryBooks, 'library')}/>;
@@ -141,10 +165,10 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
         onNavigate={() => openDiscover(row.item)}/>)}
     </DiscoveryRow> : null}
     {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
-      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDownload}/>)}
+      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDiscoverDownload}/>)}
     </DiscoveryRow> : null}
     {discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')} sub={defaultI18n.t('next.reader.underThreeHours')}>
-      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDownload}
+      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDiscoverDownload}
         detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
   </ScrollView>;
@@ -155,11 +179,11 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     {booksState.phase === 'loading' && !booksState.items.length ? loading : null}
     {booksState.phase === 'ready' && !booksState.items.length ? empty : null}
     {booksState.items.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap}}>
-      {booksState.items.map(item => <DiscoveryCoverCard key={item.id} item={item} width={width} onOpen={openBooks} onDownload={offerDownload}/>)}
+      {booksState.items.map(item => <DiscoveryCoverCard key={item.id} item={item} width={width} onOpen={openBooks} onDownload={offerBooksDownload}/>)}
     </View> : null}
   </ScrollView>;
   const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
-  const counts = (summary?.counts ?? []).filter(part => pivots[part.kind]).map(part =>
+  const counts = (summary?.opening === opening ? summary?.value?.counts ?? [] : []).filter(part => pivots[part.kind]).map(part =>
     defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]!}));
   return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
     // The authored cover grid fills the pane it is laid out in, not the window:
@@ -180,7 +204,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
           <Icon name="i-down" size={22} color={theme.colors.text}/>
         </Focusable> : null}
       </View>
-      {gridCount && gridCount.libraryId === libraryId ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
+      {gridCount && gridCount.libraryId === libraryId && gridCount.opening === opening ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
         <Text accessibilityLiveRegion="polite" style={[browseType(theme, 15, 500), {color: theme.colors.textTertiary}]}>{gridCount.text}</Text></View>
         : counts.length ? <View style={{flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap'}}>
           {counts.map(text => <Text key={text} style={[browseType(theme, 15, 500), {color: theme.colors.textTertiary}]}>{text}</Text>)}</View> : null}
@@ -190,14 +214,15 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
       <LibraryTabs items={tabs} selected={tab} enabled phone={theme.platform === 'phone'} regionId={`reading-tabs-${libraryId}`}
         leftEdge="reading-tabs-edge" onSelect={id => setTab(id)}/>
     </LibraryCompactHeader>}
-    {tab === 'discover' ? discover
-      : tablet && gridTab && library ? <NativeReadingBooks context={context} runtime={runtime} library={library} tab={gridTab} labels={labels}
-        owner={context.session()?.viewer.role === 'owner'} onCount={projectGridCount}/>
-      : tablet && !capability ? <View style={{flex: 1}}>{loading}</View>
+    {!opening ? <View style={{flex: 1}}>{loading}</View> : tab === 'discover' ? discover
+      : !theme.isTV && gridTab && library ? <NativeReadingBooks context={scopedContext} opening={opening} runtime={runtime} library={library} tab={gridTab} labels={labels}
+        owner={context.session()?.viewer.role === 'owner'} onCount={tablet ? projectGridCount : undefined}
+        onDownload={theme.platform === 'phone' ? offerDownload : undefined}/>
+      : !theme.isTV && !capability ? <View style={{flex: 1}}>{loading}</View>
       : booksGrid}
-    <Menu open={!!downloadMenu && downloadMenu.owner === downloadOwner && downloadOwner.current?.() === true && menuRef.current === downloadMenu}
-      onOpenChange={open => {if (!open) dismissDownload(downloadMenu);}} title={downloadMenu?.item.title}
-      items={[{id: 'download', label: defaultI18n.t('action.download'), onSelect: () => {const menu = downloadMenu; if (!menu || menuRef.current !== menu || !menu.owner.current?.() || !nativePublicationReadsAvailable()) return; dismissDownload(menu); askNativeDownload({title: menu.item.title, itemId: menu.item.id, reading: true});}}]}/>
+    <Menu open={!!downloadMenu && downloadMenu.opening === opening && downloadMenu.lifetime.isCurrent()}
+      onOpenChange={open => {if (!open) downloads.dismiss(downloadMenu);}} title={downloadMenu?.item.title}
+      items={[{id: 'download', label: defaultI18n.t('action.download'), onSelect: () => downloads.select(downloadMenu)}]}/>
     <Menu open={switcherOpen} onOpenChange={setSwitcherOpen} title={defaultI18n.t('next.browse.native.switchLibrary')} items={switcherItems}/>
   </View>;
 }
