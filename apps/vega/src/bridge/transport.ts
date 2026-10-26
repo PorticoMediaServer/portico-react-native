@@ -79,6 +79,10 @@ function start(pending: Pending): void {
     };
     xhr.onreadystatechange = () => {
       if (xhr.readyState >= 2 && xhr.status !== 0 && !pending.done) {
+        // Kepler dispatches HEADERS_RECEIVED synchronously before assigning responseURL.
+        // No response is adopted here; validate the actual URL on LOADING/DONE (and load),
+        // where an absent or changed URL must still fail closed.
+        if (xhr.readyState === 2 && !xhr.responseURL) return;
         try { checkResponse(pending.url, xhr.responseURL, xhr.status, pending.sensitive); } catch (error) { finish(pending, undefined, undefined, error as Error); return; }
         if (over()) finish(pending, 'Queue response exceeded its limit.');
       }

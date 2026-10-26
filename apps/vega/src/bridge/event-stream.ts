@@ -120,6 +120,10 @@ export function openNetworkStream(identifier: string, url: string, headers: unkn
     const begin = () => {
       if (xhr.status === 0 && !xhr.responseURL) return;
       if (stream.begun || stream.ended || streams.get(identifier) !== stream) return;
+      // Kepler assigns responseURL only after its synchronous HEADERS_RECEIVED event.
+      // Keep the opening pending until a later event; never publish headers or pieces
+      // before checking the SDK's actual final URL, including a missing URL at DONE.
+      if (xhr.readyState === 2 && !xhr.responseURL) return;
       try { checkResponse(url, xhr.responseURL, xhr.status, sensitive); } catch (error) {
         end(identifier, stream, (error as {code?: string}).code === 'credential_exposed' ? error as Error : failure('event_redirect', 'Event redirects are not allowed.')); return;
       }
@@ -144,7 +148,7 @@ export function openNetworkStream(identifier: string, url: string, headers: unkn
         if (stream.begun && xhr.readyState >= 3) take(identifier, stream);
         if (stream.begun && xhr.readyState === 4) end(identifier, stream);
       };
-      xhr.onprogress = () => { if (stream.begun) take(identifier, stream); };
+      xhr.onprogress = () => { begin(); if (stream.begun) take(identifier, stream); };
       xhr.onerror = () => {
         if (!stream.begun) { if (!stream.ended) refuse('event_transport', 'The event connection could not be opened.'); return; }
         end(identifier, stream, failure('event_transport', 'The event connection was interrupted.'));

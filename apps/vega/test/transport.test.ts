@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {submit} from '../src/bridge/transport.ts';
+import {cancel, submit} from '../src/bridge/transport.ts';
 import {onCredentialExposure, rememberCredentials, requestCredentials, verifiedCredentialOrigin} from '../src/bridge/credential-boundary.ts';
 import {revokeExposedSessions} from '../src/bridge/exposure-revocation.ts';
 
@@ -16,13 +16,39 @@ class Request {
   getAllResponseHeaders() { return 'Content-Type: application/json'; }
   send(body?: string) { this.body = body; }
   abort() { this.aborted = true; this.onabort?.(); }
-  respond(status = 200, body = '{}', url = this.url) { this.status = status; this.responseURL = url; this.responseText = body; this.readyState = 2; this.onreadystatechange?.(); this.readyState = 4; this.onload?.(); }
+  // SDK __didReceiveResponse fires HEADERS_RECEIVED before assigning responseURL.
+  receiveHeaders(status = 200, url = this.url) { this.status = status; this.responseURL = ''; this.readyState = 2; this.onreadystatechange?.(); this.responseURL = url; }
+  respond(status = 200, body = '{}', url = this.url) { this.receiveHeaders(status, url); this.responseText = body; this.readyState = 3; this.onreadystatechange?.(); this.readyState = 4; this.onreadystatechange?.(); this.onload?.(); }
 }
 (globalThis as {XMLHttpRequest?: unknown}).XMLHttpRequest = Request;
 const last = () => Request.made.at(-1)!;
 let counter = 0;
 const send = (url: string, method = 'GET', headers = {}, body: string | null = null, limit = 1024) => submit({identifier: String(++counter), url, method, headers, body, limit, domain: 'queue_transport', busy: 'busy'});
 const code = (e: unknown) => (e as {code?: string}).code;
+
+test('SDK headers-before-URL ordering keeps a public system read pending until validated completion', async () => {
+  const response = send('http://sdk-order.test/v1/system');
+  const request = last();
+  let settled = false;
+  void response.then(() => { settled = true; }, () => { settled = true; });
+  request.receiveHeaders();
+  await Promise.resolve();
+  assert.equal(settled, false);
+  assert.equal(request.aborted, false);
+  request.responseText = '{"signIn":"local"}';
+  request.readyState = 4; request.onreadystatechange?.(); request.onload?.();
+  assert.equal((await response).body, '{"signIn":"local"}');
+});
+
+test('cancellation while the SDK is publishing headers prevents later response adoption', async () => {
+  const response = send('http://sdk-cancel.test/v1/system');
+  const identifier = String(counter), request = last();
+  request.receiveHeaders();
+  cancel(identifier);
+  await assert.rejects(response);
+  request.respond();
+  assert.equal(request.aborted, true);
+});
 
 test('password sign-in, refresh and authenticated control work on exact HTTP and HTTPS origins', async () => {
   for (const origin of ['http://server.test:32500', 'https://server.test']) {

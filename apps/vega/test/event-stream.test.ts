@@ -24,6 +24,8 @@ class FakeRequest {
   abort() { this.aborted = true; }
   // What the server does:
   begin(status = 200, from = this.url) { this.status = status; this.responseURL = from; this.readyState = 2; this.onreadystatechange?.(); }
+  // Kepler's real __didReceiveResponse order, before its first LOADING/progress event.
+  sdkHeaders(status = 200, from = this.url) { this.status = status; this.responseURL = ''; this.readyState = 2; this.onreadystatechange?.(); this.responseURL = from; }
   write(text: string) { this.responseText += text; this.readyState = 3; this.onprogress?.(); }
   finish() { this.readyState = 4; this.onreadystatechange?.(); }
   fail() { this.onerror?.(); }
@@ -36,6 +38,43 @@ const events = 'http://192.168.1.20:32500/v1/events';
 const last = () => FakeRequest.made[FakeRequest.made.length - 1];
 const text = (data: string | undefined) => Buffer.from(data ?? '', 'base64').toString('utf8');
 const code = (error: unknown) => (error as {code?: string}).code;
+
+test('SDK headers-before-URL ordering publishes neither headers nor pieces before validation', async () => {
+  const opening = openNetworkStream('sdk-order', events, {});
+  const request = last();
+  let settled = false;
+  void opening.then(() => { settled = true; }, () => { settled = true; });
+  request.sdkHeaders();
+  await Promise.resolve();
+  assert.equal(settled, false);
+  assert.equal(request.aborted, false);
+  await assert.rejects(readNetworkStream('sdk-order'), error => code(error) === 'event_local');
+  request.write('data: first\n\n');
+  assert.equal((await opening).status, 200);
+  assert.equal(text((await readNetworkStream('sdk-order')).data), 'data: first\n\n');
+  cancelNetworkStream('sdk-order');
+});
+
+test('a missing final stream URL still fails closed after the deferred SDK header event', async () => {
+  const opening = openNetworkStream('sdk-missing', events, {});
+  const request = last();
+  request.sdkHeaders(200, '');
+  assert.equal(request.aborted, false);
+  request.finish();
+  await assert.rejects(opening, error => code(error) === 'event_redirect');
+  assert.equal(request.aborted, true);
+});
+
+test('a redirected SDK response is refused before any stream piece is exposed', async () => {
+  const opening = openNetworkStream('sdk-moved', events, {});
+  const request = last();
+  request.sdkHeaders(200, 'http://other.test/v1/events');
+  assert.equal(request.aborted, false);
+  request.write('data: refused\n\n');
+  await assert.rejects(opening, error => code(error) === 'event_redirect');
+  assert.equal(request.aborted, true);
+  await assert.rejects(readNetworkStream('sdk-moved'), error => code(error) === 'event_local');
+});
 
 test('only the two event routes may be opened, with a short identifier and no credentials', async () => {
   // The listener the server retired is refused like any other address.
