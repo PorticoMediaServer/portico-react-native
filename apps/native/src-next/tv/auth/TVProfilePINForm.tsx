@@ -4,8 +4,6 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ProfileOption} from '../../kit/artwork';
 import {FocusProvider} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
-import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
-import {useTVBusyEntryRevision} from './entry-revision';
 import {TVProfilePINLayout} from './TVAuthLayout';
 import {TVCodeBoxes, TVNumericPad} from './TVNumericPad';
 
@@ -39,8 +37,6 @@ function ProfilePINForm(props: TVProfilePINFormProps) {
   useEffect(() => {if (!props.code) submitted.current = undefined;}, [props.code]);
   const remove = () => {if (!props.busy) {submitted.current = undefined; props.onCodeChange(props.code.slice(0, -1));}};
   useTVEventHandler(event => {if (event.eventType === 'playPause' && event.eventKeyAction !== 1) remove();});
-  const entryRevision = useTVBusyEntryRevision(props.busy);
-  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision}, {regionId: `${id}.pad.0`, childId: '1'});
   const digit = (value: string) => {
     if (props.busy || props.code.length >= 4 || !/^\d$/.test(value)) return;
     const next = props.code + value;

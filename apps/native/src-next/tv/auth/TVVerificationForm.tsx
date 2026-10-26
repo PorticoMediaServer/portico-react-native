@@ -30,10 +30,11 @@ function VerificationForm(props: TVVerificationFormProps) {
   useTVEventHandler(event => {
     if (!props.recovery && !props.busy && event.eventType === 'playPause' && event.eventKeyAction !== 1) remove();
   });
-  // Recovery owns the odd ticket; a completed pending state moves both kinds on.
+  // The numeric pad owns one initial entry and retains its key through busy.
+  // Preserve the separate recovery keyboard lifecycle.
   const entryRevision = useTVBusyEntryRevision(props.busy) * 2 + (props.recovery ? 1 : 0);
-  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision},
-    {regionId: `${id}.${props.recovery ? 'keyboard' : 'pad'}.0`, childId: props.recovery ? 'A' : '1'});
+  useDestinationEntryFocus({visible: props.recovery && !props.busy, intent: 'enter', revision: entryRevision},
+    {regionId: `${id}.keyboard.0`, childId: 'A'});
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400) => nativeType({size, weight, tracking: 0, lineHeight: 'normal'}, theme.textScale);
   const digit = (value: string) => {
     if (props.busy) return;

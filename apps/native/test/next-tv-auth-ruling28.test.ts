@@ -3,6 +3,8 @@ import test from 'node:test';
 import * as React from 'react';
 import {act, createHookHost} from './hook-driver';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
+import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 
@@ -17,9 +19,17 @@ const inScope = (component: (props: any) => any, props: any) => {
 const common = {'../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
   '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}};
-const numericModule = (react: unknown) => screenModule(new URL('../src-next/tv/auth/TVNumericPad.tsx', import.meta.url), {
-  ...common, react, 'react-native': {Text: 'Text', View: 'View'}, '../../kit/focus': {FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
-});
+// The existing caller vectors render the pad directly; give its real entry hooks
+// a separate controlled host. Native region/Focusable boundaries remain stubs.
+const numericModule = async (_react: unknown) => {
+  const h = hooks(), registry = createFocusRegistry();
+  const numeric = await screenModule(new URL('../src-next/tv/auth/TVNumericPad.tsx', import.meta.url), {
+    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View'},
+    '../../kit/focus': {FocusRegion: 'Region', FocusItem: 'Item', useFocusRegistry: () => registry},
+    '../../kit/focus/initial-entry': {createInitialRegionEntry}, '../../kit/Icon': {Icon: 'Icon'},
+  });
+  return {...numeric, TVNumericPad: (props: unknown) => h.render(() => numeric.TVNumericPad(props))};
+};
 
 for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use secure platform fields/autofill and only the owner's Submit/Back callbacks`, async () => {
   const focused: unknown[] = [], events: string[] = [];

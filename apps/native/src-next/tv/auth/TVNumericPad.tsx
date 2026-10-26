@@ -1,8 +1,9 @@
-import React from 'react';
+import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable} from '../../kit/controls';
-import {FocusRegion} from '../../kit/focus';
+import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
+import {createInitialRegionEntry} from '../../kit/focus/initial-entry';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 
@@ -13,23 +14,25 @@ export function TVNumericPad({id, busy, onDigit, onDelete, help, onHelp, helpTex
   id: string; busy: boolean; onDigit: (value: string) => void; onDelete: () => void;
   help: React.ReactNode; onHelp: () => void; helpTextSize?: number;
 }) {
-  const theme = useTheme();
+  const theme = useTheme(), registry = useFocusRegistry();
+  const focusRevision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
+  const entry = useMemo(() => createInitialRegionEntry(registry, `${id}.pad`), [registry, id]);
+  useEffect(() => {entry.request({active: theme.isTV, primary: `${id}.pad`});}, [entry, focusRevision, id, theme.isTV]);
   return <View style={{position: 'absolute', right: 260, top: 0, bottom: 0, width: 484, justifyContent: 'center'}}>
-    <FocusRegion id={`${id}.pad`} entry="1" enabled={!busy}>
-      {rows.map((row, index) => <FocusRegion key={index} id={`${id}.pad.${index}`} entry={row[0]} order={row} orientation="horizontal" enabled={!busy}
-        edges={{up: index > 0 ? `${id}.pad.${index - 1}` : undefined, down: index < 3 ? `${id}.pad.${index + 1}` : `${id}.help`}}
+    <FocusRegion id={`${id}.pad`} entry="1" order={rows.flat()} grid={{columns: 3, count: 11, shortRow: 'exit'}} edges={{down: `${id}.help`}}>
+      {rows.map((row, index) => <View key={index}
         style={{flexDirection: 'row', gap: 20, marginBottom: index < 3 ? 20 : 0}}>
-        {row.map(value => <Focusable key={value} focusId={value} testID={`${id}-pad-${value}`} disabled={busy} focusRadius={20}
+        {row.map((value, column) => <FocusItem key={value} focusId={value} cell={{index: index * 3 + column}}><Focusable focusId={value} testID={`${id}-pad-${value}`} disabled={busy} focusableWhenDisabled focusRadius={20}
           accessibilityLabel={value === 'delete' ? defaultI18n.t('action.delete') : value}
           onPress={() => {if (!busy) {if (value === 'delete') onDelete(); else onDigit(value);}}}
           style={{width: 148, height: 118, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: `${theme.colors.text}12`}}>
           {value === 'delete' ? <Icon name="i-backspace" size={46} color={theme.colors.textSecondary}/>
             : <Text style={[nativeType({size: 48, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{value}</Text>}
-        </Focusable>)}
-      </FocusRegion>)}
+        </Focusable></FocusItem>)}
+      </View>)}
     </FocusRegion>
-    <FocusRegion id={`${id}.help`} entry="help" enabled={!busy} edges={{up: `${id}.pad.3`}} style={{marginTop: 38}}>
-      <Button focusId="help" variant="glass" disabled={busy} onPress={() => {if (!busy) onHelp();}}
+    <FocusRegion id={`${id}.help`} entry="help" edges={{up: `${id}.pad`}} style={{marginTop: 38}}>
+      <Button focusId="help" variant="glass" disabled={busy} focusableWhenDisabled onPress={() => {if (!busy) onHelp();}}
         style={{height: 72, paddingHorizontal: 18, borderRadius: 14}} textStyle={{fontSize: helpTextSize * theme.textScale}}>{help}</Button>
     </FocusRegion>
   </View>;

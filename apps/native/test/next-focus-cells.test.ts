@@ -128,3 +128,33 @@ test('a focused grid loading slot is filled by the real new card at that source 
   registry.attach({regionId: 'results', childId: 'served-next-card'}, {requestTVFocus() {calls.push('served-next-card');}}, {}, {index: 4});
   await Promise.resolve(); assert.deepEqual(calls, ['served-next-card']);
 });
+
+
+// FX096 authored for hourly CI; UNRUN at source handoff. Native key delivery is unqualified.
+test('a numeric pad deliberate bottom-row hole exits while the ordinary grid clamp is unchanged', () => {
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'delete', '0'];
+  const members = keys.map((id, index) => ({id, cell: {index}}));
+  const config = {grid: {columns: 3, count: keys.length, shortRow: 'exit' as const}, edges: {down: 'help'}};
+  for (const [from, direction, to] of [
+    ['1', 'down', '4'], ['4', 'up', '1'], ['2', 'up', '2'],
+    ['8', 'down', '0'], ['7', 'down', 'delete'], ['delete', 'right', '0'], ['0', 'right', '0'],
+  ] as const) {
+    const memory = cellFocusMemory(members.find(member => member.id === from)!.cell, undefined, config, {});
+    assert.deepEqual(createCellNavigator(members, config, memory)(from)[direction], {childId: to});
+  }
+  for (const from of ['9', '0', 'delete']) {
+    const memory = cellFocusMemory(members.find(member => member.id === from)!.cell, undefined, config, {});
+    assert.deepEqual(createCellNavigator(members, config, memory)(from).down, {regionId: 'help'});
+  }
+  assert.deepEqual(createCellNavigator(members, {grid: {columns: 3, count: 11}}, {column: 2})('9').down, {childId: '0'});
+});
+test('numeric Help Up uses the same pad original key memory without a command or guessed column', () => {
+  const registry = createFocusRegistry(), requests: string[] = [];
+  registry.configure({id: 'pad', entry: '1', order: ['1', '0'], grid: {columns: 3, count: 11, shortRow: 'exit'}});
+  for (const childId of ['1', '0']) registry.attach({regionId: 'pad', childId}, {requestTVFocus() {requests.push(childId);}});
+  registry.configure({id: 'help', entry: 'help', edges: {up: 'pad'}});
+  registry.attach({regionId: 'help', childId: 'help'}, {requestTVFocus() {requests.push('help');}});
+  registry.didFocus({regionId: 'pad', childId: '0'}); registry.didFocus({regionId: 'help', childId: 'help'});
+  assert.equal(registry.entryAddress('pad')?.childId, '0');
+  assert.deepEqual(requests, [], 'semantic native destination selection never moves focus in JavaScript');
+});
