@@ -300,7 +300,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       <Button onPress={() => {void save();}} loading={busy} disabled={!exact(data) || busy || coverBusy || rereadBusy}>{t('action.save')}</Button>
     </View>}>
     {snapshot.phase === 'error' || failed ? <StateView variant="inline" title={t('error.unknown')}/> : null}
-    <LoadingBoundary ready={exact(data)} immediate={exact(data)} skeleton={<SkeletonBlock width="100%" height={220}/>}>
+    <LoadingBoundary ready={snapshot.phase !== 'idle' && snapshot.phase !== 'loading'} immediate={exact(data)} skeleton={<SkeletonBlock width="100%" height={220}/>}>
     {exact(data) ? <View style={{gap: 12}}>
       {data.schema.map(spec => {
         const field = data.snapshot.fields[spec.field];
@@ -334,7 +334,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       <View style={{gap: 10}}>
         <Text style={[browseType(theme, 13, 500), {color: theme.colors.textSecondary}]}>{t('next.reader.pageCount', {count: coverOpening.pageCount})}</Text>
         {coverPages?.opening === coverOpening && coverPages.phase === 'failed' ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
-        <LoadingBoundary ready={coverPages?.opening === coverOpening && coverPages.phase === 'ready'} immediate={coverPages?.opening === coverOpening && coverPages.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={132}/>}>
+        <LoadingBoundary ready={!(coverPages?.opening === coverOpening && coverPages.phase === 'loading')} immediate={coverPages?.opening === coverOpening && coverPages.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={132}/>}>
         {coverPages?.opening === coverOpening && coverPages.phase === 'ready' && coverPages.pages.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={{gap: 8, paddingRight: 4}}>
           {coverPages.pages.map(page => {
