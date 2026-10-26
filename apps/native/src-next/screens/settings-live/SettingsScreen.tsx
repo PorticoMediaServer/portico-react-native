@@ -319,6 +319,25 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   </Screen>;
 }
 
+/** playback-info frame 13b draws one hint under each Player choice; the runtime settings
+ * structure has no hint field yet, so the drawn copy is attached by the one device row that
+ * uses it. The labels remain the spec's own. */
+const playerEngineHints: Readonly<Record<string, MessageId>> = Object.freeze({
+  automatic: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.hint',
+  native: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.hint',
+  mpv: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.hint',
+});
+/** One Player choice opening: the exact page, route snapshot, controller and device-preference
+ * source that offered it, with the choices that were on screen. Every select and close proves
+ * this identity, so no retained opener or late item can write or close a successor. */
+type EngineChooser = Readonly<{
+  token: number; page: string; revision: number;
+  snapshot: unknown; controller: unknown; preferences: unknown;
+  value: string;
+  choices: readonly Readonly<{value: string | number | boolean; label: MessageId; labelValues?: unknown}>[];
+  options: readonly Readonly<{value: string; label: string; description?: string}>[];
+  apply: (value: string) => void;
+}>;
 function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming, onQuality}: {reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; onQuality: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
@@ -332,14 +351,6 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
   const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string; description?: string}>[]; apply: (value: string) => void}>>();
   const [languages, setLanguages] = useState<Readonly<{testID: string; title: string; help?: string; value: readonly LanguageOption[]; available: readonly LanguageOption[]; limit: number; apply: (value: readonly LanguageOption[]) => void}>>();
-  /** playback-info frame 13b draws one hint under each Player choice; the runtime settings
- * structure has no hint field yet, so the drawn copy is attached by the device row that uses
- * it. The labels remain the spec's own. */
-const playerEngineHints: Readonly<Record<string, MessageId>> = Object.freeze({
-  automatic: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.0.hint',
-  native: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.1.hint',
-  mpv: 'next.settingsSpec.account.device.advanced.groups.3.rows.0.control.options.2.hint',
-});
 type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token: number; page: string; revision: number; controller: typeof controller}>;
   const [confirmOpen, setConfirmOpen] = useState<AccountConfirm>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
   // The confirmation belongs to one opening and one rendered page/route; the flight holds that
@@ -353,6 +364,29 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
   const shown = confirmOpen && confirmRef.current === confirmOpen && confirmScope.current === scope && confirmOpen.controller === controller
     && confirmOpen.page === page.id && confirmOpen.revision === route.revision ? confirmOpen : undefined;
   useLayoutEffect(() => () => {confirmRef.current = undefined; confirmFlight.current = undefined;}, []);
+  // The Player chooser is one owned opening too: the exact page/route, controller and
+  // device-preference source that offered it. A retained opener or a late item is refused.
+  const [engineOpen, setEngineOpen] = useState<EngineChooser>();
+  const engineRef = useRef<EngineChooser | undefined>(undefined), engineToken = useRef(0), engineMounted = useRef(false);
+  const engineAlive = (opening: EngineChooser | undefined) => !!opening && engineMounted.current && opening.controller === controller
+    && opening.preferences === devicePreferences && opening.page === page.id && opening.snapshot === navigation.getSnapshot()
+    && controller.lifetime.current();
+  const engineShown = engineAlive(engineOpen) ? engineOpen : undefined;
+  const closeEngine = (opening: EngineChooser) => {
+    if (engineRef.current !== opening) return;
+    engineRef.current = undefined;
+    setEngineOpen(current => current === opening ? undefined : current);
+  };
+  useLayoutEffect(() => {
+    engineMounted.current = true;
+    return () => {engineMounted.current = false;};
+  }, []);
+  // A page, route, source or unmount change retires the opening in the same layout turn.
+  useLayoutEffect(() => {
+    if (!engineOpen || engineAlive(engineOpen)) return;
+    engineRef.current = undefined;
+    setEngineOpen(undefined);
+  }, [engineOpen, route.revision, controller, devicePreferences, page.id]);
   const openConfirm = (kind: AccountConfirm['kind']) => {
     // A delayed row action from an old page may not reopen its modal on the successor page.
     if (confirmScope.current !== scope || confirmOwner.current !== controller) return;
@@ -485,7 +519,7 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
               onPress={() => setLanguages({testID: id, title: copy.label, help: copy.description, value: selected, available, limit: MAX_LANGUAGES, apply: next => change(row, next.map(language => language.id))})}/>;
           }
           const options = control.type === 'choice' ? control.choices.map(choice => {
-            const hint = row.id === 'playerEngine' ? playerEngineHints[String(choice.value)] : undefined;
+            const hint = id === 'playerEngine' ? playerEngineHints[String(choice.value)] : undefined;
             return {value: String(choice.value), label: t(choice.label, choice.labelValues), description: hint ? t(hint) : undefined};
           }) : localeChoices(defaultI18n, String(value)).map(choice => ({value: choice.id, label: choice.label}));
           const current = String(value);
@@ -496,14 +530,23 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
               else change(row, next);
             }})}/>;
         }
-        if (control.type === 'choice' && row.id === 'playerEngine') {
-          const options = control.choices.map(choice => {
+        if (control.type === 'choice' && id === 'playerEngine') {
+          const offered = control.choices;
+          const options = offered.map(choice => {
             const hint = playerEngineHints[String(choice.value)];
             return {value: String(choice.value), label: t(choice.label, choice.labelValues), description: hint ? t(hint) : undefined};
           });
+          const snapshot = navigation.getSnapshot();
           return <SettingsRow key={id} testID={id} {...copy} value={options.find(option => option.value === String(value))?.label}
-            onPress={() => setChoices({title: copy.label, help: copy.description, value: String(value), options,
-              apply: next => {const choice = control.choices.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}})}/>;
+            onPress={() => {
+              // Prove the original page and route before storing the opening; never latest refs.
+              if (snapshot !== navigation.getSnapshot() || !controller.lifetime.current()) return;
+              const opening: EngineChooser = {token: ++engineToken.current, page: page.id, revision: snapshot.revision, snapshot, controller,
+                preferences: devicePreferences, value: String(value), choices: offered, options,
+                apply: next => {const choice = offered.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);}};
+              engineRef.current = opening;
+              setEngineOpen(opening);
+            }}/>;
         }
         const choiceList = control.type === 'choice' ? control.choices : undefined;
         return <SettingsRow key={id} testID={id} {...copy}
@@ -570,9 +613,20 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
           setActionBusy(false);
         });
       }}>{t(shown?.kind === 'signOut' ? 'action.signOut' : 'settings.resetRecommendations.confirm')}</Button></View>}><View/></Dialog>
-    <Menu testID="settings-value-sheet" open={choices !== undefined} onOpenChange={open => {if (!open) setChoices(undefined);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'}
+    {theme.isTV && <Menu testID="settings-value-sheet" open={choices !== undefined} onOpenChange={open => {if (!open) setChoices(undefined);}} presentation="sideSheet"
       title={choices?.title} description={choices?.help} initialFocusId={choices?.value}
-      items={choices ? choices.options.map(option => ({id: option.value, label: option.label, description: option.description, selected: option.value === choices.value, onSelect: () => {const apply = choices.apply; setChoices(undefined); apply(option.value);}})) : []}/>
+      items={choices ? choices.options.map(option => ({id: option.value, label: option.label, description: option.description, selected: option.value === choices.value, onSelect: () => {const apply = choices.apply; setChoices(undefined); apply(option.value);}})) : []}/>}
+    {engineShown && <Menu testID="settings-player-engine-sheet" open onOpenChange={open => {if (!open && engineShown) closeEngine(engineShown);}} presentation="sheet"
+      title={t('next.settingsSpec.account.device.advanced.groups.3.rows.0.label')} initialFocusId={engineShown.value}
+      items={engineShown.options.map(option => ({id: option.value, label: option.label, description: option.description, selected: option.value === engineShown.value,
+        onSelect: () => {
+          const opening = engineRef.current;
+          if (!opening || opening !== engineShown || !engineAlive(opening)) return;
+          const choice = opening.choices.find(choice => String(choice.value) === option.value);
+          if (!choice) return;
+          engineRef.current = undefined; setEngineOpen(undefined);
+          opening.apply(option.value);
+        }}))}/>}
     {theme.isTV && <Dialog testID="settings-language-sheet" open={languages !== undefined} onOpenChange={open => {if (!open) setLanguages(undefined);}} title={languages?.title} description={languages?.help} placement="side" width={640}>
       {languages && <LanguageList testID={languages.testID} label={languages.title} value={languages.value} available={languages.available} limit={languages.limit} onChange={languages.apply}/>}
     </Dialog>}
