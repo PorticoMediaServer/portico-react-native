@@ -5,7 +5,7 @@ import type {ContentEntry} from '../../../../../../packages/client-core/src/libr
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import {artistReleaseGroups} from '../../../../../../packages/client-core/src/presentation/library-tabs';
 import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
-import {Button, Chip} from '../../../kit/controls';
+import {Button, Chip, Focusable} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {browseType} from '../../../kit/browse/presentation';
@@ -140,10 +140,11 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
             accessibilityRole="radio" accessibilityState={{checked: chosen === value}} onPress={() => setDisc(value)}>{t('title.disc', {number: defaultI18n.number(value, {useGrouping: false})})}</Chip>)}</View>}
           <TrackList songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album"/>
         </View>
-        <SectionHeading title={t('music.moreLikeThis')} detail={t('music.moreLikeThisHint')} left={200} top={896}/>
+        <SectionHeading title={t('music.moreLikeThis')} detail={t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')} left={200} top={896}/>
+        {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{position:'absolute',left:200,top:954,width:1000,zIndex:3}}/>:null}
         <View style={{position: 'absolute', left: 200, top: 954, flexDirection: 'row', gap: 32, zIndex: 2}}>
           {snapshot.similar.filter(value => value.kind === 'album').slice(0, 7).map(value => <SquareCard key={value.id} width={200} title={value.displayTitle ?? value.title}
-            caption={factLine(value.artist?.name ?? '')} artwork={runtime.artwork(value.posterUrl)} onNavigate={() => openEntry(value)} onMore={() => actions.menu(value)} moreExpanded={actions.isMenuOpen(value)}/>)}
+            caption={factLine(value.artist?.name ?? '')} artwork={runtime.artwork(value.posterUrl)} onNavigate={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} onMore={()=>{if(controller.similarCurrent(snapshot,value))actions.menu(value);}} moreExpanded={controller.similarCurrent(snapshot,value)&&actions.isMenuOpen(value)}/>)}
         </View>
       </View>
     </ScrollView>
@@ -211,14 +212,16 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
           </View>
         </View>)}
         <View>
-          <SectionHeading title={t('music.similarArtists')}/>
+          <SectionHeading title={t('music.similarArtists')} detail={snapshot.similarBySound?t('music.moreLikeThisBySound'):undefined}/>
+          {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginTop:24}}/>:null}
           <View style={{flexDirection: 'row', gap: 40, marginTop: 24}}>
             {snapshot.similar.filter(value => value.kind === 'artist').slice(0, 8).map(value => {
               const albumCovers = (value.artworkPaths ?? []).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];});
-              return <View key={value.id} style={{width: 200, alignItems: 'center', gap: 12}}>
+              return <Focusable key={value.id} accessibilityRole="button" accessibilityLabel={value.displayTitle??value.title}
+                onPress={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} style={{width:200,alignItems:'center',gap:12}}>
                 <ArtistCircle covers={albumCovers} initials={[...value.title.trim()][0] ?? ''} alt={value.title} size={200} visible/>
                 <Text numberOfLines={1} style={[browseType(theme, 22, 700), {color: theme.colors.text, textAlign: 'center'}]}>{value.displayTitle ?? value.title}</Text>
-              </View>;
+              </Focusable>;
             })}
           </View>
         </View>
