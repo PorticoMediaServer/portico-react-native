@@ -6,11 +6,12 @@ import type {ReadingClient} from '../../../../../packages/client-core/src/readin
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import {nativeRouteCrypto} from '../../platform/server-connections';
-import {Focusable} from '../../kit/controls';
+import {Button, Focusable} from '../../kit/controls';
 import {BottomSheet, Popover, SidePanel} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
+import {alpha, browseType} from '../../kit/browse/presentation';
 import {createNativeDownloadsDevice} from './device';
 import {getNativeDownloadSnapshot, closeNativeDownload, type NativeDownloadRequest} from './request';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
@@ -118,40 +119,72 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   const opening = shown.opening, freeBytes = opening?.lease.device.getSnapshot().freeBytes;
   const surface = {open: true as const, title: t('action.download'), description: request.title, testID: 'native-reading-download-sheet',
     onOpenChange: (open: boolean) => {if (!open) close(shown.opening);}};
-  const body = <View style={{gap: 12}}>
+  // tablet-read#1b/12b: the upright side panel draws its own radio rows and a
+  // stacked action group, while the phone sheet and the anchored popover keep the
+  // exact presentation they have today. Geometry and typography here are caller
+  // props; no shared kit, type or guard changes.
+  const primaryAction = (side: boolean) => selectedVersion ? <Focusable testID="reading-download-primary" accessibilityRole="button" disabled={!ready(selectedVersion) || !!shown.busy}
+      onPress={() => {if (opened && ready(selectedVersion)) void choose(opened, selectedVersion);}}
+      style={side
+        ? {height: 54, borderRadius: 12, paddingHorizontal: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+            backgroundColor: ready(selectedVersion) && !shown.busy ? theme.colors.text : theme.colors.raisedBright, opacity: ready(selectedVersion) && !shown.busy ? 1 : .55}
+        : {minHeight: 50, borderRadius: 12, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+            backgroundColor: ready(selectedVersion) && !shown.busy ? theme.colors.text : theme.colors.raisedBright, opacity: ready(selectedVersion) && !shown.busy ? 1 : .55}}>
+      {side ? <Icon name="i-dl" size={22} color={theme.colors.ink}/> : null}
+      <Text style={side ? [browseType(theme, 17, 700), {color: theme.colors.ink}] : [theme.type.bodyStrong, {color: theme.colors.ink}]}>{t(shown.busy ? 'downloads.adding' : 'action.download')}</Text>
+      <Text style={side ? [browseType(theme, 17, 700), {color: theme.colors.ink}] : [theme.type.caption, {color: theme.colors.ink}]}>{downloadBytes(selectedVersion.size)}</Text>
+    </Focusable> : null;
+  const status = <>
       {!shown.versions && shown.error === undefined && nativePublicationReadsAvailable() && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
       {(!nativePublicationReadsAvailable() || shown.versions && !versions.length) && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}/>}
       {blocked && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{downloadReasonMessage(shown.policy!.policy.reason) || t('downloads.offForProfile')}</Text>}
       {shown.error !== undefined && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
         primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (shown.opening?.current() && !shown.opening.pending) setRetry(value => value + 1);}}}/>}
+    </>;
+  const renderBody = (side: boolean) => <View style={side ? {flex: 1} : {gap: 12}}>
+      {side ? <View style={{gap: 12}}>{status}</View> : status}
       {versions.map(version => {
         const available = ready(version), selectedVersionId = selectedVersion?.sourceId === version.sourceId;
-        return <Focusable key={version.sourceId} testID={`reading-download-${version.sourceId}`} accessibilityRole="button" disabled={!available} focusKind="row" focusRadius={12}
-          accessibilityState={{selected: selectedVersionId}}
+        return <Focusable key={version.sourceId} testID={`reading-download-${version.sourceId}`} accessibilityRole={side ? 'radio' : 'button'} disabled={!available}
+          focusKind="row" focusRadius={side ? 14 : 12} accessibilityState={side ? {checked: selectedVersionId, disabled: !available} : {selected: selectedVersionId}}
           onPress={() => {if (available) setSelected(version.sourceId);}}
-          style={{minHeight: 64, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: available ? 1 : .5,
-            backgroundColor: theme.colors.raised, borderWidth: selectedVersionId ? 1 : 0, borderColor: theme.colors.accent}}>
-          <View><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{version.format.toUpperCase()}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></View>
-          {selectedVersionId && <Icon name="i-check" size={20} color={theme.colors.text}/>}
+          style={side
+            ? {minHeight: 78, marginBottom: 10, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, opacity: available ? 1 : .5,
+                backgroundColor: selectedVersionId ? alpha(theme.colors.accent, .16) : theme.colors.raisedHigh}
+            : {minHeight: 64, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: available ? 1 : .5,
+                backgroundColor: theme.colors.raised, borderWidth: selectedVersionId ? 1 : 0, borderColor: theme.colors.accent}}>
+          {side && selectedVersionId ? <View pointerEvents="none" accessible={false}
+            style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: 14, borderWidth: 2, borderColor: alpha(theme.colors.accentStrong, .7)}}/> : null}
+          {side ? <View style={{width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2,
+              borderColor: selectedVersionId ? theme.colors.accentStrong : theme.colors.lineStrong}}>
+            {selectedVersionId ? <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.accentStrong}}/> : null}
+          </View> : null}
+          {side
+            ? <><Text style={[browseType(theme, 16, 800), {color: theme.colors.text, flex: 1}]}>{version.format.toUpperCase()}</Text>
+                <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></>
+            : <><View><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{version.format.toUpperCase()}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></View>
+                {selectedVersionId && <Icon name="i-check" size={20} color={theme.colors.text}/>}</>}
         </Focusable>;
       })}
-      {freeBytes !== undefined && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(theme.platform === 'phone' ? 'next.saved.phone.free' : 'downloads.freeOnDevice', {size: downloadBytes(freeBytes)})}</Text>}
-      {!!selectedVersion && <Focusable testID="reading-download-primary" accessibilityRole="button" disabled={!ready(selectedVersion) || !!shown.busy}
-        onPress={() => {if (opened && ready(selectedVersion)) void choose(opened, selectedVersion);}}
-        style={{minHeight: 50, borderRadius: 12, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-          backgroundColor: ready(selectedVersion) && !shown.busy ? theme.colors.text : theme.colors.raisedBright, opacity: ready(selectedVersion) && !shown.busy ? 1 : .55}}>
-        <Text style={[theme.type.bodyStrong, {color: theme.colors.ink}]}>{t(shown.busy ? 'downloads.adding' : 'action.download')}</Text>
-        <Text style={[theme.type.caption, {color: theme.colors.ink}]}>{downloadBytes(selectedVersion.size)}</Text>
-      </Focusable>}
+      {freeBytes !== undefined && <Text style={side ? [browseType(theme, 13.5, 400), {color: theme.colors.textTertiary, marginTop: 6}] : [theme.type.caption, {color: theme.colors.textTertiary}]}>{t(theme.platform === 'phone' ? 'next.saved.phone.free' : 'downloads.freeOnDevice', {size: downloadBytes(freeBytes)})}</Text>}
+      {side
+        ? <View style={{marginTop: 'auto', gap: 10}}>
+            {primaryAction(true)}
+            <Button variant="glass" testID="reading-download-cancel" onPress={() => surface.onOpenChange(false)}
+              style={{height: 54, borderRadius: 12, paddingHorizontal: 26, alignSelf: 'stretch'}} textStyle={[browseType(theme, 17, 700)]}>{t('action.cancel')}</Button>
+          </View>
+        : primaryAction(false)}
     </View>;
   // tablet-read12b: on the expanded width the same real choice opens under the
   // book's own Download button. The original page lifetime is already linked, and a
   // replaced route or viewer cannot take the popover over.
   // An upright tablet uses the platform's side panel (frame 12b), the expanded width keeps
   // the popover under the book's own button, and the phone keeps its sheet.
-  return request.anchorRef && theme.width >= 1024
-    ? <Popover {...surface} anchorRef={request.anchorRef} placement="bottom-end" offset={8} width={360} showTitle>{body}</Popover>
+  const anchored = !!request.anchorRef && theme.width >= 1024;
+  return anchored
+    ? <Popover {...surface} anchorRef={request.anchorRef} placement="bottom-end" offset={8} width={360} showTitle>{renderBody(false)}</Popover>
     : theme.platform === 'phone'
-      ? <BottomSheet {...surface} fitContent>{body}</BottomSheet>
-      : <SidePanel {...surface} width={360}>{body}</SidePanel>;
+      ? <BottomSheet {...surface} fitContent>{renderBody(false)}</BottomSheet>
+      : <SidePanel {...surface} width={360} topInset={0} style={{paddingTop: 66, paddingBottom: 28}} contentStyle={{paddingHorizontal: 24}}
+          titleType={{size: 26, lineHeight: 'normal', weight: 800, tracking: -.03}} descriptionTextStyle={{fontSize: 15, lineHeight: 22.5}}>{renderBody(true)}</SidePanel>;
 }
