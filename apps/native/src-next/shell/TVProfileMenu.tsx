@@ -30,5 +30,8 @@ export function TVProfileMenu({snapshot, open, onOpenChange, returnFocusRef}: {
   </View>;
   return <Menu testID={tvFocusIds(snapshot.authority).profileMenu} open={open} onOpenChange={onOpenChange}
     title={snapshot.profile.name} presentation="anchored" placement="right-end" width={640} offset={168} alignOffset={-8}
-    anchorRef={returnFocusRef} context={context} items={items} initialFocusId="together" returnFocusRef={returnFocusRef}/>;
+    // No initial focus is named: the shared menu takes its own safe first entry - the first action
+    // that is enabled and has no enabled action before it - so the drawn order decides, and an
+    // action that is absent or disabled cannot be focused by name.
+    anchorRef={returnFocusRef} context={context} items={items} returnFocusRef={returnFocusRef}/>;
 }
