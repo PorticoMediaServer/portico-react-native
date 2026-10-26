@@ -20,8 +20,8 @@ const addressKeys = ['abcdefghi', 'jklmnopqr', 'stuvwxyz.', '012345678', '9:/@-_
 const invitationKeys = ['ABCDEFGHI', 'JKLMNOPQR', 'STUVWXYZ-', '123456789'].map(row => [...row]);
 type Ticket = {live: boolean; scope: object};
 
-/** Frames 35 and 38 draw two tiles. The Join tile is the focus and OK target;
- * the setup tile is the QR to scan. Nothing else inside the tiles is drawn. */
+/** Frames 35 and 38 draw two native focus stops. Setup is informational:
+ * OK keeps its existing QR/steps focused and invokes no command. */
 function DoorTiles({busy, revision, onJoin}: {busy: boolean; revision: number; onJoin: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision}, {regionId: 'accounts.empty.door', childId: 'join'});
@@ -31,21 +31,21 @@ function DoorTiles({busy, revision, onJoin}: {busy: boolean; revision: number; o
   const body = [nativeType({size: 26, lineHeight: 37.7, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary}];
   const chip = (icon: 'i-link' | 'i-server') => <View style={{width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center',
     marginBottom: 26, backgroundColor: `${theme.colors.accent}29`}}><Icon name={icon} size={34} color={theme.colors.accentStrong}/></View>;
-  return <FocusRegion id="accounts.empty.door" entry="join" enabled={!busy} style={{flexDirection: 'row', gap: 40, alignItems: 'stretch'}}>
+  return <FocusRegion id="accounts.empty.door" entry="join" order={['join', 'setup']} orientation="horizontal" enabled={!busy} style={{flexDirection: 'row', gap: 40, alignItems: 'stretch'}}>
     <Focusable focusId="join" focusKind="card" focusRadius={28} hasTVPreferredFocus disabled={busy} onPress={onJoin} accessibilityRole="button"
       style={{...tile, boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0, 0, 0, 0.9)'}]}}>
       {chip('i-link')}
       <Text style={heading}>{t('services.start.join')}</Text>
       <Text style={body}>{t('services.start.joinBody')}</Text>
     </Focusable>
-    <View style={tile}>
+    <Focusable focusId="setup" focusKind="card" focusRadius={28} disabled={busy} accessibilityRole="button" accessibilityLabel={t('services.start.setup')} style={tile}>
       {chip('i-server')}
       <Text style={heading}>{t('services.start.setup')}</Text>
       <Text style={[...body, {maxWidth: 380}]}>{t('services.start.phoneSetupBody')}</Text>
       <View accessible accessibilityLabel="https://getportico.tv/download/" style={{position: 'absolute', right: 44, top: 190, width: 220, height: 220, padding: 16, borderRadius: 18, backgroundColor: theme.colors.white}}>
         <QRCode value="https://getportico.tv/download/" size={188}/>
       </View>
-    </View>
+    </Focusable>
   </FocusRegion>;
 }
 
