@@ -6,7 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cachedAfterLoadingCycle, contentFadeDuration, nextLoadingPhase} from '../src-next/kit/states/loading-boundary-model.ts';
+import {cachedAfterLoadingCycle, contentFadeDuration, nextLoadingPhase, paintSkeletonVisible} from '../src-next/kit/states/loading-boundary-model.ts';
 
 test('cached content mounts straight into content, uncached waits quiet', () => {
   assert.equal(nextLoadingPhase('quiet', {type: 'mounted', ready: true, cached: true}), 'content');
@@ -37,4 +37,11 @@ test('the content fade uses the shared reduced duration', () => {
   assert.equal(contentFadeDuration(false), 180);
   assert.equal(contentFadeDuration(true), 160);
   assert.equal(contentFadeDuration(true, 180, 160), 160);
+});
+
+test('a stale quiet completion never flashes a skeleton onto a new cycle', () => {
+  assert.equal(paintSkeletonVisible(true, 0, 1), false, 'ready never paints a shape');
+  assert.equal(paintSkeletonVisible(false, 0, 0), true, 'the same cycle may paint');
+  assert.equal(paintSkeletonVisible(false, 0, 1), false, 'a previous cycle completion is stale');
+  assert.equal(paintSkeletonVisible(false, 1, 1), true, 'the timer for this cycle completed');
 });
