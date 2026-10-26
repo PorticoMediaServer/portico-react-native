@@ -17,6 +17,8 @@ export function nativeDestinationFocusIds(authority: ShellAuthority) {
     searchKeyboard: `${prefix}.search.keyboard`,
     searchKeyboardRow: (row: number) => `${prefix}.search.keyboard.row.${row}`,
     searchResults: `${prefix}.search.results`,
+    /** One region per drawn result section, so each keeps its own row memory. */
+    searchSection: (groupId: string) => `${prefix}.search.results.section.${groupId}`,
     savedTabs: `${prefix}.saved.tabs`, savedToolbar: `${prefix}.saved.toolbar`,
     savedGrid: `${prefix}.saved.grid`,
     libraryTabs: (libraryId: string) => `${prefix}.library.${JSON.stringify(libraryId)}.tabs`,

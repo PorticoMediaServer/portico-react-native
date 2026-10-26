@@ -64,8 +64,14 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
     if (!active.visible) return;
     return runtime.registerTVPageBack?.(() => {
       const current = activation.getSnapshot();
-      // Retained/hidden pages, overlays and the rail never lend Search their Back.
-      if (!current.visible || current.revision !== active.revision || registry.capture()?.regionId !== ids.searchResults) return false;
+      // Retained/hidden pages, overlays and the rail never lend Search their Back. Results now
+      // live in their own regions under the surrounding one, so a captured descendant counts too.
+      const captured = registry.capture()?.regionId;
+      const inResults = (regionId: string | undefined): boolean => {
+        for (let id = regionId; id; id = registry.config(id)?.parent) if (id === ids.searchResults) return true;
+        return false;
+      };
+      if (!current.visible || current.revision !== active.revision || !inResults(captured)) return false;
       // focusRegion uses only current enabled native key hosts and their real row memory.
       return registry.focusRegion(keyboardRow ?? ids.searchKeyboardRow(0));
     }, {kind: 'search'});
@@ -81,10 +87,14 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   const chips = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available))
     .filter(chip => chip.id === 'all' || state.group !== 'all' || !groups.some(group => group.id === chip.id && group.status === 'success' && group.totalCount === 0));
   const chipsDrawn = typed && !empty && !problem && !!state.search.data;
-  const firstEntry = typed && !empty && !problem ? shown.flatMap(group => group.items.map(entry => ({entry, group: group.id})))[0] : undefined;
+  // Each result section is its own region, so the surrounding region never names a result
+  // entry: it delegates to the first drawn section and that section's own remembered row.
+  const keyboard = keyboardRow ?? ids.searchKeyboardRow(0);
+  const keyboardKey = registry.remembered(keyboard);
+  const sections = typed && !empty && !problem ? shown : [];
   // The entry is only ever a focusable this render draws: results land in their
   // own time, and a Right press aimed at an unmounted child is a dead press.
-  const firstResult = typed && !empty && !problem && top ? tvTopResultFocusId(top.group, top.entry) : firstEntry ? nativeSearchEntryKey(firstEntry.group, firstEntry.entry)
+  const firstResult = typed && !empty && !problem && top ? tvTopResultFocusId(top.group, top.entry)
     : (!typed || empty) && genreTiles[0] ? `genre:${genreTiles[0].id}` : chipsDrawn && chips[0] ? `chip:${chips[0].id}`
     : !typed && state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
   useEffect(() => runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
@@ -104,8 +114,8 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
       <View style={{width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08)}}><Icon name="i-mic" size={28} color={theme.colors.textSecondary}/></View>
       <Text style={[browseType(theme, 20, 400, 0, 29), {color: theme.colors.textTertiary, flex: 1}]}><Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t(copy.preferToTalk)}</Text>{' '}{t(copy.voiceHint)}</Text>
     </View>}
-    <FocusRegion id={ids.searchResults} entry={firstResult} enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}}
-      style={tvSearchR46.results}>
+    <FocusRegion id={ids.searchResults} entry={firstResult} entryRegion={sections[0] ? ids.searchSection(sections[0].id) : undefined}
+      enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}} style={tvSearchR46.results}>
       <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
         setViewport({y: event.nativeEvent.contentOffset.y, height: event.nativeEvent.layoutMeasurement.height});
         if (state.group === 'all' || state.search.phase !== 'ready') return;
@@ -133,7 +143,23 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
               style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</View>}
         </>}
         {typed && !empty && !problem && top && <TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/>}
-        {typed && !empty && !problem && shown.map(group => <View key={group.id} style={tvSearchR46.section}>
+        {sections.map((group, index) => <FocusRegion key={group.id} id={ids.searchSection(group.id)}
+          entry={group.items[0] ? nativeSearchEntryKey(group.id, group.items[0]) : undefined} enabled={active.visible}
+          // A grid keeps its own movement: only a leftmost card leaves for the keyboard row the
+          // viewer last used, and rows still move up and down inside the section.
+          orientation="horizontal" edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}}
+          // Where a section's own child goes when it is removed. The registry tries the lower
+          // section first and the upper one second, so `next` is only ever a real lower section -
+          // a keyboard row there would be tried before the section above it. The first section's
+          // upper neighbour is the surrounding region, which holds the Top result and the chips.
+          neighbors={{
+            ...(sections[index + 1] ? {next: ids.searchSection(sections[index + 1]!.id)} : {}),
+            previous: sections[index - 1] ? ids.searchSection(sections[index - 1]!.id) : ids.searchResults,
+          }}
+          // Where the last resort lands: the key the viewer actually left on that keyboard row,
+          // which the registry remembers; nothing is guessed when it has none yet.
+          screenStart={keyboardKey ? {regionId: keyboard, childId: keyboardKey} : undefined}
+          style={tvSearchR46.section}>
           <View style={tvSearchR46.heading}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
             {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>
           {group.status === 'error' && <StateView {...runtime.error({code: group.errorCode}, () => run(destination.retry()))}/>}
@@ -143,7 +169,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
             renderItem={(entry, cell) => <SearchGridCard entry={entry} group={group.id} width={196} onFocus={cell.onFocus}
               runtime={runtime} actions={actions} selection={selection?.item(group.id, entry)} disabled={!active.visible}/>}/>
 
-        </View>)}
+        </FocusRegion>)}
       </View></ScrollView>
     </FocusRegion>
     {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
