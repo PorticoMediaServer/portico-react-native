@@ -87,15 +87,13 @@ export function useGuides(): {join(member: Member): () => void; focused(member: 
   }), [scope]);
 }
 
-// Not at once: between one control's blur and the next one's focus, focus is nowhere for a moment.
-const SEEK_MS = [80, 200, 400, 700, 1100, 1700, 2500];
-
 /**
- * Asks for focus on `target()` until `done()`, a few times over `tries`: a request made while a
- * screen is still arriving, or while the keyboard's window is still closing, is not honored, and
- * nothing says so. `finished` is called once, when done or out of tries. Returns how to stop.
+ * Asks for focus on `target()` until `done()`, once by default: a request made while a screen is
+ * still arriving, or while the keyboard's window is still closing, is not honored, and nothing
+ * says so. A caller may pass further `tries` for its own case. `finished` is called once, when
+ * done or out of tries. Returns how to stop.
  */
-export function seekFocus(target: () => Member | null | undefined, done: () => boolean, tries: readonly number[] = SEEK_MS, finished?: () => void): () => void {
+export function seekFocus(target: () => Member | null | undefined, done: () => boolean, tries: readonly number[] = [0], finished?: () => void): () => void {
   let over = false;
   const timers: ReturnType<typeof setTimeout>[] = [];
   const stop = () => {
@@ -172,7 +170,10 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
       if (holder === (intended ?? chosen()) || !members.current.has(holder)) return true;
       return !correcting();
     };
-    seeking.current = seekFocus(() => intended ?? chosen(), settled, SEEK_MS, () => { seeking.current = undefined; });
+    // One request. The guide owns where focus goes when it enters, so nothing re-asserts a landing
+    // afterwards: a repeated correction is what used to pull focus back off a control the viewer
+    // had already moved to.
+    seeking.current = seekFocus(() => intended ?? chosen(), settled, undefined, () => { seeking.current = undefined; });
   }, [chosen]);
   // Decided once everything that changed together has said so: a screen's controls arrive, and
   // another screen's leave, in one go.
