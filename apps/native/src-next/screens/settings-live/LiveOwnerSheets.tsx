@@ -4,7 +4,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {Button, Segmented, Select, Switch, TextField} from '../../kit/controls';
 import {Dialog} from '../../kit/overlays';
-import {SkeletonBlock, StateView} from '../../kit/states';
+import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {NativeLiveOwnerController, RemoteSourceDraft, RemoteSourcePreview, SourceKind, TunerDiscovery} from './live-owner-controller';
@@ -96,7 +96,8 @@ export function DiscoverSheet({controller, runtime, open, onOpenChange, onUse}: 
     footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={close} variant="glass" onPress={() => onOpenChange(false)}>{t('action.close')}</Button><Button variant="glass" icon="i-refresh" loading={busy} onPress={() => void search()}>{t('web.liveSource.searchAgain')}</Button></View>} testID="live-owner-discover">
     <View style={{gap: 12}}>
       {error !== undefined && <StateView testID="live-owner-discover-error" {...runtime.error(error, () => void search())}/>}
-      {busy && !result && <View style={{gap: 10}}><SkeletonBlock height={64} radius={12}/><SkeletonBlock height={64} radius={12}/></View>}
+      <LoadingBoundary ready={!busy || !!result} skeleton={<View style={{gap: 10}}><SkeletonBlock height={64} radius={12}/><SkeletonBlock height={64} radius={12}/></View>}>
+        <>
       {result && !result.discoveryEnabled && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.liveSource.searchOff')}</Text>}
       {result && result.discoveryEnabled && !result.devices.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{result.message || t('web.liveSource.noTuners')}</Text>}
       {result?.devices.map(found => <View key={found.deviceId || found.address} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raisedHigh, borderRadius: 12, padding: 14}}>
@@ -107,6 +108,8 @@ export function DiscoverSheet({controller, runtime, open, onOpenChange, onUse}: 
         {found.configured ? <Text style={[shellType(13, 700), {color: theme.colors.textSecondary}]}>{t('web.liveSource.alreadyAdded')}</Text>
           : <Button variant="glass" size="small" onPress={() => {onUse(found.baseUrl || found.address); onOpenChange(false);}}>{t('web.liveSource.useThis')}</Button>}
       </View>)}
+        </>
+      </LoadingBoundary>
     </View>
   </Dialog>;
 }

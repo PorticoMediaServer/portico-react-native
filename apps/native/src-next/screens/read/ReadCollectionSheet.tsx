@@ -3,7 +3,7 @@ import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
-import {SkeletonBlock, StateView} from '../../kit/states';
+import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
 import {linkNativeAbortSignals} from '../../platform/abort-signals';
@@ -62,9 +62,8 @@ export function ReadCollectionSheet({context, lease, owner, itemId, libraryId, k
     description: title, testID: 'native-reading-collection', onOpenChange: (open: boolean) => {if (!open) close();}};
   return <BottomSheet {...surface} fitContent>
     <View style={{gap: 10}}>
-      {(!state || state.phase === 'loading') ? <SkeletonBlock width="100%" height={180}/> : null}
       {state?.phase === 'error' ? <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
-        primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (model) void model.retryLoad().catch(() => {});}}}/> : null}
+        primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (model) void model.retryLoad().catch(() => {});}}}/> : <LoadingBoundary ready={state?.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={180}/>}>
       {state?.phase === 'ready' ? <>
         {added ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.selection.addedToast', {items: title, name: added.name})}</Text> : null}
         {!added && state.unchanged ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.selection.duplicatesToast', {count: 1})}</Text> : null}
@@ -98,6 +97,7 @@ export function ReadCollectionSheet({context, lease, owner, itemId, libraryId, k
           </Focusable> : null}
         </View> : null}
       </> : null}
+      </LoadingBoundary>}
     </View>
   </BottomSheet>;
 }
