@@ -10,6 +10,7 @@ import {Icon} from '../Icon';
 import {nativeType, useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {dismissToastGesture} from './geometry';
+import {toastClearance} from './toast-clearance';
 import {createToastClock} from './toast-clock';
 import {alpha, useSurfaceMotion} from './surface';
 import type {BannerProps, ToastHostProps, ToastMessage, ToastProps} from './types';
@@ -54,7 +55,7 @@ export function Toast({id, message, accessibilityLabel, icon, leading, action, o
   </Animated.View></GestureDetector>;
 }
 
-export function ToastHost({toast, onDismiss, bottomOffset = 84, topOffset = 80, testID}: ToastHostProps) {
+export function ToastHost({toast, onDismiss, bottomOffset = 84, obstructionTop, topOffset = 80, testID}: ToastHostProps) {
   const theme = useTheme();
   const motion = useMotion();
   const insets = useSafeAreaInsets();
@@ -111,7 +112,7 @@ export function ToastHost({toast, onDismiss, bottomOffset = 84, topOffset = 80, 
   const pause = useCallback((paused: boolean, reason = 'touch') => clock.pause(reason, paused), [clock]);
   const animation = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateY: (1 - entry.value) * 24}]}));
   if (!displayed) return null;
-  return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, {zIndex: theme.layers.notice, justifyContent: theme.isTV ? 'flex-start' : 'flex-end', alignItems: theme.isTV ? 'flex-end' : 'center', paddingHorizontal: theme.isTV ? 96 : 16, paddingTop: topOffset + insets.top, paddingBottom: bottomOffset + insets.bottom + 12}]}>
+  return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, {zIndex: theme.layers.notice, justifyContent: theme.isTV ? 'flex-start' : 'flex-end', alignItems: theme.isTV ? 'flex-end' : 'center', paddingHorizontal: theme.isTV ? 96 : 16, paddingTop: topOffset + insets.top, paddingBottom: toastClearance({bottomOffset, safeBottom: insets.bottom, obstructionTop})}]}>
     <Animated.View style={animation}><Toast {...displayed} onDismiss={dismiss} onPauseChange={pause} testID={testID}/></Animated.View>
   </View>;
 }

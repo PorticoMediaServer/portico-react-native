@@ -151,6 +151,10 @@ export type ToastHostProps = {
   onDismiss: (id: string, reason: ToastDismissReason) => void;
   /** Height of tab bar or dock, excluding the safe-area inset. */
   bottomOffset?: number;
+  /** Optional presentation-only clearance: the top of whatever actually occupies the
+   * bottom of this screen, measured from the viewport bottom. Omitted by every
+   * existing caller, which then keeps the original bottomOffset + safe area + 12. */
+  obstructionTop?: number;
   topOffset?: number;
   testID?: string;
 };
