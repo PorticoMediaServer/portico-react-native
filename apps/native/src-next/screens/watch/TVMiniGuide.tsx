@@ -1,5 +1,6 @@
-import React, {useRef} from 'react';
+import React, {useCallback, useEffect, useRef} from 'react';
 import {Modal, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
+import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {GuideChannelRow, GuideProgram} from '../../../../../packages/client-core/src/guide/types';
 import {channelTint} from '../../../../../packages/client-core/src/presentation/kit-model/index';
@@ -12,6 +13,8 @@ import {Artwork} from '../../kit/artwork/Artwork';
 import type {ArtworkSource} from '../../kit/artwork/types';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {nativeType, useTheme} from '../../kit/theme';
+import {useMotion} from '../../kit/useMotion';
+import {useTVPanelPresence} from '../../kit/overlays/TVPanelMotion';
 
 /** One supplied channel: the canonical channel row and the programmes the parent
  * proved for it. Nothing here is read, resolved or invented by this component. */
@@ -23,6 +26,9 @@ export type NativeMiniGuideRow = Readonly<{
 }>;
 
 export type NativeMiniGuideProps = Readonly<{
+  open?: boolean;
+  /** Presentation completion only; the caller still owns original-opener proof. */
+  onExited?: () => void;
   /** At most five real channels: the current one and the known neighbours. */
   rows: readonly NativeMiniGuideRow[];
   /** The viewer's current clock, already on the parent's authority. */
@@ -51,14 +57,30 @@ const clock = (at: number, locale: string, timezone: string): string | undefined
  * channel actually playing when it can be tuned, else the first tuneable row; OK
  * tunes, Back closes. The caller owns the opening and the real host's restoration. */
 export function NativeMiniGuide(props: NativeMiniGuideProps) {
+  const open = props.open ?? true;
+  const presence = useTVPanelPresence(open ? props : undefined, undefined);
+  const exited = () => {if (!open) {presence.exited(); props.onExited?.();}};
+  return presence.value ? <MiniGuideSurface {...presence.value} open={open} onExited={exited}/> : null;
+}
+
+function MiniGuideSurface(props: NativeMiniGuideProps & {open: boolean; onExited: () => void}) {
   const theme = useTheme(), window = useWindowDimensions(), t = defaultI18n.t, locale = defaultI18n.locale;
+  const motion = useMotion(), opacity = useSharedValue(0), finished = useRef(props.onExited);
+  finished.current = props.onExited;
+  const exited = useCallback(() => finished.current(), []), open = props.open;
+  useEffect(() => {
+    opacity.value = withTiming(open ? 1 : 0, {...motion.timing(open ? 'standard' : 'quick', open ? 'out' : 'in'),
+      duration: motion.reduce ? 160 : open ? 180 : 120}, done => {if (done && !open) runOnJS(exited)();});
+    return () => cancelAnimation(opacity);
+  }, [open, motion, opacity, exited]);
+  const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
   // The frame's own limit; supplied rows are never stretched to fill it.
   const rows = props.rows.slice(0, 5);
   const tuneable = (row: NativeMiniGuideRow) => row.channel.tuneAvailable;
   const watching = rows.findIndex(row => row.watching && tuneable(row));
   const entry = watching >= 0 ? watching : rows.findIndex(tuneable);
   const first = useRef<View>(null);
-  useOverlayLifecycle(theme.isTV, true, () => props.onClose(), first, undefined, 0, 'tv-mini-guide', false);
+  useOverlayLifecycle(theme.isTV && props.open, true, () => props.onClose(), first, undefined, 0, 'tv-mini-guide', false);
   if (!theme.isTV) return null;
   const canvas = shellLayout(window.width, window.height, true), glass = glassRecipe(), radius = 24;
   // Cross-source channels can share an id, so a row is named by kind, source and id.
@@ -80,7 +102,7 @@ export function NativeMiniGuide(props: NativeMiniGuideProps) {
       <Text numberOfLines={1} adjustsFontSizeToFit style={[nativeType({size: 20, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{row.channel.number}</Text></View>;
   };
   return <Modal transparent visible animationType="none" onRequestClose={props.onClose} statusBarTranslucent navigationBarTranslucent>
-    <View style={StyleSheet.absoluteFill} accessibilityViewIsModal>
+    <Animated.View pointerEvents={props.open ? 'auto' : 'none'} accessibilityElementsHidden={!props.open} importantForAccessibility={props.open ? 'auto' : 'no-hide-descendants'} style={[StyleSheet.absoluteFill, fade]} accessibilityViewIsModal>
       <View pointerEvents="box-none" testID="tv-mini-guide-canvas" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
         {/* The drawn shell keeps its shadow outside the clipped glass layer. */}
         <View style={{position: 'absolute', right: 96, top: 80, width: 680, borderRadius: radius,
@@ -97,9 +119,9 @@ export function NativeMiniGuide(props: NativeMiniGuideProps) {
             {!!props.error && <View style={{paddingHorizontal: 12, paddingBottom: 12}}>{props.error}</View>}
             {props.loading && <Text style={[nativeType({size: 19, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, paddingHorizontal: 12, paddingBottom: 12}]}>{t('next.browse.native.markAllPreparing')}</Text>}
             {rows.map((row, index) => {
-              const bar = progress(row), next = row.next, at = next ? clock(next.start, locale, props.timezone) : undefined, disabled = props.busy || !tuneable(row);
+              const bar = progress(row), next = row.next, at = next ? clock(next.start, locale, props.timezone) : undefined, disabled = !props.open || props.busy || !tuneable(row);
               return <Focusable key={rowKey(row)} ref={index === entry ? first : undefined} focusId={`tv-mini-guide-${rowKey(row)}`} testID={`tv-mini-guide-${rowKey(row)}`}
-                focusKind="row" focusRadius={16} hasTVPreferredFocus={index === entry} disabled={disabled} accessibilityRole="button"
+                focusKind="row" focusRadius={16} hasTVPreferredFocus={props.open && index === entry} disabled={disabled} accessibilityRole="button"
                 accessibilityLabel={[row.channel.name, row.channel.number, row.now?.title ?? t('guide.noInformation')].filter(Boolean).join(', ')}
                 onPress={() => {if (!disabled) props.onSelect(row.channel);}}
                 style={({focused}) => ({flexDirection: 'row', alignItems: 'center', height: 112, paddingHorizontal: 16, borderRadius: 16,
@@ -122,8 +144,8 @@ export function NativeMiniGuide(props: NativeMiniGuideProps) {
                 </View>
               </Focusable>;
             })}
-            <Focusable ref={entry < 0 ? first : undefined} focusId="tv-mini-guide-all" testID="tv-mini-guide-all" focusKind="row" focusRadius={12} disabled={props.busy}
-              onPress={() => {if (!props.busy) props.onFullGuide();}} style={({focused}) => ({flexDirection: 'row', alignItems: 'center', gap: 6,
+            <Focusable ref={entry < 0 ? first : undefined} focusId="tv-mini-guide-all" testID="tv-mini-guide-all" focusKind="row" focusRadius={12} disabled={!props.open || props.busy}
+              onPress={() => {if (props.open && !props.busy) props.onFullGuide();}} style={({focused}) => ({flexDirection: 'row', alignItems: 'center', gap: 6,
                 paddingTop: 14, paddingHorizontal: 16, paddingBottom: 4, borderRadius: 12, backgroundColor: focused ? 'rgba(237,245,250,.12)' : 'transparent'})}>
               <Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.live.openFullGuide')}</Text>
               <Icon name="i-right" size={22} color={theme.colors.textSecondary}/>
@@ -131,6 +153,6 @@ export function NativeMiniGuide(props: NativeMiniGuideProps) {
           </FocusBoundary>
         </View>
       </View>
-    </View>
+    </Animated.View>
   </Modal>;
 }
