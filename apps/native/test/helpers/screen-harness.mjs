@@ -65,5 +65,6 @@ export const listeningCoverFixture = {
   ListeningCoverProvider: ({children}) => children,
   ListeningCoverLocalPaint: 'ListeningCoverLocalPaint',
   useListeningCoverPublication() {},
+  useListeningPageStyle: () => ({}),
   useListeningCoverSlot: () => ({measure() {}, style: {}}),
 };

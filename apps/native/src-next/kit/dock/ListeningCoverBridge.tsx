@@ -10,7 +10,7 @@ import {ListeningCoverPaint} from './ListeningCoverPaint';
 import {validRect} from './model';
 import type {DockRect, PlayerMorphController} from './types';
 
-type Publication = Readonly<{fence: PlaybackFence; source: ArtworkSource; controller: PlayerMorphController; scope: object | undefined; opening: object; current: () => boolean; subscribe?: (listener: () => void) => () => void}>;
+type Publication = Readonly<{fence: PlaybackFence; source?: ArtworkSource; controller: PlayerMorphController; scope: object | undefined; opening: object; current: () => boolean; subscribe?: (listener: () => void) => () => void}>;
 type Slot = 'full' | 'mini';
 type Frame = Readonly<{fence: PlaybackFence; scope: object | undefined; opening: object; revision: number; bounds: DockRect}>;
 type ContextValue = Readonly<{canvas: RefObject<View | null>; revision: number; binding?: Publication; full?: Frame; mini?: Frame; decoded: boolean; active: boolean;
@@ -46,18 +46,18 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
   const decodeFrame = fullFrame ?? miniFrame;
   const request = useMemo(() => ({binding, width: decodeFrame?.width, height: decodeFrame?.height}), [binding, decodeFrame?.width, decodeFrame?.height]);
   const latestRequest = useRef(request); latestRequest.current = request;
-  const decoded = !!binding && !!decodedSource && !!decodeFrame && sameSource(binding.source, decodedSource.source)
+  const decoded = !!binding?.source && !!decodedSource && !!decodeFrame && sameSource(binding.source, decodedSource.source)
     && decodedSource.width === decodeFrame.width && decodedSource.height === decodeFrame.height;
   const value = useMemo(() => ({canvas, revision, binding, full, mini, decoded, active, publish, report}), [revision, binding, full, mini, decoded, active, publish, report]);
   return <Context.Provider value={value}>{children}{!theme.isTV && <View ref={canvas} collapsable={false} pointerEvents="none" accessible={false}
     accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={() => setRevision(value => value + 1)}
     style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>
-    {active && binding && miniFrame && decodeFrame && <CoverLayer binding={binding} full={fullFrame} mini={miniFrame} decoded={decoded}
-      onReady={source => {if (latestRequest.current === request && binding.current() && sameSource(source, binding.source)) setDecodedSource({source, width: decodeFrame.width, height: decodeFrame.height});}}/>}
+    {active && binding?.source && miniFrame && decodeFrame && <CoverLayer binding={binding as Publication & {source: ArtworkSource}} full={fullFrame} mini={miniFrame} decoded={decoded}
+      onReady={source => {if (latestRequest.current === request && binding.current() && binding.source && sameSource(source, binding.source)) setDecodedSource({source, width: decodeFrame.width, height: decodeFrame.height});}}/>}
   </View>}</Context.Provider>;
 }
 
-function CoverLayer({binding, full, mini, decoded, onReady}: {binding: Publication; full?: DockRect; mini: DockRect; decoded: boolean; onReady: (source: ArtworkSource) => void}) {
+function CoverLayer({binding, full, mini, decoded, onReady}: {binding: Publication & {source: ArtworkSource}; full?: DockRect; mini: DockRect; decoded: boolean; onReady: (source: ArtworkSource) => void}) {
   const motion = useMotion(), {progress, dragging} = binding.controller;
   const moving = useAnimatedStyle(() => {
     const p = progress.value;
@@ -125,4 +125,21 @@ function useListeningCoverPaint(fence: PlaybackFence | undefined) {
     const p = progress.value;
     return {opacity: dragging.value || motion.transforms && p > .0001 && p < .9999 ? 0 : 1};
   }, [usable, progress, dragging, motion.transforms]);
+}
+
+
+/** The page paint follows the same admitted player's UI progress. The measured
+ * cover slot itself stays untransformed; only its painted image/background move. */
+export function useListeningPageStyle(fence: PlaybackFence | undefined, height: number, fallbackVisible = false) {
+  const context = useContext(Context), motion = useMotion();
+  const binding = context?.binding;
+  const hasBinding = !!binding;
+  const current = !!fence && !!binding && sameFence(fence, binding.fence) && context.active;
+  const progress = binding?.controller.progress, dragging = binding?.controller.dragging;
+  return useAnimatedStyle(() => {
+    if (!hasBinding) return {opacity: fallbackVisible ? 1 : 0};
+    if (!current || !progress) return {opacity: 0};
+    const open = Math.max(0, Math.min(1, 1 - progress.value));
+    return {opacity: Math.min(1, open * 2.5), transform: [{translateY: motion.transforms || dragging?.value ? height * (1 - open) : 0}]};
+  }, [hasBinding, current, progress, dragging, height, fallbackVisible, motion.transforms]);
 }
