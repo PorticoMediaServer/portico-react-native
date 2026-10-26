@@ -14,9 +14,14 @@ export type TVCodePresenterProps = Readonly<{
   body: React.ReactNode;
   verificationUri?: string; verificationUriComplete?: string; userCode?: string;
   status?: React.ReactNode; busy: boolean; onTypeCredentials: () => void; onBack: () => void;
+  /** Offered only when the code is terminal: the caller's own captured-service New code. */
+  onNewCode?: () => void;
 }> & Readonly<{mode: 'portico'; serverName?: string} | {mode: 'local'; serverName: string}>;
 
 /** Auth8/9 route buttons call the real transaction owner; this view never contacts either authority. */
+/** The order the buttons are painted in; the region order must be this, not a variant of it. */
+const PAINTED = ['credentials', 'new-code', 'back'] as const;
+
 export function TVCodePresenter(props: TVCodePresenterProps) {
   return <FocusProvider><CodePresenter {...props}/></FocusProvider>;
 }
@@ -46,8 +51,9 @@ function CodePresenter(props: TVCodePresenterProps) {
     heading={props.mode === 'portico' ? t('activation.title') : props.serverName}
     eyebrow={props.mode === 'local' ? t('accounts.signIn.to') : undefined} body={props.body}>
     {props.status}
-    <FocusRegion id={id} entry="credentials" order={props.mode === 'portico' ? ['credentials', 'back'] : ['credentials']} enabled={!props.busy} style={{flexDirection: 'row', gap: 20}}>
+    <FocusRegion id={id} entry={props.onNewCode ? 'new-code' : 'credentials'} order={[...(props.mode === 'portico' ? ['credentials', 'back'] : ['credentials']), ...(props.onNewCode ? ['new-code'] : [])].sort((a, b) => PAINTED.indexOf(a) - PAINTED.indexOf(b))} enabled={!props.busy} style={{flexDirection: 'row', gap: 20}}>
       <Button focusId="credentials" disabled={props.busy} onPress={props.onTypeCredentials} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t(props.mode === 'portico' ? 'accounts.signIn.onTV' : 'quickConnect.usePassword')}</Button>
+      {props.onNewCode && <Button focusId="new-code" disabled={props.busy} onPress={props.onNewCode} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t('activation.getNewCode')}</Button>}
       {props.mode === 'portico' && <Button focusId="back" variant="glass" disabled={props.busy} onPress={props.onBack} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t('action.back')}</Button>}
     </FocusRegion>
   </TVAuthLayout>;

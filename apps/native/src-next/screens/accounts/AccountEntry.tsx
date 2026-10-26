@@ -158,6 +158,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const providerNameSeed = useRef<string | undefined>(undefined);
   registerOpeningRef.current = registerOpening; providerOpeningRef.current = providerOpening;
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack; authPrepareFailedRef.current = authPrepareFailed;
+  const tvOpening = useRef(0);
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace; createSource?: () => NativeAccountWorkspace};
@@ -467,6 +468,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   directoryConnectRef.current = connectDirectory;
   const chooseAnother = () => cancelDirectory();
   const startTV = async (kind: 'local' | 'portico') => {
+    tvOpening.current += 1;
     setTVKind(kind); setTVState({phase: 'idle'});
     const service = kind === 'local' ? operation.current!.localTVSignIn() : createNativePorticoTVSignIn();
     tv.current = service; let adopting = false;
@@ -483,6 +485,18 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       }
     });
     setStage('tv'); await service.start();
+  };
+  /**
+   * The one terminal New code operation, shared by the phone and TV branches. It acts on the
+   * service that opened this presenter - not on whatever `tv.current` holds by the time the
+   * viewer presses - and it continues only while this is still the same opening.
+   */
+  const startNewCode = async () => {
+    const service = tv.current, opening = tvOpening.current;
+    tvOff.current?.(); tvOff.current = undefined; tv.current = undefined;
+    if (service) await service.cancel();
+    if (!lifetime.current || tvOpening.current !== opening) return;
+    await startTV(tvKind === 'local' ? 'local' : 'portico');
   };
   const portico = async (auto?: {active: boolean; entry: {active: boolean}}) => {
     const autoCurrent = () => !auto || (auto.active && auto.entry === rootEntry.current && stageRef.current === 'welcome');
@@ -1542,13 +1556,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   if (Platform.isTV) return <TVCodePresenter {...(tvKind === 'local' ? {mode: 'local' as const, serverName: server!.name} : {mode: 'portico' as const})} body={consentBody}
     verificationUri={tvState.verificationUri} verificationUriComplete={tvState.verificationUriComplete} userCode={tvState.userCode}
     status={<>{status}<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(tvState.phase === 'denied' ? 'activation.declined' : tvState.phase === 'error' ? 'activation.failed' : 'activation.codeRefreshes')}</Text></>}
-    busy={busy} onTypeCredentials={() => {void run(typeTVCredentials);}} onBack={back}/>;
+    busy={busy} onTypeCredentials={() => {void run(typeTVCredentials);}} onBack={back}
+    onNewCode={tvState.phase === 'error' || tvState.phase === 'denied' || error ? () => {void run(startNewCode);} : undefined}/>;
   return layout(t('activation.title'), consentBody,
     <View style={{gap: 16, marginBottom: 20}}>{tvState.verificationUriComplete && <QRCode value={tvState.verificationUriComplete} size={theme.isTV ? 240 : 180}/>}
       <Text selectable style={[theme.type.title, {color: theme.colors.text}]}>{tvState.userCode ?? t('activation.preparingCode')}</Text>
       {tvState.verificationUri && <Text selectable style={[theme.type.body, {color: theme.colors.textSecondary}]}>{tvState.verificationUri}</Text>}
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(tvState.phase === 'denied' ? 'activation.declined' : tvState.phase === 'error' ? 'activation.failed' : 'activation.codeRefreshes')}</Text></View>,
-    tvState.phase === 'error' || tvState.phase === 'denied' || error ? action('new-code', t('activation.getNewCode'), async () => {
-      tvOff.current?.(); tvOff.current = undefined; await tv.current!.cancel(); await startTV(server?.signIn === 'local' ? 'local' : 'portico');
-    }) : undefined);
+    tvState.phase === 'error' || tvState.phase === 'denied' || error ? action('new-code', t('activation.getNewCode'), startNewCode) : undefined);
 }
