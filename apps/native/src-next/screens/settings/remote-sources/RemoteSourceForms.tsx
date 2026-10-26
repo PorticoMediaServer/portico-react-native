@@ -115,6 +115,11 @@ const presetLabels = [
   'next.settingsSpec.server.remote-sources.panels.source.tabs.1.groups.0.rows.0.control.options.3.label',
 ] as const;
 
+/** The drawn name of one known reading preset, from the same options the editor uses. */
+export function sourceReadPresetLabel(t: Translate, preset: SourceReadPreset): string {
+  return t(presetLabels[presets.indexOf(preset)]);
+}
+
 export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source: RemoteSource; onSaved: () => void}) {
   const current = useAttempt(isCurrent), inFlight = useRef(false);
   const [profile, setProfile] = useState<SourceReadSettings>(), [values, setValues] = useState<SourceReadValues>();
