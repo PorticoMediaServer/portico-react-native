@@ -94,7 +94,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     '../../platform/native-blur': {BlurView: 'BlurView'}, '../../platform/haptics': {selectionHaptic}});
   const {DockHost} = await screenModule(new URL('../src-next/kit/dock/DockHost.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, './MediaBar': {MediaBar}, './NowPlayingCard': {NowPlayingCard: 'NowPlayingCard'},
-    './DockNotice': {DockNotice: 'DockNotice'}, './useDockPresence': {useDockPresence}});
+    './DockNotice': {DockNotice: 'DockNotice'}, './DockClearance': {useDockClearanceReport() {}}, './useDockPresence': {useDockPresence}});
   const playback: DockPlayback = kind === 'live' ? {...initial, kind, fence: channelFence, playing: !paused} : {...initial, kind, playing: !paused};
   const dock = new PlaybackDock(scope); dock.start({...playback, expanded: !docked});
   let snapshot: any;

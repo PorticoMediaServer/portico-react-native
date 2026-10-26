@@ -9,6 +9,7 @@ import {DockNotice} from './DockNotice';
 import {sameDockFence, commandAllowed, commandIsCurrent, currentOccupant, dockBarFrame, expandedDockMetrics} from './model';
 import {alpha, dockStyles} from './visual';
 import {useDockPresence} from './useDockPresence';
+import {useDockClearanceReport} from './DockClearance';
 import {useMotion} from '../useMotion';
 import type {DockCommand, DockHostProps, DockRect, DockRenderOccupant} from './types';
 
@@ -48,6 +49,8 @@ export function DockHost({dock, snapshot, presentation, castView, onAction, bott
   useEffect(() => {dim.value = withTiming(dimWanted ? 1 : 0, motion.timing('standard'));}, [dim, dimWanted, motion]);
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const shown = presence.shown;
+  const barHeight = theme.platform === 'web' ? expandedDockMetrics.height : theme.platform === 'tablet' ? 66 : 62;
+  useDockClearanceReport(!theme.isTV && shown ? frame.bottom + barHeight : 0);
   if (!shown) return null;
   const tvOpen = tvExpanded ?? expanded;
   return <View pointerEvents="box-none" style={[dockStyles.fill, {zIndex: theme.layers.player}, style]}>

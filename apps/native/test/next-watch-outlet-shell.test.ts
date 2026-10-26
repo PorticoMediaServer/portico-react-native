@@ -18,6 +18,7 @@ test('the real shell mounts one persistent player and a separate box-none watch 
     renderWatch: () => React.createElement('WatchChrome'),
     renderRoutes: () => React.createElement('TitleRoutes'), renderSelection: () => React.createElement('MenuOverlays'), renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},

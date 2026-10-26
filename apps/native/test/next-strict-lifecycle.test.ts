@@ -256,6 +256,7 @@ function shellRuntime(onMemoryRead?: () => void) {
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime) {
   const registry = createFocusRegistry();
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,

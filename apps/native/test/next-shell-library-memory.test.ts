@@ -20,6 +20,7 @@ test('a real screen-owned Library destination is remembered and a late initial r
     onDestination: (destination: unknown) => {navigations.push(destination); snapshot = {...snapshot, destination};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}, scrollToTop() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},

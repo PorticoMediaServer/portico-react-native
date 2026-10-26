@@ -30,6 +30,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: (capture: boolean) => {menuCapture.push(capture);}},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},

@@ -62,6 +62,8 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../shell/model': shellModel, '../../shell/tv-focus': focusModel, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './HomeHeroFacts': {}, './model': homeModel,
   });
   const screenServices = await screenModule(source('screens/native-screen-services.tsx'), {
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},
+    '../kit/dock/DockClearance': {useDockClearance: () => 0, feedbackBottomOffset: (base: number) => base},
     react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
     '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
   });

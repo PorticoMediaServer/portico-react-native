@@ -1,5 +1,7 @@
 import React, {useSyncExternalStore} from 'react';
 import {NativeModules} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {feedbackBottomOffset, useDockClearance} from '../kit/dock/DockClearance';
 import type {ErrorContext} from '../../../../packages/client-core/src/presentation/errors';
 import type {NativeShellBootstrapContext} from '../shell/bootstrap';
 import {ToastHost} from '../kit/overlays';
@@ -28,7 +30,8 @@ export function nativeScreenServices(context: Owner): NativeScreenServices {
 /** Mount once in the genuine shared overlay outlet. */
 export function NativeScreenFeedbackHost({service, bottomOffset}: {service: NativeScreenServices; bottomOffset?: number}) {
   const toast = useSyncExternalStore(service.subscribe, service.getSnapshot);
-  return <ToastHost toast={toast} onDismiss={service.dismiss} bottomOffset={bottomOffset}/>;
+  const dockTop = useDockClearance(), insets = useSafeAreaInsets();
+  return <ToastHost toast={toast} onDismiss={service.dismiss} bottomOffset={feedbackBottomOffset(bottomOffset ?? 84, dockTop, insets.bottom)}/>;
 }
 
 export function nativeScreenError(service: NativeScreenServices, context: ErrorContext) {
