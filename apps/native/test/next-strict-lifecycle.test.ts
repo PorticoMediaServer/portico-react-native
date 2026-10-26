@@ -1,3 +1,4 @@
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds, tvHomeRegionMap, sameDestination} from '../src-next/shell/tv-focus';
@@ -257,6 +258,7 @@ async function shellSession(state: ReturnType<typeof lifecycle>, runtime: Native
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
+    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,

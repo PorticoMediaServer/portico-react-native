@@ -1,4 +1,5 @@
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -65,6 +66,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
+    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     react: {...React, default: React}, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: options.os ?? 'android'}, View: 'View', useWindowDimensions: () => dimensions},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
