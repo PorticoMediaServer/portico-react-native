@@ -11,12 +11,16 @@ import type {NativeRemoteSourcesController} from './controller';
 import {Page, Problem, remoteSourceError, useAttempt} from './RemoteSourceForms';
 
 /** Saved-source directory producer only; no local filesystem discovery or invented folders. */
-export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel, onChoose}: {
-  controller: NativeRemoteSourcesController; source: RemoteSource; t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void; onChoose: (folders: readonly ChosenSourceFolder[]) => void;
+export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel, onChoose, initial}: {
+  controller: NativeRemoteSourcesController; source: RemoteSource; t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void;
+  onChoose: (folders: readonly ChosenSourceFolder[]) => void; initial?: readonly ChosenSourceFolder[];
 }) {
   const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), selectionRevision = useRef(0);
   const renderedSelection = selectionRevision.current;
-  const [chosen, setChosen] = useState<readonly ChosenSourceFolder[]>([]);
+  // The current assignment's chosen set, preserved exactly; a set over the maximum is
+  // kept whole and the choose action stays refused rather than silently dropping one.
+  const [chosen, setChosen] = useState<readonly ChosenSourceFolder[]>(() => initial ? [...initial] : []);
+  const overflow = chosen.length > 64;
   const toggle = (folder: ChosenSourceFolder) => {if (!flight.current && current()) {selectionRevision.current++; setChosen(rows => rows.some(row => row.relative === folder.relative)
     ? rows.filter(row => row.relative !== folder.relative) : rows.length < 64 ? [...rows, folder] : rows);}};
   const [page, setPage] = useState<RemoteFolderPage>(), [hidden, setHidden] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string>();
@@ -40,7 +44,7 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel,
   }, []);
   const parent = page?.relative.split('/').slice(0, -1).join('/') ?? '';
   const trail = (page?.relative ?? '').split('/').filter(Boolean);
-  return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={<Button disabled={busy || !chosen.length} onPress={() => {if (!flight.current && current() && selectionRevision.current === renderedSelection && chosen.length) onChoose(chosen);}}>{t(chosen.length === 1 ? 'next.remoteSources.useOneFolder' : 'next.remoteSources.useFolders', {count: chosen.length})}</Button>}>
+  return <Page title={t('next.remoteSources.foldersSection')} t={t} busy={busy} onCancel={onCancel} footer={<Button disabled={busy || !chosen.length || overflow} onPress={() => {if (!flight.current && current() && selectionRevision.current === renderedSelection && chosen.length && !overflow) onChoose(chosen);}}>{t(chosen.length === 1 ? 'next.remoteSources.useOneFolder' : 'next.remoteSources.useFolders', {count: chosen.length})}</Button>}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{source.name}</Text>
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.foldersOnlyHint')}</Text>
     {page && <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6}}>
