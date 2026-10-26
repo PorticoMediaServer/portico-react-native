@@ -137,15 +137,15 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
   // asks to be where focus starts, or the first one there is.
   const chosen = useCallback((): Member | undefined => {
     const all = members.current;
+    // The control that had focus here, while it is still here: a real remembered landing, not a
+    // name looked up again. A control drawn anew is a different control.
     for (const was of history.current) if (all.has(was)) return was;
-    const name = history.current[0]?.label;
-    let named: Member | undefined, preferring: Member | undefined, first: Member | undefined;
+    let preferring: Member | undefined, first: Member | undefined;
     for (const member of all) {
       first ??= member;
       if (!preferring && member.prefers) preferring = member;
-      if (!named && name !== undefined && member.label === name) named = member;
     }
-    return named ?? preferring ?? first;
+    return preferring ?? first;
   }, []);
   // A screen's guide: brings focus to its choice when it is the front screen and focus is
   // nowhere, or has just landed on another of its controls (the system's pick as the screen
@@ -230,11 +230,25 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
 
 const Guide = forwardRef<GuideNode, GuideProps>(function TVFocusGuideView(props, ref) {
   const unreachable = useContext(Unreachable) || props.focusable === false;
-  // A guide given its destinations decides for itself.
-  const managing = props.autoFocus === true && props.destinations === undefined;
+  // The caller may own the destinations instead: the shared focus region hands them over through
+  // `ref.setDestinations`, and from that first call on they are the caller's to set.
+  const [imperative, setImperative] = useState(false);
+  const attach = useCallback((node: GuideNode | null) => {
+    if (node) {
+      const own = node.setDestinations.bind(node);
+      (node as unknown as {setDestinations(destinations: Parameters<typeof own>[0]): void}).setDestinations = destinations => {
+        setImperative(true);
+        own(destinations);
+      };
+    }
+    if (typeof ref === 'function') ref(node);
+    else if (ref) (ref as {current: GuideNode | null}).current = node;
+  }, [ref]);
+  // A guide given its destinations decides for itself; one the caller drives does not.
+  const managing = props.autoFocus === true && props.destinations === undefined && !imperative;
   return (
     <Unreachable.Provider value={unreachable}>
-      <Remembering ref={ref} reachable={!unreachable} managing={managing} {...props} />
+      <Remembering ref={attach} reachable={!unreachable} managing={managing} {...props} />
     </Unreachable.Provider>
   );
 });
