@@ -196,7 +196,8 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
   const rotationRun = useRef<object | undefined>(undefined);
   const change = useCallback((next: number) => {rotation.clock.reset(); progress.value = 0; if (activeIndex === undefined) setLocalIndex(next); onIndexChange?.(next);}, [activeIndex, rotation, onIndexChange, progress]);
   useEffect(() => {const subscription = AppState.addEventListener('change', next => setAppVisible(next === 'active')); return () => subscription.remove();}, []);
-  const canRotate = candidates.length > 1 && active && visible && appVisible && !motion.reduce && !reducedMotion && !hovered && (tv ? heroFocused : !controlFocused);
+  const [touching, setTouching] = useState(false);
+  const canRotate = candidates.length > 1 && active && visible && appVisible && !motion.reduce && !reducedMotion && !hovered && !touching && (tv ? heroFocused : !controlFocused);
   useEffect(() => {progress.value = 0;}, [rotation, progress]);
   useEffect(() => {
     if (!canRotate) return;
@@ -219,6 +220,9 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
     </Focusable>)}
   </View> : null;
   return <View testID={testID} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}
+    {...(tv ? {} : {onTouchStart: () => setTouching(true),
+      onTouchEnd: (event: {nativeEvent: {touches: readonly unknown[]}}) => {if (event.nativeEvent.touches.length === 0) setTouching(false);},
+      onTouchCancel: () => setTouching(false)})}
     onFocus={() => setControlFocused(true)} onBlur={() => setControlFocused(false)}
     style={[{height: height ?? (variant === 'phone-web' ? heroSpec.mobileWeb.homeHeight : variant === 'desktop' ? heroSpec.homeHeight.web : heroSpec.homeHeight[theme.platform]), position: 'relative'}, style]}>
     <HeroSurface {...props} entry={candidates[index]} variant={variant} active={active} visible={visible && appVisible} reducedMotion={reducedMotion} heroFocused={heroFocused}
