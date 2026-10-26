@@ -142,11 +142,12 @@ export class NativeReadBook {
     this.command = undefined;
   }
   private current = (): boolean => {
-    const origin = this.origin, captured = this.captured, selected = this.context.session();
-    if (this.disposed || !origin || !captured || !this.authority || !selected || !this.context.current()) return false;
-    if (selected.sessionFamilyId !== captured.sessionFamilyId || !sameAuthority(this.authority, this.context.authority())) return false;
+    const origin = this.origin, captured = this.captured, authority = this.authority, selected = this.context.session();
+    if (this.disposed || !origin || !captured || !authority || !selected || !this.context.current()) return false;
+    if (selected.sessionFamilyId !== captured.sessionFamilyId || !sameAuthority(authority, this.context.authority())) return false;
     const snapshot = this.context.navigation.getSnapshot();
-    return snapshot.route === origin.route && snapshot.revision === origin.revision;
+    return !this.disposed && this.origin === origin && this.captured === captured && this.authority === authority
+      && snapshot.route === origin.route && snapshot.revision === origin.revision;
   };
   private reading(): ReadingClient {
     const captured = this.captured;
@@ -374,32 +375,52 @@ export class NativeReadBook {
     await this.load();
   };
   retry = (): Promise<void> => this.load();
-  /** Toggle the exact rendered My List membership. A retained menu cannot act
-   * under a newer ready state or a replaced page. */
-  toggleList = async (membership: ReadingListMembership): Promise<boolean> => {
-    const origin = this.origin, life = this.life;
-    if (this.command || !origin || !life || !this.current() || this.state.phase !== 'ready' || this.state.listed !== membership) return false;
-    const ticket = {};
-    this.command = ticket;
+  /** Claim before invoking context/client/random callbacks. Both personal
+   * controls retain the original page, manifest, version and offered revision. */
+  private personalCommand(field: 'listed' | 'read', offered: ReadingListMembership | ReadingReadMark) {
+    if (this.command) return undefined;
+    const ticket = {}; this.command = ticket;
+    const origin = this.origin, life = this.life, captured = this.captured;
+    const manifest = this.state.manifest, sourceId = this.state.sourceId;
+    const current = () => {
+      const same = () => this.command === ticket && !!origin && this.origin === origin && !!life && this.life === life && !life.signal.aborted
+        && this.captured === captured && this.state.phase === 'ready' && this.state[field] === offered
+        && this.state.manifest === manifest && this.state.sourceId === sourceId;
+      try {return same() && this.current() && same();} catch {return false;}
+    };
+    const release = () => {if (this.command === ticket) this.command = undefined;};
     try {
-      const next = await this.reading().setMyList(this.item.id, {operationId: nextOperationId(), expectedRevision: membership.revision, listed: !membership.listed}, life.signal);
-      if (this.life !== life || this.command !== ticket || !this.current() || this.state.phase !== 'ready' || this.state.listed !== membership) return false;
+      if (!current()) {release(); return undefined;}
+      const client = this.reading(), itemId = this.item.id;
+      if (!current() || !life) {release(); return undefined;}
+      return Object.freeze({client, itemId, signal: life.signal, current, release});
+    } catch (error) {release(); throw error;}
+  }
+  /** Toggle only the exact rendered My List membership. */
+  toggleList = async (membership: ReadingListMembership): Promise<boolean> => {
+    const command = this.personalCommand('listed', membership);
+    if (!command) return false;
+    try {
+      const expectedRevision = membership.revision, listed = !membership.listed, operationId = nextOperationId();
+      if (!command.current()) return false;
+      const next = await command.client.setMyList(command.itemId, {operationId, expectedRevision, listed}, command.signal);
+      if (!command.current()) return false;
       this.publish({...this.state, listed: next});
       return true;
-    } finally {if (this.command === ticket) this.command = undefined;}
+    } finally {command.release();}
   };
-  /** Toggle the exact rendered read mark, with the same retention rule. */
+  /** Finished is the same original offered read mark used by the More menu. */
   toggleRead = async (mark: ReadingReadMark): Promise<boolean> => {
-    const origin = this.origin, life = this.life;
-    if (this.command || !origin || !life || !this.current() || this.state.phase !== 'ready' || this.state.read !== mark) return false;
-    const ticket = {};
-    this.command = ticket;
+    const command = this.personalCommand('read', mark);
+    if (!command) return false;
     try {
-      const next = await this.reading().setReadMark(this.item.id, {operationId: nextOperationId(), expectedRevision: mark.revision, read: !mark.read}, life.signal);
-      if (this.life !== life || this.command !== ticket || !this.current() || this.state.phase !== 'ready' || this.state.read !== mark) return false;
+      const expectedRevision = mark.revision, read = !mark.read, operationId = nextOperationId();
+      if (!command.current()) return false;
+      const next = await command.client.setReadMark(command.itemId, {operationId, expectedRevision, read}, command.signal);
+      if (!command.current()) return false;
       this.publish({...this.state, read: next});
       return true;
-    } finally {if (this.command === ticket) this.command = undefined;}
+    } finally {command.release();}
   };
   /** Raise the real download intent only from this page's exact rendered
    * manifest and lifetime; a retained button cannot take a successor's sheet. */
