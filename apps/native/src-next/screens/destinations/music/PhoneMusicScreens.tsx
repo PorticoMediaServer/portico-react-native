@@ -6,7 +6,7 @@ import type {ContentEntry} from '../../../../../../packages/client-core/src/libr
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
-import {SquareCard} from '../../../kit/cards';
+import {CircleCard, SquareCard} from '../../../kit/cards';
 import {Icon} from '../../../kit/Icon';
 import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
@@ -134,6 +134,32 @@ function SimilarAlbums({snapshot,controller,runtime,actions,openEntry}:{snapshot
     {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
       {cards.map(value=>{const id=value.id,libraryId=value.libraryId!;return <AlbumCard key={id} album={{id,libraryId,title:value.title,year:value.year,posterUrl:value.posterUrl}} original={value}
         current={()=>controller.similarCurrent(snapshot,value)} runtime={runtime} actions={actions} openEntry={openEntry}/>;})}
+    </ScrollView>:null}
+  </View>;
+}
+
+/** music-plus#8's artist row: the artist's own recommendation row. The controller's
+ * similar feed for an artist is already filtered to artist entries of the same kind,
+ * so this only draws the title, the server's reason and the returned artwork. */
+function SimilarArtists({snapshot,controller,runtime,actions,openEntry,inset,gap}:{snapshot:NativeTVMusicSnapshot;controller:NativeTVMusicController;runtime:NativeShellRuntime;actions:Actions;openEntry:(entry:ContentEntry)=>void;inset:number;gap:number}){
+  const theme=useTheme();
+  const cards=snapshot.similar.filter(value=>value.kind==='artist'&&value.libraryId);
+  if(!cards.length&&!snapshot.similarError)return null;
+  return <View style={{marginTop:theme.platform==='phone'?14:28}}>
+    <View style={{flexDirection:'row',alignItems:'baseline',gap:10,paddingHorizontal:inset,marginBottom:10}}>
+      <Text accessibilityRole="header" style={[browseType(theme,19,700),{color:theme.colors.text}]}>{t('music.similarArtists')}</Text>
+      {cards.length?<Text numberOfLines={1} style={[browseType(theme,13,500),{color:theme.colors.textSecondary,flexShrink:1}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
+    </View>
+    {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginHorizontal:inset}}/>:null}
+    {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap,paddingHorizontal:inset}}>
+      {cards.map(value=>{
+        // The exact offered entry is the only thing this card may open or menu.
+        const entry=value, covers=(value.artworkPaths??[]).flatMap(path=>{const source=runtime.artwork(path);return source?[source]:[];});
+        return <CircleCard key={value.id} width={phoneMusicGeometry.albumCard} title={value.displayTitle??value.title}
+          art={{covers,initials:[...value.title.trim()][0]??'',alt:value.title}}
+          onNavigate={()=>{if(controller.similarCurrent(snapshot,entry))openEntry(entry);}}
+          onMore={()=>{if(controller.similarCurrent(snapshot,entry))actions.menu(entry);}}/>;
+      })}
     </ScrollView>:null}
   </View>;
 }
@@ -295,6 +321,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
           {details.map(([label, value]) => <View key={label} style={{flexDirection: 'row', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
             <Text style={[browseType(theme, 13, 400), {width: 96, color: theme.colors.textTertiary}]}>{label}</Text><Text style={[browseType(theme, 13, 500), {flex: 1, color: theme.colors.text}]}>{value}</Text></View>)}
         </View> : null}
+        <SimilarArtists snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} inset={32} gap={14}/>
       </ScrollView>
     </View>;
   }
@@ -318,6 +345,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
           {snapshot.albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry}/>)}
         </ScrollView>
       </View> : null}
+      <SimilarArtists snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} inset={20} gap={12}/>
     </ScrollView>
     <PhoneHeader title={entry.title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
   </View>;
