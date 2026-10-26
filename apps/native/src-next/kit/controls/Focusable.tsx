@@ -6,6 +6,7 @@ import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {colorAlpha, focusScale, type FocusKind} from './control-model';
 import {useFocusedMenu} from './useFocusedMenu';
+import {useOverlayPaintMode} from '../overlays/OverlayPaintContext';
 import {useFocusTarget} from '../focus';
 import {useNativeObservation} from '../dev-observation';
 
@@ -54,8 +55,8 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   onLongPressAction, accessibilityState, ...props
 }, ref) {
   const {isTV, colors, layers, platform} = useTheme();
-  const motion = useMotion();
-  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: disabled || focusable === false, ref});
+  const motion = useMotion(), paint = useOverlayPaintMode();
+  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: disabled || !paint.interactive || focusable === false, ref});
   const observation = useNativeObservation<View>({kind: 'view', semanticId: binding.testID, role: props.accessibilityRole ?? 'button',
     flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ && typeof style !== 'function' ? StyleSheet.flatten(style) : undefined,
     declaredStyleComplete: typeof style !== 'function'}, binding.ref);
@@ -70,22 +71,23 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && !disabled ? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
     halo.value = withTiming(focused && !disabled ? 1 : 0, motion.timing('quick'));
   }, [focused, disabled, isTV, focusKind, focusTreatment, motion, scale, halo]);
-  useFocusedMenu(isTV, focused, disabled, waiting ? undefined : onLongPressAction);
+  useFocusedMenu(isTV, focused, disabled || !paint.interactive, waiting || !paint.interactive ? undefined : onLongPressAction);
 
   const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV && pressScale === undefined ? 1 : 1 - pressed.value * (1 - (pressScale ?? .97))) : 1}]}));
   const ring = useAnimatedStyle(() => ({opacity: halo.value}));
   const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
-  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={observation.ref} disabled={disabled} focusable={disabled ? false : focusable}
+  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={observation.ref} disabled={disabled || !paint.interactive} focusable={disabled || !paint.interactive ? false : focusable}
+    onPress={paint.interactive ? props.onPress : undefined} onAccessibilityAction={paint.interactive ? props.onAccessibilityAction : undefined}
     accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
     tvParallaxProperties={{...props.tvParallaxProperties, enabled: false}}
-    onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event); observation.recordFocus(event, true);}}
-    onBlur={event => {binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event); observation.recordFocus(event, false);}}
-    onHoverIn={event => {setHovered(true); onHoverIn?.(event);}}
-    onHoverOut={event => {setHovered(false); onHoverOut?.(event);}}
-    onPressIn={event => {pressed.value = withTiming(1, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressIn?.(event);}}
-    onPressOut={event => {pressed.value = withTiming(0, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressOut?.(event);}}
-    onLongPress={disabled || waiting ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
+    onFocus={event => {if (!paint.interactive) return; binding.onFocus(); setFocused(true); onFocus?.(event); observation.recordFocus(event, true);}}
+    onBlur={event => {if (!paint.interactive) return; binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event); observation.recordFocus(event, false);}}
+    onHoverIn={event => {if (!paint.interactive) return; setHovered(true); onHoverIn?.(event);}}
+    onHoverOut={event => {if (!paint.interactive) return; setHovered(false); onHoverOut?.(event);}}
+    onPressIn={event => {if (!paint.interactive) return; pressed.value = withTiming(1, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressIn?.(event);}}
+    onPressOut={event => {if (!paint.interactive) return; pressed.value = withTiming(0, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressOut?.(event);}}
+    onLongPress={disabled || waiting || !paint.interactive ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
     pressableStyleInput={typeof style === 'function' ? style : undefined}
     observeResolvedStyle={typeof __DEV__ !== 'undefined' && __DEV__ ? observation.recordDeclaredStyle : undefined}
     style={[typeof style === 'function' ? undefined : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>

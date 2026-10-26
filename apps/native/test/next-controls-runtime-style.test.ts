@@ -8,7 +8,7 @@ import {useFocusedMenu} from '../src-next/kit/controls/useFocusedMenu.ts';
 import {dispatchMenuKey} from '../src-next/platform/menu-key.ts';
 import * as shellModel from '../src-next/shell/model.ts';
 import {act, createHookHost} from './hook-driver.ts';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {liveOverlayPaint, screenModule} from './helpers/screen-harness.mjs';
 
 type Element = React.ReactElement<Record<string, any>>;
 type NativeState = {pressed: boolean; focused: boolean};
@@ -94,6 +94,7 @@ async function controls(isTV = false, reduce = false) {
     '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, './registry': await import('../src-next/kit/focus/registry.ts'),
   });
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
+    '../overlays/OverlayPaintContext': liveOverlayPaint,
     react, 'react-native': native, 'react-native-reanimated': animated, '@portico/design': {focusSpec},
     '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     './control-model': controlModel, './useFocusedMenu': {useFocusedMenu}, '../focus': focusModule,

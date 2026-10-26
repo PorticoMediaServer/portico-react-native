@@ -9,6 +9,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {Focusable} from '../../kit/controls';
 import {useTheme} from '../../kit/theme';
 import {BottomSheet} from '../../kit/overlays';
+import {overlayPaintPermit, RetainedOverlay} from '../../kit/overlays/SurfacePaintHost';
 import {StateView} from '../../kit/states';
 import {createNativeDownloadsDevice} from './device';
 import {nativeDeviceSettings} from '../../platform/device-settings';
@@ -118,7 +119,9 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
   const storage = view?.storage.remainingBytes;
   // The episode question belongs to real shows and seasons; an album asks only for its files and a smaller copy.
   const episodic = container?.kind === 'show' || container?.kind === 'season';
-  return <BottomSheet open onOpenChange={open => {if (!open) close();}} testID="native-download-sheet" title={t(done ? 'action.download' : 'downloads.chooseQuality')} description={request.title} fitContent
+  const paintCurrent = opening?.paintCurrent;
+  const permit = paintCurrent ? overlayPaintPermit(paintCurrent, [listener => context.navigation.subscribe(listener), listener => context.subscribeAuthority(listener)], request.lifetime ? [request.lifetime.signal] : []) : undefined;
+  return <RetainedOverlay permit={permit} allowedTypes={[BottomSheet, React.Fragment, View, Text, Focusable, StateView]}><BottomSheet open onOpenChange={open => {if (!open) close();}} testID="native-download-sheet" title={t(done ? 'action.download' : 'downloads.chooseQuality')} description={request.title} fitContent
     footer={done ? <View style={{flexDirection: 'row', gap: 12}}><Focusable accessibilityRole="button" onPress={close} focusRadius={12} style={{minHeight: 48, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center'}}><Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{t('action.close')}</Text></Focusable>
       <Focusable accessibilityRole="button" onPress={() => {opening?.viewDownloads();}} focusRadius={12} style={{minHeight: 48, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.text, borderRadius: 12}}><Text style={[theme.type.bodyStrong, {color: theme.colors.ink}]}>{t('downloads.view')}</Text></Focusable></View> : undefined}>
     <View style={{gap: 16}}>
@@ -137,7 +140,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
         {storage != null && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.spaceLeft', {size: downloadBytes(storage)})}</Text>}
       </>}
     </View>
-  </BottomSheet>;
+  </BottomSheet></RetainedOverlay>;
 }
 
 /** A real read failure keeps its catalogue wording; an unknown failure is not

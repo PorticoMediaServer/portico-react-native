@@ -6,7 +6,7 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {compileFunction} from 'node:vm';
 import {dirname, join} from 'node:path';
-import {screenModule} from './screen-harness.mjs';
+import {surfacePaintFixture, screenModule} from './screen-harness.mjs';
 import {offlineDownloads} from '../../platform/offline-downloads.ts';
 import * as model from '../../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../../src-next/kit/dock/morph-fence.ts';
@@ -131,6 +131,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
       renderWatch: () => React.createElement(WatchProbe)});
     const registry = createFocusRegistry(), Empty = () => null;
     ({NativeShell} = await screenModule(new URL('../../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},...common,
       'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},

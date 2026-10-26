@@ -4,6 +4,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {shellLayout} from '../../shell/model';
 import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
+import {overlayPaintKey, RetainedOverlay, type OverlayPaintPermit} from '../../kit/overlays/SurfacePaintHost';
 import {FocusBoundary} from '../../kit/overlays/surface';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {TVPanelSlide, TVPanelScrim, useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
@@ -13,7 +14,7 @@ import type {NativeWatchOverlay} from './presenters';
 
 /** Approved phone9b / TV8b destination: immediate two-line choices, no tags,
  * checks, radio selection, confirmation step or remembered preference. */
-export function NativeVersionChooser({value, choose, close}: {value: NativeWatchOverlay; choose: (id: string) => void; close: () => void}) {
+export function NativeVersionChooser({value, choose, close, paintPermit}: {paintPermit?: OverlayPaintPermit; value: NativeWatchOverlay; choose: (id: string) => void; close: () => void}) {
   const theme = useTheme(), window = useWindowDimensions(), first = useRef<View>(null), done = useRef<View>(null), t = defaultI18n.t;
   const interactive = useTVPanelInteractive();
   const destination = value.destination, rows = destination?.rows ?? [];
@@ -27,19 +28,23 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
     {value.busy && theme.isTV && <Text testID="watch-version-preparing" style={[nativeType({size: theme.isTV ? 22 : 15, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale),
       {color: theme.colors.textTertiary, paddingHorizontal: theme.isTV ? 0 : 16, paddingBottom: 12}]}>{t('next.browse.native.markAllPreparing')}</Text>}
     <View style={theme.isTV ? undefined : {marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
-      {rows.map((row, index) => <Focusable key={row.id} ref={index === entry ? first : undefined} focusId={`watch-version-${row.id}`} testID={`watch-version-${row.id}`}
-        focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && interactive && index === entry}
-        onPress={() => {if (!value.busy) choose(row.id);}} style={({focused}) => ({minHeight: theme.isTV ? 54 : 64, paddingHorizontal: theme.isTV ? 14 : 16,
+      {rows.map((row, index) => {
+        const rowStyle = (focused: boolean) => ({minHeight: theme.isTV ? 54 : 64, paddingHorizontal: theme.isTV ? 14 : 16,
           paddingVertical: theme.isTV ? 14 : 10, marginBottom: theme.isTV ? 14 : 0, borderRadius: theme.isTV ? 12 : 0,
-          backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'})}>
-        {({focused}) => <>
+          backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'});
+        const rowContent = (focused: boolean) => <>
           {!theme.isTV && index > 0 && <View pointerEvents="none" style={{position: 'absolute', left: 16, right: 0, top: 0, height: 1, backgroundColor: '#3b566873'}}/>}
           <Text style={[nativeType({size: theme.isTV ? 22 : 15.5, weight: theme.isTV ? 600 : 700, tracking: theme.isTV ? 0 : -.01, lineHeight: 'normal'}, theme.textScale),
             {color: theme.isTV && !focused ? theme.colors.textSecondary : theme.colors.text}]}>{row.heading}</Text>
           {!!(row.detail || row.id === destination?.pendingRowId) && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: theme.isTV ? 'normal' : 18.2}, theme.textScale),
             {marginTop: theme.isTV ? 2 : 3, color: theme.isTV && !focused ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{row.id === destination?.pendingRowId ? t('next.browse.native.markAllPreparing') : row.detail}</Text>}
-        </>}
-      </Focusable>)}
+        </>;
+        return <Focusable key={row.id} ref={index === entry ? first : undefined} focusId={`watch-version-${row.id}`} testID={`watch-version-${row.id}`}
+          focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" hasTVPreferredFocus={theme.isTV && interactive && index === entry}
+          onPress={() => {if (!value.busy) choose(row.id);}} style={theme.isTV ? ({focused}) => rowStyle(focused) : rowStyle(false)}>
+          {theme.isTV ? ({focused}) => rowContent(focused) : rowContent(false)}
+        </Focusable>;
+      })}
     </View>
   </ScrollView>;
   const title = t('next.overlays.versionChooserTitle'), name = value.capture.entry.displayTitle ?? value.capture.entry.title;
@@ -65,11 +70,11 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
       </View>
     </Modal>;
   }
-  return <BottomSheet open fitContent title={title} testID="watch-versions-phone" showClose={false} scrollable={false} initialFocusRef={done} returnFocusRef={value.anchorRef}
+  return <RetainedOverlay key={overlayPaintKey(value.capture)} permit={paintPermit} allowedTypes={[BottomSheet, React.Fragment, View, Text, ScrollView, Focusable, Svg, Defs, LinearGradient, Rect, Stop]}><BottomSheet open fitContent title={title} testID="watch-versions-phone" showClose={false} scrollable={false} initialFocusRef={done} returnFocusRef={value.anchorRef}
     onOpenChange={open => {if (!open) close();}} headerContent={<View style={{flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 2, paddingBottom: 12}}>
       <View style={{flex: 1}}><Text style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{title}</Text>
         <Text numberOfLines={1} style={[nativeType({size: 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 3}]}>{name}</Text></View>
       <Focusable ref={done} focusId="watch-versions-done" testID="watch-versions-done" onPress={close} style={{paddingLeft: 12, marginTop: 2}}>
         <Text style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.overlays.done')}</Text></Focusable>
-    </View>} contentStyle={{paddingHorizontal: 0, paddingTop: 0}}>{body}</BottomSheet>;
+    </View>} contentStyle={{paddingHorizontal: 0, paddingTop: 0}}>{body}</BottomSheet></RetainedOverlay>;
 }

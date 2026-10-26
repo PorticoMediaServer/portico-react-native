@@ -5,12 +5,13 @@ import * as focus from '../src-next/kit/focus/registry.ts';
 import * as geometry from '../src-next/kit/overlays/geometry.ts';
 import * as overlayStack from '../src-next/kit/overlays/overlay-stack.ts';
 import {createHookHost} from './hook-driver.ts';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {liveOverlayPaint, screenModule} from './helpers/screen-harness.mjs';
 
 async function overlayHost(isTV: boolean) {
   const backHandlers = new Set<() => boolean>();
   const keyHandlers = new Set<unknown>();
   const mod = await screenModule(new URL('../src-next/kit/overlays/OverlayHost.tsx', import.meta.url), {
+    './OverlayPaintContext': liveOverlayPaint,
     react: {...React, default: React},
     'react-native': {Platform: {OS: 'android', isTV}, StyleSheet: {create: (styles: unknown) => styles},
       BackHandler: {addEventListener: (_event: string, handler: () => boolean) => {

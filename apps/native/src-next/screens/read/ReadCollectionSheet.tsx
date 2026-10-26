@@ -3,6 +3,7 @@ import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
+import {overlayPaintPermit, RetainedOverlay} from '../../kit/overlays/SurfacePaintHost';
 import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
@@ -60,7 +61,8 @@ export function ReadCollectionSheet({context, lease, owner, itemId, libraryId, k
   const added = state?.added ? state.collections.find(resource => resource.id === state.added) : undefined;
   const surface = {open: true as const, title: t('next.selection.pickerTitle', {items: t('next.selection.book', {count: 1}), destination: t('next.selection.collectionWord')}),
     description: title, testID: 'native-reading-collection', onOpenChange: (open: boolean) => {if (!open) close();}};
-  return <BottomSheet {...surface} fitContent>
+  const paintPermit = overlayPaintPermit(() => !lease.signal.aborted && lease.isCurrent(), [listener => context.navigation.subscribe(listener), listener => context.subscribeAuthority(listener), listener => lease.subscribe(listener)], [lease.signal]);
+  return <RetainedOverlay permit={paintPermit} allowedTypes={[BottomSheet, React.Fragment, View, Text, Focusable, Icon, LoadingBoundary, SkeletonBlock, StateView]}><BottomSheet {...surface} fitContent>
     <View style={{gap: 10}}>
       {state?.phase === 'error' ? <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
         primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (model) void model.retryLoad().catch(() => {});}}}/> : <LoadingBoundary ready={state?.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={180}/>}>
@@ -99,5 +101,5 @@ export function ReadCollectionSheet({context, lease, owner, itemId, libraryId, k
       </> : null}
       </LoadingBoundary>}
     </View>
-  </BottomSheet>;
+  </BottomSheet></RetainedOverlay>;
 }

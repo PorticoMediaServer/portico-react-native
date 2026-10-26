@@ -1,3 +1,4 @@
+import {OverlayPaintDescendants, useOverlayPaintMode} from './OverlayPaintContext';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Keyboard, Modal, ScrollView, StyleSheet, TextInput, View, useWindowDimensions} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
@@ -14,7 +15,7 @@ import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from 
 import type {BottomSheetProps, OverlayReason} from './types';
 
 export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
-  const theme = useTheme();
+  const theme = useTheme(), paint = useOverlayPaintMode();
   const side = theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
   const motion = useMotion();
@@ -102,7 +103,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     const result = releaseSheet(height, velocityY, heights);
     if (result.closed && dismissOnGesture) {closeVelocity.current = velocityY; dismiss('gesture');} else choose(result.index, velocityY);
   }, [heights, dismissOnGesture, dismiss, choose]);
-  const pan = Gesture.Pan().enabled(!side).onBegin(() => {cancelAnimation(shown); start.value = shown.value;}).onUpdate(event => {
+  const pan = Gesture.Pan().enabled(!side && open && paint.interactive).onBegin(() => {cancelAnimation(shown); start.value = shown.value;}).onUpdate(event => {
     shown.value = resistSheet(start.value - event.translationY, max);
   }).onEnd((event, success) => {if (success) runOnJS(released)(shown.value, event.velocityY);}).onFinalize((_event, success) => {
     if (!success) runOnJS(choose)(index);
@@ -112,10 +113,10 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const footerStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: side || motion.reduce ? [] : [{translateY: shown.value - max + Math.max(0, (1 - shown.value / heights[0]) * footerHeight)}]}));
   const tvStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateX: (1 - sideProgress.value) * sideWidth}]}));
   const close = <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
-  if (!present) return null;
+  if (!present || !paint.visible) return null;
   const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onScroll={event => {scrollOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
-  return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
-    <TVDesignCanvas><View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
+  return <OverlayPaintDescendants><Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
+    <TVDesignCanvas><View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', backdropOpacity)}, scrimStyle]} pointerEvents="none"/>
       <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
       {/* One native content ancestry across compact/medium. Changing geometry
@@ -142,7 +143,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
         </FocusBoundary>
       </Animated.View>
     </View></View></TVDesignCanvas>
-  </Modal>;
+  </Modal></OverlayPaintDescendants>;
 }
 const styles = StyleSheet.create({
   root: {flex: 1}, body: {flex: 1, minHeight: 0},

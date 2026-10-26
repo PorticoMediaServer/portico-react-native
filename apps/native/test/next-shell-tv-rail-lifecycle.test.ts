@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
 import {act, createHookHost} from './hook-driver';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
 import * as shellModel from '../src-next/shell/model';
@@ -31,6 +31,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/menu-key': {registerTVMenuFallback: (run: () => void) => {menuFallback = run; return () => {if (menuFallback === run) menuFallback = undefined;};}},

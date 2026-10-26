@@ -13,7 +13,7 @@ import * as shellModel from '../src-next/shell/model.ts';
 import type {DockOccupant} from '../src-next/kit/dock/types.ts';
 import type {NativeShellRuntime} from '../src-next/shell/runtime.ts';
 import {act, createHookHost} from './hook-driver.ts';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import {releaseDock, validRect} from '../src-next/kit/dock/model.ts';
 import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
@@ -256,6 +256,7 @@ function shellRuntime(onMemoryRead?: () => void) {
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime) {
   const registry = createFocusRegistry();
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},

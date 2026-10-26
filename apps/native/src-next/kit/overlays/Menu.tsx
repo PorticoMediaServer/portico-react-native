@@ -1,3 +1,4 @@
+import {OverlayPaintDescendants, useOverlayPaintMode} from './OverlayPaintContext';
 import React, {forwardRef, useCallback, useEffect, useRef, useState} from 'react';
 import {Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
 import Animated, {useAnimatedStyle} from 'react-native-reanimated';
@@ -50,7 +51,7 @@ export const MenuRow = forwardRef<View, MenuRowProps & {tvFlyout?: boolean; touc
 });
 
 export function Popover({open, onOpenChange, anchorRef, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, holdFocus = modal, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, alignOffset = 0, dismissOnOutsidePress = true, touchContext = false}: PopoverProps & {touchContext?: boolean}) {
-  const theme = useTheme();
+  const theme = useTheme(), paint = useOverlayPaintMode();
   const viewport = useWindowDimensions();
   const hostFrame = useOverlayFrame();
   const insets = useSafeAreaInsets();
@@ -71,14 +72,14 @@ export function Popover({open, onOpenChange, anchorRef, title, headerContext, de
     measure();
     return () => {live = false; if (frame !== undefined) cancelAnimationFrame(frame);};
   }, [open, anchorRef, viewport.width, viewport.height, insets.top, insets.bottom, insets.left, insets.right, touchContext, placement]);
-  if (!animation.present || !anchor) return null;
+  if (!animation.present || !paint.visible || !anchor) return null;
   const touchRect = touchContext ? touchMenuRect(anchor, viewport, height, insets) : undefined;
   const canvasScale = theme.isTV && placement === 'right-end' ? Math.min(viewport.width / theme.layout.designWidth.tv, viewport.height / theme.layout.designHeight.tv) : 1;
   if (canvasScale <= 0) return null;
   const rect = touchRect ?? (placement === 'right-end' ? rightEndMenuRect(anchor, viewport, {width, height}, insets, offset, alignOffset, canvasScale) : popoverRect(anchor, viewport, {width, height}, insets, placement, offset));
   const material = glassRecipe();
   const rightEnd = placement === 'right-end', tvFlyout = rightEnd && theme.isTV;
-  const surface = <Animated.View testID={testID} accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityViewIsModal={modal} onAccessibilityEscape={() => dismiss('escape')} style={[{position: 'absolute', left: rightEnd ? 0 : rect.x - (modal ? 0 : hostFrame.x), top: rightEnd ? 0 : rect.y - (modal ? 0 : hostFrame.y), width: rect.width / canvasScale, maxHeight: (viewport.height - insets.top - insets.bottom) / canvasScale - 16, borderRadius: tvFlyout ? 24 : touchContext ? 16 : 14, backgroundColor: touchContext ? alpha('#162c3a', material.nativeBlur ? .97 : 1) : alpha(theme.colors.raisedBright, material.nativeBlur ? 0.96 : 1), borderWidth: tvFlyout ? 0 : 1, borderColor: alpha(theme.colors.text, 0.1), overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.8, shadowOffset: {width: 0, height: 16}, shadowRadius: 30, ...(tvFlyout ? {boxShadow: [{offsetX: 0, offsetY: 50, blurRadius: 100, spreadDistance: -24, color: '#000'}]} : {})}, animation.style, style]}>
+  const surface = <Animated.View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} testID={testID} accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityViewIsModal={modal} onAccessibilityEscape={() => dismiss('escape')} style={[{position: 'absolute', left: rightEnd ? 0 : rect.x - (modal ? 0 : hostFrame.x), top: rightEnd ? 0 : rect.y - (modal ? 0 : hostFrame.y), width: rect.width / canvasScale, maxHeight: (viewport.height - insets.top - insets.bottom) / canvasScale - 16, borderRadius: tvFlyout ? 24 : touchContext ? 16 : 14, backgroundColor: touchContext ? alpha('#162c3a', material.nativeBlur ? .97 : 1) : alpha(theme.colors.raisedBright, material.nativeBlur ? 0.96 : 1), borderWidth: tvFlyout ? 0 : 1, borderColor: alpha(theme.colors.text, 0.1), overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.8, shadowOffset: {width: 0, height: 16}, shadowRadius: 30, ...(tvFlyout ? {boxShadow: [{offsetX: 0, offsetY: 50, blurRadius: 100, spreadDistance: -24, color: '#000'}]} : {})}, animation.style, style]}>
     {material.nativeBlur && !tvFlyout && <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={touchContext ? 26 : 30} reducedTransparencyFallbackColor={touchContext ? '#162c3a' : theme.colors.raisedBright} pointerEvents="none"/>}
     {tvFlyout && <View pointerEvents="none" style={StyleSheet.absoluteFill}><Svg width="100%" height="100%"><Defs><LinearGradient id="tv-flyout" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#162c3a"/><Stop offset="1" stopColor="#0f2230"/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#tv-flyout)"/></Svg><View style={[StyleSheet.absoluteFill, {borderRadius: 24, borderWidth: 1.5, borderColor: alpha(theme.colors.text, .1)}]}/></View>}
     <FocusBoundary modal={holdFocus} testID={testID}><View onLayout={event => setHeight(event.nativeEvent.layout.height)} style={[tvFlyout ? {padding: 14} : touchContext ? {padding: 8} : {paddingVertical: 6}, contentStyle]}>
@@ -90,8 +91,8 @@ export function Popover({open, onOpenChange, anchorRef, title, headerContext, de
   </Animated.View>;
   const pointer = touchRect && <View pointerEvents="none" style={{position: 'absolute', left: touchRect.side === 'right' ? rect.x - 7 : rect.x + rect.width - 7, top: rect.y + touchRect.arrowY - 7, width: 14, height: 14, borderRadius: 3, backgroundColor: alpha('#162c3a', .97), transform: [{rotate: '45deg'}]}}/>;
   const placedSurface = rightEnd ? <View pointerEvents="box-none" style={{position: 'absolute', left: rect.x - (modal ? 0 : hostFrame.x), top: rect.y - (modal ? 0 : hostFrame.y), width: rect.width / canvasScale, height: rect.height / canvasScale, transformOrigin: 'top left', transform: [{scale: canvasScale}]}}>{surface}</View> : surface;
-  return modal ? <Modal transparent visible animationType="none" onRequestClose={() => dismiss('back')} statusBarTranslucent navigationBarTranslucent>
-    <View style={{flex: 1}}><Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, backdropStyle]}>
+  return <OverlayPaintDescendants>{modal ? <Modal transparent visible animationType="none" onRequestClose={() => dismiss('back')} statusBarTranslucent navigationBarTranslucent>
+    <View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} style={{flex: 1}}><Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, backdropStyle]}>
       {touchContext ? [
         {left: 0, top: 0, right: 0, height: Math.max(0, anchor.y)},
         {left: 0, top: anchor.y + anchor.height, right: 0, bottom: 0},
@@ -99,7 +100,7 @@ export function Popover({open, onOpenChange, anchorRef, title, headerContext, de
         {left: anchor.x + anchor.width, top: anchor.y, right: 0, height: anchor.height},
       ].map((rect, index) => <View key={index} style={{position: 'absolute', backgroundColor: alpha('#03080c', .58), ...rect}}/>) : <View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.colors.ink, backdropOpacity)}]}/>}
     </Animated.View><Pressable accessible={false} focusable={false} style={StyleSheet.absoluteFill} onPress={() => {if (dismissOnOutsidePress) dismiss('outside');}}/>{pointer}{placedSurface}</View>
-  </Modal> : <OverlayPortal rect={rect} onOutsidePress={dismissOnOutsidePress ? () => dismiss('outside') : undefined}>{placedSurface}</OverlayPortal>;
+  </Modal> : <OverlayPortal rect={rect} onOutsidePress={dismissOnOutsidePress ? () => dismiss('outside') : undefined}>{placedSurface}</OverlayPortal>}</OverlayPaintDescendants>;
 }
 
 export function Menu({items, open, onOpenChange, title, description, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, anchorRef, width, presentation, placement, offset, alignOffset, initialFocusId, secondaryTitle, context, touchHeader, touchContext = false}: MenuProps & {touchContext?: boolean; touchHeader?: React.ReactNode}) {

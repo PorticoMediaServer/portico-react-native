@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {deletionAllowed} from '../../../packages/client-core/src/administration.ts';
@@ -19,6 +19,7 @@ const {NativeFileInfoContent} = await screenModule(new URL('../src-next/screens/
   '../../kit/controls': controls, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': themed,
 });
 const {NativeWatchOverlays} = await screenModule(new URL('../src-next/screens/watch/WatchOverlays.tsx', import.meta.url), {
+  '../../kit/overlays/SurfacePaintHost': surfacePaintFixture, './FileInfoContent': {NativeFileInfoContent},
   react, 'react-native': {Modal: 'Modal', Platform: {isTV: true}, ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}}, Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/administration': {deletionAllowed}, '../../../../../packages/client-core/src/title-identity': {mergeExplanation},
   '../../shell/model': {shellLayout}, '../../kit/controls': controls, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'},

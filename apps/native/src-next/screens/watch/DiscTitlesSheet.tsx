@@ -5,6 +5,8 @@ import {durationText} from '../../../../../packages/client-core/src/presentation
 import {shellLayout} from '../../shell/model';
 import {Focusable} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
+import {StateView} from '../../kit/states';
+import {overlayPaintKey, RetainedOverlay, type OverlayPaintPermit} from '../../kit/overlays/SurfacePaintHost';
 import {FocusBoundary} from '../../kit/overlays/surface';
 import {TVPanelSlide, TVPanelScrim, useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
@@ -19,7 +21,8 @@ import type {NativeDiscTitlesController} from './disc-titles-controller';
  * versions of the film, so nothing here offers a different file to play. The
  * server's per-list and per-row ready flags are shown as pending preparation, so
  * a freshly chosen title never looks settled before its analysis is done. */
-export function NativeDiscTitlesSheet({controller, subject, close, renderError}: {
+export function NativeDiscTitlesSheet({controller, subject, close, renderError, paintPermit}: {
+  paintPermit?: OverlayPaintPermit;
   controller: NativeDiscTitlesController;
   subject: string;
   close: () => void;
@@ -46,13 +49,14 @@ export function NativeDiscTitlesSheet({controller, subject, close, renderError}:
     {rows.map((row, index) => {
       const active = row.main, entry = active || (mainIndex < 0 && index === 0);
       const length = durationText(Math.round(row.durationMs / 1000), t);
+      const rowStyle = (focused: boolean) => ({minHeight: theme.isTV ? 84 : 64, paddingHorizontal: theme.isTV ? 18 : 16, paddingVertical: theme.isTV ? 14 : 10, marginBottom: theme.isTV ? 14 : 0,
+          flexDirection: 'row' as const, alignItems: 'center' as const, gap: theme.isTV ? 16 : 12, borderRadius: theme.isTV ? 12 : 0,
+          backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'});
       return <Focusable key={row.id} ref={entry ? first : undefined} focusId={`watch-disc-title-${row.id}`} testID={`watch-disc-title-${row.id}`}
         focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" accessibilityState={{selected: active, busy: state.phase === 'writing' && state.writingTitleId === row.id}}
         hasTVPreferredFocus={theme.isTV && interactive && entry} disabled={state.phase === 'writing'}
         onPress={() => {if (drawn) void controller.choose(row.id, drawn);}}
-        style={({focused}) => ({minHeight: theme.isTV ? 84 : 64, paddingHorizontal: theme.isTV ? 18 : 16, paddingVertical: theme.isTV ? 14 : 10, marginBottom: theme.isTV ? 14 : 0,
-          flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 16 : 12, borderRadius: theme.isTV ? 12 : 0,
-          backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'})}>
+        style={theme.isTV ? ({focused}) => rowStyle(focused) : rowStyle(false)}>
         <View style={{flex: 1, minWidth: 0}}>
           <Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 24 : 15.5, weight: 700, tracking: theme.isTV ? 0 : -.01, lineHeight: 'normal'}, theme.textScale),
             {color: theme.colors.text}]}>{t('next.overlays.discTitle', {number: row.number})}</Text>
@@ -66,8 +70,8 @@ export function NativeDiscTitlesSheet({controller, subject, close, renderError}:
     })}
     <Text style={[nativeType({size: theme.isTV ? 20 : 12.5, weight: 400, tracking: 0, lineHeight: theme.isTV ? 28 : 18}, theme.textScale), {marginTop: theme.isTV ? 18 : 10, color: theme.colors.textTertiary}]}>{t('next.overlays.discTitlesNote')}</Text>
   </ScrollView>;
-  if (!theme.isTV) return <BottomSheet open fitContent title={title} testID="watch-disc-titles-phone" showClose={false} scrollable={false} initialFocusRef={first}
-    onOpenChange={open => {if (!open) close();}} contentStyle={{paddingHorizontal: 0, paddingTop: 0}}>{body}</BottomSheet>;
+  if (!theme.isTV) return <RetainedOverlay key={overlayPaintKey(controller)} permit={paintPermit} allowedTypes={[BottomSheet, React.Fragment, View, Text, ScrollView, Focusable, Icon, StateView, Svg, Defs, LinearGradient, Rect, Stop]}><BottomSheet open fitContent title={title} testID="watch-disc-titles-phone" showClose={false} scrollable={false} initialFocusRef={first}
+    onOpenChange={open => {if (!open) close();}} contentStyle={{paddingHorizontal: 0, paddingTop: 0}}>{body}</BottomSheet></RetainedOverlay>;
   const canvas = shellLayout(window.width, window.height, true);
   const key = (label: string) => <View style={{height: 36, minWidth: 44, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', alignItems: 'center', justifyContent: 'center'}}>
     <Text style={[nativeType({size: 17, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{label}</Text></View>;

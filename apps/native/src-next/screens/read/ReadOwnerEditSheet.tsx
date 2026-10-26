@@ -4,6 +4,7 @@ import {MetadataRepairService, type RepairData} from '../../../../../packages/cl
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable, TextField} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
+import {overlayPaintPermit, RetainedOverlay} from '../../kit/overlays/SurfacePaintHost';
 import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -293,7 +294,9 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       if (operation.current === ticket) {operation.current = undefined; if (owned()) setCoverBusy(false);}
     }
   };
-  return <BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('next.reader.editDetails')}
+  const paintPermit = overlayPaintPermit(() => !lease.signal.aborted && lease.isCurrent(), [listener => context.navigation.subscribe(listener), listener => context.subscribeAuthority(listener), listener => lease.subscribe(listener)], [lease.signal]);
+  const paintTypes = [BottomSheet, React.Fragment, View, Text, ScrollView, Image, Button, Focusable, TextField, LoadingBoundary, SkeletonBlock, StateView];
+  return <RetainedOverlay permit={paintPermit} allowedTypes={paintTypes}><BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('next.reader.editDetails')}
     description={t('next.reader.ownerOnly')} testID="native-read-owner-edit" keyboardAvoiding
     footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 10}}>
       <Button variant="glass" onPress={() => {if (owned()) close();}} disabled={busy}>{t('action.cancel')}</Button>
@@ -329,7 +332,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       {manifest?.format === 'cbz' && manifest.pageNames?.length ? <Button variant="glass" disabled={coverBusy || busy || rereadBusy || !!coverOpening} onPress={openCover}>{t('next.reader.chooseCoverPage')}</Button> : null}
       {coverFailed ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
     </View> : null}
-    {coverOpening ? <BottomSheet open onOpenChange={open => {if (!open) dismissCover(coverOpening);}} title={t('next.reader.chooseCoverPage')}
+    {coverOpening ? <RetainedOverlay permit={paintPermit} allowedTypes={paintTypes}><BottomSheet open onOpenChange={open => {if (!open) dismissCover(coverOpening);}} title={t('next.reader.chooseCoverPage')}
       description={t('next.reader.ownerOnly')} testID="native-read-cover-page" keyboardAvoiding>
       <View style={{gap: 10}}>
         <Text style={[browseType(theme, 13, 500), {color: theme.colors.textSecondary}]}>{t('next.reader.pageCount', {count: coverOpening.pageCount})}</Text>
@@ -354,6 +357,6 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
         <Button onPress={() => {void choosePage(coverOpening, pageInput);}} loading={coverBusy} disabled={coverBusy || !pageInput.value.trim()}>{t('web.metadata.useIt')}</Button>
         {coverFailed ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
       </View>
-    </BottomSheet> : null}
-  </BottomSheet>;
+    </BottomSheet></RetainedOverlay> : null}
+  </BottomSheet></RetainedOverlay>;
 }

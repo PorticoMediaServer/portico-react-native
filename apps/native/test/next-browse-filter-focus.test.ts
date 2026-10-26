@@ -10,7 +10,7 @@ import * as presentation from '../src-next/kit/browse/presentation.ts';
 import * as registryModule from '../src-next/kit/focus/registry.ts';
 import {useHostRef} from '../src-next/kit/focus/useHostRef.ts';
 import {createHookHost} from './hook-driver.ts';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {liveOverlayPaint, screenModule} from './helpers/screen-harness.mjs';
 
 type Node = {type: string; props: Record<string, any>; children: (Node | string | number)[]};
 const text = (node: Node | string | number): string => typeof node === 'object' ? node.children.map(text).join('') : String(node);
@@ -30,10 +30,11 @@ async function fixture(isTV: boolean) {
   const reanimated = {default: {createAnimatedComponent: (value: any) => value, View: 'AnimatedView'},
     useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(), withTiming: (value: any) => value};
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
+    '../overlays/OverlayPaintContext': liveOverlayPaint,
     react, 'react-native': native, 'react-native-reanimated': reanimated, '@portico/design': design, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule,
     '../useMotion': {useMotion: () => ({transforms: false, timing: () => ({duration: 0})})}, './control-model': controlModel, './useFocusedMenu': {useFocusedMenu() {}}, '../focus': focusModule,
   });
-  const shared = {react, 'react-native': native, '@portico/design': design, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, '../focus': focusModule,
+  const shared = {'../overlays/OverlayPaintContext': liveOverlayPaint, react, 'react-native': native, '@portico/design': design, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, '../focus': focusModule,
     '../Icon': {Icon: 'Icon'}, './Focusable': {Focusable}, './control-model': controlModel, './useControlValue': {useControlValue}};
   const {Chip} = await screenModule(new URL('../src-next/kit/controls/Chip.tsx', import.meta.url), shared);
   const {Segmented} = await screenModule(new URL('../src-next/kit/controls/Tabs.tsx', import.meta.url), shared);

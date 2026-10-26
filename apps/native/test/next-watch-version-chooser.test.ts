@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {screenModule, hooks} from './helpers/screen-harness.mjs';
+import {surfacePaintFixture, screenModule, hooks} from './helpers/screen-harness.mjs';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {shellLayout} from '../src-next/shell/model.ts';
 const {react, render} = hooks(); let isTV = false, width = 390, height = 844;
 const {NativeVersionChooser} = await screenModule(new URL('../src-next/screens/watch/VersionChooser.tsx', import.meta.url), {
+  '../../kit/overlays/SurfacePaintHost': surfacePaintFixture,
   react, 'react-native': {Modal: 'Modal', ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}}, Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height})},
   'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
   '../../../../../packages/i18n/src': {defaultI18n}, '../../shell/model': {shellLayout}, '../../kit/controls': {Focusable: 'Focusable'},
@@ -24,11 +25,11 @@ const value = {capture: {entry: {id: 'movie', title: 'Stored title', displayTitl
 
 test('actual phone chooser draws only two-line buttons, stored title and Done; a row selects immediately', () => {
   isTV = false; width = 390; height = 844; const choices: string[] = []; let closed = 0;
-  const tree = render(() => NativeVersionChooser({value, choose: (id: string) => choices.push(id), close: () => {closed++;}}));
+  const tree = descendants(render(() => NativeVersionChooser({value, choose: (id: string) => choices.push(id), close: () => {closed++;}}))).find(node => node.type === 'BottomSheet');
   assert.equal(tree.type, 'BottomSheet'); assert.equal(tree.props.title, 'Play a different version'); assert.equal(tree.props.showClose, false);
   const nodes = descendants(tree), rows = nodes.filter(node => /^watch-version-v/.test(node.props.testID ?? ''));
   assert.equal(rows.length, 3); assert.ok(rows.every(node => node.props.accessibilityRole === 'button' && node.props.accessibilityState === undefined));
-  assert.ok(rows.every(node => node.props.style({focused: false}).minHeight === 64));
+  assert.ok(rows.every(node => node.props.style.minHeight === 64));
   rows[1].props.onPress(); assert.deepEqual(choices, ['v2']);
   nodes.find(node => node.props.testID === 'watch-versions-done').props.onPress(); assert.equal(closed, 1);
   assert.ok(nodes.some(node => node.type === 'Text' && node.props.children.includes('Stored title: Special Edition')));

@@ -5,6 +5,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {OverlaysProvider} from '../kit/overlays';
 import {PlayerMorphProvider} from '../kit/dock/PlayerMorphBridge';
 import {DockClearanceProvider} from '../kit/dock/DockClearance';
+import {SurfacePaintHost} from '../kit/overlays/SurfacePaintHost';
 import {AccountMenu} from '../kit/shell';
 import {useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
@@ -26,7 +27,7 @@ import {NativePlaybackLayer} from './NativePlaybackLayer';
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   // Permission/profile/server changes cannot reuse component state, focus, selections or images.
-  return <OverlaysProvider key={authorityKey(snapshot.authority)}><PlayerMorphProvider><DockClearanceProvider><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></DockClearanceProvider></PlayerMorphProvider></OverlaysProvider>;
+  return <OverlaysProvider key={authorityKey(snapshot.authority)}><PlayerMorphProvider><DockClearanceProvider><SurfacePaintHost><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></SurfacePaintHost></DockClearanceProvider></PlayerMorphProvider></OverlaysProvider>;
 }
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {

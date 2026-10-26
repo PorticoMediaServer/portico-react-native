@@ -41,3 +41,17 @@ export function hooks() {
   };
   return {react: {...react, default: react}, render: fn => {cursor=0;return fn();}};
 }
+
+// Explicit LIVE-only seams for existing shallow screen tests. These do not
+// exercise retained paint; its reconciler coverage loads the real modules.
+export const liveOverlayPaint = {
+  useOverlayPaintReturnCurrent: () => undefined,
+  useOverlayPaintMode: () => ({visible: true, interactive: true, root: true}),
+  OverlayPaintProvider: 'OverlayPaintProvider', OverlayPaintDescendants: 'OverlayPaintDescendants',
+};
+const paintOpenings = new WeakMap(); let paintOpeningSequence = 0;
+export const surfacePaintFixture = {
+  overlayPaintKey: opening => {if (!paintOpenings.has(opening)) paintOpenings.set(opening, `paint-${++paintOpeningSequence}`); return paintOpenings.get(opening);},
+  SurfacePaintHost: 'SurfacePaintHost', RetainedOverlay: ({children}) => children,
+  overlayPaintPermit: current => ({current, subscribe: () => () => {}}),
+};

@@ -2,6 +2,7 @@ import React, {createContext, useCallback, useContext, useId, useLayoutEffect, u
 import {BackHandler, StyleSheet, View, type GestureResponderEvent} from 'react-native';
 import {registerOverlayKeys} from '../../platform/overlay-keys';
 import {captureTVMenuKey} from '../../platform/tv-menu';
+import {OverlayPaintProvider, useOverlayPaintMode, useOverlayPaintReturnCurrent} from './OverlayPaintContext';
 import {useTheme} from '../theme';
 import {FocusProvider, requestNativeFocus, useOptionalFocusRegistry} from '../focus';
 import {containsPoint, type Rect} from './geometry';
@@ -41,11 +42,11 @@ export function OverlaysProvider({children}: {children: React.ReactNode}) {
   </View></HostContext.Provider></FocusProvider>;
 }
 export function OverlayPortal({children, rect, onOutsidePress}: {children: React.ReactNode; rect?: Rect; onOutsidePress?: () => void}) {
-  const host = useContext(HostContext);
+  const host = useContext(HostContext), paint = useOverlayPaintMode(), returnCurrent = useOverlayPaintReturnCurrent();
   const id = useId();
   useLayoutEffect(() => {
-    if (host) host.put({id, node: children, rect, outside: onOutsidePress});
-  }, [host, id, children, rect, onOutsidePress]);
+    if (host) host.put({id, node: <OverlayPaintProvider mode={paint} returnCurrent={returnCurrent}>{children}</OverlayPaintProvider>, rect, outside: paint.interactive ? onOutsidePress : undefined});
+  }, [host, id, children, rect, onOutsidePress, paint, returnCurrent]);
   useLayoutEffect(() => () => host?.remove(id), [host, id]);
   // Inline placement also supports a caller already mounting its surface at the shell root.
   return host ? null : <>{children}</>;
@@ -78,7 +79,11 @@ export function dispatchOverlayKey(key: 'escape' | 'tab' | 'menu', _shift = fals
   return false;
 }
 export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (reason: OverlayReason) => void, initialFocusRef?: FocusRef, returnFocusRef?: FocusRef, focusDelay = 0, regionId?: string, restoreFocus = true) {
-  const registry = useOptionalFocusRegistry();
+  const registry = useOptionalFocusRegistry(), paint = useOverlayPaintMode();
+  const returnCurrent = useOverlayPaintReturnCurrent(), returnPermit = useRef(returnCurrent);
+  returnPermit.current = returnCurrent;
+  open = open && paint.visible;
+  restoreFocus = restoreFocus && paint.visible && (paint.interactive || paint.root);
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
   const initial = useRef(initialFocusRef);
@@ -113,7 +118,9 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
       releaseMenu();
       releaseReturn?.();
       releaseOpener?.();
-      if (wasTop && restoring.current) {
+      let originalCurrent = !returnPermit.current;
+      try {if (returnPermit.current) originalCurrent = returnPermit.current();} catch {originalCurrent = false;}
+      if (wasTop && restoring.current && originalCurrent) {
         if (restore.current?.current) focusTarget(restore.current.current);
         else registry?.restore(opener);
       }

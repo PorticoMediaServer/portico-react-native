@@ -19,8 +19,15 @@ import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchOverlay, NativeWatchPresenters} from './presenters';
 import {NativeVersionChooser} from './VersionChooser';
 import {NativeDiscTitlesSheet} from './DiscTitlesSheet';
+import {NativeFileInfoContent} from './FileInfoContent';
+import {overlayPaintKey, overlayPaintPermit, RetainedOverlay, type OverlayPaintPermit} from '../../kit/overlays/SurfacePaintHost';
 
 const named = (entry: NativeWatchOverlay['capture']['entry']) => entry.displayTitle ?? entry.title;
+const paintTypes = [React.Fragment, View, Text, ScrollView, Button, TextField, Artwork, StateView, BottomSheet, Dialog, Menu, TouchMenuHeader, NativeFileInfoContent];
+const watchPaintPermit = (value: NativeWatchOverlay, presenters: NativeWatchPresenters, runtime?: NativeShellRuntime): OverlayPaintPermit =>
+  overlayPaintPermit(() => presenters.current(value.capture), [listener => presenters.subscribe(listener),
+    ...(runtime ? [(listener: () => void) => runtime.subscribe(listener), ...(runtime.navigation ? [(listener: () => void) => runtime.navigation!.subscribe(listener)] : [])] : [])]);
+
 
 /** The authored File info container; the native video stays in its persistent
  * host below this overlay. TV chrome alone uses the1920 canvas once. */
@@ -46,12 +53,12 @@ function FileInfoSurface({value, presenters}: {value: NativeWatchOverlay; presen
       </View>
     </Modal>;
   }
-  return <BottomSheet testID="watch-file-info-phone" open onOpenChange={open => {if (!open) presenters.close();}} title={t('next.overlays.fileInfo')}
+  return <RetainedOverlay key={overlayPaintKey(value.capture)} permit={watchPaintPermit(value, presenters)} allowedTypes={paintTypes}><BottomSheet testID="watch-file-info-phone" open onOpenChange={open => {if (!open) presenters.close();}} title={t('next.overlays.fileInfo')}
     showClose={false} initialFocusRef={done} returnFocusRef={value.anchorRef} scrollable={false} detents={[Math.max(1, window.height - 104)]}
     headerContent={<View style={{paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 10}}>
       <Text style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{t('next.overlays.fileInfo')}</Text>
       <Text numberOfLines={1} style={[theme.type.caption, {color: theme.colors.textTertiary, flex: 1, fontSize: 14}]}>{named(value.capture.entry)}</Text>{action}
-    </View>} contentStyle={{paddingHorizontal: 16, paddingTop: 8, flex: 1}}>{value.content}</BottomSheet>;
+    </View>} contentStyle={{paddingHorizontal: 16, paddingTop: 8, flex: 1}}>{value.content}</BottomSheet></RetainedOverlay>;
 }
 
 function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; presenters: NativeWatchPresenters; common: NativeScreenServices}) {
@@ -84,9 +91,9 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
       : value.phase === 'split' ? <Button focusId="watch-split-confirm" testID="watch-split-confirm" disabled={value.busy} onPress={() => {void presenters.split();}}>{t('title.split.confirm')}</Button>
         : value.phase === 'merge' && value.other ? <Button focusId="watch-merge-confirm" testID="watch-merge-confirm" disabled={value.busy} onPress={() => {void presenters.merge();}}>{t('web.selection.merge')}</Button> : null}
   </View>;
-  return <Dialog open title={heading} description={named(entry)} onOpenChange={open => {if (!open) presenters.close();}} footer={footer} dismissOnBack={!value.busy} dismissOnOutsidePress={!value.busy} showClose={false} testID="watch-file-manage">
+  return <RetainedOverlay key={overlayPaintKey(value.capture)} permit={watchPaintPermit(value, presenters)} allowedTypes={paintTypes}><Dialog open title={heading} description={named(entry)} onOpenChange={open => {if (!open) presenters.close();}} footer={footer} dismissOnBack={!value.busy} dismissOnOutsidePress={!value.busy} showClose={false} testID="watch-file-manage">
     <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingVertical: 16}}>{body}</ScrollView>
-  </Dialog>;
+  </Dialog></RetainedOverlay>;
 }
 
 export function NativeWatchOverlays({presenters, runtime, common}: {presenters: NativeWatchPresenters; runtime: NativeShellRuntime; common: NativeScreenServices}) {
@@ -97,9 +104,9 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   const value = current ?? presence.value;
   if (!value) return null;
   const transition = (node: React.ReactNode) => theme.isTV ? <TVPanelTransition key={value.phase} open={presence.open} onExited={presence.exited}>{node}</TVPanelTransition> : node;
-  if (value.phase === 'disc-titles' && value.disc) return transition(<NativeDiscTitlesSheet controller={value.disc} subject={named(value.capture.entry)} close={() => presenters.closeDisc(value)}
+  if (value.phase === 'disc-titles' && value.disc) return transition(<NativeDiscTitlesSheet controller={value.disc} paintPermit={watchPaintPermit(value, presenters, runtime)} subject={named(value.capture.entry)} close={() => presenters.closeDisc(value)}
     renderError={(error, retry) => <StateView variant="inline" {...common.error(error, retry, 'detail')}/>}/>);
-  if (value.phase === 'versions') return transition(<NativeVersionChooser value={value} choose={id => {void presenters.chooseVersion(value, id);}} close={() => presenters.closeVersions(value)}/>);
+  if (value.phase === 'versions') return transition(<NativeVersionChooser value={value} paintPermit={watchPaintPermit(value, presenters, runtime)} choose={id => {void presenters.chooseVersion(value, id);}} close={() => presenters.closeVersions(value)}/>);
   if (value.phase === 'file-info') return transition(<FileInfoSurface value={value} presenters={presenters}/>);
   if (value.phase !== 'menu' && value.phase !== 'file-pending' && value.phase !== 'versions-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
   if (value.phase === 'file-pending' || value.phase === 'versions-pending') return null;
@@ -155,9 +162,9 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
       </View>
       : undefined;
   // playback-info.html frame 17 draws the film's runtime under the title at 22/1.45.
-  return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef} context={context}
+  return <RetainedOverlay key={overlayPaintKey(value.capture)} permit={watchPaintPermit(value, presenters, runtime)} allowedTypes={paintTypes}><Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef} context={context}
     description={tv && entry.kind === 'movie' && entry.duration ? durationText(entry.duration, t) : undefined}
     descriptionTextStyle={tv ? {fontSize: 22, lineHeight: 31.9} : undefined}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}
-    onOpenChange={open => {if (!open) presenters.closeMenu(value);}}/>;
+    onOpenChange={open => {if (!open) presenters.closeMenu(value);}}/></RetainedOverlay>;
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {act, createHookHost} from './hook-driver';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
 import * as shellModel from '../src-next/shell/model';
@@ -20,6 +20,7 @@ test('a real screen-owned Library destination is remembered and a late initial r
     onDestination: (destination: unknown) => {navigations.push(destination); snapshot = {...snapshot, destination};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}, scrollToTop() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},
