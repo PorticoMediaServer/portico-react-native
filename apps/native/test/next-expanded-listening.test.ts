@@ -10,7 +10,7 @@ const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'a
 const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
 const presentation: DockPresentation = {fence, identity: {id: 'item', kind: 'music', title: 'Track', subtitle: []}, skipBackSeconds: 10,
   capabilities: {play: true, pause: true, stop: true, seek: true, previous: false, next: false, cast: false}};
-const playback = (kind: DockPlayback['kind']): DockPlayback => ({kind, fence, queue: null, positionSeconds: 30, playing: true, expanded: false});
+const playback = (kind: 'music' | 'audiobook' | 'video'): DockPlayback => ({kind, fence, queue: null, positionSeconds: 30, playing: true, expanded: false});
 
 for (const kind of ['music', 'audiobook'] as const) test(`the real dock projects its exact expanded ${kind} as a page`, () => {
   const dock = new PlaybackDock(scope);
