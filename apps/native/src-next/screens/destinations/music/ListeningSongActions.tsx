@@ -15,11 +15,18 @@ export function ListeningSongActions({song, pending, favorite, testID = 'now-pla
   favorite: (token: NativeListeningSong, value: boolean) => void;
   testID?: string;
 }) {
-  if (!song) return null;
-  if (!song.actions.some(action => action.id === 'favorite' && action.enabled)) return null;
+  const view = listeningSongFavorite(song, pending);
+  return view && song ? <ListeningFavoritePaint {...view} testID={testID} onPress={() => favorite(song, !view.favorite)}/> : null;
+}
+
+/** A display-only projection: no issued token or command function enters paint. */
+export function listeningSongFavorite(song: NativeListeningSong | undefined, pending: boolean): Readonly<{favorite: boolean; pending: boolean}> | undefined {
+  return song?.actions.some(action => action.id === 'favorite' && action.enabled) ? {favorite: song.favorite, pending} : undefined;
+}
+export function ListeningFavoritePaint({favorite, pending, onPress, testID = 'now-playing-song'}: {favorite: boolean; pending: boolean; onPress?: () => void; testID?: string}) {
   return <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12}}>
-    <Button testID={`${testID}-favorite`} variant={song.favorite ? 'primary' : 'glass'} iconOnly
-      icon={song.favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(song.favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites')}
-      accessibilityState={{checked: song.favorite, disabled: pending}} disabled={pending} onPress={() => favorite(song, !song.favorite)}/>
+    <Button testID={`${testID}-favorite`} variant={favorite ? 'primary' : 'glass'} iconOnly
+      icon={favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites')}
+      accessibilityState={{checked: favorite, disabled: pending}} disabled={pending} onPress={onPress}/>
   </View>;
 }

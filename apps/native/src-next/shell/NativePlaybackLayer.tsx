@@ -16,7 +16,7 @@ import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation,type CastDockBinding} from '../kit/dock';
 import {commandIsCurrent, playbackPosition} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {ListeningPagePreview, NowPlayingScreen, TVListeningRoute, type NowPlayingScreenProps} from '../screens/destinations/music/NowPlayingScreen';
+import {ListeningPageBackground, ListeningPagePreview, NowPlayingScreen, TVListeningRoute, type NowPlayingScreenProps} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
 import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
@@ -198,9 +198,9 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const coverCurrent = useCallback(() => {
     if (runtime.retirementSignal?.aborted) return false;
     const current = adapter.getSnapshot();
-    return alive.current && !current.retired && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
+    return alive.current && coverOpening.current.key === coverOpeningKey && !current.retired && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
       && (!navigation || navigation.getSnapshot() === navigationState);
-  }, [adapter, authority, audioFence, navigation, navigationState, runtime.retirementSignal]);
+  }, [adapter, authority, audioFence, navigation, navigationState, runtime.retirementSignal, coverOpeningKey]);
   const coverSubscribe = useCallback((listener: () => void) => {
     const signal = runtime.retirementSignal;
     if (signal?.aborted) return () => {};
@@ -419,11 +419,12 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   // listening surface, drawn from the same dock occupant and the listening owner's
   // queue. The dock stays underneath; this never starts a second session.
   const dockedLocal = snapshot.dock.local;
+  const listeningPaint = !theme.isTV ? localListeningOccupant(adapter.dock, snapshot.dock, presentation) : null;
   const nowPlaying = expandedListeningOccupant(adapter.dock, snapshot.dock, presentation);
-  const previewListening = !theme.isTV && !nowPlaying ? localListeningOccupant(adapter.dock, snapshot.dock, presentation) : null;
+  const previewListening = !nowPlaying ? listeningPaint : null;
   const listeningView: NowPlayingScreenProps | undefined = nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') ? {
     occupant: nowPlaying, queue: snapshot.queue?.view ?? undefined, artwork: runtime.artwork,
-    width, height, topInset: insets.top, bottomInset: insets.bottom,
+    width, height, topInset: insets.top, bottomInset: insets.bottom, backgroundHosted: !theme.isTV,
     onAction: command => {void action(command).catch(runtime.reportError);},
     onQueuePlay: adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined,
     ...(listeningPorts ?? {}),
@@ -459,6 +460,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
+    {listeningPaint && <ListeningPageBackground fallbackVisible={false} fence={listeningPaint.playback.fence} ambient={listeningPaint.presentation.ambient} height={height}/>}
     {!theme.isTV && <DockVideoExitCanvas style={{zIndex: theme.layers.player + 2}}/>}
     {exitDecodeImage && decodeProof && <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{position: 'absolute', width: decodeProof.bounds.width, height: decodeProof.bounds.height, opacity: 0}}><Image accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
       source={{uri: exitDecodeImage.image.uri}} fadeDuration={0} resizeMode="contain"

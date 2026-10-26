@@ -4,6 +4,7 @@ import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, wi
 import {freezeOverlayPaint, type OverlayPaintNode, type OverlayPaintTypes} from '../overlays/overlay-paint-model';
 import {OverlayPaintProvider, OVERLAY_PAINT_INERT} from '../overlays/OverlayPaintContext';
 import {useMotion} from '../useMotion';
+import {useListeningMiniPaint} from './ListeningCoverBridge';
 import {sameDockFence} from './model';
 import type {DockRenderOccupant} from './types';
 import type {DockVideoExitPaint} from './video-exit-paint';
@@ -39,18 +40,26 @@ export type DockPaintRowProps = Readonly<{
   opener: React.ReactElement; art: React.ReactElement; words: React.ReactNode;
   controls?: React.ReactElement<React.ComponentProps<typeof View>>; tools?: React.ReactNode; line?: React.ReactNode;
   expanded: boolean; containerStyle: StyleProp<ViewStyle>; textStyle: StyleProp<ViewStyle>;
-  artWidth: number; openerGap: number; rowGap: number;
+  listeningFence?: PlaybackFence; artWidth: number; openerGap: number; rowGap: number;
 }>;
 
 /** Materialised UI only. Its callbacks belong to the live input tree; the frozen
  * outgoing copy has no refs or business callbacks and renders under INERT. */
-export function DockPaintRow({opener, art, words, controls, tools, line, expanded, containerStyle, textStyle, rowGap}: DockPaintRowProps) {
+export function DockPaintRow({opener, art, words, controls, tools, line, expanded, containerStyle, textStyle, rowGap, listeningFence}: DockPaintRowProps) {
   const paint = useContext(Phase), motion = useMotion();
   const alpha = paint?.alpha, x = paint?.x, y = paint?.y, scale = paint?.scale;
-  const artStyle = useAnimatedStyle(() => ({opacity: paint?.hideArt ? 0 : alpha?.value ?? 1, transform: [{scale: motion.transforms ? scale?.value ?? 1 : 1}]}));
-  const wordsStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{translateX: motion.transforms ? x?.value ?? 0 : 0}, {translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
-  const controlStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1, transform: [{translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
-  const lineStyle = useAnimatedStyle(() => ({opacity: alpha?.value ?? 1}));
+  const mini = useListeningMiniPaint(listeningFence);
+  const miniActive = mini.active, miniProgress = mini.progress, miniDragging = mini.dragging, miniPage = mini.page;
+  const visibility = () => {
+    'worklet';
+    if (!miniActive) return 1;
+    if (motion.reduce && !miniDragging?.value) return 1 - (miniPage?.value ?? 0);
+    return Math.max(0, 1 - Math.max(0, Math.min(1, 1 - (miniProgress?.value ?? 1))) * 4);
+  };
+  const artStyle = useAnimatedStyle(() => ({opacity: paint?.hideArt ? 0 : (alpha?.value ?? 1) * visibility(), transform: [{scale: motion.transforms ? scale?.value ?? 1 : 1}]}));
+  const wordsStyle = useAnimatedStyle(() => ({opacity: (alpha?.value ?? 1) * visibility(), transform: [{translateX: motion.transforms ? x?.value ?? 0 : 0}, {translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
+  const controlStyle = useAnimatedStyle(() => ({opacity: (alpha?.value ?? 1) * visibility(), transform: [{translateY: motion.transforms ? y?.value ?? 0 : 0}]}));
+  const lineStyle = useAnimatedStyle(() => ({opacity: (alpha?.value ?? 1) * visibility()}));
   const toolsElement = React.isValidElement(tools) && tools.type === View ? tools as React.ReactElement<React.ComponentProps<typeof View>> : undefined;
   const toolsView = toolsElement
     ? <Animated.View {...toolsElement.props} style={[toolsElement.props.style, controlStyle]}/>
