@@ -302,7 +302,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       {/* tv-focus frames1..3: the real spotlight controls stay mounted for native
           Up guides while the preview covers them. Focus restores the spotlight. */}
       {theme.isTV ? <View pointerEvents={preview ? 'none' : 'box-none'} style={{position: 'absolute', inset: 0}}>{spotlight}</View> : spotlight}
-      {theme.isTV && preview && <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height: heroHeight, backgroundColor: theme.colors.ink}}><FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
+      {theme.isTV && preview && <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height: heroHeight}}><FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
         renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1, includeFontPadding: false}]}>{part.text}</Text>)}</View>}
         renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds} text={runtime.text}/>}

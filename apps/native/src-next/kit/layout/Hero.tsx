@@ -28,6 +28,8 @@ export type HeroProps<T extends HeroCandidate> = {
   renderAfterCopy?: (entry: T) => ReactNode;
   renderThumbnail?: (entry: T, context: ThumbnailRenderContext) => ReactNode;
   onArtworkError?: (error: unknown, entry: T) => void;
+  /** The currently staged artwork decoded; presentation consumers may cover prior art now. */
+  onArtworkReady?: (entry: T) => void;
   showOverview?: boolean;
   height?: number;
   copyTop?: number;
@@ -72,21 +74,22 @@ function HeroLayer<T extends HeroCandidate>({entry, shown, pending, fade, ready,
   </Animated.View>;
 }
 
-type CopyProps<T extends HeroCandidate> = Omit<HeroProps<T>, 'candidates' | 'activeIndex' | 'onIndexChange'> & {entry: T; fade: 'hero' | 'slow'};
+type CopyProps<T extends HeroCandidate> = Omit<HeroProps<T>, 'candidates' | 'activeIndex' | 'onIndexChange'> & {entry: T; fade: 'hero' | 'slow'; wordsOnly?: boolean};
 
-function CopyPart({identity, step, stagger, translate, timing, children}: {identity: string; step: number; stagger: number; translate: number; timing: WithTimingConfig; children: ReactNode}) {
-  const words = useSharedValue(0);
+function CopyPart({identity, step, stagger, translate, timing, children, still = false}: {still?: boolean; identity: string; step: number; stagger: number; translate: number; timing: WithTimingConfig; children: ReactNode}) {
+  const words = useSharedValue(still ? 1 : 0);
   useLayoutEffect(() => {
+    if (still) {words.value = 1; return;}
     words.value = 0;
     words.value = withDelay(step * stagger, withTiming(1, timing));
     return () => cancelAnimation(words);
-  }, [identity, stagger, step, timing, words]);
+  }, [identity, stagger, step, still, timing, words]);
   const style = useAnimatedStyle(() => ({opacity: words.value, transform: [{translateY: (1 - words.value) * translate}]}));
   return <Animated.View pointerEvents="box-none" style={style}>{children}</Animated.View>;
 }
 
 /** One actual copy/control tree keeps native TV focus while the artwork layers crossfade. */
-function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, copySide, lockupStyle, reducedMotion}: CopyProps<T>) {
+function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, copySide, lockupStyle, reducedMotion, wordsOnly = false}: CopyProps<T>) {
   const theme = useTheme(), motion = useMotion();
   const reduced = motion.reduce || !!reducedMotion;
   const phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone'), tv = variant === 'tv' || (!variant && theme.isTV);
@@ -94,7 +97,7 @@ function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions,
   // kit.css draws .actions at 12 px (18 px under .tv); the phone/tablet spec column said 10.
   const actionsGap = theme.isTV ? 18 : 12;
   const side = !!copySide;
-  const partProps = {identity: entry.id, stagger: reduced || fade !== 'hero' ? 0 : heroSpec.rotation.copyStaggerMs, translate: reduced || tv || phone ? 0 : heroSpec.rotation.copyTranslate, timing};
+  const partProps = {still: wordsOnly, identity: entry.id, stagger: reduced || fade !== 'hero' ? 0 : heroSpec.rotation.copyStaggerMs, translate: reduced || tv || phone ? 0 : heroSpec.rotation.copyTranslate, timing};
   let step = 0;
   return <View style={copySide ? {position: 'absolute', left: copySide.inset, right: undefined, width: copySide.width, top: undefined, bottom: copySide.bottom}
     : {position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.gutter,
@@ -104,9 +107,23 @@ function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions,
     <CopyPart {...partProps} step={step++}><Lockup title={entry.title} long={entry.long} variant={variant} lines={phone ? 2 : undefined} style={[{textAlign: side ? 'left' : phone ? 'center' : 'left', marginBottom: phone ? 10 : tv ? 22 : 20}, lockupStyle]} /></CopyPart>
     {(renderMetadata || entry.facts?.length) ? <CopyPart {...partProps} step={step++}><View style={{marginBottom: phone ? 18 : tv ? 18 : 16}}>{renderMetadata ? renderMetadata(entry) : <HeroMetadata facts={entry.facts ?? []} centered={side ? false : phone} />}</View></CopyPart> : null}
     {showOverview && !phone && entry.overview ? <CopyPart {...partProps} step={step++}><Text numberOfLines={tv ? 2 : 3} style={[theme.type.synopsis, {includeFontPadding: false, color: theme.colors.textSecondary, maxWidth: tv ? 800 : 540, marginBottom: tv ? 30 : 28}]}>{entry.overview}</Text></CopyPart> : null}
-    <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: side ? 'flex-start' : phone ? 'center' : 'flex-start', gap: actionsGap}}>{renderActions(entry)}</View></CopyPart>
-    {renderAfterCopy && <CopyPart {...partProps} step={step}>{renderAfterCopy(entry)}</CopyPart>}
+    {!wordsOnly && <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: side ? 'flex-start' : phone ? 'center' : 'flex-start', gap: actionsGap}}>{renderActions(entry)}</View></CopyPart>}
+    {!wordsOnly && renderAfterCopy && <CopyPart {...partProps} step={step}>{renderAfterCopy(entry)}</CopyPart>}
   </View>;
+}
+
+/** Only words are retained: no action renderer or trailing interactive tree is called. */
+function OutgoingHeroWords<T extends HeroCandidate>({retire, ...props}: CopyProps<T> & {retire: () => void}) {
+  const motion = useMotion(), opacity = useSharedValue(1);
+  const reduce = motion.reduce || !!props.reducedMotion;
+  useLayoutEffect(() => {
+    opacity.value = withTiming(0, {...motion.timing('standard'), duration: reduce ? heroSpec.rotation.reducedMs : heroSpec.rotation.copyMs}, finished => {if (finished) runOnJS(retire)();});
+    return () => cancelAnimation(opacity);
+  }, [motion, opacity, reduce, retire]);
+  const style = useAnimatedStyle(() => ({opacity: opacity.value}));
+  return <Animated.View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{position: 'absolute', inset: 0}, style]}>
+    <HeroCopy {...props} wordsOnly/>
+  </Animated.View>;
 }
 
 type StagedEntry<T> = Readonly<{entry: T; generation: number}>;
@@ -126,7 +143,8 @@ function StagedHeroLayer<T extends HeroCandidate>({layer, ready, failed, departe
 export function HeroSurface<T extends HeroCandidate>({entry, fade = 'hero', ...props}: Omit<HeroProps<T>, 'candidates' | 'activeIndex' | 'onIndexChange'> & {entry: T | undefined; fade?: 'hero' | 'slow'}) {
   const [layers, setLayers] = useState<readonly StagedEntry<T>[]>([]), [shown, setShown] = useState<number>();
   const layersRef = useRef(layers), shownRef = useRef(shown), target = useRef<number | undefined>(undefined), generation = useRef(0);
-  const onErrorRef = useRef(props.onArtworkError);
+  const onErrorRef = useRef(props.onArtworkError), onReadyRef = useRef(props.onArtworkReady);
+  onReadyRef.current = props.onArtworkReady;
   onErrorRef.current = props.onArtworkError;
   shownRef.current = shown; layersRef.current = layers;
   const [gate] = useState(() => createArtworkReadiness<number>(setShown, (failedGeneration, error) => {
@@ -153,15 +171,31 @@ export function HeroSurface<T extends HeroCandidate>({entry, fade = 'hero', ...p
     setLayers(currentShown ? [currentShown, incoming] : [incoming]);
   }, [entry, gate]);
   useEffect(() => () => {target.current = undefined; gate.clear();}, [gate]);
-  const ready = useCallback((layerGeneration: number) => {if (target.current === layerGeneration) gate.ready(layerGeneration);}, [gate]);
+  const ready = useCallback((layerGeneration: number) => {
+    if (target.current !== layerGeneration || !gate.ready(layerGeneration)) return;
+    const layer = layersRef.current.find(candidate => candidate.generation === layerGeneration);
+    if (layer) onReadyRef.current?.(layer.entry);
+  }, [gate]);
   const failed = useCallback((layerGeneration: number, error: unknown) => {if (target.current === layerGeneration) gate.error(layerGeneration, error);}, [gate]);
   const departed = useCallback((layerGeneration: number) => {
     if (target.current === layerGeneration || shownRef.current === layerGeneration) return;
     setLayers(current => current.filter(layer => layer.generation !== layerGeneration));
   }, []);
   const shownLayer = layers.find(layer => layer.generation === shown);
+  const theme = useTheme();
+  const tv = props.variant === 'tv' || (!props.variant && theme.isTV);
+  const lastCopy = useRef<StagedEntry<T> | undefined>(undefined);
+  const [outgoing, setOutgoing] = useState<StagedEntry<T>>();
+  useLayoutEffect(() => {
+    const previous = lastCopy.current;
+    lastCopy.current = shownLayer;
+    if (!shownLayer || !tv) {setOutgoing(undefined); return;}
+    if (previous && previous.generation !== shownLayer.generation) setOutgoing(previous);
+  }, [shownLayer, tv]);
+  const retireWords = useCallback(() => {setOutgoing(current => current?.generation === outgoing?.generation ? undefined : current);}, [outgoing?.generation]);
   return <>{layers.map(layer => <StagedHeroLayer key={`${layer.entry.id}:${layer.generation}`} layer={layer} renderArtwork={props.renderArtwork} visible={props.visible} reducedMotion={props.reducedMotion}
     shown={shown === layer.generation} pending={target.current === layer.generation && shown !== layer.generation} ready={ready} failed={failed} departed={departed} fade={fade} />)}
+    {outgoing && <OutgoingHeroWords key={outgoing.generation} {...props} entry={outgoing.entry} fade={fade} retire={retireWords}/>}
     {shownLayer && <HeroCopy {...props} entry={shownLayer.entry} fade={fade} />}
   </>;
 }
