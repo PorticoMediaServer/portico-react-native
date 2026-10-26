@@ -6,7 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {contentFadeDuration, nextLoadingPhase} from '../src-next/kit/states/LoadingBoundary.ts';
+import {cachedAfterLoadingCycle, contentFadeDuration, nextLoadingPhase} from '../src-next/kit/states/loading-boundary-model.ts';
 
 test('cached content mounts straight into content, uncached waits quiet', () => {
   assert.equal(nextLoadingPhase('quiet', {type: 'mounted', ready: true, cached: true}), 'content');
@@ -25,6 +25,12 @@ test('a ready change owns the transition, and a new loading cycle returns to qui
   assert.equal(nextLoadingPhase('quiet', {type: 'readyChanged', ready: true}), 'content', 'fast ready skips the shape');
   assert.equal(nextLoadingPhase('content', {type: 'readyChanged', ready: false}), 'quiet', 'reloading restarts the quiet window');
   assert.equal(nextLoadingPhase('skeleton', {type: 'readyChanged', ready: false}), 'quiet');
+});
+
+test('a cached mount only skips the first cycle, and a later load fades in', () => {
+  assert.equal(cachedAfterLoadingCycle(true, true), true);
+  assert.equal(cachedAfterLoadingCycle(true, false), false, 'a new loading cycle clears the cached witness');
+  assert.equal(cachedAfterLoadingCycle(false, true), false, 'later content is always faded');
 });
 
 test('the content fade uses the shared reduced duration', () => {
