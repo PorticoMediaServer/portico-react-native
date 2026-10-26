@@ -62,3 +62,34 @@ test('local response rejects bad base64/overflow and cancellation before reading
   assert.throws(() => nativeReadingResponse(raw, 3, caller.signal));
   assert.equal(globalThis.Response, responseBefore); assert.equal(globalThis.ReadableStream, streamsBefore);
 });
+
+test('Discover metadata uses the bounded native body facade on a Hermes-style Response', async t => {
+  const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
+  const before = {request: runtime.networkRequest, Response: globalThis.Response};
+  t.after(() => {runtime.networkRequest = before.request; globalThis.Response = before.Response;});
+  // Model the actual native seam: an ordinary Hermes response has no pull body.
+  // The per-response Reading adapter must provide it; no app global is patched.
+  globalThis.Response = class extends before.Response { get body() { return null; } };
+  let calls = 0, current = true;
+  runtime.networkRequest = async (_id: string, url: string, method: string, headers: Record<string, string>) => {
+    calls++;
+    assert.equal(method, 'GET');
+    assert.equal(new URL(url).pathname, routePath('get_reading_discover'));
+    assert.equal(new URL(url).searchParams.get('libraryId'), 'books');
+    assert.equal(new Headers(headers).get('Authorization'), 'Bearer throwaway-test-token');
+    assert.deepEqual(nativeReadingPolicy(url, method), {binaryLimit: undefined});
+    assert.equal(nativeReadingPolicy(url, 'POST'), undefined, 'only the declared metadata method selects the facade');
+    return {status: 200, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({rows: [{key: 'recent', items: []}]})};
+  };
+  const api = new HttpLocalApi(origin, 'throwaway-test-token', nativeServerFetch('s'));
+  const client = api.reading({viewer, isCurrent: () => current});
+  try {
+    const page = await client.discover({libraryId: 'books', limit: 20, shortReadsLimit: 12});
+    assert.equal(page.rows[0].key, 'recent');
+    assert.deepEqual(page.rows[0].items, []);
+    assert.equal(calls, 1);
+    current = false;
+    await assert.rejects(client.discover({libraryId: 'books'}), error => error instanceof ReadingError && error.code === 'cancelled');
+    assert.equal(calls, 1, 'retired original authority cannot send another metadata request');
+  } finally {client.dispose();}
+});
