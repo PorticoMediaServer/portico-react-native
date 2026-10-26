@@ -4,7 +4,7 @@ import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutC
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
 import {ModuleEvents, failure, withEvents} from './events';
-import {HlsSource, type SourceError} from './hls';
+import {AudioRenditionUnavailable, HlsSource, type AudioSelection, type SourceError} from './hls';
 import {uuid} from './random';
 import {applySubtitles, clearSubtitles, subtitleDisplay, tickSubtitles, type SubtitleCommand} from './subtitles';
 import {registerSystemMediaSource, TransportKeys, type SystemMediaRegistration} from './system-media';
@@ -117,6 +117,12 @@ class Engine {
   private audioKey = '';
   private audioRevision = 0;
   private audioSequence = 0;
+  private audioMap = new Map<string, number>();
+  private audioCommand?: AudioCommand;
+  private audioMappingValid?: boolean;
+  private audioObserved: string | null | undefined;
+  private audioRequest?: {key: string; kind: 'select' | 'fallback'; revision: number; renditionId: string;
+    selection?: AudioSelection; current: () => boolean; mediaAccepted: boolean; applied: boolean};
   private readonly listeners: [string, () => void][] = [];
   private hls?: HlsSource;
   private keyed = false;
@@ -194,6 +200,7 @@ class Engine {
    * waiting picture is not reported again and again. */
   private tick(): void {
     if (!this.ready || this.over || this.failed) return;
+    this.sampleAudio();
     const position = this.position(), paused = this.player.paused;
     const moving = !paused && !this.waiting;
     if (moving && Number.isFinite(position) && Number.isFinite(this.lastPosition) && position > this.lastPosition + 0.05) this.played = true;
@@ -307,7 +314,7 @@ class Engine {
       // A channel's timeline has no beginning at zero; a title's does.
       const position = this.originMs === undefined ? Math.max(0, pending.positionSeconds) : pending.positionSeconds;
       const go = (elementTime: number) => {
-        if (this.seek?.revision !== pending.revision || this.closed) return;
+        if (this.seek?.revision !== pending.revision || this.closed || this.failed) return;
         if (!Number.isFinite(elementTime)) { this.sought(false); return; }
         // The element says nothing when it is sent to where it already is.
         if (Math.abs(Number(this.player.currentTime) - elementTime) < 0.25) this.sought(true);
@@ -318,6 +325,7 @@ class Engine {
       if (typeof target === 'number') go(target);
       else target.then(go, () => { if (this.seek?.revision === pending.revision) this.sought(false); });
     }
+    if (this.closed || this.failed) return;
     const subtitles = inBinding(command.subtitles?.binding, command.binding) ? command.subtitles : null;
     applySubtitles(subtitles, this.source, error => this.publish('subtitleStatus', {error}));
     this.applyAudio(inBinding(command.audio?.binding, command.binding) ? command.audio : null);
@@ -332,9 +340,84 @@ class Engine {
    * playing (`audioObserved`), and each change asked for is answered (`audioApplied` or
    * `audioFailed`).
    */
+  private retireAudioRequest(): void {
+    const request = this.audioRequest;
+    this.audioRequest = undefined; // revoke the original owner before abort callbacks can run
+    request?.selection?.cancel();
+  }
+
+  private sampleAudio(force = false): void {
+    const audio = this.audioCommand, hls = this.hls;
+    if (!audio || !hls || !accepted || !inBinding(accepted.audio?.binding, this.binding)
+      || JSON.stringify([accepted.audio?.binding, accepted.audio?.epoch]) !== this.audioKey) return;
+    const observed = [...this.audioMap].find(([, index]) => index === hls.audioIndex())?.[0] ?? null;
+    const stamp = {audioBinding: audio.binding, audioEpoch: audio.epoch};
+    if (force || this.audioObserved !== observed) {
+      this.audioObserved = observed;
+      this.publish('audioObserved', {...stamp, audioSequence: ++this.audioSequence, renditionId: observed});
+    }
+    const request = this.audioRequest;
+    if (request?.kind === 'select' && request.mediaAccepted && !request.applied && request.current() && observed === request.renditionId) {
+      request.applied = true;
+      // The current controller admits Applied only after the matching Observed fact.
+      this.publish('audioApplied', {...stamp, audioRevision: request.revision, renditionId: observed});
+    }
+  }
+
+  private startAudio(audio: AudioCommand, index: number, kind: 'select' | 'fallback', revision: number, renditionId: string): void {
+    this.retireAudioRequest();
+    const hls = this.hls;
+    if (!hls || this.failed || this.closed) return;
+    const key = this.audioKey, binding = Object.freeze({...this.binding});
+    audio = Object.freeze({...audio, binding: Object.freeze({...audio.binding}), renditions: Object.freeze(audio.renditions.map(value => Object.freeze({...value}))), pending: audio.pending ? Object.freeze({...audio.pending}) : null});
+    const sourceCurrent = () => !this.closed && !this.failed && engine === this && this.hls === hls && lease === binding.lease && !!accepted && same(accepted.binding, binding);
+    const request = {key, kind, revision, renditionId, mediaAccepted: false, applied: false, selection: undefined as AudioSelection | undefined,
+      current: () => sourceCurrent() && this.audioRequest === request && this.audioKey === key
+        && JSON.stringify([accepted?.audio?.binding, accepted?.audio?.epoch]) === key
+        && (kind === 'select' ? accepted?.audio?.pending?.revision === revision && accepted.audio.pending.renditionId === renditionId
+          : !accepted?.audio?.pending || accepted.audio.pending.revision <= revision)};
+    this.audioRequest = request;
+    request.selection = hls.selectAudio(index, {current: request.current, sourceCurrent, willMutate: () => {
+      if (!request.current()) return;
+      this.audioObserved = null;
+      this.publish('audioObserved', {audioBinding: audio.binding, audioEpoch: audio.epoch, audioSequence: ++this.audioSequence, renditionId: null});
+    }});
+    void request.selection.done.then(() => {
+      if (!request.current()) return;
+      request.mediaAccepted = true;
+      this.sampleAudio(true);
+      if (kind === 'fallback' && this.audioRequest === request) this.retireAudioRequest();
+    }, error => {
+      if (!request.current()) return;
+      this.retireAudioRequest();
+      if (!sourceCurrent() || this.audioKey !== key) return;
+      if (kind === 'select' && error instanceof AudioRenditionUnavailable) {
+        this.publish('audioUnavailable', {audioBinding: audio.binding, audioEpoch: audio.epoch, renditionId});
+        // Only a known default in this exact all-or-none map may start a NEW recovery operation.
+        if (!sourceCurrent() || this.audioKey !== key || JSON.stringify([accepted?.audio?.binding, accepted?.audio?.epoch]) !== key) return;
+        const nextPending = accepted?.audio?.pending;
+        if (this.audioRequest || nextPending && (nextPending.revision !== revision || nextPending.renditionId !== renditionId)) return;
+        const fallback = this.audioMap.get(audio.defaultRenditionId);
+        if (fallback !== undefined && audio.defaultRenditionId !== renditionId) this.startAudio(audio, fallback, 'fallback', revision, audio.defaultRenditionId);
+        else this.sampleAudio(true); // no usable default is not proof that the working source stopped
+      } else {
+        if (kind === 'select') this.publish('audioFailed', {audioBinding: audio.binding, audioEpoch: audio.epoch, audioRevision: revision});
+        this.sampleAudio(true); // preparation failure leaves only the actually committed source observable
+      }
+    });
+  }
+
   private applyAudio(audio: AudioCommand | null | undefined): void {
     const hls = this.hls;
-    if (!audio || !hls || !Array.isArray(audio.renditions)) {this.audioKey = ''; return;}
+    if (!audio || !hls || !Array.isArray(audio.renditions)) {
+      this.retireAudioRequest();
+      this.audioKey = ''; this.audioCommand = undefined; this.audioMap.clear(); this.audioObserved = undefined; this.audioMappingValid = undefined;
+      return;
+    }
+    const key = JSON.stringify([audio.binding, audio.epoch]), pending = audio.pending, prior = this.audioRequest;
+    if (prior && (prior.key !== key || (prior.kind === 'select' ? !pending || pending.revision !== prior.revision || pending.renditionId !== prior.renditionId
+      : !!pending && pending.revision > prior.revision))) this.retireAudioRequest();
+    if (this.failed || this.closed || !this.filled) return; // initial HLS IO keeps its generation until ready
     const stamp = {audioBinding: audio.binding, audioEpoch: audio.epoch};
     const offered = hls.audio(), mapped = new Map<string, number>(), used = new Set<number>();
     let valid = audio.renditions.length > 0 && audio.renditions.length <= 16 && audio.renditions.length === offered.length;
@@ -344,30 +427,23 @@ class Engine {
       if (matches.length !== 1 || used.has(matches[0])) {valid = false; break;}
       mapped.set(rendition.id, matches[0]); used.add(matches[0]);
     }
-    // Partial or ambiguous metadata never becomes a list of successful mappings.
-    if (!valid) mapped.clear();
-    const playing = () => [...mapped].find(([, index]) => index === hls.audioIndex())?.[0] ?? null;
-    const key = JSON.stringify([audio.binding, audio.epoch]);
-    if (key !== this.audioKey) {
-      this.audioKey = key; this.audioRevision = 0; this.audioSequence = 0;
-      this.publish('audioMapped', {...stamp, renditionIds: [...mapped.keys()], ...(!valid ? {audioMappingFailure: 'unsupported_metadata'} : {})});
-      if (valid) this.publish('audioObserved', {...stamp, audioSequence: ++this.audioSequence, renditionId: playing()});
+    if (!mapped.has(audio.defaultRenditionId)) valid = false;
+    if (!valid) {this.retireAudioRequest(); mapped.clear(); if (this.failed || this.closed) return;}
+    const remapped = key !== this.audioKey || valid !== this.audioMappingValid || JSON.stringify([...mapped]) !== JSON.stringify([...this.audioMap]);
+    const changed = key !== this.audioKey;
+    this.audioCommand = audio; this.audioMap = mapped; this.audioMappingValid = valid;
+    if (changed) {
+      this.retireAudioRequest();
+      if (this.failed || this.closed) return;
+      this.audioKey = key; this.audioRevision = 0; this.audioSequence = 0; this.audioObserved = undefined;
     }
-    const pending = audio.pending;
+    if (remapped) this.publish('audioMapped', {...stamp, renditionIds: [...mapped.keys()], ...(!valid ? {audioMappingFailure: 'unsupported_metadata'} : {})});
+    this.sampleAudio();
     if (!pending || pending.revision <= this.audioRevision) return;
     this.audioRevision = pending.revision;
     const index = mapped.get(pending.renditionId);
-    if (index === undefined) { this.publish('audioUnavailable', {...stamp, renditionId: pending.renditionId}); this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); return; }
-    const current = () => !this.closed && engine === this && key === this.audioKey && this.audioRevision === pending.revision
-      && accepted?.audio?.pending?.revision === pending.revision && accepted.audio.pending.renditionId === pending.renditionId;
-    hls.selectAudio(index).then(
-      () => {
-        if (!current()) return;
-        this.publish('audioApplied', {...stamp, audioRevision: pending.revision, renditionId: pending.renditionId});
-        this.publish('audioObserved', {...stamp, audioSequence: ++this.audioSequence, renditionId: playing()});
-      },
-      () => { if (current()) this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); },
-    );
+    if (index === undefined) {this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); return;}
+    this.startAudio(audio, index, 'select', pending.revision, pending.renditionId);
   }
 
   /** Whether what is playing has a picture (music and audiobooks do not). */
@@ -413,6 +489,12 @@ class Engine {
   private fail(failure: Failure, detail: string): void {
     if (this.closed || this.failed) return;
     this.failed = true;
+    this.retireAudioRequest();
+    this.hls?.close(); clearSubtitles();
+    if (this.ticker) clearInterval(this.ticker); this.ticker = undefined;
+    if (this.captions) clearInterval(this.captions); this.captions = undefined;
+    if (this.seek) clearTimeout(this.seek.timer); this.seek = undefined;
+    if (this.restoring) clearTimeout(this.restoring.timer); this.restoring = undefined;
     try { this.player.pause(); } catch { /* never started */ }
     const status = failure.status !== undefined && failure.status >= 400 && failure.status <= 599 ? failure.status : 0;
     const network = status ? status === 408 || status === 429 || status >= 500 : failure.network === true;
@@ -444,7 +526,7 @@ class Engine {
   }
 
   private publish(type: string, extra: Readonly<Record<string, unknown>> = {}): void {
-    if (this.closed || engine !== this || !lease || !accepted || (this.restoring && type !== 'error')) return;
+    if (this.closed || engine !== this || !lease || !accepted || ((this.failed || this.restoring) && type !== 'error')) return;
     const paused = this.opened ? this.player.paused : true;
     const moving = this.ready && !paused && !this.waiting && !this.over && !this.failed;
     const place = this.position();
@@ -465,6 +547,7 @@ class Engine {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.retireAudioRequest();
     this.transportKeys?.retire(); this.transportKeys = undefined;
     if (this.ticker) clearInterval(this.ticker);
     if (this.captions) clearInterval(this.captions);
