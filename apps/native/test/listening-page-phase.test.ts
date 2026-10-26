@@ -1,3 +1,4 @@
+import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN actual-hook/UI-worklet source vectors with controlled shared
  * values. No reconciler, native image, display timing, input or device proof. */
 import test from 'node:test';
@@ -7,7 +8,7 @@ import {createHookHost, act} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
 import {validRect} from '../src-next/kit/dock/model.ts';
-const fence = {kind: 'local', playId: 'original', sessionId: 'session', itemId: 'item', generation: 1};
+const fence = dockFence();
 function cell(initial: any) {
   let value = initial;
   const node: any = {get value() {return value;}, set value(next: any) {
@@ -22,30 +23,40 @@ function cell(initial: any) {
   return node;
 }
 async function rig() {
-  let tree: any, reduce = false, current = true;
+  let tree: any, reduce = false, current = true, interactive = true;
+  const contexts: any[] = [];
   const reactions: any[] = [], listeners = new Set<() => void>();
   const controller = {progress: cell(1), dragging: cell(false), presentationGoal: cell(1)};
   const scope = {}, opening = {};
   const binding = {fence, scope, opening, controller, current: () => current,
     subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
-  const {ListeningCoverProvider, useListeningPageStyle} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
-    react: {...React, default: React, createContext: () => ({Provider: 'Provider'}), useContext: () => tree.props.value},
+  const {ListeningCoverProvider, useListeningPageStyle, ListeningSeekPaint} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
+    react: {...React, default: React, createContext: () => {const value = {Provider: 'Provider'};contexts.push(value);return value;},
+      useContext: (context: any) => context === contexts[0] ? tree.props.value : context === contexts[1] ? tree.props.children.props.value : tree.props.children.props.children.props.value},
     'react-native': {View: 'View'},
+    'react-native-gesture-handler': {Gesture: {Pan: () => ({enabled() {return this;}})}, GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'},
       useSharedValue(initial: any) {const ref = React.useRef<any>(null); if (!ref.current) ref.current = cell(initial); return ref.current;},
       useAnimatedReaction(read: any, apply: any) {const ref = React.useRef<any>(null); if (!ref.current) {ref.current = {};reactions.push(ref.current);}Object.assign(ref.current, {read, apply});},
       useAnimatedStyle: (read: any) => ({read}), cancelAnimation: (node: any) => {if (node.running) node.running.stopped = true;},
       withTiming: (to: any, config: any) => ({animation: true, to, config}), withDelay: (delay: number, inner: any) => ({delayed: true, delay, inner})},
     '../../../../../packages/player-core/src': {sameFence}, './model': {validRect},
-    '../theme': {useTheme: () => ({layers: {player: 30}})},
+    '../theme': {useTheme: () => ({layers: {player: 30}, colors: {accentStrong: '#abc'}})},
     '../useMotion': {useMotion: () => ({reduce, transforms: !reduce, timing: (kind: string) => ({duration: reduce ? 160 : kind === 'quick' ? 120 : 180, easing: reduce ? 'linear' : 'out'})})},
-    '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive: true})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'},
+    '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'},
   });
   const provider = createHookHost(() => {tree = ListeningCoverProvider({children: null});});provider.mount();
   const step = () => {for (const reaction of reactions) {const now = reaction.read();reaction.apply(now, reaction.previous);reaction.previous = now;}};
   await act(() => tree.props.value.publish(binding)); tree.props.value.reportPageHeight(690);step();
   let pageStyle: any; const page = createHookHost(() => {pageStyle = useListeningPageStyle(fence as any, 690);}); page.mount();
   return {controller, context: () => tree.props.value, step,
+    async publishScrubber(value: any) {let off: any;await act(() => {off = tree.props.children.props.value(value);});return async () => {await act(() => off());};},
+    mountSeek() {
+      let seekTree: any;
+      const host = createHookHost(() => {seekTree = ListeningSeekPaint({fence, fraction: .1, span: 100, seconds: 10, label: 'Seek'});});host.mount();
+      return {host, get tree() {return seekTree;}, view: () => seekTree.props.children, fill: () => seekTree.props.children.props.children.props.children.props.style[1].read()};
+    },
+    inert() {interactive = false;},
     async publishSame() {await act(() => tree.props.value.publish({...binding, opening: {}}));step();},
     async reduce() {reduce = true; provider.rerender();await act(() => {});step();page.rerender();},
     async retire() {current = false;await act(() => {for (const listener of [...listeners]) listener();});step();page.rerender();},
@@ -101,4 +112,23 @@ test('artless admitted paint still gets a page clock and original retirement can
     assert.deepEqual(r.context().groups.map((value: any) => value.value), [0, 0, 0]);
     assert.equal(r.pageStyle().opacity, 0);
   } finally {r.close();}
+});
+
+
+test('retiring the live scrubber keeps its last painted fraction and footprint without retaining its recogniser', async () => {
+  const r = await rig(), context = r.context();
+  const channel = {fence, gesture: {synthetic: 'original'}, scope: 7, activeScope: cell(7), ticket: cell(1), drag: cell(null), base: cell(.2), travel: cell(0)};
+  const off = await r.publishScrubber(channel), widget = r.mountSeek();
+  try {
+    assert.equal(r.context(), context, 'live scrubber publication does not change the main context read by the business publisher');
+    widget.view().props.onLayout({nativeEvent: {layout: {width: 200}}});r.step();
+    assert.equal(channel.travel.value, 200);
+    channel.drag.value = .65;r.step();
+    assert.equal(widget.fill().transform[1].scaleX, .65);
+    channel.ticket.value = 0;channel.drag.value = null;r.step();
+    r.inert();await off();widget.host.rerender();r.step();
+    assert.equal(widget.fill().transform[1].scaleX, .65, 'engine/rest facts cannot erase the captured actual preview');
+    assert.equal(widget.view().props.style.height, 28);
+    assert.notEqual(widget.tree.props.gesture, channel.gesture, 'the retired business recogniser is no longer installed');
+  } finally {widget.host.unmount();r.close();}
 });

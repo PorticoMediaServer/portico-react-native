@@ -1,3 +1,4 @@
+import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN source vectors for the existing UI capture owner. No native
  * capture, rendering, file transfer, gesture timing or image proof is inferred. */
 import test from 'node:test';
@@ -5,7 +6,7 @@ import assert from 'node:assert/strict';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import type {PlaybackFence} from '../../../packages/player-core/src/index.ts';
 import type {NativeShellVideoSnapshot} from '../src-next/shell/playback.ts';
-const fence = (id: string) => ({kind: 'local', playId: id, sessionId: id, itemId: id, generation: 1}) as PlaybackFence;
+const fence = dockFence;
 const deferred = <T>() => {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};};
 const frame = (value: PlaybackFence, release = async () => {}) => ({fence: value, image: {uri: 'file:///actual-source', width: 1280, height: 720}, release});
 
