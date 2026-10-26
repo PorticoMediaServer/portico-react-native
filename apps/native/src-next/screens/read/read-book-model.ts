@@ -5,8 +5,9 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeRouteCrypto} from '../../platform/server-connections';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {askNativeDownload} from '../downloads/request';
-import {nativeReadOrigin, openNativeRead, openNativeReadPeriodical, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
+import {nativeReadOrigin, openNativeRead, openNativeReadBook, openNativeReadPeriodical, openNativeReadSeries, type NativeReadOrigin} from './eligibility';
 
 export type NativeReadVersion = Awaited<ReturnType<ReadingClient['versions']>>['versions'][number];
 export type NativeReadBookState = Readonly<{
@@ -25,6 +26,24 @@ export type NativeReadBookState = Readonly<{
 }>;
 type BookRoute = Extract<NativeShellRoute, {kind: 'read-book'}>;
 type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
+/** The rest of this page's series, read from the same signed series producer the
+ * series page uses. One cursor and one revision witness, never a count: a page
+ * only says what it actually listed. */
+export type NativeReadSeriesShelfState = Readonly<{
+  phase: 'idle' | 'loading' | 'ready' | 'error';
+  items: readonly ReadingItem[];
+  nextCursor?: string;
+  error?: unknown;
+  /** A later page failed; the volumes already drawn stay. */
+  moreError?: unknown;
+  /** The opaque witness of the page this render drew. Handlers present it. */
+  witness: NativeReadSeriesShelfWitness;
+}>;
+/** Opaque, immutable witness of one published shelf page: the manifest, the exact
+ * series object, the items and the cursor a handler was rendered with. Callers
+ * cannot rebuild it; an older one is simply no longer held. */
+export type NativeReadSeriesShelfWitness = Readonly<{readonly shelf: true}>;
+type SeriesShelfData = Readonly<{manifest: ReadingManifest; series: SeriesLink; items: readonly ReadingItem[]; nextCursor?: string; moreError?: unknown}>;
 /** The committed page a sheet was opened from: exact route/revision, session
  * family, viewer and authority, plus that page's own lifetime signal. */
 export type NativeReadOwnerEditLease = Readonly<{
@@ -34,8 +53,16 @@ export type NativeReadOwnerEditLease = Readonly<{
   subscribe: (listener: () => void) => () => void;
 }>;
 
+const EMPTY_SHELF_WITNESS: NativeReadSeriesShelfWitness = Object.freeze({shelf: true as const});
 const refused = () => Object.assign(new Error('native_read_book_refused'), {name: 'AbortError', code: 'cancelled'});
 const cancelled = (error: unknown): boolean => error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
+/** Only positively known transport/busy failures may keep a loaded shelf page. */
+const transientShelf = (error: unknown): boolean => {
+  try {
+    const category = presentError(error, 'library').category;
+    return category === 'offline' || category === 'unreachable' || category === 'timeout' || category === 'busy';
+  } catch {return false;}
+};
 const nextOperationId = (): string => Array.from(nativeRouteCrypto.random(16), byte => byte.toString(16).padStart(2, '0')).join('');
 
 /** The real book page's own projection: the selected version's manifest, saved
@@ -60,6 +87,12 @@ export class NativeReadBook {
   private flight = 0;
   /** The one page command (Read or series) this mounted page may run. */
   private command?: object;
+  private shelfState: NativeReadSeriesShelfState = Object.freeze({phase: 'idle', items: [], witness: EMPTY_SHELF_WITNESS});
+  private shelfWitness?: NativeReadSeriesShelfWitness;
+  private shelfData?: SeriesShelfData;
+  private readonly shelfListeners = new Set<() => void>();
+  private shelfFlight = 0;
+  private shelfTicket?: object;
   private disposed = false;
 
   constructor(context: NativeShellBootstrapContext, route: BookRoute) {
@@ -77,6 +110,7 @@ export class NativeReadBook {
     this.captured = Object.freeze({sessionFamilyId: selected.sessionFamilyId, viewer: Object.freeze({...selected.viewer})});
     this.state = Object.freeze({phase: 'idle', versions: []});
     this.emit();
+    this.retireShelf();
     return true;
   };
   /** Unmount makes the cached page inert: no requests, no client, no session. */
@@ -86,6 +120,10 @@ export class NativeReadBook {
   };
   private retire(): void {
     this.flight++;
+    this.shelfFlight++;
+    this.shelfTicket = undefined;
+    this.shelfWitness = undefined;
+    this.shelfData = undefined;
     this.life?.abort();
     this.client?.dispose();
     this.client = undefined; this.life = undefined;
@@ -116,6 +154,106 @@ export class NativeReadBook {
     return () => {this.listeners.delete(listener);};
   };
   getSnapshot = (): NativeReadBookState => this.state;
+  subscribeShelf = (listener: () => void): (() => void) => {
+    if (this.disposed) return () => {};
+    this.shelfListeners.add(listener);
+    return () => {this.shelfListeners.delete(listener);};
+  };
+  shelfSnapshot = (): NativeReadSeriesShelfState => this.shelfState;
+  private emitShelf(): void {for (const listener of [...this.shelfListeners]) listener();}
+  /** A reset or release retires this shelf permanently: its witness is dropped, so
+   * every handler the old page rendered is refused from here on. */
+  private retireShelf(): void {
+    this.shelfFlight++;
+    this.shelfTicket = undefined;
+    this.shelfWitness = undefined;
+    this.shelfData = undefined;
+    this.shelfState = Object.freeze({phase: 'idle', items: [], witness: EMPTY_SHELF_WITNESS});
+    this.emitShelf();
+  }
+  private publishShelf(next: Omit<NativeReadSeriesShelfState, 'witness'>, data: SeriesShelfData | undefined): void {
+    if (this.disposed || !this.current()) return;
+    const witness: NativeReadSeriesShelfWitness = Object.freeze({shelf: true as const});
+    this.shelfWitness = witness;
+    this.shelfData = data;
+    this.shelfState = Object.freeze({...next, witness});
+    this.emitShelf();
+  }
+  /** A handler may act only for the exact witness it drew, for the exact manifest
+   * this page published, while this page is still the current route. */
+  private shelfAuthority(witness: NativeReadSeriesShelfWitness | undefined, manifest: ReadingManifest): SeriesShelfData | undefined {
+    if (!witness || witness !== this.shelfWitness || !this.shelfData) return undefined;
+    if (this.shelfData.manifest !== manifest || this.state.manifest !== manifest) return undefined;
+    return this.current() ? this.shelfData : undefined;
+  }
+  /** The series this page draws, so a caller can tell whether a shelf exists. */
+  shelfSeries = (): SeriesLink | undefined => this.series();
+  /** One canonical series page for the manifest and series object this render drew.
+   * The current book is excluded by its exact item id only. */
+  loadSeriesShelf = async (manifest: ReadingManifest, series: SeriesLink): Promise<void> => {
+    if (!this.current() || this.state.phase !== 'ready' || this.state.manifest !== manifest || this.series() !== series) return;
+    const flight = ++this.shelfFlight;
+    this.shelfTicket = undefined;
+    this.shelfWitness = undefined;
+    this.shelfData = undefined;
+    this.publishShelf({phase: 'loading', items: []}, undefined);
+    try {
+      const client = this.reading(), signal = this.life!.signal;
+      const page = await client.series(this.libraryId, series.id, {limit: 30}, signal);
+      if (flight !== this.shelfFlight || !this.current() || this.state.manifest !== manifest) return;
+      const items = Object.freeze(page.items.filter(item => item.id !== this.item.id));
+      this.publishShelf({phase: 'ready', items, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {})},
+        Object.freeze({manifest, series, items, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {})}));
+    } catch (error) {
+      if (flight !== this.shelfFlight || !this.current() || cancelled(error)) return;
+      this.publishShelf({phase: 'error', items: [], error}, undefined);
+    }
+  };
+  /** Continuation for the exact published page that asked for it. Only positively
+   * known transport/busy failures keep the loaded volumes and cursor; every other
+   * failure retires the shelf data and cursor. A repeated or nonprogressing cursor
+   * refuses rather than pretending the series ended. */
+  moreSeriesShelf = async (witness: NativeReadSeriesShelfWitness, manifest: ReadingManifest): Promise<void> => this.continueShelf(witness, manifest, false);
+  /** Retry is bound to the failed request's own witness and cursor. */
+  retrySeriesShelf = async (witness: NativeReadSeriesShelfWitness, manifest: ReadingManifest): Promise<void> => this.continueShelf(witness, manifest, true);
+  private continueShelf = async (witness: NativeReadSeriesShelfWitness, manifest: ReadingManifest, retry: boolean): Promise<void> => {
+    const data = this.shelfAuthority(witness, manifest);
+    if (!data || !data.nextCursor || this.shelfTicket || this.shelfState.phase !== 'ready') return;
+    if (retry ? !data.moreError : !!data.moreError) return;
+    const cursor = data.nextCursor, series = data.series, flight = this.shelfFlight, ticket = {};
+    const started: SeriesShelfData = Object.freeze({...data, moreError: undefined});
+    this.shelfTicket = ticket;
+    this.publishShelf({...this.shelfState, moreError: undefined}, started);
+    const refuse = (code: string): void => {this.publishShelf({phase: 'error', items: [], error: Object.assign(new Error(code), {code})}, undefined);};
+    try {
+      const client = this.reading(), signal = this.life!.signal;
+      const page = await client.series(this.libraryId, series.id, {cursor, limit: 30}, signal);
+      if (flight !== this.shelfFlight || !this.current() || this.state.manifest !== manifest) return;
+      if (this.shelfData?.nextCursor !== cursor) return;
+      if (page.nextCursor !== undefined && page.nextCursor === cursor) {refuse('native_read_series_shelf_cursor'); return;}
+      const seen = new Set(data.items.map(item => `${item.id}:${item.sourceId}`));
+      const fresh = page.items.filter(item => item.id !== this.item.id && !seen.has(`${item.id}:${item.sourceId}`));
+      if (!fresh.length) {refuse('native_read_series_shelf_cursor'); return;}
+      const items = Object.freeze([...data.items, ...fresh]);
+      this.publishShelf({phase: 'ready', items, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {})},
+        Object.freeze({manifest, series, items, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {})}));
+    } catch (error) {
+      if (flight !== this.shelfFlight || !this.current() || cancelled(error)) return;
+      if (transientShelf(error)) {this.publishShelf({...this.shelfState, phase: 'ready', moreError: error}, started); return;}
+      this.publishShelf({phase: 'error', items: [], error}, undefined);
+    } finally {if (this.shelfTicket === ticket) this.shelfTicket = undefined;}
+  };
+  /** Only a volume this exact shelf page listed, with available inventory, opens,
+   * through the ordinary book door and this page's own captured origin. */
+  openSeriesItem = async (witness: NativeReadSeriesShelfWitness, manifest: ReadingManifest, item: ReadingItem): Promise<boolean> => {
+    const data = this.shelfAuthority(witness, manifest), origin = this.origin, life = this.life;
+    if (!data || !origin || !life || this.command || item.inventoryAvailable !== true) return false;
+    if (!data.items.some(value => value.id === item.id && value.sourceId === item.sourceId)) return false;
+    const ticket = {};
+    this.command = ticket;
+    try {return await openNativeReadBook(this.context, {libraryId: this.libraryId, item}, origin, life.signal);}
+    finally {if (this.command === ticket) this.command = undefined;}
+  };
   /** One private flight per load. A retry supersedes it, and only that flight's
    * exact manifest and progress may publish after its preview session closed. */
   load = async (): Promise<void> => {
@@ -149,6 +287,8 @@ export class NativeReadBook {
       ]);
       if (flight !== this.flight || !this.current()) return;
       this.selected = selected.sourceId;
+      // A new manifest is a new page: the old shelf witness can never authorize again.
+      this.retireShelf();
       this.publish({phase: 'ready', versions: versions.versions, sourceId: selected.sourceId, manifest, progress,
         ...(listed ? {listed} : {}), ...(read ? {read} : {})});
     } catch (error) {
@@ -275,5 +415,6 @@ export class NativeReadBook {
     this.disposed = true;
     this.release();
     this.listeners.clear();
+    this.shelfListeners.clear();
   };
 }
