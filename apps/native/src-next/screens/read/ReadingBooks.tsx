@@ -186,7 +186,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
       onFilters={openFilters} onQuickChange={quick} onSortChange={applySort}
       onReshuffle={() => {if (sort) applySort({...sort, seed: (sort.seed ?? 0) + 1});}}/> : null}
     {applied.length ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingHorizontal: theme.gutter, paddingTop: 10}}>
-      {applied.map(row => <Chip key={row.id} testID={`reading-books-applied-${row.id}`} onPress={() => applyQuery(state.predicates.filter(value => JSON.stringify(value) !== row.id))}
+      {applied.map(row => <Chip key={row.id} variant="applied" trailingIcon="i-close" testID={`reading-books-applied-${row.id}`} onPress={() => applyQuery(state.predicates.filter(value => JSON.stringify(value) !== row.id))}
         accessibilityLabel={defaultI18n.t('next.browse.native.removeFilter', {field: row.fieldName})}>{row.label}</Chip>)}
       <Button variant="text" size="small" onPress={() => applyQuery(base)}>{defaultI18n.t('next.browse.native.clearAll')}</Button>
     </View> : null}
@@ -232,12 +232,12 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
 function ReadingListRow({entry, width, runtime, onOpen, onDownload, phone}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void; onDownload?: () => void; phone?: boolean}) {
   const theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle || text.title;
   return <Focusable accessibilityRole="button" accessibilityLabel={title} focusKind="row" onPress={onOpen} onLongPressAction={onDownload} testID={`reading-list-${entry.id}`}
-    style={{width, height: 70, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12}}>
+    style={{width, height: 70, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12, borderRadius: 10}}>
     {phone ? <View style={{borderRadius: 5, overflow: 'hidden'}}><PhoneReadingBookCover title={title} author={entry.author} artwork={runtime.artwork(entry.posterUrl)} width={36} height={54}/></View>
       : <MediaArt kind="poster" source={runtime.artwork(entry.posterUrl)} width={36} height={54} style={{borderRadius: 5}}/>}
-    <View style={{flex: 1, minWidth: 0, gap: 3}}>
+    <View style={{flex: 1, minWidth: 0, gap: 2}}>
       <Text numberOfLines={1} style={[browseType(theme, 15, 600), {color: theme.colors.text}]}>{title}</Text>
-      <Parts parts={text.caption} style={[browseType(theme, 12.5, 400), {color: theme.colors.textSecondary}]}/>
+      <Parts parts={text.caption} style={[browseType(theme, 12.5, 500), {color: theme.colors.textTertiary}]}/>
     </View>
     <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, bottom: 0, height: 1, backgroundColor: theme.colors.line}}/>
   </Focusable>;
