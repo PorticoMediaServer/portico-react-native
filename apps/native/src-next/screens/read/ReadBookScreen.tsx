@@ -127,14 +127,16 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   const selectVersion = (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => {
     void controller.selectVersion(manifest, versions, sourceId).catch(runtime.reportError);
   };
-  const body = state.phase !== 'ready' || !manifest ? null
-    : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
+  const ready = state.phase === 'ready' && !!manifest;
+  const body = ready && manifest
+    ? <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
       saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
       versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
       listed={state.listed} onList={toggleList} readMark={state.read} onReadMark={toggleRead} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
       shelf={shelf} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
       onShelfRetry={() => {void controller.retrySeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
-      onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>;
+      onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>
+    : null;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
@@ -169,8 +171,8 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
         setCollapsed(current => {const next = !rowHero && heroHeight > 0 && y > heroHeight - 50; return next === current ? current : next;});}}>
       {state.phase === 'error'
         ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'detail')}/>
-        : <LoadingPaint ready={state.phase === 'ready'} immediate={state.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={520}/>}
-          style={state.phase === 'ready' ? {flexGrow: 0, flexShrink: 0, flexBasis: 'auto'} : {height: 520}} testID="native-read-book-paint">
+        : <LoadingPaint ready={ready} immediate={ready} skeleton={<SkeletonBlock width="100%" height={520}/>}
+          style={ready ? {flexGrow: 0, flexShrink: 0, flexBasis: 'auto'} : {height: 520}} testID="native-read-book-paint">
           {body}
         </LoadingPaint>}
     </ScrollView>
