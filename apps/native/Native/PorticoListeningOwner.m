@@ -672,6 +672,21 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 
 #pragma mark Intents
 
+/** A JS command is admitted on this queue against the original engine and queue occurrence. */
+- (BOOL)actionFor:(NSDictionary *)expected action:(NSString *)action value:(NSNumber *)value owner:(NSString *)owner {
+ if(![_owner isEqual:owner]||_terminal||_committed||_audible||![expected isKindOfClass:NSDictionary.class])return NO;
+ NSDictionary *heard=[self heard],*actual=[_controller listeningSnapshot];
+ NSDictionary *wanted=V1Dictionary(expected[@"binding"]),*binding=V1Dictionary(actual[@"binding"]);
+ if(!V1ID(wanted[@"lease"])||!ListeningNumber(wanted[@"intentId"],1,9007199254740991.0,YES)||!V1ID(wanted[@"sessionId"])||
+    !ListeningNumber(wanted[@"generation"],0,9007199254740991.0,YES)||!V1ID(wanted[@"itemId"])||!ListeningNumber(expected[@"commandRevision"],0,9007199254740991.0,YES))return NO;
+ for(NSString *key in @[@"lease",@"intentId",@"sessionId",@"generation",@"itemId"])if(![wanted[key] isEqual:binding[key]])return NO;
+ if(![wanted[@"sessionId"] isEqual:heard[@"id"]]||![wanted[@"generation"] isEqual:heard[@"presentation"][@"generation"]]||
+    ![wanted[@"itemId"] isEqual:heard[@"itemId"]]||![expected[@"commandRevision"] isEqual:actual[@"commandRevision"]])return NO;
+ NSDictionary *queue=V1Dictionary(heard[@"queue"]),*target=V1Dictionary(expected[@"queue"]);
+ if(queue){if(!V1ID(target[@"queueId"])||!V1ID(target[@"entryId"])||![target[@"queueId"] isEqual:queue[@"queueId"]]||![target[@"entryId"] isEqual:queue[@"entryId"]])return NO;}
+ else if(expected[@"queue"]!=NSNull.null)return NO;
+ return [self action:action value:value owner:owner];
+}
 - (BOOL)action:(NSString *)action value:(NSNumber *)value owner:(NSString *)owner {
  if(![_owner isEqual:owner]||_terminal||![@[@"pause",@"resume",@"seek",@"rate",@"retry",@"next",@"previous"] containsObject:action])return NO;
  if([@[@"seek",@"rate"] containsObject:action]&&!ListeningNumber(value,0,1e9,NO))return NO;

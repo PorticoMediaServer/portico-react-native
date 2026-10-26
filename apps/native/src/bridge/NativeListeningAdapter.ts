@@ -1,6 +1,6 @@
 import {nativeListeningStatus} from '../../src-next/platform/playback/listening-status';
 import type {RouteSnapshot} from '../../../../packages/client-core/src/route-connection';
-import {listeningDeadline,type NativeListeningV1Context,type NativeListeningV1Control,type NativeListeningV1Event,type NativeQueueAdvance,type ListeningAction,type ListeningDeadlines,type NativeListeningPolicy} from '../../../../packages/client-core/src/playback/native-listening.ts';
+import {listeningDeadline,type NativeListeningV1Context,type NativeListeningV1Control,type NativeListeningV1Event,type NativeQueueAdvance,type ListeningAction,type NativeListeningCommandTarget,type ListeningDeadlines,type NativeListeningPolicy} from '../../../../packages/client-core/src/playback/native-listening.ts';
 import {parseQueue,parseSession,parseSessionEnd} from '../../../../packages/client-core/src/playback-v1/types.ts';
 import {activeI18n} from '../app/errors';
 import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
@@ -20,6 +20,7 @@ export interface NativeListeningBridge {
  listeningSnapshot(owner:string):Promise<unknown>;
  acknowledgeListening(owner:string,sequence:number):Promise<unknown>;
  listeningAction(owner:string,action:string,value:number|null):Promise<unknown>;
+ listeningActionFor?(owner:string,expected:NativeListeningCommandTarget,action:string,value:number|null):Promise<unknown>;
  listeningDeadlines(owner:string,deadlines:ListeningDeadlines):Promise<unknown>;
  listeningCredentials(owner:string,token:string):Promise<unknown>;
  listeningPolicy?(owner:string,policy:NativeListeningPolicy):Promise<unknown>;
@@ -106,11 +107,26 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
   void this.detach(true);
  }
  async refresh(){const active=this.current;if(!active)return;await this.bridge.listeningCredentials(active.owner,this.bearer());if(this.current!==active)return;const raw=await this.bridge.listeningSnapshot(active.owner);if(this.current!==active)return;this.accept(active,raw);await this.bridge.acknowledgeListening(active.owner,active.sequence);}
- async action(action:ListeningAction,value?:number){
-  const active=this.current;if(!active)return;
-  // Pause is local safety first (no credential round trip); anything else runs on fresh credentials.
-  if(action==='pause'){await this.bridge.listeningAction(active.owner,action,null);if(this.current===active)await this.refresh();return;}
-  await this.refresh();if(this.current===active)await this.bridge.listeningAction(active.owner,action,value??null);
+ private commandTarget(event:NativeListeningV1Event|undefined):NativeListeningCommandTarget|undefined{
+  if(!event?.binding||event.terminal)return;
+  return Object.freeze({binding:Object.freeze({...event.binding}),commandRevision:event.commandRevision,
+   queue:event.session.queue?Object.freeze({queueId:event.session.queue.queueId,entryId:event.session.queue.entryId}):null});
+ }
+ private matchesCommand(active:NonNullable<NativeListeningV1Adapter['current']>,expected:NativeListeningCommandTarget){
+  const actual=this.commandTarget(active.last);
+  return this.current===active&&!!actual&&actual.commandRevision===expected.commandRevision
+   &&(['lease','intentId','sessionId','generation','itemId'] as const).every(key=>actual.binding[key]===expected.binding[key])
+   &&actual.queue?.queueId===expected.queue?.queueId&&actual.queue?.entryId===expected.queue?.entryId;
+ }
+ async action(action:ListeningAction,value?:number,expected?:NativeListeningCommandTarget){
+  const active=this.current,original=expected?Object.freeze({...expected,binding:Object.freeze({...expected.binding}),queue:expected.queue?Object.freeze({...expected.queue}):null}):this.commandTarget(active?.last);
+  if(!active||!original||!this.matchesCommand(active,original)||!this.bridge.listeningActionFor)throw new Error('This listening output is no longer available.');
+  // Pause stays local safety first. Other commands keep the original occurrence through refresh;
+  // the accepting native queue repeats the same fence, including changes after this check.
+  if(action!=='pause')await this.refresh();
+  if(!this.matchesCommand(active,original))throw new Error('This listening output is no longer available.');
+  await this.bridge.listeningActionFor(active.owner,original,action,value??null);
+  if(action==='pause'&&this.current===active)await this.refresh();
  }
  async advance(reason:NativeQueueAdvance,entryId?:string){
   const active=this.current;if(!active)return;

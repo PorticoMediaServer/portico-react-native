@@ -29,6 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)adopt:(NSDictionary *)context error:(NSError **)error;
 - (BOOL)route:(NSDictionary *)route owner:(NSString *)owner;
 - (BOOL)action:(NSString *)action value:(nullable NSNumber *)value owner:(NSString *)owner;
+- (BOOL)actionFor:(NSDictionary *)expected action:(NSString *)action value:(nullable NSNumber *)value owner:(NSString *)owner;
 - (BOOL)advance:(NSString *)reason entry:(nullable NSString *)entryId owner:(NSString *)owner;
 /** The event stream says this session changed: check at once whether the server ended it. */
 - (BOOL)sessionUpdated:(NSString *)sessionId owner:(NSString *)owner;

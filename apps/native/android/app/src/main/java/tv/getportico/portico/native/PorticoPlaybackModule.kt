@@ -187,6 +187,15 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
   }
 
   @ReactMethod
+  fun listeningActionFor(owner: String?, expected: ReadableMap?, action: String?, value: Double?, promise: Promise) {
+    val target = expected?.toHashMap()
+    main.post {
+      if (!invalidated && v1(owner) && listening.actionFor(target, action, value, owner!!)) promise.resolve(true)
+      else promise.reject("listening_stale", "This listening output is no longer active.")
+    }
+  }
+
+  @ReactMethod
   fun listeningSnapshot(owner: String?, promise: Promise) {
     main.post { promise.resolve(Arguments.makeNativeMap(if (invalidated) emptyMap() else listening.snapshot(owner))) }
   }

@@ -898,6 +898,26 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   // --- intents ---------------------------------------------------------------------------
 
+  /** JS commands carry the original output, not just this long-lived owner token. */
+  fun actionFor(expected: Map<String, Any?>?, action: String?, value: Double?, owner: String): Boolean {
+    if (activeOwner != owner || terminal || expected == null || committed != null || audible != null) return false
+    val heard = heard()
+    val actual = controller.listeningSnapshot()
+    val binding = actual["binding"] as? Map<*, *> ?: return false
+    val wanted = expected["binding"] as? Map<*, *> ?: return false
+    if (!v1Id(wanted["lease"]) || !whole(wanted["intentId"], 1.0, MAX_INTEGER) || !v1Id(wanted["sessionId"]) ||
+        !whole(wanted["generation"], 0.0, MAX_INTEGER) || !v1Id(wanted["itemId"]) || !whole(expected["commandRevision"], 0.0, MAX_INTEGER)) return false
+    if (wanted["lease"] != binding["lease"] || wanted["sessionId"] != heard["id"] || wanted["itemId"] != heard["itemId"] ||
+        wanted["sessionId"] != binding["sessionId"] || wanted["itemId"] != binding["itemId"] ||
+        num(wanted["generation"]) != generation(heard) || num(wanted["generation"]) != num(binding["generation"]) ||
+        num(wanted["intentId"]) != num(binding["intentId"]) || num(expected["commandRevision"]) != num(actual["commandRevision"])) return false
+    val queue = heard["queue"] as? Map<*, *>
+    val target = expected["queue"] as? Map<*, *>
+    if (queue == null) { if (expected["queue"] != null) return false }
+    else if (target == null || !v1Id(target["queueId"]) || !v1Id(target["entryId"]) || target["queueId"] != queue["queueId"] || target["entryId"] != queue["entryId"]) return false
+    return action(action, value, owner)
+  }
+
   fun action(action: String?, value: Double?, owner: String): Boolean {
     if (activeOwner != owner || terminal || action !in ACTIONS) return false
     if ((action == "seek" || action == "rate") && (value == null || !value.isFinite() || value < 0 || value > 1e9)) return false

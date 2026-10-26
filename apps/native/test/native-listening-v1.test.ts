@@ -89,7 +89,8 @@ function bridge() {
     adoptListeningSession: async context => { calls.push({name: 'adopt', args: [context]}); const s = (context as {session: {id: string}}).session as Record<string, unknown>; latest = raw(context.owner as string, ++sequence, s); return latest; },
     listeningSnapshot: async owner => { calls.push({name: 'snapshot', args: [owner]}); return latest; },
     acknowledgeListening: async (owner, seq) => { calls.push({name: 'ack', args: [owner, seq]}); return true; },
-    listeningAction: async (owner, action, value) => { calls.push({name: 'action', args: [owner, action, value]}); return true; },
+    listeningAction: async () => { throw new Error('Unguarded action must not be used.'); },
+    listeningActionFor: async (owner, target, action, value) => { calls.push({name: 'action', args: [owner, action, value, target]}); return true; },
     listeningAdvance: async (owner, reason, entryId) => { calls.push({name: 'advance', args: [owner, reason, entryId]}); return true; },
     listeningDeadlines: async () => true,
     listeningCredentials: async (owner, token) => { calls.push({name: 'credentials', args: [owner, token]}); return true; },
@@ -126,7 +127,7 @@ test('the adapter hands the session over once, acknowledges snapshots and follow
   await adapter.advance('entry', 'e-9');
   assert.ok(x.calls.some(c => c.name === 'advance' && c.args[1] === 'entry' && c.args[2] === 'e-9'));
   await adapter.action('pause');
-  assert.deepEqual(x.calls.find(c => c.name === 'action')!.args, ['owner-1', 'pause', null]);
+  assert.deepEqual(x.calls.find(c => c.name === 'action')!.args, ['owner-1', 'pause', null, {binding: events.at(-1)!.binding, commandRevision: 2, queue: {queueId: 'q1', entryId: 'e-s3'}}]);
   await adapter.detach(true);
   assert.deepEqual(x.calls.at(-1), {name: 'retire', args: ['owner-1', true]});
 });
@@ -154,4 +155,34 @@ test('compatibility listening parser strips raw diagnostics and keeps only canon
   assert.equal(JSON.stringify(event).includes('private native diagnostic'), false);
   assert.equal('notice' in event, false); assert.equal('noticeCode' in event, false); assert.equal('extra' in event, false);
   assert.equal(event.session.id, 's1'); assert.ok(event.error);
+});
+
+
+test('a held credential refresh cannot retarget seek/rate/retry to a same-item successor', async () => {
+ for(const action of ['seek','rate','retry'] as const){
+  const x=bridge(),adapter=new NativeListeningV1Adapter({bridge:x.b,principal:{origin:'https://portico.test',serverId:'srv',authority:'local',accountId:'acc',profileId:'pro'},bearer:()=> 'token',id:()=> 'owner-1',subscribe:x.subscribe});
+  await adapter.adopt({session:session('s1') as never,queueId:'q1',queueRevision:'7',durationSeconds:200,lastSeq:0,leaseMs:118000,transitions:true,intent:'playing'},()=>{});
+  let release!:()=>void;
+  x.b.listeningCredentials=()=>new Promise(resolve=>{release=()=>resolve(true);});
+  const pending=adapter.action(action,action==='rate'?1.5:10);
+  x.push(raw('owner-1',x.next(),session('s2',{itemId:'item-s1'}),{transition:{previousSessionId:'s1',queue:null}}));
+  release();await assert.rejects(pending,/no longer available/);
+  assert.equal(x.calls.some(call=>call.name==='action'),false);
+  await adapter.detach(false);
+ }
+});
+
+test('a caller target is retained exactly and cannot fall back to owner-only dispatch', async () => {
+ const x=bridge(),adapter=new NativeListeningV1Adapter({bridge:x.b,principal:{origin:'https://portico.test',serverId:'srv',authority:'local',accountId:'acc',profileId:'pro'},bearer:()=> 'token',id:()=> 'owner-1',subscribe:x.subscribe});
+ await adapter.adopt({session:session('s1') as never,queueId:'q1',queueRevision:'7',durationSeconds:200,lastSeq:0,leaseMs:118000,transitions:true,intent:'playing'},()=>{});
+ const target={binding:{lease:'lease-1',intentId:1,sessionId:'s1',generation:1,itemId:'item-s1'},commandRevision:2,queue:{queueId:'q1',entryId:'e-s1'}};
+ let release!:()=>void;
+ x.b.listeningCredentials=()=>new Promise(resolve=>{release=()=>resolve(true);});
+ const pending=adapter.action('seek',30,target);
+ target.binding.sessionId='s2';target.queue.entryId='e-s2';release();await pending;
+ assert.equal((x.calls.find(call=>call.name==='action')!.args[3] as typeof target).binding.sessionId,'s1');
+ assert.equal((x.calls.find(call=>call.name==='action')!.args[3] as typeof target).queue.entryId,'e-s1');
+ x.b.listeningActionFor=undefined;
+ await assert.rejects(adapter.action('pause'),/no longer available/);
+ await adapter.detach(false);
 });
