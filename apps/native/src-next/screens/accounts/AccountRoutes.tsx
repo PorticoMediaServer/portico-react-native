@@ -474,7 +474,7 @@ export function ServersRoute({context, fallbackDownloads, onBack, onComplete, on
   const signOutSheet = captured ? <BottomSheet open={panel === 'sign-out-server'} onOpenChange={open => {if (!open) {setRemoveDownloads(false); close();}}} testID="accounts-sign-out-sheet"
     title={t('settings.signOutConfirm.title', {server: captured.name, device: t(deviceNoun)})}
     footer={<View style={{gap: 10}}>
-      <Focusable accessibilityRole="button" accessibilityLabel={t('action.signOut')} disabled={busy}
+      <Focusable focusId="sign-out-confirm" accessibilityRole="button" accessibilityLabel={t('action.signOut')} disabled={busy}
         onPress={() => {void run(async () => {
           if (removeDownloads && selectedServer) await removeCapturedServerDownloads(captured, {
             selected: () => nativeAppSessions.selected(),
@@ -492,10 +492,10 @@ export function ServersRoute({context, fallbackDownloads, onBack, onComplete, on
         style={{height: 54, borderRadius: 12, backgroundColor: `${theme.colors.danger}24`, alignItems: 'center', justifyContent: 'center'}}>
         <Text style={[theme.type.button, {color: theme.colors.danger}]}>{t('action.signOut')}</Text>
       </Focusable>
-      <Button variant="text" disabled={busy} onPress={() => {setRemoveDownloads(false); close();}} textStyle={{color: theme.colors.textSecondary}}>{t('action.cancel')}</Button>
+      <Button focusId="sign-out-cancel" variant="text" disabled={busy} onPress={() => {setRemoveDownloads(false); close();}} textStyle={{color: theme.colors.textSecondary}}>{t('action.cancel')}</Button>
     </View>}>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary, marginBottom: 14}]}>{t('settings.signOutConfirm.bodyDownloads')}</Text>
-    {selectedServer && <Focusable accessibilityRole="checkbox" accessibilityState={{checked: removeDownloads}} accessibilityLabel={t('settings.signOutConfirm.removeDownloads')}
+    {selectedServer && <Focusable focusId="sign-out-remove-downloads" accessibilityRole="checkbox" accessibilityState={{checked: removeDownloads}} accessibilityLabel={t('settings.signOutConfirm.removeDownloads')}
       onPress={() => setRemoveDownloads(value => !value)} focusRadius={6} focusTreatment="none" style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8}}>
       <View style={{width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center',
         borderColor: removeDownloads ? theme.colors.accentStrong : theme.colors.lineStrong, backgroundColor: removeDownloads ? theme.colors.accentStrong : 'transparent'}}>
