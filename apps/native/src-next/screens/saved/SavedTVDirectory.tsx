@@ -7,7 +7,7 @@ import type {PlaylistCard, PlaylistListFilter} from '../../../../../packages/cli
 import {Focusable} from '../../kit/controls';
 import {AmbientArt, CoverMosaic, MediaArt} from '../../kit/artwork';
 import {CardFrame} from '../../kit/cards/primitives';
-import {FocusRegion, type FocusEdges} from '../../kit/focus';
+import {FocusItem, FocusRegion, type FocusEdges} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -51,7 +51,15 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   // collections.html 15-17: the page starts at 200 and ends 96 from the right, so six 236 tiles
   // (34 apart) or three 520 saved-view tiles (32 apart) fit the frame's row exactly.
   const columns = view === 'views' ? {columnGap: 32, rowGap: 36} : {columnGap: 34, rowGap: 44};
-  return <FocusRegion id={regionId} orientation="vertical" enabled={enabled} edges={edges} style={{flex: 1}}>
+  // The tiles are fixed width, so the row the frame draws is the measured content width divided
+  // by a tile and a gap. Until it has been measured, the authored rows stand: six 236 tiles or
+  // three 520 saved-view tiles.
+  const tileWidth = view === 'views' ? 520 : 236, gap = view === 'views' ? 32 : 34;
+  const [rowWidth, setRowWidth] = React.useState(0);
+  const columnCount = rowWidth > 0 ? Math.max(1, Math.floor((rowWidth + gap) / (tileWidth + gap))) : view === 'views' ? 3 : 6;
+  const drawn = view === 'playlists' ? playlists.length : resources.length;
+  return <FocusRegion id={regionId} orientation="vertical" enabled={enabled} edges={edges}
+    grid={{columns: columnCount, count: drawn}} style={{flex: 1}}>
     <View style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight}}>
       {view === 'playlists' && !!sorts.length && <PlaylistToolbar sorts={sorts} filters={filters} enabled={enabled}
         value={{sort: saved?.projection?.query.sort ?? sorts[0]?.id ?? '',
@@ -67,10 +75,14 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
         title={t(view === 'playlists' ? 'web.saved.empty.playlists' : view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views')}
         body={t(view === 'playlists' ? 'web.saved.empty.playlistsBody' : view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}/>
       : <ScrollView contentContainerStyle={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingBottom: 40}}>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', ...columns}}>
-          {view === 'playlists' ? playlists.map(card => <SavedTVPlaylistTile key={card.id} card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/>)
-            : view === 'collections' ? resources.map(resource => <SavedTVCollectionTile key={resource.id} resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/>)
-              : resources.map(resource => <SavedTVViewTile key={resource.id} resource={resource} libraries={libraries} runtime={runtime} onOpen={() => openResource(resource)}/>)}
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', ...columns}}
+          onLayout={event => {const next = Math.round(event.nativeEvent.layout.width); setRowWidth(current => current === next ? current : next);}}>
+          {view === 'playlists' ? playlists.map((card, index) => <FocusItem key={card.id} focusId={tileId(view, card.id)} cell={{index}}>
+            <SavedTVPlaylistTile card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/></FocusItem>)
+            : view === 'collections' ? resources.map((resource, index) => <FocusItem key={resource.id} focusId={tileId(view, resource.id)} cell={{index}}>
+              <SavedTVCollectionTile resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/></FocusItem>)
+              : resources.map((resource, index) => <FocusItem key={resource.id} focusId={tileId(view, resource.id)} cell={{index}}>
+                <SavedTVViewTile resource={resource} libraries={libraries} runtime={runtime} onOpen={() => openResource(resource)}/></FocusItem>)}
         </View>
         {!!(view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingTop: 20}}>
           <Focusable accessibilityRole="button" focusId="tv-saved-more" disabled={!enabled} onPress={() => {void destination.next(view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);}}
