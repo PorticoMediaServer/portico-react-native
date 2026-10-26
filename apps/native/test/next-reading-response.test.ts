@@ -93,3 +93,39 @@ test('Discover metadata uses the bounded native body facade on a Hermes-style Re
     assert.equal(calls, 1, 'retired original authority cannot send another metadata request');
   } finally {client.dispose();}
 });
+
+test('series metadata and its original cursor use the bounded native body facade on Hermes', async t => {
+  const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
+  const before = {request: runtime.networkRequest, Response: globalThis.Response};
+  t.after(() => {runtime.networkRequest = before.request; globalThis.Response = before.Response;});
+  globalThis.Response = class extends before.Response { get body() { return null; } };
+  const seriesId = 's'.repeat(43), cursor = 'c'.repeat(171) + '.' + 'h'.repeat(43);
+  const item = {id: 'comic', sourceId: 'source', libraryId: 'comics', title: 'Offered volume', format: 'cbz', inventoryAvailable: true,
+    series: {id: seriesId, name: 'Offered series', source: 'embedded', number: 1}};
+  let calls = 0, current = true;
+  runtime.networkRequest = async (_id: string, url: string, method: string, headers: Record<string, string>) => {
+    calls++;
+    const at = new URL(url);
+    assert.equal(method, 'GET');
+    assert.equal(at.pathname, routePath('get_reading_series_items', {libraryId: 'comics', seriesId}));
+    assert.equal(at.searchParams.get('limit'), '30');
+    assert.equal(at.searchParams.get('cursor'), calls === 1 ? null : cursor);
+    assert.equal(new Headers(headers).get('Authorization'), 'Bearer throwaway-test-token');
+    assert.deepEqual(nativeReadingPolicy(url, method), {binaryLimit: undefined});
+    assert.equal(nativeReadingPolicy(url, 'POST'), undefined);
+    assert.equal(nativeReadingPolicy(origin + at.pathname + '/not-a-series-route', method), undefined);
+    return {status: 200, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(calls === 1 ? {items: [item], nextCursor: cursor} : {items: []})};
+  };
+  const api = new HttpLocalApi(origin, 'throwaway-test-token', nativeServerFetch('s'));
+  const client = api.reading({viewer, isCurrent: () => current});
+  try {
+    const page = await client.series('comics', seriesId, {limit: 30});
+    assert.deepEqual(page.items, [item]);
+    assert.equal(page.nextCursor, cursor);
+    assert.deepEqual((await client.series('comics', seriesId, {limit: 30, cursor: page.nextCursor})).items, []);
+    assert.equal(calls, 2);
+    current = false;
+    await assert.rejects(client.series('comics', seriesId, {limit: 30}), error => error instanceof ReadingError && error.code === 'cancelled');
+    assert.equal(calls, 2, 'retired original authority cannot send another series request');
+  } finally {client.dispose();}
+});

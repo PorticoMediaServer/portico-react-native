@@ -1,7 +1,7 @@
 import {routes, type RouteId} from '../../../../packages/contracts/src/routes';
 import {routeBytes, RouteError} from '../../../../packages/client-core/src/route-identity';
 
-const operations = new Set<RouteId>(['get_reading_items', 'get_reading_continue', 'get_reading_discover', 'get_items_itemId_reading_versions', 'post_reading_sessions',
+const operations = new Set<RouteId>(['get_reading_items', 'get_reading_continue', 'get_reading_discover', 'get_reading_series_items', 'get_items_itemId_reading_versions', 'post_reading_sessions',
   'get_reading_sessions_sessionId_progress', 'put_reading_sessions_sessionId_progress', 'delete_reading_sessions_sessionId',
   'head_reading_sessions_sessionId_source', 'get_reading_sessions_sessionId_source', 'get_reading_sessions_sessionId_assets', 'get_reading_sessions_sessionId_pages_pageIndex']);
 const compiled = routes.filter(route => operations.has(route.id)).map(route => ({...route,
