@@ -253,8 +253,7 @@ function shellRuntime(onMemoryRead?: () => void) {
   } as unknown as NativeShellRuntime;
   return {runtime, reads, destinations, authority(next: shellModel.ShellAuthority) {snapshot = {...snapshot, authority: next};}};
 }
-async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime) {
-  const registry = createFocusRegistry();
+async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
@@ -375,4 +374,24 @@ test('Home scroll registration follows the move function and runtime rather than
     assert.deepEqual(moves, ['a:0', 'b:0', 'b:0']); assert.equal(first.registered, false);
     home.host.unmount(); assert.equal(second.registered, false);
   } finally {home.host.unmount();}
+});
+
+
+test('original shell retirement detaches focus memory before region teardown without relaxing the accessor', async () => {
+  const state = lifecycle(), port = shellRuntime(), registry = createFocusRegistry(), life = new AbortController();
+  let reads = 0;
+  const runtime = {...port.runtime, retirementSignal: life.signal, getSnapshot: () => {
+    if (life.signal.aborted) throw Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});
+    reads++;return port.runtime.getSnapshot();
+  }};
+  const session = await shellSession(state, runtime, registry);
+  try {
+    const before = reads;
+    registry.configure({id: 'original-page'});assert.ok(reads > before, 'live focus publications still read the original runtime');
+    life.abort();const retiredReads = reads;
+    // Region's actual registry configure/release publications can precede React cleanup.
+    assert.doesNotThrow(() => {registry.configure({id: 'outgoing-page'});registry.mountRegion('outgoing-page', {})();});
+    assert.equal(reads, retiredReads, 'no retired getSnapshot read or successor lookup');
+    assert.throws(() => runtime.getSnapshot(), /native_shell_cancelled/, 'business accessor remains guarded');
+  } finally {session.host.unmount();}
 });

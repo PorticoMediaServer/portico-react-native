@@ -62,6 +62,9 @@ export type NativeHomeActions = Readonly<{
 /** Bootstrapped by the real session/transport owner, never by mock data or global credentials.
  * A new authority must replace the HomeService, selection and authenticated image bindings. */
 export interface NativeShellRuntime {
+  /** Original bootstrap owner retirement, aborted before route/focus teardown.
+   * Passive observers stop on it; this never grants actions or freshens a snapshot. */
+  readonly retirementSignal?: AbortSignal;
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativeShellSnapshot;
   home: HomeService;

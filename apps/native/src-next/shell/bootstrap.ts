@@ -381,7 +381,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
       return value / 1000;
     };
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, firstLibraryContext: context, playOn,
+    const runtime: RestoredNativeShellRuntime = {...bound, retirementSignal: signal.signal, playback, watch, firstLibraryContext: context, playOn,
       reportPlaybackProblem: async consent => {
         const lifetime = new NativeScreenLifetime(context);
         try {await sendNativeDeviceReport({context, lifetime}, consent);} finally {lifetime.dispose();}

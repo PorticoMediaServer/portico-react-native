@@ -45,14 +45,26 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const [tvListeningPresent, setTVListeningPresent] = useState(false);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), pageFocusDestination = useRef<string | undefined>(undefined);
   const railRelease = useRef<(() => void) | undefined>(undefined);
-  useEffect(() => {const remember = () => {
-    const now = runtime.getSnapshot(), saved = registry.capture();
-    if (now.contentVisible === false || now.mediaExpanded || tvListeningPresent || now.homeObscured
-      || now.destination.kind === 'home' && !now.homeVisible) return;
-    if (saved && saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true) {
-      pageFocus.current = saved; pageFocusDestination.current = JSON.stringify(now.destination);
-    }
-  }; remember(); return registry.subscribe(remember);}, [ids, registry, runtime, tvListeningPresent]);
+  useEffect(() => {
+    const original = runtime.retirementSignal;
+    const remember = () => {
+      // Native region cleanup may publish before React's passive unsubscribe.
+      // Refuse that original observer before touching any retired business accessor.
+      if (original?.aborted) return;
+      const now = runtime.getSnapshot(), saved = registry.capture();
+      if (now.contentVisible === false || now.mediaExpanded || tvListeningPresent || now.homeObscured
+        || now.destination.kind === 'home' && !now.homeVisible) return;
+      if (saved && saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true) {
+        pageFocus.current = saved; pageFocusDestination.current = JSON.stringify(now.destination);
+      }
+    };
+    remember();
+    if (original?.aborted) return;
+    const off = registry.subscribe(remember);
+    original?.addEventListener('abort', off, {once: true});
+    if (original?.aborted) off();
+    return () => {original?.removeEventListener('abort', off);off();};
+  }, [ids, registry, runtime, tvListeningPresent]);
   const currentPageFocus = pageFocusDestination.current === JSON.stringify(destination) ? pageFocus.current : undefined;
   const pageHold = theme.isTV && tvListeningPresent || snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
   const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
@@ -76,7 +88,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const sidebarLifetime = useRef<object | undefined>(undefined);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
-  const current = useCallback(() => alive.current?.runtime === runtime && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
+  const current = useCallback(() => alive.current?.runtime === runtime && !runtime.retirementSignal?.aborted && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
   useLayoutEffect(() => {
     if (!theme.isTV) return;
     if (pageHold && !heldPage.current && pageFocus.current) heldPage.current = {opener: pageFocus.current, release: registry.retain(pageFocus.current)};
