@@ -182,9 +182,9 @@ function LibraryFiltersOverPanel({open, width, onDismiss, onExited, children}: {
 }) {
   const theme = useTheme(), motion = useMotion(), progress = useSharedValue(0);
   const exited = useRef(onExited); exited.current = onExited;
-  useEffect(() => {progress.value = withTiming(open ? 1 : 0, {...motion.timing('slow', open ? 'out' : 'in'), duration: motion.reduce ? 0 : open ? 320 : 240});}, [open, motion, progress]);
-  useEffect(() => {if (open) return; const timer = setTimeout(() => exited.current(), motion.reduce ? 0 : 240); return () => clearTimeout(timer);}, [open, motion.reduce]);
-  const pane = useAnimatedStyle(() => ({transform: [{translateX: (1 - progress.value) * width}], opacity: motion.reduce ? progress.value : 1}));
+  useEffect(() => {progress.value = withTiming(open ? 1 : 0, {...motion.timing('slow', open ? 'out' : 'in'), duration: motion.reduce ? motion.duration('standard') : open ? 320 : 240});}, [open, motion, progress]);
+  useEffect(() => {if (open) return; const timer = setTimeout(() => exited.current(), motion.reduce ? motion.duration('standard') : 240); return () => clearTimeout(timer);}, [open, motion]);
+  const pane = useAnimatedStyle(() => ({transform: motion.transforms ? [{translateX: (1 - progress.value) * width}] : [], opacity: motion.reduce ? progress.value : 1}));
   const scrim = useAnimatedStyle(() => ({opacity: progress.value * .62}));
   return <View style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation}}>
     <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: '#03080c'}, scrim]}>
