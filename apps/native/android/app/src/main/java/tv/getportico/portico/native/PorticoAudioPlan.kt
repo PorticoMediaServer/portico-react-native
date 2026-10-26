@@ -42,6 +42,16 @@ internal object PorticoAudioPlan {
       plan != null && number(plan["version"]) == 2.0 && plan["mode"] in MODES && plan["url"] is String && decodes(plan) &&
           integer(plan["durationFrames"], 1.0, MAX_INTEGER) && integer(plan["sampleRate"], 8000.0, 768000.0)
 
+  /** File rendering wins over a recipe codec. Missing/unmeasured facts keep the precision
+   * pipeline; only a known encoded ordinary delivery delegates to the standard sink. */
+  fun usesPCM(rendered: Map<*, *>?, seek: Map<*, *>?, deliveredCodec: Any?): Boolean {
+    if (playable(rendered) || playable(seek)) return true
+    return when (deliveredCodec) {
+      "ac3", "eac3", "truehd", "dts", "dts_hd" -> false
+      else -> true
+    }
+  }
+
   /** A plan with an absolute address on [origin], complete enough to load. */
   private fun valid(plan: Map<*, *>?, origin: Uri): Boolean {
     if (plan == null || !playable(plan)) return false

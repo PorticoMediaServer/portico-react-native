@@ -520,12 +520,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (listeningOwner == null) return false
     val rendered = planOf(command?.get("audioRender"))
     @Suppress("UNCHECKED_CAST") val plain = command?.get("seekPlan") as? Map<String, Any?>
-    if (PorticoAudioPlan.playable(rendered) || PorticoAudioPlan.playable(plain)) return true
     val media = listeningState?.get("media") as? Map<*, *>
-    return when (media?.get("audioCodec")) {
-      "ac3", "eac3", "truehd", "dts", "dts_hd" -> false
-      else -> true
-    }
+    return PorticoAudioPlan.usesPCM(rendered, plain, media?.get("audioCodec"))
   }
 
   /** What the player measures of the connection as it downloads, for Automatic quality. */
