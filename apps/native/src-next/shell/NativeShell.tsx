@@ -190,15 +190,21 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     });
   }, [runtime, registry, ids, theme.isTV, expanded]);
   useEffect(() => {
-    if (!theme.isTV) return;
-    return registerTVMenuFallback(() => {
+    const original = runtime.retirementSignal;
+    if (!theme.isTV || original?.aborted) return;
+    const off = registerTVMenuFallback(() => {
+      // An original retirement can precede React's passive effect cleanup.
+      if (original?.aborted || !current()) return;
       const now = runtime.getSnapshot();
-      if (!current() || now.contentVisible === false || now.mediaExpanded || tvListeningPresent
+      if (now.contentVisible === false || now.mediaExpanded || tvListeningPresent
         || now.homeObscured || now.destination.kind === 'home' && !now.homeVisible || accountOpen || chromeHidden) return;
       // Context Menu on an open rail is consumed without closing or navigating it.
       if (registry.capture()?.regionId === ids.rail) return;
       if (registry.focusRegion(ids.rail)) expanded(true);
     });
+    original?.addEventListener('abort', off, {once: true});
+    if (original?.aborted) off();
+    return () => {original?.removeEventListener('abort', off); off();};
   }, [accountOpen, chromeHidden, current, expanded, ids.rail, registry, runtime, theme.isTV, tvListeningPresent]);
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));

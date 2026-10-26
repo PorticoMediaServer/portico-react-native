@@ -8,11 +8,14 @@ import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
 import * as shellModel from '../src-next/shell/model';
 import * as focusModel from '../src-next/shell/tv-focus';
+import * as overlayKeys from '../src-next/platform/overlay-keys';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const authority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'v'};
 
-test('the real TV shell retains its exact page opener through rail, route and player lifetimes and current OK resets Home', async () => {
+for (const adapter of ['native', 'vega'] as const) for (const retirement of ['abort', 'successor', 'register'] as const) {
+test(`${adapter}: the real TV shell retains its page opener and retires Menu before passive cleanup (${retirement})`, async () => {
+  const successorFirst = retirement === 'successor';
   const registry = createFocusRegistry(), ids = focusModel.tvFocusIds(authority), requests: string[] = [];
   const row = {regionId: ids.row('continue'), childId: 'actual-card'};
   registry.configure({id: row.regionId, order: [row.childId], entry: row.childId, screenStart: ids.start});
@@ -21,12 +24,29 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   registry.attach(ids.start, {requestTVFocus() {requests.push('play'); registry.didFocus(ids.start);}});
   const theme = createTheme({isTV: true, width: 1920}), motion = {transforms: false, timing: () => ({duration: 0})};
   const useShared = (value: number) => React.useRef({value}).current;
-  let menuFallback: (() => void) | undefined;
+  const original = new AbortController();
+  let keyboardVisible = false, dismissals = 0;
+  const menu = await screenModule(new URL(adapter === 'native' ? '../src-next/platform/menu-key.ts'
+    : '../../vega/src/overrides/native-next/platform/menu-key.ts', import.meta.url), {
+    react: {...React, default: React},
+    'react-native': {Keyboard: {isVisible: () => keyboardVisible, dismiss() {dismissals++;}}, Platform: {OS: 'android', isTV: true}, useTVEventHandler() {}},
+    './overlay-keys': overlayKeys, '../../../../../native/src-next/platform/overlay-keys': overlayKeys,
+  });
+  const dispatch = () => menu.dispatchMenuKey({eventType: adapter === 'native' ? 'menu' : 'context_menu', eventKeyAction: 1});
+  let menuFallback: (() => void) | undefined, menuSetup: (() => void | (() => void)) | undefined;
+  let activeSetup: (() => void | (() => void)) | undefined, registrations = 0, retiredReads = 0, abortDuringRegistration = false;
+  const useEffect: typeof React.useEffect = (setup, deps) => React.useEffect(() => {
+    activeSetup = setup;
+    try {return setup();} finally {activeSetup = undefined;}
+  }, deps);
   let railBack: (() => boolean) | undefined, tree: any, root: any;
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {actions: []}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
   const navigations: unknown[] = [], tops: unknown[] = [], menuCapture: boolean[] = [];
-  const runtime = {playback: {}, getSnapshot: () => snapshot, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
+  const runtime = {playback: {}, retirementSignal: original.signal, getSnapshot: () => {
+    if (original.signal.aborted) {retiredReads++; throw new Error('retired shell accessor');}
+    return snapshot;
+  }, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
     onDestination: (destination: unknown) => navigations.push(destination), scrollToTop: (destination: unknown) => tops.push(destination),
     memory: {read: async () => undefined, remember: async () => {}},
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
@@ -36,9 +56,14 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
-    '../platform/menu-key': {registerTVMenuFallback: (run: () => void) => {menuFallback = run; return () => {if (menuFallback === run) menuFallback = undefined;};}},
+    '../platform/menu-key': {registerTVMenuFallback: (run: () => void) => {
+      menuFallback = run; menuSetup = activeSetup; registrations++;
+      const off = menu.registerTVMenuFallback(run);
+      if (abortDuringRegistration) original.abort();
+      return off;
+    }},
     '../platform/tv-menu': {useTVMenuCapture: (capture: boolean) => {menuCapture.push(capture);}},
-    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
+    react: {...React, default: React, useEffect}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: useShared, withTiming: (v: unknown) => v},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'},
     '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {}, '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => motion},
@@ -54,7 +79,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   let sessionHost: ReturnType<typeof createHookHost> | undefined;
   try {
     rootHost.mount();
-    const session = nodes(root).find(node => typeof node.type === 'function');
+    const session = nodes(root).find(node => node.type?.name === 'ShellSession');
     sessionHost = createHookHost(() => {tree = session.type({runtime, snapshot});});
     await act(() => {sessionHost!.mount();});
     const rail = () => nodes(tree).find(node => node.type === 'TVRail');
@@ -112,7 +137,18 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     await act(() => {snapshot = {...snapshot, destination: {kind: 'home'}, contentVisible: true, homeVisible: true, homeObscured: false, mediaExpanded: false}; sessionHost!.rerender(); registry.didFocus(ids.start);});
     assert.equal(menuCapture.at(-1), false, 'Menu at the real Home opening focus returns to tvOS');
     registry.attachRegion(ids.rail, {requestTVFocus() {requests.push('rail'); registry.didFocus({regionId: ids.rail, childId: 'home'});}});
-    await act(() => menuFallback!());
+    const menuCalls: string[] = [];
+    const focusOff = menu.registerFocusedMenu({}, () => menuCalls.push('focused'));
+    const overlayOff = overlayKeys.registerOverlayKeys(() => {menuCalls.push('overlay'); return false;});
+    try {
+      keyboardVisible = true;
+      assert.equal(dispatch(), true); assert.equal(dismissals, 1); assert.deepEqual(menuCalls, []);
+      keyboardVisible = false;
+      assert.equal(dispatch(), true); assert.deepEqual(menuCalls, ['overlay'], 'the owning inert overlay still blocks content');
+      overlayOff();
+      assert.equal(dispatch(), true); assert.deepEqual(menuCalls, ['overlay', 'focused']);
+    } finally {keyboardVisible = false; overlayOff(); focusOff();}
+    await act(() => {assert.equal(dispatch(), true);});
     assert.equal(registry.capture()?.regionId, ids.rail, 'ordinary context Menu enters the current rail');
     const beforeOpenRail = requests.length;
     await act(() => menuFallback!());
@@ -124,12 +160,38 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     const beforePlayer = requests.length;
     await act(() => menuFallback!());
     assert.equal(requests.length, beforePlayer, 'full player context Menu does nothing');
+    const retained = menuFallback!, retainedSetup = menuSetup!;
+    assert.equal(typeof retainedSetup, 'function');
+    let successorCalls = 0;
+    const successorOff = successorFirst ? menu.registerTVMenuFallback(() => {successorCalls++;}) : undefined;
+    try {
+      const beforeRetirement = requests.length;
+      let reentrantCleanup: void | (() => void) = undefined;
+      if (retirement === 'register') {
+        abortDuringRegistration = true;
+        reentrantCleanup = retainedSetup(); // Abort before the new registration returns its unsubscribe.
+      } else original.abort(); // No React update/unmount has run: removal must be synchronous.
+      assert.doesNotThrow(() => {assert.equal(dispatch(), successorFirst);});
+      assert.equal(successorCalls, successorFirst ? 1 : 0);
+      assert.doesNotThrow(retained, 'an independently retained original callback refuses before the guarded accessor');
+      assert.equal(retiredReads, 0); assert.equal(requests.length, beforeRetirement);
+      const beforeSetup = registrations;
+      assert.equal(retainedSetup(), undefined, 'an already-retired original never registers a Menu observer');
+      assert.equal(registrations, beforeSetup);
+      reentrantCleanup?.();
+      sessionHost!.unmount(); sessionHost = undefined;
+      assert.equal(dispatch(), successorFirst, 'old passive cleanup cannot erase the successor');
+      assert.equal(successorCalls, successorFirst ? 2 : 0);
+      assert.equal(retiredReads, 0); assert.equal(requests.length, beforeRetirement);
+    } finally {successorOff?.();}
+
   } finally {
     sessionHost?.unmount(); rootHost.unmount();
     globalThis.requestAnimationFrame = previousFrame; globalThis.cancelAnimationFrame = previousCancel;
   }
   assert.equal(railBack, undefined);
 });
+}
 
 test('the real rail declares current-page entry and semantic Right return; native focus alone never navigates', async () => {
   const {hooks} = await import('./helpers/screen-harness.mjs');
