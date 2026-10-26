@@ -46,7 +46,9 @@ export function DockPaintRow({opener, art, words, controls, tools, line, expande
 
 type Retiring = Readonly<{key: string; node: OverlayPaintNode; pose: Pose; targetX: number; video?: DockVideoExitPaint}>;
 const sameTarget = (a: DockRenderOccupant, b: DockRenderOccupant) => sameDockFence(a.playback.fence, b.playback.fence)
-  && a.mode === b.mode && a.remote?.id === b.remote?.id && a.remote?.sequence === b.remote?.sequence;
+  && a.mode === b.mode && a.remote?.id === b.remote?.id && a.remote?.phase === b.remote?.phase;
+// Receiver sequence/position updates still retire input callbacks in MediaBar;
+// they are not a new paint occupant or a reason to replay its content entrance.
 const baseX = (row: React.ReactElement<DockPaintRowProps>) => row.props.artWidth + row.props.openerGap;
 
 function RetiringRow({entry, done}: {entry: Retiring; done: (key: string) => void}) {

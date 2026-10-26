@@ -1,3 +1,5 @@
+import {DockVideoExitImages} from '../../src-next/kit/dock/video-exit-paint.ts';
+import {expandedListeningOccupant} from '../../src-next/shell/listening-presentation.ts';
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
 import * as signalPath from '../../src-next/screens/destinations/music/signal-path-model.ts';
 import {nativeEqualizer} from '../../platform/equalizer.ts';
@@ -101,6 +103,8 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
   const signalView = await screenModule(new URL('../../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
+    './listening-presentation': {expandedListeningOccupant},
+    '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},...common,
