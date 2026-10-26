@@ -30,7 +30,7 @@ export function SecureRecordsRecovery({opening}: {opening: OriginalRoot}) {
       secondaryAction={!busy && !reopen ? {id: 'retry', label: t('action.tryAgain'), disabled: !recovery, onPress: () => recovery?.retry()} : undefined}/>
     <Dialog open={state.phase === 'confirming' || busy} testID="native-secure-records-confirm" title={t('signIn.reset.confirmTitle')}
       description={t('signIn.reset.consequence')} onOpenChange={open => {if (!open) recovery?.cancel();}}
-      dismissOnBack={!busy} dismissOnOutsidePress={!busy} showClose={!busy}
+      dismissOnBack={!busy} dismissOnOutsidePress={!busy} dismissOnGesture={!busy} showClose={!busy}
       footer={<View style={{flexDirection: 'row', gap: 12}}>
         <Button testID="secure-records-cancel" variant="text" disabled={busy} onPress={() => recovery?.cancel()}>{t('action.cancel')}</Button>
         <Button testID="secure-records-reset-confirm" disabled={busy || !recovery} loading={busy} textStyle={{color: theme.colors.danger}}

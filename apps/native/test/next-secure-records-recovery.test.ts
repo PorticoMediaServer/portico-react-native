@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createSecureRecordsRecovery} from '../src-next/shell/secure-records-recovery.ts';
 
 function fixture(overrides: Partial<{reset: () => Promise<boolean>; restart: () => Promise<boolean>}> = {}) {
@@ -67,4 +68,18 @@ test('reset failure stays in confirmation with retryable error; unavailable rest
 test('disposed recovery cannot reset or publish into a replacement mount', async () => {
   const f = fixture(); f.recovery.open(); f.recovery.dispose(); await f.recovery.confirm();
   assert.deepEqual(f.calls(), {resets: 0, restarts: 0, retries: 0});
+});
+
+test('busy confirmation refuses gesture dismissal and reset failure retains the open confirmation', async () => {
+  // Caller contract: BottomSheet must not start an exit gesture that this
+  // controller cannot accept while the native reset is pending.
+  const caller = readFileSync(new URL('../src-next/shell/SecureRecordsRecovery.tsx', import.meta.url), 'utf8');
+  assert.match(caller, /dismissOnGesture=\{!busy\}/);
+  let reject!: (error: Error) => void;
+  const f = fixture({reset: () => new Promise((_, fail) => {reject = fail;})});
+  f.recovery.open(); const work = f.recovery.confirm();
+  f.recovery.cancel();
+  assert.equal(f.recovery.getSnapshot().phase, 'working');
+  reject(new Error('native reset refused')); await work;
+  assert.deepEqual(f.recovery.getSnapshot(), {phase: 'confirming', failed: true});
 });
