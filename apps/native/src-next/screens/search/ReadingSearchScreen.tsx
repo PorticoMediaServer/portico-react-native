@@ -9,14 +9,14 @@ import {GridSkeleton, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
-import type {NativeReadingSearchPort} from './reading-search';
+import type {NativeReadingSearchPort, ReadingSearchOpening} from './reading-search';
 
 /** Root54: the reader's own authored Search all books, drawn in the existing Search
  * shell. Only the canonical indexed-text answer is shown: the real excerpt plus the
  * validated match span, the title and cover only when the server supplied them, and
  * one bounded continuation. No total, locator, chapter, page or progress is implied. */
-export function ReadingSearchScreen({port, runtime, query, onBack}: Readonly<{
-  port: NativeReadingSearchPort; runtime: NativeShellRuntime; query: string; onBack: () => void;
+export function ReadingSearchScreen({port, opening, runtime, query, onBack}: Readonly<{
+  port: NativeReadingSearchPort; opening: ReadingSearchOpening | undefined; runtime: NativeShellRuntime; query: string; onBack: () => void;
 }>) {
   const t = runtime.text.t;
   const theme = useTheme(), insets = useSafeAreaInsets(), input = useRef<TextInput>(null), list = useRef<FlatList<ReadingIndexedSearchHit>>(null);
@@ -27,7 +27,7 @@ export function ReadingSearchScreen({port, runtime, query, onBack}: Readonly<{
     const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
     return () => clearTimeout(timer);
   }, [state.phase]);
-  const submit = () => {port.search(text); list.current?.scrollToOffset({offset: 0, animated: false});};
+  const submit = () => {port.search(opening, text); list.current?.scrollToOffset({offset: 0, animated: false});};
   const rows = state.phase === 'loading' ? undefined : state.hits;
   return <View testID="native-reading-search" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{paddingTop: Math.max(56, insets.top), backgroundColor: theme.colors.ink}}>
@@ -44,16 +44,16 @@ export function ReadingSearchScreen({port, runtime, query, onBack}: Readonly<{
       </View>
       <Text style={[browseType(theme, 12.5, 500), {color: theme.colors.textTertiary, marginHorizontal: 20, marginTop: 8, marginBottom: 10}]}>{t('next.reader.indexedSearchScope')}</Text>
     </View>
-    {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {if (state.query) port.search(state.query);})}/>
+    {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {if (state.query) port.search(opening, state.query);})}/>
       : <FlatList ref={list} style={{flex: 1}} data={rows ?? []} keyExtractor={key} keyboardShouldPersistTaps="handled"
         onLayout={event => setViewport(event.nativeEvent.layout)} contentContainerStyle={{paddingHorizontal: 12, paddingBottom: insets.bottom + 24}}
-        renderItem={({item}) => <HitRow hit={item} runtime={runtime} onOpen={() => port.open(item)}/>}
-        onEndReached={() => {if (state.phase === 'ready' && !state.moreError) port.more();}}
+        renderItem={({item}) => <HitRow hit={item} runtime={runtime} onOpen={() => port.open(opening, item)}/>}
+        onEndReached={() => {if (state.phase === 'ready' && !state.moreError) port.more(opening);}}
         ListEmptyComponent={rows === undefined
           ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={viewport.height} width={viewport.width} totalCount={6} columns={1}/>
           : state.phase === 'ready' ? <StateView variant="search" title={t('next.reader.noIndexedMatches')} body={t('next.reader.indexedSearchScope')}/> : null}
         ListFooterComponent={state.phase === 'more' ? <GridSkeleton elapsedMs={0} scrollOffset={0} viewportHeight={viewport.height} width={viewport.width} totalCount={2} columns={1}/>
-          : state.phase === 'ready' && state.moreError ? <StateView variant="search" {...runtime.error(state.moreError, () => port.retry())}/> : null}/>}
+          : state.phase === 'ready' && state.moreError ? <StateView variant="search" {...runtime.error(state.moreError, () => port.retry(opening))}/> : null}/>}
   </View>;
 }
 
