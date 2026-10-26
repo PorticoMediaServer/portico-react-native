@@ -214,7 +214,8 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     const current = () => !controller.signal.aborted && visible() && model === currentModel && token === captured
       && context.navigation.getSnapshot().revision === route && currentModel.getSnapshot().active;
     destinationController = controller;
-    destinations = new NativeLoadedDestinations({api: context.api, scope: authority.scope, requestId: feedback.requestId, signal: controller.signal, isCurrent: current}, selected);
+    destinations = new NativeLoadedDestinations({api: context.api, scope: authority.scope, requestId: feedback.requestId, signal: controller.signal, isCurrent: current,
+      viewerFence: context.authority().viewerFence}, selected);
     destinationKind = kind;
     stopDestinations = destinations.subscribe(emit);
     void destinations.load(kind).catch(error => {if (current()) feedback.reportError(error, 'saved');});

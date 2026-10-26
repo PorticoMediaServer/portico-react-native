@@ -21,7 +21,9 @@ export function NativeDestinationPicker({controller, kind, open, selectionLabel,
   useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [creating, setCreating] = useState(false), [name, setName] = useState('');
   const snapshot = controller.snapshot();
-  const saved = snapshot.playlists, personal = snapshot.collections;
+  // Rows are only the canonical Home picker page that is open: its own count, grant,
+  // already-in fact, revision and artwork. Nothing is defaulted when the server omits it.
+  const page = snapshot.picker && snapshot.picker.kind === kind ? snapshot.picker : undefined;
   const selected = snapshot.chosen?.kind === kind ? snapshot.chosen.id : undefined;
   // select.html 18: a destination row carries its own 2 by 2 mosaic when the server
   // published more than one cover. One path keeps the existing single artwork.
@@ -38,13 +40,13 @@ export function NativeDestinationPicker({controller, kind, open, selectionLabel,
       </View>)}
     </View>;
   };
-  const entries: PickerEntry[] = kind === 'playlist'
-    ? (saved.projection?.sections ?? []).flatMap(section => section.entries).flatMap(entry => entry.kind === 'playlist'
-      ? [{id: entry.id, title: entry.title, size: entry.count ?? 0, canAdd: true, artwork: mosaic(entry.artworkPaths ?? [])}]
-      : [])
-    : personal.resources.flatMap(resource => resource.kind === 'collection'
-      ? [{id: resource.id, title: resource.name, size: resource.entryCount, canAdd: true, artwork: mosaic(resource.artworkPaths ?? [])}]
-      : []);
+  const entries: PickerEntry[] = (page?.rows ?? []).map(row => {
+    // One canonical artwork choice per actual artwork entry: two URLs on one member are
+    // not two mosaic cells.
+    const paths = row.artwork.map(art => art.posterUrl ?? art.backdropUrl).filter((path): path is string => !!path);
+    return {id: row.id, title: row.name, size: row.count, canAdd: row.canAdd,
+      ...(row.alreadyIn === undefined ? {} : {alreadyIn: row.alreadyIn}), artwork: mosaic(paths)};
+  });
   const outcome = snapshot.collectionOutcome;
   const destination = kind === 'playlist'
     ? {id: selected ?? '', title: snapshot.playlist.playlist?.name ?? '', size: snapshot.playlist.playlist?.entryCount}
@@ -61,20 +63,19 @@ export function NativeDestinationPicker({controller, kind, open, selectionLabel,
           alreadyIn: outcome.unchanged.length, failed: outcome.failed.length, total: count, complete: true,
           failures: outcome.failed.map(failure => ({id: failure.id, title: failure.title, reason: coded(failure.code)}))}
       : {destination, total: count, failures: [], complete: false};
-  const loading = kind === 'playlist' ? saved.phase === 'loading' : personal.loading;
-  const error = kind === 'playlist'
-    ? saved.error ? presentError(saved.error, 'saved', {operation: 'load'}).body : undefined
-    : personal.error ? presentError(personal.error, 'saved', {operation: 'load'}).body : undefined;
+  const loading = !page && snapshot.busy;
+  const error = snapshot.pickerError;
   const props = {
     open, onOpenChange, count, selectionLabel, entries, query: '', onQueryChange: () => {}, showFind: false,
     creating, onCreatingChange: setCreating, name, onNameChange: setName,
     onCreateAndAdd: (value: string) => {void controller.create(value).catch(() => {});},
-    onAdd: (id: string) => {void controller.choose(kind, id).catch(() => {});},
+    onAdd: (id: string) => {if (!page) return; void controller.choose(kind, id, page.token).catch(() => {});},
     onRetry: () => {void controller.retry().catch(() => {});},
-    hasNext: kind === 'playlist' ? saved.pagination.next.length > 0 : !!personal.nextCursor,
-    hasPrevious: kind === 'playlist' ? saved.pagination.canPrevious : personal.history.length > 0,
-    onNext: () => {void controller.next(kind).catch(() => {});},
-    onPrevious: () => {void controller.previous(kind).catch(() => {});},
+    ...(snapshot.pickerCanRetry && snapshot.pickerErrorToken ? {onRetryError: () => {void controller.retryPicker(snapshot.pickerErrorToken!).catch(() => {});}} : {}),
+    hasNext: !!page?.nextCursor,
+    hasPrevious: snapshot.pickerPrevious,
+    onNext: () => {if (page) void controller.next(kind, page.token).catch(() => {});},
+    onPrevious: () => {if (page) void controller.previous(kind, page.token).catch(() => {});},
     loading, error, pending: snapshot.busy, result, testID: `search-destination-${kind}`,
     onViewDestination: () => onOpenChange(false), onResultDismiss: () => onOpenChange(false),
   };

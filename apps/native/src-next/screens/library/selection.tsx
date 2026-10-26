@@ -236,7 +236,8 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current
       && context.navigation.getSnapshot().revision === routeRevision && model.isOperationCurrent(op);
     destinationController = controller;
-    destinations = new NativeLoadedDestinations({api: context.api, scope: lifetime.scope, requestId: services.requestId, signal: controller.signal, isCurrent: live}, pickedEntries);
+    destinations = new NativeLoadedDestinations({api: context.api, scope: lifetime.scope, requestId: services.requestId, signal: controller.signal, isCurrent: live,
+      viewerFence: context.authority().viewerFence}, pickedEntries);
     destinationKind = kind;
     stopDestinations = destinations.subscribe(emit);
     void destinations.load(kind).catch(error => {if (live()) services.reportError(error, 'library');});

@@ -203,7 +203,7 @@ export function createNativeSearchSelection(context: NativeShellBootstrapContext
       && context.navigation.getSnapshot().revision === route && keyFor(source.getSnapshot().search) === captured
       && currentModel.getSnapshot().active;
     destinationController = controller;
-    destinations = new NativeLoadedDestinations({api: context.api, scope: authority.scope, requestId: feedback.requestId,
+    destinations = new NativeLoadedDestinations({api: context.api, scope: authority.scope, requestId: feedback.requestId, viewerFence: context.authority().viewerFence,
       signal: controller.signal, isCurrent: current}, selected);
     destinationKind = kind;
     stopDestinations = destinations.subscribe(emit);
