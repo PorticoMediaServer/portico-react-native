@@ -113,7 +113,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
     <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={source?.name ?? t('web.liveTv.sourceSettings')} description={t('web.liveSource.settingsLede')} initialFocusRef={cancel} footer={footer} testID="live-owner-source-settings">
       <View style={{gap: 22}}>
         {error !== undefined && <StateView testID="live-owner-source-settings-error" {...runtime.error(error, () => onOpenChange(false))}/>}
-        <LoadingBoundary ready={!!(draft && document)} skeleton={<View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}>
+        <LoadingBoundary ready={!loading} immediate={!loading} skeleton={<View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}>
         {draft && document && <>
           <Section title={t('web.liveSource.provides')}>
             <Select testID="live-owner-provides" label={t('web.liveSource.provides')} value={draft.kind} options={document.availableKinds.map(kind => ({value: kind, label: t((kindKey[kind] ?? kind) as Parameters<typeof t>[0])}))}
@@ -221,7 +221,7 @@ function SourceChoiceSheet({controller, runtime, source, kind, open, onOpenChang
       <TextField testID="live-owner-choice-search" variant="search" leadingIcon="i-search" accessibilityLabel={t(kind === 'groups' ? 'server.live.searchGroups' : 'server.live.searchChannels')} placeholder={t(kind === 'groups' ? 'server.live.searchGroups' : 'server.live.searchChannels')} value={query} onChangeText={setQuery}/>
       {error !== undefined && <StateView testID="live-owner-choice-error" {...runtime.error(error, () => setQuery(value => value))}/>}
       <View style={{gap: 4}}>
-        <LoadingBoundary ready={!loading} skeleton={<SkeletonBlock height={44} radius={10}/>}>
+        <LoadingBoundary ready={!loading || items.length > 0 || gone.length > 0} immediate={!loading || items.length > 0 || gone.length > 0} skeleton={<SkeletonBlock height={44} radius={10}/>}>
         <>
         {items.map(value => <Focusable key={value.id} testID={`live-owner-choice-${value.id}`} focusKind="row" onPress={() => toggle(value.id, !selected.includes(value.id))} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, borderRadius: 10, paddingHorizontal: 8}}>
           <Text style={[shellType(15), {color: theme.colors.text, flex: 1}]} numberOfLines={1}>{value.name || value.id}</Text>
@@ -290,7 +290,7 @@ export function ChannelMapSheet({controller, runtime, source, open, onOpenChange
         : <StateView testID="live-owner-channel-map-error" {...runtime.error(error, () => {if (source) void load(source.id);})}/>)}
       <TextField testID="live-owner-channel-search" variant="search" leadingIcon="i-search" accessibilityLabel={t('web.live.findChannel')} placeholder={t('web.live.findChannel')} value={filter} onChangeText={setFilter}/>
       <ScrollView style={{maxHeight: 420}} contentContainerStyle={{gap: 10}} keyboardShouldPersistTaps="handled">
-        <LoadingBoundary ready={!loading} skeleton={<View style={{gap: 8}}><SkeletonBlock height={84} radius={12}/><SkeletonBlock height={84} radius={12}/></View>}>
+        <LoadingBoundary ready={!loading || !!page} immediate={!loading || !!page} skeleton={<View style={{gap: 8}}><SkeletonBlock height={84} radius={12}/><SkeletonBlock height={84} radius={12}/></View>}>
         <>
         {shown.map(entry => {
           const current = value(entry.channelId, entry), touched = edits[entry.channelId] !== undefined;
