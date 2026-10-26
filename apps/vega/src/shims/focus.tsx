@@ -119,8 +119,6 @@ type GuideProps = React.ComponentProps<typeof Vega.TVFocusGuideView>;
 type GuideNode = React.ComponentRef<typeof Vega.TVFocusGuideView>;
 
 const HISTORY = 24;
-/** How long after a screen comes to the front a wrong first landing is still put right. */
-const CORRECT_MS = 700;
 
 /**
  * A guide that, when `managing`, chooses where focus goes when it enters. (One component either
@@ -137,15 +135,15 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
   // asks to be where focus starts, or the first one there is.
   const chosen = useCallback((): Member | undefined => {
     const all = members.current;
+    // The control that had focus here, while it is still here: a real remembered landing, not a
+    // name looked up again. A control drawn anew is a different control.
     for (const was of history.current) if (all.has(was)) return was;
-    const name = history.current[0]?.label;
-    let named: Member | undefined, preferring: Member | undefined, first: Member | undefined;
+    let preferring: Member | undefined, first: Member | undefined;
     for (const member of all) {
       first ??= member;
       if (!preferring && member.prefers) preferring = member;
-      if (!named && name !== undefined && member.label === name) named = member;
     }
-    return named ?? preferring ?? first;
+    return preferring ?? first;
   }, []);
   // A screen's guide: brings focus to its choice when it is the front screen and focus is
   // nowhere, or has just landed on another of its controls (the system's pick as the screen
@@ -156,23 +154,18 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
   state.current.front = front;
   const inner = useRef(0);
   const seeking = useRef<(() => void) | undefined>(undefined);
-  const frontSince = useRef(0);
   const pending = useRef(false);
   const decide = useCallback(() => {
     pending.current = false;
     // Never while a field is being typed into: the keyboard has focus then.
     if (!state.current.mounted || !state.current.front || inner.current > 0 || seeking.current || keyboardHasBack()) return;
-    const correcting = () => Date.now() - frontSince.current < CORRECT_MS;
-    if (holder && !(correcting() && members.current.has(holder))) return;
+    // Anything already holding focus stays where it is. A landing inside this region is the
+    // viewer's or the native guide's, and there is no window in which it is "put right": that
+    // window was a second manager, and it could take a valid in-region landing away.
+    if (holder) return;
     const intended = chosen();
-    const settled = () => {
-      if (!holder) return false;
-      if (holder === (intended ?? chosen()) || !members.current.has(holder)) return true;
-      return !correcting();
-    };
-    // One request. The guide owns where focus goes when it enters, so nothing re-asserts a landing
-    // afterwards: a repeated correction is what used to pull focus back off a control the viewer
-    // had already moved to.
+    const settled = () => !!holder;
+    // One request, once, while focus is nowhere: the native guide owns where it lands.
     seeking.current = seekFocus(() => intended ?? chosen(), settled, undefined, () => { seeking.current = undefined; });
   }, [chosen]);
   // Decided once everything that changed together has said so: a screen's controls arrive, and
@@ -208,7 +201,6 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
   }, [parent, chosen, claim]);
   useEffect(() => {
     if (!front) return;
-    frontSince.current = Date.now();
     for (let around = parent; around; around = around.parent) around.fronts(1);
     claim();
     // The screen that was in front may still hold focus until it has gone.
@@ -230,11 +222,38 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
 
 const Guide = forwardRef<GuideNode, GuideProps>(function TVFocusGuideView(props, ref) {
   const unreachable = useContext(Unreachable) || props.focusable === false;
-  // A guide given its destinations decides for itself.
-  const managing = props.autoFocus === true && props.destinations === undefined;
+  // The caller may own the destinations instead: the shared focus region hands them over through
+  // `ref.setDestinations`, and from that first call on they are the caller's to set.
+  const [imperative, setImperative] = useState(false);
+  // The host whose method was wrapped, and the method it had before: leaving it - or leaving for
+  // another host - puts that method back, so a caller never holds a wrapper of a wrapper and a
+  // genuinely new host starts with the guide deciding for itself again.
+  const wrapped = useRef<{node: GuideNode; own: GuideNode['setDestinations']} | undefined>(undefined);
+  const unwrap = useCallback(() => {
+    const previous = wrapped.current;
+    if (!previous) return;
+    previous.node.setDestinations = previous.own;
+    wrapped.current = undefined;
+  }, []);
+  const attach = useCallback((node: GuideNode | null) => {
+    if (wrapped.current && wrapped.current.node !== node) {
+      unwrap();
+      setImperative(false);
+    }
+    if (node && !wrapped.current) {
+      const own = node.setDestinations;
+      wrapped.current = {node, own};
+      node.setDestinations = destinations => {setImperative(true); own.call(node, destinations);};
+    }
+    if (typeof ref === 'function') ref(node);
+    else if (ref) (ref as {current: GuideNode | null}).current = node;
+  }, [ref, unwrap]);
+  useEffect(() => unwrap, [unwrap]);
+  // A guide given its destinations decides for itself; one the caller drives does not.
+  const managing = props.autoFocus === true && props.destinations === undefined && !imperative;
   return (
     <Unreachable.Provider value={unreachable}>
-      <Remembering ref={ref} reachable={!unreachable} managing={managing} {...props} />
+      <Remembering ref={attach} reachable={!unreachable} managing={managing} {...props} />
     </Unreachable.Provider>
   );
 });
