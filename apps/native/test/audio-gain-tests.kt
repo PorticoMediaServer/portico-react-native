@@ -138,12 +138,12 @@ fun main() {
   // A 24-bit-only profile has no capable delegate path: the pipeline narrows to 16-bit honestly.
   val integerRoute = PorticoAudioOutput.Route(
       listOf(PorticoAudioOutput.Device("dac", listOf(PorticoAudioOutput.Profile(C.ENCODING_PCM_24BIT, 96000, 2)))), true)
-  val narrowing = PorticoMusicPipeline(PorticoAudioGain()) { integerRoute }
+  val narrowing = PorticoMusicPipeline(PorticoAudioGain(), route = { integerRoute })
   check(narrowing.configure(format(C.ENCODING_PCM_24BIT, 96000, 2)).pcmEncoding == C.ENCODING_PCM_16BIT)
 
   // The route is read per configure, so a new device is reflected without rebuilding the player.
   var route = integerRoute
-  val reconfiguring = PorticoMusicPipeline(PorticoAudioGain()) { route }
+  val reconfiguring = PorticoMusicPipeline(PorticoAudioGain(), route = { route })
   check(reconfiguring.configure(format(C.ENCODING_PCM_24BIT, 96000, 2)).pcmEncoding == C.ENCODING_PCM_16BIT)
   route = floatRoute
   check(reconfiguring.configure(format(C.ENCODING_PCM_24BIT, 96000, 2)).pcmEncoding == C.ENCODING_PCM_FLOAT)

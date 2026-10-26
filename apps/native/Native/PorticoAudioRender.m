@@ -4,6 +4,7 @@
 #import "PorticoEqualizer.h"
 #import "PorticoAudioCapture.h"
 #import "PorticoAudioEffects.h"
+#import "PorticoTruePeakUnit.h"
 #import "PorticoListeningPolicy.h"
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -600,6 +601,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 @end
 @implementation PorticoFileRender {
  AVAudioEngine *_engine;
+ AVAudioUnitEffect *_truePeak;BOOL _protectedOutput,_processingProtectionWanted;
 #if DEBUG
  PorticoAudioCapture *_capture;
 #endif
@@ -636,6 +638,34 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 }
 - (instancetype)init {if((self=[super init])){_seekRevision=-1;_rate=1;}return self;}
 - (BOOL)active {return _active;}
+
+/** Physical configuration is an AVAudioSession readback. The graph still makes no DAC or
+ * bit-perfect assertion. Every deck EQ/time-pitch/rate mix reaches this one downstream unit. */
+- (BOOL)needsTruePeak:(NSDictionary *)settings rate:(double)rate {
+ return [@[@"track",@"album"] containsObject:settings[@"normalization"]]||[settings[@"crossfadeSeconds"] doubleValue]>0||
+  fabs(rate-1)>.00001||[PorticoAudioProcessing.shared.snapshot[@"eqEnabled"] boolValue];
+}
+- (BOOL)configureTruePeak:(BOOL)processing sourceRate:(double)sourceRate {
+ BOOL needed=processing||fabs(AVAudioSession.sharedInstance.sampleRate-sourceRate)>.01;
+#if DEBUG
+ if(_capture)[_capture retireBoundary];
+#endif
+ [_engine disconnectNodeOutput:_engine.mainMixerNode];
+ if(_truePeak){[_engine detachNode:_truePeak];_truePeak=nil;}
+ _protectedOutput=NO;
+ if(!needed){[_engine connect:_engine.mainMixerNode to:_engine.outputNode format:nil];_processingProtectionWanted=processing;return YES;}
+ AVAudioSession *session=AVAudioSession.sharedInstance;
+ double rate=session.sampleRate;AVAudioChannelCount channels=(AVAudioChannelCount)session.outputNumberOfChannels;
+ if(!isfinite(rate)||rate<8000||rate>768000||channels<1||channels>32)return NO;
+ AVAudioFormat *device=[_engine.outputNode inputFormatForBus:0];AVAudioChannelLayout *layout=device.channelLayout;
+ if(device.sampleRate!=rate||device.channelCount!=channels||(channels>2&&(!layout||layout.channelCount!=channels)))return NO;
+ AVAudioFormat *format=layout?[[AVAudioFormat alloc]initWithCommonFormat:AVAudioPCMFormatFloat32 sampleRate:rate interleaved:NO channelLayout:layout]:[[AVAudioFormat alloc]initStandardFormatWithSampleRate:rate channels:channels];
+ @try {
+  _truePeak=PorticoCreateTruePeakUnit();if(!_truePeak)return NO;
+  [_engine attachNode:_truePeak];[_engine connect:_engine.mainMixerNode to:_truePeak format:format];
+  [_engine connect:_truePeak to:_engine.outputNode format:format];_protectedOutput=YES;_processingProtectionWanted=processing;return YES;
+ } @catch(NSException *failure) {if(_truePeak&&_truePeak.engine==_engine)[_engine detachNode:_truePeak];_truePeak=nil;return NO;}
+}
 
 #pragma mark Gains
 
@@ -756,7 +786,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
   [self emit:@"audioRenderFailed" extra:@{@"error":@"audio_output_unavailable"}];return;
  }
 #if DEBUG
- if(!_capture){_capture=[PorticoAudioCapture new];[_capture start:_engine.mainMixerNode];}
+ if(!_capture){_capture=[PorticoAudioCapture new];[_capture start:(_truePeak?(AVAudioNode *)_truePeak:_engine.mainMixerNode)];}
 #endif
  if(!_primary.node.playing)[_primary.node play];
  if(!_primary.started){_primary.started=YES;[self emit:@"ready" extra:@{}];
@@ -842,10 +872,13 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  if(fabs(_rate-rate)>.00001){_rate=rate;_configChanged=YES;for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d==NSNull.null)continue;d.speed.rate=rate;d.speed.bypass=fabs(rate-1)<.00001;}}
  BOOL regain=!changed&&_primary&&fabs([PorticoFileRender gainFor:plan settings:render[@"settings"]]-oldGain)>.000001;
  double position=seek?[pending[@"positionSeconds"] doubleValue]:changed?[render[@"startSeconds"] doubleValue]:[self position];
+ BOOL protect=[self needsTruePeak:render[@"settings"] rate:rate];
+ if(protect!=_processingProtectionWanted)_configChanged=YES;
+ if(changed||seek||regain||_configChanged){[_engine stop];[_truePeak.AUAudioUnit reset];}
  if(changed||_configChanged){
-  [_engine stop];
   NSError *sessionError=nil;
   if(![PorticoAudioProcessing.shared configureRate:[plan[@"sampleRate"] doubleValue] channels:[plan[@"channels"] unsignedIntValue] error:&sessionError]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_route_unavailable"}];return;}
+  if(![self configureTruePeak:protect sourceRate:[plan[@"sampleRate"] doubleValue]]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_true_peak_unavailable"}];return;}
  }
  if(changed||seek||regain||_configChanged){
   // A route or format change mid-edge: the committed successor comes back as a buffered candidate
@@ -872,6 +905,9 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  [self emit:@"rateStatus" extra:@{}];
 }
 - (void)processingChanged:(NSNotification *)note {
+ if(_active&&_command&&[self needsTruePeak:_command[@"audioRender"][@"settings"] rate:_rate]!=_processingProtectionWanted){
+  _configChanged=YES;[self applyCommand:_command];return;
+ }
  for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d!=NSNull.null&&d.equalizer)[PorticoAudioProcessing.shared applyEqualizer:d.equalizer];}
  if((note.userInfo[@"sampleRateMatching"]||note.userInfo[@"routeChanged"])&&_active&&_command){_configChanged=YES;[self applyCommand:_command];}
 }
@@ -885,7 +921,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  dispatch_async(dispatch_get_main_queue(),^{
   double position=[self position];
   [NSNotificationCenter.defaultCenter removeObserver:self name:AVAudioEngineConfigurationChangeNotification object:self->_engine];
-  [self reset];self->_engine=nil;self->_heard=position;
+  [self reset];self->_truePeak=nil;self->_protectedOutput=NO;self->_engine=nil;self->_heard=position;
   if(!self->_active||!self->_command)return;
   NSMutableDictionary *again=[self->_command mutableCopy];self->_configChanged=YES;[self applyCommand:again];});
 }
@@ -903,7 +939,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 #if DEBUG
  [_capture stop];_capture=nil;
 #endif
- _active=NO;[_timer invalidate];_timer=nil;[self reset];_command=nil;_seekRevision=-1;[_engine stop];}
+ _active=NO;[_timer invalidate];_timer=nil;[_engine stop];[_truePeak.AUAudioUnit reset];[self reset];_command=nil;_seekRevision=-1;}
 
 #pragma mark The loop
 

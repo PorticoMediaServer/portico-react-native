@@ -2,11 +2,11 @@
 #if DEBUG
 #include <stdatomic.h>
 @implementation PorticoAudioCapture {
- AVAudioMixerNode *_mixer;AVAudioFile *_file;dispatch_queue_t _writer;NSString *_path,*_error;
+ AVAudioNode *_mixer;AVAudioFile *_file;dispatch_queue_t _writer;NSString *_path,*_error;
  atomic_int _pending;atomic_bool _failed;atomic_llong _frames;BOOL _started;double _sampleRate;NSUInteger _channels;
 }
 - (instancetype)init {if((self=[super init]))_writer=dispatch_queue_create("tv.getportico.audio.capture",DISPATCH_QUEUE_SERIAL);return self;}
-- (void)start:(AVAudioMixerNode *)mixer {
+- (void)start:(AVAudioNode *)mixer {
  if(_started)return;_path=NSProcessInfo.processInfo.environment[@"PORTICO_AUDIO_OUTPUT_CAPTURE"];if(!_path.length||![_path hasPrefix:@"/"])return;
  _started=YES;AVAudioFormat *format=[mixer outputFormatForBus:0];if(format.channelCount<1||format.sampleRate<=0){_error=@"No output format.";return;}
  _sampleRate=format.sampleRate;_channels=format.channelCount;NSError *error=nil;
@@ -22,7 +22,8 @@
   dispatch_async(s->_writer,^{NSError *failure=nil;if(![s->_file writeFromBuffer:copy error:&failure]){s->_error=failure.localizedDescription;atomic_store(&s->_failed,true);}else atomic_fetch_add(&s->_frames,copy.frameLength);atomic_fetch_sub(&s->_pending,1);});
  }];
 }
-- (NSDictionary *)snapshot {return @{@"requested":@(_started),@"frames":@(atomic_load(&_frames)),@"sampleRate":@(_sampleRate),@"channels":@(_channels),@"failed":@(atomic_load(&_failed)||_error.length>0),@"error":_error?:@"",@"boundary":@"AVAudioEngine main mixer output; physical output unverified"};}
+- (NSDictionary *)snapshot {return @{@"requested":@(_started),@"frames":@(atomic_load(&_frames)),@"sampleRate":@(_sampleRate),@"channels":@(_channels),@"failed":@(atomic_load(&_failed)||_error.length>0),@"error":_error?:@"",@"boundary":@"AVAudioEngine final application output after mix/EQ/rate/limiter when present; physical output unverified"};}
+- (void)retireBoundary {if(!_started)return;_error=@"Output boundary changed during capture.";atomic_store(&_failed,true);[self stop];}
 - (void)stop {
  if(_mixer){[_mixer removeTapOnBus:0];_mixer=nil;}
  if(!_started)return;_started=NO;dispatch_async(_writer,^{self->_file=nil;NSDictionary *report=[self snapshot];NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];[data writeToFile:[self->_path stringByAppendingString:@".json"] options:NSDataWritingAtomic error:nil];});

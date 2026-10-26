@@ -8,3 +8,6 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# The owned output DSP has named JNI entry points, never reflection or a JavaScript handle.
+-keep class tv.getportico.portico.native.PorticoTruePeakNative { *; }

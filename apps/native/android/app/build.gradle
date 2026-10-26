@@ -78,6 +78,7 @@ android {
             }
         }
     }
+    externalNativeBuild { cmake { path file("src/main/jni/CMakeLists.txt") } }
     buildFeatures { buildConfig true }
 
     // `google` is Android and Android TV; `firetv` is Fire OS, which has no Google Play services.

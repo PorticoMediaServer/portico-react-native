@@ -41,7 +41,22 @@ internal class PorticoAudioTrackOutput(private val context: Context, private val
   }
   private val main = Handler(Looper.getMainLooper())
   @Volatile private var slot: Slot? = null
-  private data class Pending(val proof: PorticoOutputWitness?, val buffer: ByteBuffer)
+  private class Pending(val proof: PorticoOutputWitness?, val buffer: ByteBuffer) {
+    val start = buffer.position()
+    val end = buffer.limit()
+    // A processor may modify its input in place. Identity alone cannot prove unchanged bytes.
+    // Bound optional proof memory; a larger packet simply cannot claim bit-perfect transport.
+    val bytes: ByteArray? = if (proof?.unchanged == true && buffer.remaining() <= (1 shl 20))
+      ByteArray(buffer.remaining()).also { buffer.duplicate().get(it) } else null
+    fun unchanged(final: ByteBuffer): Boolean {
+      val saved = bytes ?: return false
+      if (final !== buffer || final.position() < start || final.limit() != end) return false
+      val view = final.duplicate()
+      var at = view.position() - start
+      while (view.hasRemaining()) if (view.get() != saved[at++]) return false
+      return true
+    }
+  }
   @Volatile private var pending: Pending? = null
   @Volatile var downstreamUnity = false
     set(value) { if (field != value) { field = value; invalidate() } }
@@ -50,7 +65,10 @@ internal class PorticoAudioTrackOutput(private val context: Context, private val
       proof != null && proof.stream.source.outputUntilMs > SystemClock.elapsedRealtime()
 
   fun prepare(proof: PorticoOutputWitness?, buffer: ByteBuffer) {
-    pending = Pending(proof.takeIf(::originalCurrent), buffer)
+    val original = proof.takeIf(::originalCurrent)
+    val held = pending
+    if (held == null || held.proof !== original || held.buffer !== buffer || held.end != buffer.limit())
+      pending = Pending(original, buffer)
   }
 
   private fun config(value: AudioOutputProvider.OutputConfig) = AudioSink.AudioTrackConfig(
@@ -74,8 +92,11 @@ internal class PorticoAudioTrackOutput(private val context: Context, private val
 
   /** Called at Media3's actual FINAL write, after its startup ramp, trims and processors. Buffer
    * identity is required: a delayed/new processor buffer cannot inherit today's input source. */
-  private fun finalProof(own: Slot, buffer: ByteBuffer): PorticoOutputWitness? =
-      pending?.takeIf { it.buffer === buffer }?.proof?.takeIf { originalCurrent(it) && matches(own.config, it) }
+  private fun finalProof(own: Slot, buffer: ByteBuffer): PorticoOutputWitness? {
+    val original = pending?.takeIf { it.buffer === buffer } ?: return null
+    val proof = original.proof?.takeIf { originalCurrent(it) && matches(own.config, it) } ?: return null
+    return if (original.unchanged(buffer)) proof else proof.processed()
+  }
 
   fun beforeWrite(track: AudioTrack, buffer: ByteBuffer): PorticoOutputWitness? {
     val own = slot?.takeIf { it.track === track && it.live } ?: return null
@@ -133,7 +154,8 @@ internal class PorticoAudioTrackOutput(private val context: Context, private val
 
   /** Retire proof/preferences only. Media3 retains sole ownership of the AudioTrack descriptor. */
   fun invalidate() {
-    pending = null
+    // Keep the FIRST byte snapshot across a refused/partial write. Re-copying a processor's
+    // already-mutated input on retry would manufacture an unchanged-byte proof.
     val own = slot ?: return
     own.mixer?.close()
     own.mixer = null
@@ -146,6 +168,7 @@ internal class PorticoAudioTrackOutput(private val context: Context, private val
     val own = slot ?: return
     if (expected != null && own.track !== expected) return
     slot = null
+    pending = null
     own.live = false
     synchronized(own) { own.runs.clear() }
     try { own.routing?.let { own.track.removeOnRoutingChangedListener(it) } } catch (_: Exception) {}

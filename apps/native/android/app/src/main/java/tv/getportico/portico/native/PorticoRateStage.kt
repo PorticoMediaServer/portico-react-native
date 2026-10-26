@@ -32,7 +32,7 @@ import kotlin.math.sin
  * Modes: Off opens at this device's preferred rate; Strict at the file's rate (route refusal is a
  * caller fact); Smart at the file's rate unless the route is known to refuse it.
  */
-internal class PorticoRateStage {
+internal class PorticoRateStage(private val allowFloatHeadroom: Boolean = false) {
   /** A piece the delegate must accept. [buffer] is the delegate's own object: media3 requires a
    * retry to hand back the same buffer it last saw, and it may have partially consumed that buffer
    * before returning false, so its position is never rewound here. [frames] is captured at creation
@@ -396,7 +396,7 @@ internal class PorticoRateStage {
   }
 
   private fun write(output: ByteBuffer, value: Float) {
-    val sample = if (value.isFinite()) value.coerceIn(-1f, 1f) else 0f
+    val sample = if (!value.isFinite()) 0f else if (allowFloatHeadroom && encoding == android.media.AudioFormat.ENCODING_PCM_FLOAT) value else value.coerceIn(-1f, 1f)
     when (encoding) {
       android.media.AudioFormat.ENCODING_PCM_16BIT ->
         output.putShort((sample * 32768f).toInt().coerceIn(-32768, 32767).toShort())

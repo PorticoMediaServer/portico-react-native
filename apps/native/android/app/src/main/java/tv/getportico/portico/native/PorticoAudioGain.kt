@@ -47,6 +47,8 @@ internal class PorticoOutputWitness(
       encoding == other.encoding && channels == other.channels && mode == other.mode
   fun atRate(rate: Int): PorticoOutputWitness = if (rate == sampleRate) this else
       PorticoOutputWitness(stream, control, false, rate, encoding, channels, mode)
+  fun processed(): PorticoOutputWitness = if (!unchanged) this else
+      PorticoOutputWitness(stream, control, false, sampleRate, encoding, channels, mode)
 }
 
 /**
@@ -65,6 +67,9 @@ internal class PorticoAudioGain {
                             val source: PorticoAudioSourceTag? = null)
   @Volatile private var wantedTarget = Target(1f, null, null, false)
   @Volatile var output: PorticoAudioTrackOutput? = null
+  @Volatile var externalFade = false
+  @Volatile var deferFloatClipping = false
+  fun mixerFade(): Double = wantedTarget.fade?.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 1.0
   @Volatile var outputAllowed = false
     set(value) { if (field != value) { field = value; output?.invalidate() } }
   fun currentOutput(proof: PorticoOutputWitness?): Boolean = proof != null && outputAllowed &&
@@ -102,7 +107,10 @@ internal class PorticoAudioGain {
   private var step = 0f
 
   /** Begins a new stream at the current target, without a ramp from the previous one. */
-  fun reset() { level = target; goal = target; remaining = 0 }
+  fun reset() {
+    level = if (externalFade) wantedTarget.normalization ?: target else target
+    goal = level; remaining = 0
+  }
 
   fun apply(input: ByteBuffer, sourceEncoding: Int, targetEncoding: Int, channelCount: Int, sampleRate: Int): ByteBuffer =
       applyObserved(input, sourceEncoding, targetEncoding, channelCount, sampleRate).buffer
@@ -115,7 +123,7 @@ internal class PorticoAudioGain {
     val targetFrame = PorticoAudioOutput.bytesPerSample(targetEncoding) * channelCount
     if (sourceFrame <= 0 || targetFrame <= 0 || input.remaining() < sourceFrame) return Applied(input, null)
     val controls = wantedTarget
-    val wanted = controls.composite.takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 1f
+    val wanted = (if (externalFade) controls.normalization ?: controls.composite else controls.composite).takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 1f
     if (wanted != goal) {
       goal = wanted
       remaining = (sampleRate / 50).coerceAtLeast(1)
@@ -152,7 +160,7 @@ internal class PorticoAudioGain {
   }
 
   private fun writeSample(output: ByteBuffer, encoding: Int, scaled: Float) {
-    val value = if (scaled.isFinite()) scaled.coerceIn(-1f, 1f) else 0f
+    val value = if (!scaled.isFinite()) 0f else if (encoding == C.ENCODING_PCM_FLOAT && deferFloatClipping) scaled else scaled.coerceIn(-1f, 1f)
     when (encoding) {
       C.ENCODING_PCM_16BIT -> output.putShort((value * 32768f).toInt().coerceIn(-32768, 32767).toShort())
       C.ENCODING_PCM_24BIT -> {
@@ -240,9 +248,10 @@ internal class PorticoMusicPipeline(
   private val route: () -> PorticoAudioOutput.Route,
   private val sampleRateMode: () -> String = { PorticoAudioSampleRate.mode },
   private val preferredSampleRate: () -> Int = { 0 },
+  private val headroom: Boolean = false,
 ) {
   private val queue = PorticoGainQueue(gain)
-  private var stage = PorticoRateStage()
+  private var stage = PorticoRateStage(allowFloatHeadroom = headroom)
   /** A stage whose remaining frames are still owed to the delegate, in its own format. */
   private var draining: PorticoRateStage? = null
   /** The delegate format that must not be applied until [draining] has been delivered. */
@@ -284,7 +293,7 @@ internal class PorticoMusicPipeline(
     sampleRate = format.sampleRate
     mode = PorticoAudioSampleRate.parse(sampleRateMode())
     gain.reset()
-    targetEncoding = PorticoAudioOutput.targetEncoding(route(), sampleRate, channels, sourceEncoding)
+    targetEncoding = if (headroom) C.ENCODING_PCM_FLOAT else PorticoAudioOutput.targetEncoding(route(), sampleRate, channels, sourceEncoding)
     // media3 applies encoderDelay/encoderPadding as input PCM frame counts at the delegate's rate,
     // so changing that rate would make a stream trim the wrong duration. Until trimming is done in
     // the source domain ahead of this stage, a stream that declares either keeps its own rate.
@@ -311,7 +320,7 @@ internal class PorticoMusicPipeline(
       // An earlier drain is still owed; keep it and wait for this format as well.
       deferred = wanted
     }
-    stage = PorticoRateStage()
+    stage = PorticoRateStage(allowFloatHeadroom = headroom)
     stage.configure(sampleRate, channels, targetEncoding, target)
     return wanted
   }
@@ -368,7 +377,7 @@ internal class PorticoMusicPipeline(
   fun delegateFormat(format: Format): Format? {
     val source = if (format.pcmEncoding != Format.NO_VALUE) format.pcmEncoding else C.ENCODING_PCM_16BIT
     if (!PorticoAudioOutput.supports(source)) return null
-    val target = PorticoAudioOutput.targetEncoding(route(), format.sampleRate, format.channelCount, source)
+    val target = if (headroom) C.ENCODING_PCM_FLOAT else PorticoAudioOutput.targetEncoding(route(), format.sampleRate, format.channelCount, source)
     return if (target != source) format.buildUpon().setPcmEncoding(target).build() else format
   }
 
@@ -418,8 +427,9 @@ internal class PorticoMusicSink(
   route: () -> PorticoAudioOutput.Route,
   preferredSampleRate: () -> Int = { 0 },
   private val output: PorticoAudioTrackOutput? = null,
+  headroom: Boolean = false,
 ) : ForwardingAudioSink(delegate) {
-  private val pipeline = PorticoMusicPipeline(gain, route, { PorticoAudioSampleRate.mode }, preferredSampleRate)
+  private val pipeline = PorticoMusicPipeline(gain, route, { PorticoAudioSampleRate.mode }, preferredSampleRate, headroom)
   private var formatUnity = false
   private var volumeUnity = true
   private var rateUnity = true
@@ -545,7 +555,7 @@ internal class PorticoMusicSink(
 }
 
 /** Only listening players use this sink; video keeps its normal output format and passthrough. */
-internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain) : DefaultRenderersFactory(context) {
+internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain, private val mix: PorticoMusicMix? = null) : DefaultRenderersFactory(context) {
   override fun buildAudioRenderers(
     context: Context, extensionRendererMode: Int, mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
     enableDecoderFallback: Boolean, audioSink: AudioSink, eventHandler: android.os.Handler,
@@ -577,9 +587,11 @@ internal class PorticoAudioRenderers(context: Context, private val gain: Portico
     // player: with float enabled the delegate uses it exactly when PorticoAudioOutput selects
     // float for this stream, and a 16-bit selection never enters the float path. A build-time
     // route snapshot therefore cannot make a later float selection narrow to 16-bit.
-    val output = PorticoAudioTrackOutput(context, gain)
+    val output = if (mix == null) PorticoAudioTrackOutput(context, gain) else null
     gain.output = output
-    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(true).setAudioOutputProvider(PorticoObservedOutputProvider(context, output)).build()
-    return PorticoMusicSink(sink, gain, route, preferred, output)
+    gain.deferFloatClipping = mix != null
+    val provider = if (mix != null) mix.client(gain) else PorticoObservedOutputProvider(context, checkNotNull(output))
+    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(true).setAudioOutputProvider(provider).build()
+    return PorticoMusicSink(sink, gain, route, preferred, output, headroom = mix != null)
   }
 }
