@@ -82,6 +82,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [forgotPIN, setForgotPIN] = useState(false), [recovery, setRecovery] = useState<{controller: NativeProfileRecovery; id: string; name: string}>();
   const [profiles, setProfiles] = useState<readonly ManagedProfile[]>(context.account.profiles);
+  const profileFocus = useRef(new WeakMap<ProfileLease, string>()).current;
   const [edit, setEdit] = useState<{kind: 'rename' | 'pin'; profile: ManagedProfile}>();
   const [removePin, setRemovePin] = useState<ManagedProfile>(), [forgetProfile, setForgetProfile] = useState<ManagedProfile>(), [limitsProfile, setLimitsProfile] = useState<ManagedProfile>();
   const [nameDraft, setNameDraft] = useState(''), [pinDraft, setPinDraft] = useState(''), [pinAgain, setPinAgain] = useState('');
@@ -267,8 +268,9 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
       beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
         <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
-        <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
-          selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
+        <ProfilePicker focusScope={theme.isTV && lease?.live.value && lease.route === route ? `tv.account.profiles.${JSON.stringify([lease.authority, lease.revision])}` : undefined} focusBusy={busy} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
+          selectedId={current?.viewer.profileId} preferredProfileId={theme.isTV && lease ? profileFocus.get(lease) : undefined}
+          onFocusChange={id => {if (id && lease) profileFocus.set(lease, id);}} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
             if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
         {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={() => {setAddName(''); setProblem(''); setNotice(''); setAddOpen(true);}}>{t('profile.add')}</Button></View> : null}
         {manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>

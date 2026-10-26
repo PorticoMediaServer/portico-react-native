@@ -202,3 +202,32 @@ test('alphabet host IDs use bucket keys, keep empty buckets disabled and deliver
     assert.equal(rows.find(row => row.props.testID === id('tv.library.alphabet', 'bucket', 'C'))!.props.disabled, true);
   } finally {rail.host.unmount();}
 });
+
+// FX095 authored UNRUN for hourly CI. Element declarations do not qualify native focus or Home landing.
+test('scoped TV profile entry uses actual current/remembered offered face and keeps busy native leaves', () => {
+  const previousTheme = state.theme; state.theme = createTheme({isTV: true, width: 1920});
+  const profiles = [{id: 'first', name: 'First', initial: 'F'}, {id: 'current', name: 'Current', initial: 'C'},
+    {id: 'blocked', name: 'Blocked', initial: 'B', unavailableReason: 'restricted'}];
+  let calls = 0;
+  const props = {focusScope: 'actual-profile-opening', selectedId: 'current', profiles, onSelect() {},
+    profileProps: () => {calls++; return {};}};
+  const picker = mount(ProfilePicker, props);
+  try {
+    const region = picker.tree as Element;
+    assert.equal(region.props.entry, 'current'); assert.equal(calls, 3, 'caller props are evaluated once per actual face');
+    assert.deepEqual(region.props.order, ['first', 'current']);
+    let faces = ofType(picker.tree, Focusable);
+    assert.ok(faces.every(face => face.props.hasTVPreferredFocus === false), 'one shared lifecycle request owns entry');
+    assert.equal(faces[1]!.props.focusId, 'current');
+    picker.update({...props, preferredProfileId: 'first'});
+    assert.equal((picker.tree as Element).props.entry, 'first', 'original focused PIN opener has precedence');
+    picker.update({...props, preferredProfileId: 'blocked'});
+    assert.equal((picker.tree as Element).props.entry, 'current', 'unavailable is never an invented entry');
+    picker.update({...props, focusBusy: true, profiles: profiles.map(profile => ({...profile, disabled: true}))});
+    faces = ofType(picker.tree, Focusable);
+    assert.equal(faces[1]!.props.disabled, true); assert.equal(faces[1]!.props.focusableWhenDisabled, true);
+    assert.equal(faces[2]!.props.focusableWhenDisabled, false);
+    const content = faces[1]!.props.children({focused: true});
+    assert.equal(content.props.retainDisabledFocus, true, 'same focused face retains its visual ring while checking');
+  } finally {picker.host.unmount(); state.theme = previousTheme;}
+});
