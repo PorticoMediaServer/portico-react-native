@@ -23,6 +23,10 @@ export type RowProps<T> = {
   getKey: (item: T) => string;
   /** Focus identity may include kind/source/library while selection retains its existing data key. */
   getFocusId?: (item: T) => string;
+  /** Which painted slots the native region may land on. Absent means every slot; identities, order,
+   * context and positions are untouched - only the declared region order/entry is filtered, and a
+   * waiting page host always stays because it is a cursor, not an item. */
+  isFocusable?: (item: T) => boolean;
   renderItem: (item: T, context: LayoutItemContext) => ReactNode;
   itemWidth: number;
   itemHeight: number;
@@ -57,7 +61,7 @@ export function Row<T>(props: RowProps<T>) {
   return <FocusProvider><RowContent {...props} /></FocusProvider>;
 }
 
-function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
+function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, isFocusable, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
   const theme = useTheme();
   const [width, setWidth] = useState(initialViewportWidth), [offset, setOffset] = useState(0), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<string>();
   const registry = useOptionalFocusRegistry();
@@ -75,6 +79,16 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
         fulfilled: fulfilledId ? {waitingId: fulfilledId, firstItemId: fulfilledItem} : undefined} : undefined, getFocusId));
   }, [failed, fulfilledId, fulfilledItem, getFocusId, getKey, hasMore, items, owned, regionId, theme.isTV, waitingId, waitingItem]);
   useLayoutEffect(() => {previous.current = {regionId, index: rowIndex};}, [regionId, rowIndex]);
+  // The native boundary is the actionable part of the same painted order: every slot keeps its
+  // identity, and an inert one simply is not a destination the region hands the platform.
+  const activeOrder = useMemo(() => {
+    if (!isFocusable) return rowIndex.order;
+    const inert = new Set(rowIndex.slots.filter(slot => !slot.waiting && !isFocusable(slot.item)).map(slot => slot.focusId));
+    return rowIndex.order.filter(focusId => !inert.has(focusId));
+  }, [isFocusable, rowIndex]);
+  // Only an opted-in predicate filters the declared entry. Without one, the entry is passed on
+  // exactly as before, including an entry that the order does not contain.
+  const activeEntry = !isFocusable || (focus?.entry && activeOrder.includes(focus.entry)) ? focus?.entry : undefined;
   const focusedSlot = focused ? rowIndex.byFocus.get(focused) : undefined;
   const remembered = focus ? registry?.remembered(focus.id) : focused;
   const [arrowFocus, setArrowFocus] = useState<'back' | 'forward' | 'all'>();
@@ -122,7 +136,16 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
   }, [focusedSlot?.position, items.length, last, paging]);
   useEffect(() => {onRepeatingChange?.(anchor.repeating);}, [anchor.repeating, onRepeatingChange]);
   // Native boundary notifications request data only; the native guide still chooses every target.
-  useRowPageBoundary(theme.isTV && !!focus, registry, focus?.id, rowIndex.slots.filter(slot => !slot.waiting).at(-1)?.focusId, paging);
+  // The tail boundary belongs to the last slot the viewer can actually land on; when the predicate
+  // is absent this is exactly the old last painted slot, and a waiting host is still a real host.
+  const boundaryId = useMemo(() => {
+    const painted = rowIndex.slots.filter(slot => !slot.waiting);
+    // Opted in: only a slot the viewer can land on may own the tail, so an all-inert row installs no
+    // boundary at all rather than an inert painted one. Absent the predicate the old tail stands.
+    if (isFocusable) return painted.filter(slot => isFocusable(slot.item)).at(-1)?.focusId;
+    return painted.at(-1)?.focusId;
+  }, [isFocusable, rowIndex]);
+  useRowPageBoundary(theme.isTV && !!focus, registry, focus?.id, boundaryId, paging);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
@@ -141,7 +164,8 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
       {subtitle && <View style={{flexShrink: 1}}>{typeof subtitle === 'string' ? <Text numberOfLines={1} style={[theme.type.rowSubtitle, {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text> : subtitle}</View>}
 
     </View>}
-    <RowRegion focus={theme.isTV ? focus : undefined} order={rowIndex.order}>
+    <RowRegion focus={theme.isTV ? focus : undefined} order={activeOrder} entry={activeEntry}
+      enabled={isFocusable && activeOrder.length === 0 ? false : undefined}>
     <Animated.ScrollView horizontal ref={anchor.scrollRef} style={[theme.isTV ? {marginTop: -top} : undefined, anchor.scrollStyle]} onLayout={event => setWidth(event.nativeEvent.layout.width)}
       onScroll={onScroll} scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onScrollBeginDrag={anchor.stop}
       snapToInterval={theme.isTV ? undefined : stride} decelerationRate="fast" disableIntervalMomentum={!theme.isTV}
@@ -171,8 +195,10 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
   </View>;
 }
 
-function RowRegion({focus, order, children}: {focus?: RowProps<unknown>['focus']; order: readonly string[]; children: ReactNode}) {
-  return focus ? <FocusRegion {...focus} orientation="horizontal" order={order} entry={focus.entry ?? order[0]}>{children}</FocusRegion> : <>{children}</>;
+function RowRegion({focus, order, entry, enabled, children}: {focus?: RowProps<unknown>['focus']; order: readonly string[]; entry?: string; enabled?: boolean; children: ReactNode}) {
+  // `enabled` only ever arrives for an opted-in, all-inert row: nothing can be a destination, so the
+  // native guide is off while the painted content, its context and its keys stay as they are.
+  return focus ? <FocusRegion {...focus} orientation="horizontal" order={order} entry={entry ?? order[0]} {...(enabled === false ? {enabled: false} : {})}>{children}</FocusRegion> : <>{children}</>;
 }
 const noop = () => {};
 const noopSubscribe = () => () => {};
