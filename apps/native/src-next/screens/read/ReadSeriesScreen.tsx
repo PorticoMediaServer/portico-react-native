@@ -132,7 +132,8 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   </View>;
 }
 
-function VolumeCard({item, width, height, comic, theme, runtime, progression, onOpen}: {
+/** The drawn volume card, shared with the book page's series shelf. */
+export function VolumeCard({item, width, height, comic, theme, runtime, progression, onOpen}: {
   item: ReadingItem; width: number; height: number; comic: boolean; theme: ReturnType<typeof useTheme>;
   runtime: NativeShellRuntime; progression?: number; onOpen: () => void;
 }) {
