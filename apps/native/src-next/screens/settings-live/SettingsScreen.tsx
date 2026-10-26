@@ -351,7 +351,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   // Frame 23: a TV row with a value opens its choices in the side sheet; switches still flip in place.
   const [choices, setChoices] = useState<Readonly<{title: string; help?: string; value: string; options: readonly Readonly<{value: string; label: string; description?: string}>[]; apply: (value: string) => void}>>();
   const [languages, setLanguages] = useState<Readonly<{testID: string; title: string; help?: string; value: readonly LanguageOption[]; available: readonly LanguageOption[]; limit: number; apply: (value: readonly LanguageOption[]) => void}>>();
-type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token: number; page: string; revision: number; controller: typeof controller}>;
+  type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token: number; page: string; revision: number; controller: typeof controller}>;
   const [confirmOpen, setConfirmOpen] = useState<AccountConfirm>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
   // The confirmation belongs to one opening and one rendered page/route; the flight holds that
   // same object, so no delayed close, result or busy release can reach a successor. Refs are
@@ -365,8 +365,8 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
     && confirmOpen.page === page.id && confirmOpen.revision === route.revision ? confirmOpen : undefined;
   useLayoutEffect(() => () => {confirmRef.current = undefined; confirmFlight.current = undefined;}, []);
   // The Player chooser is one owned opening of one committed page, source and mount. The owner
-  // is republished every render; a retained opener, select or close is refused when any part of
-  // it moved. The mount witness is replaced after a cleanup so a replayed setup revives nothing.
+  // is published in the layout turn; a retained opener, select or close is refused when any part
+  // of it moved. The mount witness is replaced after a cleanup so a replayed setup revives nothing.
   const [engineMount, setEngineMount] = useState<object>(() => ({}));
   const [engineOpen, setEngineOpen] = useState<EngineChooser>();
   const engineRef = useRef<EngineChooser | undefined>(undefined), engineToken = useRef(0);
@@ -386,7 +386,7 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
       && opening.route === navigation.getSnapshot() && controller.lifetime.current();
   };
   const engineAlive = (opening: EngineChooser | undefined) => !!opening && engineRef.current === opening && engineOwnerAlive(opening);
-  const engineShown = engineOpen && engineAlive(engineOpen) ? engineOpen : undefined;
+  const engineShown = engineOpen && !state.busy && engineAlive(engineOpen) ? engineOpen : undefined;
   const retireEngine = () => {engineRef.current = undefined; setEngineOpen(undefined);};
   const closeEngine = (opening: EngineChooser) => {if (!engineAlive(opening)) return; retireEngine();};
   useLayoutEffect(() => {
@@ -398,8 +398,10 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
   }, []);
   // A page, source, route or unmount change retires the exact opening in the same layout turn.
   useLayoutEffect(() => {
-    if (engineOpen && !engineAlive(engineOpen)) retireEngine();
-  }, [engineOpen, page.id, controller, devicePreferences, route]);
+    if (!engineOpen) return;
+    if (!state.busy && engineAlive(engineOpen)) return;
+    retireEngine();
+  }, [engineOpen, state.busy, page.id, controller, devicePreferences, route]);
   const openConfirm = (kind: AccountConfirm['kind']) => {
     // A delayed row action from an old page may not reopen its modal on the successor page.
     if (confirmScope.current !== scope || confirmOwner.current !== controller) return;
@@ -551,11 +553,11 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
           });
           const owner = {page: page.id, controller, preferences: devicePreferences, mount: engineMount, route};
           return <SettingsRow key={id} testID={id} {...copy} value={options.find(option => option.value === String(value))?.label}
-            onPress={() => {
+            style={state.busy ? {opacity: .5} : undefined} onPress={state.busy ? undefined : () => {
               // Prove the committed page, source, mount and route before storing the opening;
-              // never a render-side owner or the latest refs.
+              // never a render-side owner or the latest refs. A busy controller refuses too.
               const live = engineLive.current;
-              if (!engineMounted.current || !live || live.page !== owner.page || live.controller !== owner.controller
+              if (controller.getSnapshot().busy || !engineMounted.current || !live || live.page !== owner.page || live.controller !== owner.controller
                 || live.preferences !== owner.preferences || live.mount !== owner.mount || live.route !== owner.route
                 || owner.route !== navigation.getSnapshot() || !controller.lifetime.current()) return;
               const opening: EngineChooser = {token: ++engineToken.current, ...owner, revision: owner.route.revision,
@@ -644,7 +646,7 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
       items={engineShown.options.map(option => ({id: option.value, label: option.label, description: option.description, selected: option.value === engineShown.value,
         onSelect: () => {
           const opening = engineRef.current;
-          if (!opening || opening !== engineShown || !engineAlive(opening)) return;
+          if (controller.getSnapshot().busy || !opening || opening !== engineShown || !engineAlive(opening)) return;
           const choice = opening.choices.find(choice => String(choice.value) === option.value);
           if (!choice) return;
           retireEngine();
