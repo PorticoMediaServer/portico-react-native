@@ -8,6 +8,7 @@ import {nativePublicationReadsAvailable} from '../../../platform/offline-reading
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import {Button, Focusable} from '../../kit/controls';
 import {BottomSheet, Popover, SidePanel} from '../../kit/overlays';
+import {overlayPaintKey, overlayPaintPermit, RetainedOverlay} from '../../kit/overlays/SurfacePaintHost';
 import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {useTheme} from '../../kit/theme';
@@ -191,10 +192,15 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
   // An upright tablet uses the platform's side panel (frame 12b), the expanded width keeps
   // the popover under the book's own button, and the phone keeps its sheet.
   const anchored = !!request.anchorRef && theme.width >= 1024;
-  return anchored
+  const paintCurrent = opened?.paintCurrent;
+  const permit = paintCurrent ? overlayPaintPermit(paintCurrent,
+    [listener => context.navigation.subscribe(listener), listener => context.subscribeAuthority(listener)], request.lifetime ? [request.lifetime.signal] : []) : undefined;
+  const node = anchored
     ? <Popover {...surface} anchorRef={request.anchorRef} placement="bottom-end" offset={8} width={360} showTitle>{renderBody(false)}</Popover>
     : theme.platform === 'phone'
       ? <BottomSheet {...surface} fitContent>{renderBody(false)}</BottomSheet>
       : <SidePanel {...surface} width={360} topInset={0} style={{paddingTop: 66, paddingBottom: 28}} contentStyle={{paddingHorizontal: 24}}
           titleType={{size: 26, lineHeight: 'normal', weight: 800, tracking: -.03}} descriptionTextStyle={{fontSize: 15, lineHeight: 22.5}}>{renderBody(true)}</SidePanel>;
+  return <RetainedOverlay key={overlayPaintKey(request)} permit={permit}
+    allowedTypes={[BottomSheet, Popover, SidePanel, React.Fragment, View, Text, Focusable, Button, StateView, Icon]}>{node}</RetainedOverlay>;
 }
