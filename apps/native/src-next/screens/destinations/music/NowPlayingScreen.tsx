@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
+import Animated, {runOnJS, useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
 import type {V1QueueEditIntent, V1QueuePolicyIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {PlaybackFence} from '../../../../../../packages/player-core/src';
@@ -141,13 +142,57 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const span = bounds ? Math.max(0, bounds.end - bounds.start) : 0;
   const fraction = bounds && span > 0 ? Math.min(1, Math.max(0, (position - bounds.start) / span)) : 0;
   const act = (type: Parameters<typeof dockCommand>[1]) => {if (commandAllowed(occupant, type)) onAction(dockCommand(occupant, type));};
-  const to = (x: number) => {
-    if (!bounds || !track.current || !Number.isFinite(x)) return;
-    const command = seekTo(occupant, bounds.start + Math.min(1, Math.max(0, x / track.current)) * span);
-    if (command) onAction(command);
+  // The touch bar previews on the UI thread. The gesture binds at BEGIN to the
+  // occupant, bounds and callback this screen was actually drawing, so its own
+  // successful lift can only ever invoke those: a successor that arrives mid-drag
+  // retires both the paint and the captured pair instead of receiving the seek.
+  const travel = useSharedValue(0), paintFraction = useSharedValue(0), dragFraction = useSharedValue<number | null>(null);
+  const boundSeek = useRef<{occupant: DockOccupant; start: number; span: number; onAction: (command: DockCommand) => void} | null>(null);
+  // The UI-thread witness of an actual gesture: only a valid begin arms it, and
+  // update/end refuse to paint or commit once retirement clears it.
+  const dragArmed = useSharedValue(false);
+  const retireSeek = () => {boundSeek.current = null; dragFraction.value = null; dragArmed.value = false;};
+  const discardBound = () => {boundSeek.current = null;};
+  // Retirement follows the semantic source identity, not a fresh equal fence object.
+  const fenceKey = JSON.stringify(occupant.playback.fence ?? null);
+  useEffect(() => {if (dragFraction.value === null) paintFraction.value = fraction;}, [dragFraction, paintFraction, fraction]);
+  useEffect(() => () => retireSeek(), [dragArmed, dragFraction]);
+  // One retirement point: a replaced source, moved window, disabled bar or unmount
+  // drops the preview, the witness and the begin-time pair together.
+  useEffect(() => {retireSeek();}, [dragArmed, dragFraction, fenceKey, bounds?.start, bounds?.end, p.capabilities.seek, span]);
+  const bindSeek = (valid: boolean) => {
+    if (!valid || !bounds || !(span > 0)) {boundSeek.current = null; return;}
+    boundSeek.current = {occupant, start: bounds.start, span, onAction};
   };
-  const scrub = Gesture.Pan().enabled(!!bounds && p.capabilities.seek && span > 0).runOnJS(true).minDistance(0)
-    .onBegin(event => to(event.x)).onUpdate(event => to(event.x));
+  const commitSeek = (at: number, success: boolean) => {
+    const bound = boundSeek.current;
+    boundSeek.current = null;
+    if (success !== true || !Number.isFinite(at) || !bound) return;
+    const command = seekTo(bound.occupant, bound.start + Math.min(1, Math.max(0, at)) * bound.span);
+    if (command) bound.onAction(command);
+  };
+  const scrub = Gesture.Pan().enabled(!!bounds && p.capabilities.seek && span > 0).minDistance(0)
+    .onBegin(event => {
+      const valid = travel.value > 0 && Number.isFinite(event.x);
+      runOnJS(bindSeek)(valid);
+      dragArmed.value = valid;
+      if (!valid) return;
+      dragFraction.value = Math.min(1, Math.max(0, event.x / travel.value));
+    })
+    .onUpdate(event => {
+      if (!dragArmed.value || !(travel.value > 0) || !Number.isFinite(event.x)) return;
+      dragFraction.value = Math.min(1, Math.max(0, event.x / travel.value));
+    })
+    .onEnd((event, success) => {
+      if (!dragArmed.value || success !== true || !(travel.value > 0) || !Number.isFinite(event.x)) return;
+      dragArmed.value = false;
+      runOnJS(commitSeek)(Math.min(1, Math.max(0, event.x / travel.value)), true);
+    })
+    .onFinalize(() => {dragArmed.value = false; dragFraction.value = null; runOnJS(discardBound)();});
+  const fillPaint = useAnimatedStyle(() => {
+    const at = dragFraction.value ?? paintFraction.value;
+    return {transform: [{translateX: -(1 - at) * travel.value / 2}, {scaleX: at}]};
+  });
   const facts = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
   const cover = Math.max(160, Math.min(410, wide ? width - QUEUE_WIDTH - 120 : width - 96));
@@ -166,10 +211,10 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel} testID={`${testID}-scrubber`}/>
       </MusicFocusRegion> : <GestureDetector gesture={scrub}><View testID={`${testID}-scrubber`} accessibilityRole="adjustable" accessibilityLabel={t('player.queue')}
         accessibilityValue={{min: 0, max: Math.round(span), now: Math.round(Math.max(0, Math.min(span, position - (bounds?.start ?? 0))))}}
-        onLayout={event => {track.current = event.nativeEvent.layout.width;}}
+        onLayout={event => {track.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}}
         style={{height: 28, justifyContent: 'center'}}>
         <View style={{height: 4, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
-          <View style={{width: `${fraction * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>
+          <Animated.View style={[{position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, fillPaint]}/>
         </View>
       </View></GestureDetector>}
       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
