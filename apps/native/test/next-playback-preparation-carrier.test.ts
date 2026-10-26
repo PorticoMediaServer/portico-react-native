@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NativePlayback} from '../src-next/platform/playback/native-playback';
 import type {StartPreparation, Timers} from '../../../packages/client-core/src/playback-v1/sessions';
-import {PlaybackApiError, type V1Http, type V1Request} from '../../../packages/client-core/src/playback-v1/http';
+import {PlaybackApiError, type V1Http, type V1Request, type V1Response} from '../../../packages/client-core/src/playback-v1/http';
 import {ContractError} from '../../../packages/client-core/src/playback-v1/types';
 
 // Native bridge seam only: synthetic preparation carriers never create, install or
@@ -202,18 +202,21 @@ test('invalid retry-only bodies are rejected without a notice, resource or retry
 });
 
 test('terminal and capacity responses are forwarded as their own failures without preparation state', async () => {
-  const cases = [
-    {status: 409, body: {error: {code: 'request_expired', retry: 'never', message: 'Original operation expired.'}}},
-    {status: 503, body: {error: {code: 'conversion_capacity', retry: 'same_request', message: 'The server is at its conversion limit.'}}},
+  // Each case is a complete V1Response, so V1Http.send keeps its real result type.
+  const cases: {response: V1Response; code: string}[] = [
+    {code: 'request_expired', response: {status: 409, headers: {}, body: {error: {code: 'request_expired', retry: 'never', message: 'Original operation expired.'}}}},
+    {code: 'conversion_capacity', response: {status: 503, headers: {}, body: {error: {code: 'conversion_capacity', retry: 'same_request', message: 'The server is at its conversion limit.'}}}},
+    // A held-stream refusal is not preparation either: it must not emit a notice or a Session.
+    {code: 'stream_limit_reached', response: {status: 429, headers: {}, body: {error: {code: 'stream_limit_reached', retry: 'never', message: 'The account is already playing on its allowed screens.'}}}},
   ];
-  for (const response of cases) {
+  for (const {response, code} of cases) {
     const requests: V1Request[] = [], notices: StartPreparation[] = [];
     let captures = 0;
     const path = new NativePlayback({http: {async send(request) {requests.push(request); return response;}}, timers: microtaskTimers});
     try {
       await assert.rejects(path.transport.start({itemId: 'item'}, {}, 'original', 10, undefined,
         {onPreparing: (_wait, notice) => {notices.push(notice);}, capturePreparing: () => {captures++; return undefined;}}),
-        (error: unknown) => error instanceof PlaybackApiError && error.status === response.status);
+        (error: unknown) => error instanceof PlaybackApiError && error.status === response.status && error.code === code);
       assert.equal(requests.length, 1, 'a terminal reply is not retried');
       assert.equal(notices.length, 0);
       assert.equal(captures, 0);
