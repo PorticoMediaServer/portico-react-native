@@ -32,7 +32,6 @@ const {t} = defaultI18n;
 const initials = (author: string): string => author.trim().split(/\s+/).slice(0, 2).map(part => part.slice(0, 1).toUpperCase()).join('') || '·';
 const seriesNumber = (number: number, comic: boolean): string =>
   t(comic ? 'next.reader.volumeNumber' : 'next.reader.bookNumber', {number: defaultI18n.number(number, {maximumFractionDigits: 20})});
-const ROW = {borderTopWidth: 1} as const;
 
 type BookRoute = Extract<NativeShellRoute, {kind: 'read-book'}>;
 type SeriesLink = Readonly<{id: string; name: string; number?: number}>;
@@ -270,7 +269,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     ]}/>
   </View> : <View style={{marginTop: 24, paddingHorizontal: 20}}>
     <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 6}]}>{t('next.reader.details')}</Text>
-    <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
+    <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries} inset={false}/>
   </View>;
   const widePanel = contents.length ? <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 36, paddingHorizontal: 32, marginTop: 38}}>
     <View style={{flex: 1, minWidth: 0}}>
@@ -354,24 +353,23 @@ function ContentsList({entries, currentSection, onOpen, wide = false}: {
       </Focusable>;
     })}
   </View>;
-  return <View testID="native-read-book-contents" style={{marginTop: 4, marginHorizontal: 20}}>
+  return <View testID="native-read-book-contents" style={{marginTop: 6}}>
     {entries.map((entry, index) => {
       const current = currentSection !== undefined && entry.section === currentSection;
       return <Focusable key={`${index}-${entry.section}`} accessibilityRole="button" accessibilityLabel={entry.title}
-        onPress={() => onOpen(index)} focusKind="row" focusRadius={8}
-        style={{minHeight: 50, paddingVertical: 8, paddingLeft: 4 + Math.max(0, entry.depth) * 16, paddingRight: 4, justifyContent: 'center', ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-          <Text style={[browseType(theme, 13, 700), {color: current ? theme.colors.accentStrong : theme.colors.textTertiary, width: 20, textAlign: 'center'}]}>{index + 1}</Text>
-          <Text numberOfLines={2} style={[browseType(theme, 15, 600), {color: current ? theme.colors.text : theme.colors.textSecondary, flex: 1}]}>{entry.title}</Text>
-        </View>
+        onPress={() => onOpen(index)} focusKind="row" focusRadius={10}
+        style={{minHeight: current ? 68 : 50, paddingHorizontal: 20, paddingVertical: current ? 10 : 0, flexDirection: 'row', alignItems: 'center', columnGap: 12,
+          ...(current ? {backgroundColor: alpha(theme.colors.text, .07)} : {})}}>
+        <Text style={[browseType(theme, 13, 700), {width: 20, textAlign: 'center', color: current ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{index + 1}</Text>
+        <Text numberOfLines={1} style={[browseType(theme, 15, current ? 700 : 600), {flex: 1, minWidth: 0, color: current ? theme.colors.accentStrong : theme.colors.textSecondary}]}>{entry.title}</Text>
       </Focusable>;
     })}
   </View>;
 }
 
-function DetailsList({manifest, rows, series, comic, onSeries, wide = false}: {
+function DetailsList({manifest, rows, series, comic, onSeries, wide = false, inset = true}: {
   manifest: ReadingManifest; rows: readonly Readonly<{label: string; value: string}>[];
-  series?: SeriesLink; comic: boolean; onSeries: (series: SeriesLink, manifest: ReadingManifest) => void; wide?: boolean;
+  series?: SeriesLink; comic: boolean; onSeries: (series: SeriesLink, manifest: ReadingManifest) => void; wide?: boolean; inset?: boolean;
 }) {
   const theme = useTheme();
   // tablet-read#2's About column: a 92 pt label column, a 14 pt gap and a flexible
@@ -391,17 +389,21 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false}: {
       <Text style={[browseType(theme, 14.5, 400), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
     </View>)}
   </View>;
-  return <View testID="native-read-book-details">
-    {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8}
-      style={{paddingVertical: 10, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
-      <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{t('library.tab.series')}</Text>
-      <Text style={[browseType(theme, 13.5, 400), {color: theme.colors.accentStrong, marginTop: 2}]}>
-        {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
-      </Text>
-    </Focusable> : null}
-    {rows.map(row => <View key={row.label + row.value} style={{paddingVertical: 9, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
-      <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{row.label}</Text>
-      <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{row.value}</Text>
+  const rowStyle = {position: 'relative' as const, flexDirection: 'row' as const, alignItems: 'baseline' as const, columnGap: 12, paddingVertical: 8, paddingHorizontal: 14};
+  const separator = <View style={{position: 'absolute', top: 0, left: 14, right: 0, height: 1, backgroundColor: alpha(theme.colors.line, .45)}}/>;
+  return <View testID="native-read-book-details" style={{marginTop: 14, marginHorizontal: inset ? 16 : 0, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+    {series ? <View style={rowStyle}>
+      <Text style={[browseType(theme, 14, 600), {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
+      <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8} style={{flex: 1, minWidth: 0}}>
+        <Text numberOfLines={2} style={[browseType(theme, 14, 600), {color: theme.colors.accentStrong}]}>
+          {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
+        </Text>
+      </Focusable>
+    </View> : null}
+    {rows.map((row, index) => <View key={row.label + row.value} style={rowStyle}>
+      {(series || index > 0) ? separator : null}
+      <Text style={[browseType(theme, 14, 600), {width: 92, color: theme.colors.textTertiary}]}>{row.label}</Text>
+      <Text style={[browseType(theme, 14, 600), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
     </View>)}
   </View>;
 }
