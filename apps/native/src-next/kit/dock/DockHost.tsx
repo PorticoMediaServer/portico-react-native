@@ -9,11 +9,12 @@ import {DockNotice} from './DockNotice';
 import {sameDockFence, commandAllowed, commandIsCurrent, currentOccupant, dockBarFrame, expandedDockMetrics} from './model';
 import {alpha, dockStyles} from './visual';
 import {useDockPresence} from './useDockPresence';
+import {useMotion} from '../useMotion';
 import type {DockCommand, DockHostProps, DockRect, DockRenderOccupant} from './types';
 
 /** Render an admitted core occupant or a validated remote view, without engine effects. */
 export function DockHost({dock, snapshot, presentation, castView, onAction, bottomInset, contentInset, visible = true, tvExpanded, onTVExpandedChange, returnFocusRef, onVideoSlot, morph, notice, onNoticeDismiss, style, testID}: DockHostProps) {
-  const theme = useTheme(), safe = useSafeAreaInsets(), frame = dockBarFrame(theme.platform, bottomInset, safe.bottom, contentInset);
+  const theme = useTheme(), motion = useMotion(), safe = useSafeAreaInsets(), frame = dockBarFrame(theme.platform, bottomInset, safe.bottom, contentInset);
   const [expanded, setExpanded] = useState(false), [menu, setMenu] = useState(false);
   const readOccupant=useCallback(():DockRenderOccupant|null=>castView?.isCurrent(castView.occupant.playback.fence)?castView.occupant:currentOccupant(dock,dock.getSnapshot(),presentation),[castView,dock,presentation]);
   const occupant = useMemo(() => castView?.isCurrent(castView.occupant.playback.fence)?castView.occupant:currentOccupant(dock,snapshot,presentation), [castView,dock,snapshot,presentation]);
@@ -44,7 +45,7 @@ export function DockHost({dock, snapshot, presentation, castView, onAction, bott
   // the shared TV motion is supplied; the surface, safe areas and focus/input
   // ownership are untouched.
   const dim = useSharedValue(0), dimWanted = !theme.isTV && menu;
-  useEffect(() => {dim.value = withTiming(dimWanted ? 1 : 0, {duration: 180});}, [dim, dimWanted]);
+  useEffect(() => {dim.value = withTiming(dimWanted ? 1 : 0, motion.timing('standard'));}, [dim, dimWanted, motion]);
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const shown = presence.shown;
   if (!shown) return null;

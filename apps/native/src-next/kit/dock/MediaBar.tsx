@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {ActivityIndicator, Text, View, type LayoutChangeEvent} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
-import Animated, {Easing, cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Artwork} from '../artwork';
@@ -150,25 +150,35 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
       const direction = releaseAside(x.value, event.velocityX, width.value), version = run.value;
       if (direction) {
         const done = (finished?: boolean) => {if (finished && run.value === version && lifetime.value === gestureSource.epoch) runOnJS(dismissFromGesture)(version);};
-        // The outward exit decelerates on the authored ~200 ms curve and its
-        // opacity follows the distance actually travelled; the return keeps the
-        // snap spring, and the same completion gate decides the dismissal.
-        const exitMs = 200, exitTo = direction * width.value * 1.25;
-        const travelled = Math.min(1, Math.abs(exitTo - xOrigin.value) / Math.max(1, width.value));
-        x.value = withTiming(exitTo, {duration: exitMs, easing: Easing.out(Easing.cubic)}, done);
-        fade.value = withTiming(Math.max(0, 1 - travelled - Math.abs(event.translationX) / Math.max(1, width.value)), {duration: exitMs, easing: Easing.out(Easing.cubic)});
+        // The outward exit decelerates on the authored out curve; opacity is
+        // derived from the distance actually travelled in the animated style, so
+        // a drag and its release stay in step. Reduced motion keeps the bar in
+        // place and fades it linearly; the return keeps the snap spring, and the
+        // same successful completion gate decides the dismissal.
+        const timed = motion.timing('standard', 'out');
+        if (spring === undefined) {
+          x.value = 0;
+          fade.value = withTiming(0, timed, done);
+        } else {
+          x.value = withTiming(direction * width.value * 1.25, {...timed, duration: 200}, done);
+        }
       } else if (spring) x.value = withSpring(0, {...spring, velocity: event.velocityX});
-      else {x.value = 0; fade.value = withTiming(1, {duration: 160});}
+      else {x.value = 0; fade.value = withTiming(1, motion.timing('standard', 'out'));}
     }).onFinalize((_event, success) => {
       if (!success && lifetime.value === gestureSource.epoch) {
         run.value++; active.value = false; cancelAnimation(x); cancelAnimation(fade);
         x.value = spring ? withSpring(0, spring) : 0; fade.value = 1;
       }
-    }), [x, xOrigin, width, spring, fade, dismissFromGesture, visible, expandedBar, gestureSource, lifetime, run, active]);
+    }), [x, xOrigin, width, spring, fade, dismissFromGesture, visible, expandedBar, gestureSource, lifetime, run, active, motion]);
   const gestures = useMemo(() => morph ? Gesture.Race(aside, morph.dockGesture) : aside, [aside, morph]);
   // Local video uses the single ancestor shared with its native picture. Applying
   // x/fade here too would double the chrome's movement and opacity.
-  const animated = useAnimatedStyle(() => ({opacity: sharedPicture ? 1 : fade.value, transform: [{translateX: sharedPicture ? 0 : x.value}, {scale: held.value}]}));
+  const animated = useAnimatedStyle(() => {
+    // Opacity follows the bar's actual travel while it can transform; reduced
+    // motion has no displacement and uses its own linear fade.
+    const travel = motion.transforms && !sharedPicture ? Math.max(0, Math.min(1, 1 - Math.abs(x.value - xOrigin.value) / Math.max(1, width.value))) : 1;
+    return {opacity: sharedPicture ? 1 : Math.min(travel, fade.value), transform: [{translateX: sharedPicture ? 0 : x.value}, {scale: held.value}]};
+  });
   const beginHold = useCallback(() => {
     if (!currentInteraction()) return;
     hold.current = {source: gestureSource, used: false};
