@@ -7,7 +7,7 @@ export type OverlayPaintTypes = readonly unknown[];
 const noop = () => {};
 const ROOT_REF_KEYS = new Set(['anchorRef', 'returnFocusRef']);
 const MAX_DEPTH = 64;
-const MAX_NODES = 4096;
+const MAX_VISITS = 4096;
 const OMIT = Symbol('overlay-paint-omit');
 const REJECT = Symbol('overlay-paint-reject');
 
@@ -17,51 +17,63 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return prototype === Object.prototype || prototype === null;
 };
 
+/** Own properties read without ever invoking an accessor. */
+function readOwnProperties(value: object): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.getOwnPropertyNames(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor) return undefined;
+    if (descriptor.get || descriptor.set) return undefined;
+    out[key] = descriptor.value;
+  }
+  return out;
+}
+
 type Context = {
   allowed: Set<unknown>;
   omitted: Set<unknown>;
+  /** One budget for the whole traversal: every value and every own property costs one. */
   budget: {left: number};
-  /** Objects on the current traversal path only, so shared aliases are not cycles. */
+  /** Only objects on the current path, so shared readonly aliases stay legal. */
   path: Set<object>;
-  /** Completed readonly data, so an alias keeps one identical frozen result. */
   memo: WeakMap<object, unknown>;
 };
 
-function styleIsPaintable(value: unknown, path: Set<object>, budget: {left: number}): boolean {
+const spend = (context: Context) => --context.budget.left >= 0;
+
+function styleIsPaintable(value: unknown, context: Context): boolean {
+  if (!spend(context)) return false;
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return true;
   if (typeof value !== 'object') return false;
-  if (path.has(value)) return false;
-  if (--budget.left < 0) return false;
-  if (Array.isArray(value)) {
-    path.add(value);
-    const ok = value.every(entry => styleIsPaintable(entry, path, budget));
-    path.delete(value);
-    return ok;
-  }
-  if (!isPlainObject(value)) return false;
-  path.add(value);
-  const ok = Object.values(value).every(entry => styleIsPaintable(entry, path, budget));
-  path.delete(value);
-  return ok;
+  if (context.path.has(value)) return false;
+  if (--context.budget.left < 0) return false;
+  context.path.add(value);
+  try {
+    if (Array.isArray(value)) return value.every(entry => styleIsPaintable(entry, context));
+    if (!isPlainObject(value)) return false;
+    const properties = readOwnProperties(value);
+    if (!properties) return false;
+    return Object.values(properties).every(entry => styleIsPaintable(entry, context));
+  } finally {context.path.delete(value);}
 }
 
 export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: OverlayPaintTypes, omitTypes: OverlayPaintTypes = []): OverlayPaintNode | undefined {
-  const context: Context = {allowed: new Set(allowedTypes), omitted: new Set(omitTypes), budget: {left: MAX_NODES}, path: new Set<object>(), memo: new WeakMap<object, unknown>()};
+  const context: Context = {allowed: new Set(allowedTypes), omitted: new Set(omitTypes), budget: {left: MAX_VISITS}, path: new Set<object>(), memo: new WeakMap<object, unknown>()};
 
-  const freezeValue = (value: unknown, root: boolean): unknown => {
+  const freezeValue = (value: unknown, root: boolean, depth: number): unknown => {
+    if (!spend(context) || depth > MAX_DEPTH) return REJECT;
     if (value === undefined || value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
     if (typeof value === 'function') return REJECT;
     if (Array.isArray(value) || isPlainObject(value)) {
       if (context.path.has(value)) return REJECT;
       if (context.memo.has(value)) return context.memo.get(value);
-      if (--context.budget.left < 0) return REJECT;
       context.path.add(value);
       try {
         if (Array.isArray(value)) {
           let changed = false;
           const frozen: unknown[] = [];
           for (const entry of value) {
-            const next = freezeValue(entry, false);
+            const next = freezeValue(entry, false, depth + 1);
             if (next === REJECT) throw REJECT;
             if (next === OMIT) {changed = true; continue;}
             if (next !== entry) changed = true;
@@ -71,18 +83,22 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
           context.memo.set(value, result);
           return result;
         }
+        const properties = readOwnProperties(value);
+        if (!properties) throw REJECT;
         let changed = false;
         const frozen: Record<string, unknown> = {};
-        for (const [key, entry] of Object.entries(value)) {
+        for (const [key, entry] of Object.entries(properties)) {
+          if (!spend(context)) throw REJECT;
           if (typeof entry === 'function') {
-            frozen[key] = key.startsWith('on') ? noop : undefined;
-            changed = true;
+            if (key.startsWith('on')) {frozen[key] = noop; changed = true;}
+            else changed = true;
             continue;
           }
-          const next = freezeValue(entry, false);
+          const next = freezeValue(entry, false, depth + 1);
           if (next === REJECT) throw REJECT;
-          frozen[key] = next === OMIT ? undefined : next;
-          if (frozen[key] !== entry) changed = true;
+          if (next === OMIT) {changed = true; continue;}
+          frozen[key] = next;
+          if (next !== entry) changed = true;
         }
         const result = changed ? frozen : value;
         context.memo.set(value, result);
@@ -90,48 +106,55 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
       } finally {context.path.delete(value);}
     }
     if (!React.isValidElement(value)) return REJECT;
-    return freezeElement(value as OverlayPaintNode, root);
+    return freezeElement(value as OverlayPaintNode, root, depth + 1);
   };
 
-  const freezeElement = (element: OverlayPaintNode, root: boolean): unknown => {
+  const freezeElement = (element: OverlayPaintNode, root: boolean, depth: number): unknown => {
+    if (!spend(context) || depth > MAX_DEPTH) return REJECT;
     if (context.omitted.has(element.type)) return OMIT;
     if (!context.allowed.has(element.type)) return REJECT;
     if (context.path.has(element as unknown as object)) return REJECT;
-    if (--context.budget.left < 0) return REJECT;
+    const properties = readOwnProperties(element.props);
+    if (!properties) return REJECT;
     context.path.add(element as unknown as object);
     try {
       const props: Record<string, unknown> = {};
-      for (const [key, prop] of Object.entries(element.props)) {
-        if (key === 'children') continue;
-        if (key === 'ref') {props.ref = null; continue;}
-        if (key === 'initialFocusRef') {props[key] = undefined; continue;}
+      let children: unknown;
+      let hasChildren = false;
+      for (const [key, prop] of Object.entries(properties)) {
+        if (!spend(context)) throw REJECT;
+        if (key === 'children') {children = prop; hasChildren = true; continue;}
+        if (key === 'ref' || key === 'initialFocusRef') continue;
         if (root && ROOT_REF_KEYS.has(key)) {
-          const usable = prop && typeof prop === 'object' && 'current' in (prop as object);
-          props[key] = usable ? prop : undefined;
+          const usable = !!prop && typeof prop === 'object' && 'current' in (prop as object);
+          if (usable) props[key] = prop;
           continue;
         }
-        if (typeof prop === 'function') {props[key] = key.startsWith('on') ? noop : undefined; continue;}
+        if (typeof prop === 'function') {
+          if (key.startsWith('on')) props[key] = noop;
+          continue;
+        }
         if (key === 'style') {
-          if (!styleIsPaintable(prop, new Set<object>(), {left: MAX_NODES})) throw REJECT;
+          if (!styleIsPaintable(prop, context)) throw REJECT;
           props[key] = prop;
           continue;
         }
-        const next = freezeValue(prop, false);
+        const next = freezeValue(prop, false, depth + 1);
         if (next === REJECT) throw REJECT;
-        props[key] = next === OMIT ? undefined : next;
+        if (next === OMIT) continue;
+        props[key] = next;
       }
-      const children = (element.props as {children?: unknown}).children;
-      if (children !== undefined) {
-        const next = freezeValue(children, false);
+      if (hasChildren) {
+        const next = freezeValue(children, false, depth + 1);
         if (next === REJECT) throw REJECT;
-        props.children = next === OMIT ? undefined : next;
+        if (next !== OMIT) props.children = next;
       }
-      return React.cloneElement(element, props);
+      return React.createElement(element.type as never, element.key === null || element.key === undefined ? props : {...props, key: element.key});
     } finally {context.path.delete(element as unknown as object);}
   };
 
   try {
-    const frozen = freezeValue(node, true);
+    const frozen = freezeValue(node, true, 0);
     return frozen === OMIT || frozen === REJECT ? undefined : frozen as OverlayPaintNode;
   } catch (error) {
     if (error === REJECT) return undefined;

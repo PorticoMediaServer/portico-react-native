@@ -7,7 +7,7 @@ export const OVERLAY_PAINT_LIVE: OverlayPaintMode = Object.freeze({visible: true
 export const OVERLAY_PAINT_INERT: OverlayPaintMode = Object.freeze({visible: true, interactive: false, root: true});
 export const OVERLAY_PAINT_HIDDEN: OverlayPaintMode = Object.freeze({visible: false, interactive: false, root: true});
 
-const OverlayPaintModeContext = React.createContext<OverlayPaintMode>(OVERLAY_PAINT_LIVE);
+export const OverlayPaintModeContext = React.createContext<OverlayPaintMode>(OVERLAY_PAINT_LIVE);
 
 export function useOverlayPaintMode(): OverlayPaintMode {
   return React.useContext(OverlayPaintModeContext);
