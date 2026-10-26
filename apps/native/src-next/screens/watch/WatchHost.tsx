@@ -6,6 +6,7 @@ import {sameFence, type PlaybackFence} from '../../../../../packages/player-core
 import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {useMotion} from '../../kit/useMotion';
+import {useScreenReader} from '../../kit/useScreenReader';
 import {TVPanelTransition, TVPanelSlide, TVPanelScrim, useTVPanelPresence} from '../../kit/overlays/TVPanelMotion';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import type {NativeWatchNotice} from './playback-info';
@@ -80,6 +81,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const window = useWindowDimensions(), posture = usePlatformPosture();
   const local = source.dock.local, fence = source.fence;
   const {scrubbing, focusHeld, presentation} = bindings;
+  const screenReader = useScreenReader();
   const expanded = (!isTV || groupVisible) && !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
   const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
@@ -149,12 +151,12 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     // cannot issue another fold reveal or extend its three-second deadline.
     // states 11 keeps the retained bar up while nothing can play, so it never auto-hides on TV.
     setPresentation({autoHide: isTV && source.playback.phase === 'error' ? false : layout?.controlsAutoHide ?? false, hiddenByPanel: layout?.controlsHidden ?? false,
-      scrubbing: scrubbing === true, focusHeld: focusHeld === true});
+      scrubbing: scrubbing === true, focusHeld: focusHeld === true || screenReader});
     const next = isTV && panelOpen ? 0 : playerControlsRevealDeadline(previous.current, input, Date.now(), deadline.current);
     if (fence && next !== deadline.current && next > 0) controls.revealAfterLayout(fence, next);
     deadline.current = next; previous.current = input;
     presentation?.(layout);
-  }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation, isTV, panelOpen, source.playback.phase]);
+  }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, screenReader, presentation, isTV, panelOpen, source.playback.phase]);
   const measuredCurrent = useCallback(() => ({authority: current(), fence: playback.getSnapshot().fence, window: Dimensions.get('window')}), [current, playback]);
   // foldable9: a fold, unfold, turn or panel change re-lays out in one pass and
   // fades the chrome and pages once for 250ms (none with reduced motion). The
