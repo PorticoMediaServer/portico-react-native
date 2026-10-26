@@ -30,6 +30,7 @@ import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 import {TVStartFailure} from './TVStartFailure';
 import {TouchPlaybackPreparation} from './TouchPlaybackPreparation';
 import {TouchStartFailure} from './TouchStartFailure';
+import {TVPlaybackPreparation} from './TVPlaybackPreparation';
 
 const noListeningSubscribe = () => () => {};
 const noListeningNavigation = () => undefined;
@@ -41,6 +42,10 @@ const listeningRouteKey = (route: Readonly<{kind: string}> | undefined) => route
 export function NativePlaybackLayer({adapter, runtime, authority, contentInset}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority; contentInset?: number}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme(), insets = useSafeAreaInsets();
+  // A real server preparation can precede any output fence or session. Its
+  // original start owns this status; capacity refusals keep their own surface.
+  const preparation = theme.isTV && snapshot.retired === false && sameAuthority(snapshot.authority, authority)
+    && !snapshot.startFailure && !snapshot.capacityWait ? snapshot.playback.preparation : undefined;
   const watch = runtime.watch;
   const subscribeWatch = useCallback((listener: () => void) => watch ? watch.subscribe(listener) : () => {}, [watch]);
   const readWatchSlot = useCallback(() => watch?.getSnapshot(), [watch]);
@@ -329,6 +334,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
     </Animated.View>
     {!theme.isTV && !snapshot.retired && sameAuthority(snapshot.authority, authority) && !snapshot.startFailure && !snapshot.capacityWait
       && snapshot.playback.preparation && <TouchPlaybackPreparation message={runtime.text.t(snapshot.playback.preparation.messageId)}/>}
+    {preparation && <TVPlaybackPreparation message={runtime.text.t(preparation.messageId)}/>}
     {(snapshot.startFailure || snapshot.capacityWait) && (theme.isTV
       ? <TVStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>
       : <TouchStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>)}
