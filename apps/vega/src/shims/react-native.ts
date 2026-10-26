@@ -136,6 +136,8 @@ const appleNames: Record<string, string> = {
   enter: 'select', back: 'menu',
 };
 const HOLD_MS = 500;
+/** Keys that move along the picture: the device repeats their "down" while they are held. */
+const directions = new Set(['up', 'down', 'left', 'right', 'rewind', 'fastForward']);
 const longName = (name: string) => 'long' + name.charAt(0).toUpperCase() + name.slice(1);
 
 export function useTVEventHandler(handler: (event: TVRemoteEvent) => void): void {
@@ -153,6 +155,14 @@ export function useTVEventHandler(handler: (event: TVRemoteEvent) => void): void
     const name = appleNames[raw.eventType] ?? raw.eventType;
     trace(`key ${name}${raw.eventKeyAction === undefined ? '' : ' ' + raw.eventKeyAction}`);
     const keys = held.current;
+    // A direction is delivered as it arrives: the first down and every repeat the device sends
+    // are that direction with `eventKeyAction: 0`, and its release is the same direction with 1.
+    // The device's own repeat rate is the cadence, and the event keeps whatever else the raw
+    // event carried.
+    if (directions.has(name)) {
+      latest.current(raw.eventKeyAction === undefined ? {eventType: name} : {...raw, eventType: name, eventKeyAction: raw.eventKeyAction});
+      return;
+    }
     if (raw.eventKeyAction === 0) {
       // A held key repeats its "down"; only the first one starts the hold.
       if (keys.has(name)) return;
