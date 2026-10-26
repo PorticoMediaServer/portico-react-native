@@ -15,7 +15,7 @@ import {registerOverlayKeys} from '../../../platform/overlay-keys';
 import {NativeWatchEqualizer, type NativeEqualizerCopy} from '../../watch/Equalizer';
 import {MusicSignalLine, MusicSignalSheet} from './MusicSignal';
 import {NativeListeningNotice} from './ListeningNotice';
-import {NowPlayingQueue, nowPlayingQueueRows} from './NowPlayingQueue';
+import {NowPlayingQueue, nowPlayingQueueRows, nowPlayingQueueFocusScope} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import type {NowPlayingScreenProps} from './NowPlayingScreen';
 import {useTVQueuePolicy} from './TVQueuePolicy';
@@ -59,8 +59,8 @@ function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction,
   const position = playbackPosition(occupant), bounds = seekBounds(occupant), span = bounds ? bounds.end - bounds.start : p.durationSeconds;
   const artist = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
-  // Right names the queue only when that pane has a real, playable focus stop.
-  const queueRegion = queue && onQueuePlay && nowPlayingQueueRows(queue).some(row => !row.current) ? `${id}.queue` : undefined;
+  // Right names a queue containing a real readable native focus stop.
+  const queueRegion = queue && nowPlayingQueueRows(queue).some(row => !row.current) ? `${id}.queue` : undefined;
   const actionsRegion = lyrics || onAddToPlaylist || equalizer.supported ? `${id}.actions` : undefined;
   const currentEntry = queue?.queue.entries.find(entry => entry.id === queue.queue.currentEntryId);
   const currentItem = queue?.items.find(item => item.entryId === queue.queue.currentEntryId);
@@ -128,7 +128,7 @@ function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction,
         {queue && <TVPageGroup index={2} style={{position: 'absolute', left: 1440, right: 96, top: 230, height: 750}}>
           <Text style={[type(32, 700, -0.019), {color: theme.colors.text, marginBottom: 6}]}>{t('next.music.upNext')}</Text>
           <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork}
-            regionId={`${id}.queue`} edges={{left: `${id}.transport`}}/>
+            interactive={page.open && page.ready} focusScopeKey={nowPlayingQueueFocusScope(occupant.playback.fence)} regionId={`${id}.queue`} edges={{left: `${id}.transport`}}/>
         </TVPageGroup>}
       </View>
       <Menu open={more} onOpenChange={setMore} title={t('next.controls.more')} presentation="sideSheet" returnFocusRef={moreRef}

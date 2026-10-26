@@ -1,23 +1,26 @@
-import React, {useCallback, useLayoutEffect, useRef, useState} from 'react';
+import React, {useCallback, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import type {QueuePlaybackView, QueuePlaybackWindow} from '../../../../../../packages/client-core/src/queue-controller';
-import type {QueueEntry} from '../../../../../../packages/player-core/src';
+import type {QueueEntry, PlaybackFence} from '../../../../../../packages/player-core/src';
 import type {V1QueueEditIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Artwork} from '../../../kit/artwork';
 import {Focusable} from '../../../kit/controls';
 import {FocusRegion, type FocusEdges} from '../../../kit/focus';
+import {useStableFocusOrder} from '../../../kit/focus/useStableFocusOrder';
 import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
 
 const t = defaultI18n.t;
+/** A queue run survives track fences but never another authority/run. */
+export const nowPlayingQueueFocusScope = (fence: PlaybackFence) => JSON.stringify(fence.playback);
 
 /** The listening owner's own queue, drawn: the entries the engine will play after
  * the one playing. Order, availability and durations are read from
- * `QueuePlaybackView`; this pane never reorders, invents entries or keeps a queue of
- * its own. A row plays only through the queue's real command. */
+ * `QueuePlaybackView`; only the drawn order is retained while native focus owns it.
+ * The engine remains the sole queue owner. A row plays only through the queue's real command. */
 export type NowPlayingQueueProps = Readonly<{
   view: QueuePlaybackView;
   /** tablet-play9: this pane is the right column, 366 pt; narrow windows stack it.
@@ -30,6 +33,9 @@ export type NowPlayingQueueProps = Readonly<{
    * row, or the first row it actually renders, so entering the region lands there; nothing here
    * asks for focus on mount, so the player's own Pause keeps it. */
   regionId?: string;
+  /** The actual listening fence, so no order can cross a viewer/playback lifetime. */
+  focusScopeKey?: string;
+  interactive?: boolean;
   edges?: FocusEdges;
   /** The guarded queue edit. `entry` is the accepted window's own fact for a row; without it
    * no row advertises an edit, so a drawn slot is never mistaken for admission. */
@@ -42,6 +48,7 @@ export type NowPlayingQueueProps = Readonly<{
 type Row = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean;
   position?: number; available?: boolean; segmentId?: string}>;
 /** Everything one open sheet may act on; never read from a later render. */
+const queueRowKey = (row: Row) => row.entryId;
 type RowOpening = Readonly<{row: Row; previous?: Row; next?: Row; queueId: string; revision: string; fenceKey: string; lease?: object;
   apply: (intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
 
@@ -64,12 +71,12 @@ export function nowPlayingQueueEntry(window: QueuePlaybackWindow | undefined, en
   return rows.length === 1 ? rows[0] : undefined;
 }
 
-export function nowPlayingQueueRows(view: QueuePlaybackView): readonly Row[] {
+export function nowPlayingQueueRows(view: QueuePlaybackView, options: Readonly<{includePlayed?: boolean}> = {}): readonly Row[] {
   const entries = visibleEntries(view), window = nowPlayingQueueWindow(view);
   const at = entries.findIndex(entry => entry.id === view.queue.currentEntryId);
   // Up next is what the engine will actually play after this entry, in queue
   // order; entries already played are not repeated by wrapping the list.
-  const ordered = at >= 0 ? entries.slice(at) : entries;
+  const ordered = !options.includePlayed && at >= 0 ? entries.slice(at) : entries;
   return ordered.flatMap(entry => {
     const item = view.items.find(value => value.entryId === entry.id);
     if (!item) return [];
@@ -85,11 +92,10 @@ export function nowPlayingQueueRows(view: QueuePlaybackView): readonly Row[] {
   });
 }
 
-/** tv#7: the queue is the panel beside the cover, and the viewer returns to the row they left.
- * One entry per queue, bounded, so a long session cannot grow it without limit. */
+/** tv#7: bounded memory belongs to the actual queue run, including its viewer scope. */
 const rememberedRow = new Map<string, string>();
 
-export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
+export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey, interactive = true, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
   const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view), [rowMenu, setRowMenu] = useState<RowOpening>(), rowMenuRef = useRef<RowOpening | undefined>(undefined);
   const current = rows.filter(row => row.current), upcoming = rows.filter(row => !row.current), window = nowPlayingQueueWindow(view);
   // Only a real segment label names a run; an unlabeled run keeps the plain Up next heading
@@ -101,6 +107,11 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
     if (last && last.key === key) last.rows.push(value);
     else groups.push({key, label: source ?? t('player.queue'), rows: [value]});
   }
+  const focusScope = useMemo(() => ({queueId: view.queue.id, focusScopeKey, regionId}), [view.queue.id, focusScopeKey, regionId]);
+  const stable = useStableFocusOrder(queueRowKey, {regionId: tv ? regionId : undefined, scope: focusScope,
+    items: upcoming, allItems: tv ? nowPlayingQueueRows(view, {includePlayed: true}) : rows,
+    memberIds: new Set(visibleEntries(view).map(entry => entry.id))});
+  const tvUpcoming = stable.map(row => row.current === (row.entryId === view.queue.currentEntryId) ? row : {...row, current: row.entryId === view.queue.currentEntryId});
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
   const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
@@ -157,8 +168,9 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
         onSelect: () => {if (rowMenuRef.current !== opening) return; opening.apply({action: 'remove', entryId: opening.row.entryId}, opening.queueId, opening.revision);}},
     ];
   };
+  const memoryKey = JSON.stringify([view.queue.id, focusScopeKey ?? queueEdit?.fenceKey ?? regionId ?? testID]);
   const remember = (entryId: string) => {
-    const queueId = view.queue.id;
+    const queueId = memoryKey;
     if (!rememberedRow.has(queueId) && rememberedRow.size >= 8) rememberedRow.delete(rememberedRow.keys().next().value!);
     rememberedRow.set(queueId, entryId);
   };
@@ -198,13 +210,13 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
         <Text numberOfLines={1} style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{value.title}</Text>
         {value.detail ? <Text numberOfLines={1} style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary, marginTop: 2}]}>{value.detail}</Text> : null}
       </View>
+      {value.current && <Text style={[browseType(theme, 19, 600), {color: theme.colors.accentStrong}]}>{t('player.queueNowPlaying')}</Text>}
       {value.seconds ? <Text style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{durationText(value.seconds, t)}</Text> : null}
     </>;
     const props = {testID: `${testID}-row-${value.entryId}`, focusId: `${testID}-${value.entryId}`, focusKind: 'row' as const, focusRadius: 10,
       accessibilityRole: 'button' as const, accessibilityLabel: t('player.queuePlay', {title: value.title})};
-    if (!canPlay) return <View key={value.entryId} testID={props.testID} accessibilityRole="text" style={{height: 88, flexDirection: 'row', alignItems: 'center', gap: 18}}>{body}</View>;
-    return <Focusable key={value.entryId} {...props}
-      onFocus={() => remember(value.entryId)} onPress={() => onPlay!(view.queue.id, value.entryId, view.queue.revision)}
+    return <Focusable key={value.entryId} {...props} disabled={!canPlay || !interactive} focusableWhenDisabled={interactive}
+      onFocus={() => remember(value.entryId)} onPress={canPlay && interactive ? () => onPlay!(view.queue.id, value.entryId, view.queue.revision) : undefined}
       style={({focused}) => ({height: 88, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 18, borderRadius: 15,
         backgroundColor: focused ? theme.colors.raisedHigh : 'transparent'})}>{body}</Focusable>;
   };
@@ -222,18 +234,17 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, edges, queueEd
       ? upcoming.reduce((total, row) => total + (row.seconds ?? 0), 0) : undefined;
     const tvSummary = [remaining === undefined ? undefined : t('title.songCount', {count: remaining}),
       upcomingSeconds === undefined ? undefined : durationText(upcomingSeconds, t)].filter((value): value is string => !!value).join(' · ');
-    // A row is a focus target only when it can be played; without the queue's own command there
-    // are none, so the region gets no entry and no order rather than phantom targets.
-    const remembered = canPlay ? rememberedRow.get(view.queue.id) : undefined;
-    const entry = remembered && upcoming.some(row => row.entryId === remembered) ? remembered : canPlay ? upcoming[0]?.entryId : undefined;
+    // Known read-only rows remain native stops; their real command admission is independent.
+    const remembered = rememberedRow.get(memoryKey);
+    const entry = remembered && tvUpcoming.some(row => row.entryId === remembered) ? remembered : tvUpcoming[0]?.entryId;
     const rows = <ScrollView contentContainerStyle={{paddingBottom: 16}} showsVerticalScrollIndicator={false}>
       {!!upcoming.length && !!tvSummary && <Text style={[browseType(theme, 20, 400), {marginBottom: 18, color: theme.colors.textTertiary}]}>{tvSummary}</Text>}
-      {upcoming.map(tvRow)}
-      {!upcoming.length ? <Text style={[browseType(theme, 20, 400), {color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
+      {tvUpcoming.map(tvRow)}
+      {!tvUpcoming.length ? <Text style={[browseType(theme, 20, 400), {color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
     </ScrollView>;
     return <View testID={testID} style={{flex: 1, minHeight: 0}}>
       {regionId
-        ? <FocusRegion id={regionId} entry={entry ? `${testID}-${entry}` : undefined} order={canPlay ? upcoming.map(row => `${testID}-${row.entryId}`) : []}
+        ? <FocusRegion id={regionId} enabled={interactive} entry={entry ? `${testID}-${entry}` : undefined} order={tvUpcoming.map(row => `${testID}-${row.entryId}`)}
           orientation="vertical" edges={edges} style={{flex: 1}}>{rows}</FocusRegion>
         : rows}
     </View>;
