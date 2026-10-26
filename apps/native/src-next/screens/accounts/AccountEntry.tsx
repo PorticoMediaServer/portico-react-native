@@ -69,7 +69,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const invitationActive = !!incomingInvitation?.current();
   // One direct-auth opening per actual non-TV root entry. reset() advances the
   // generation; a replay gets a fresh entry and the old prepared source is retired.
-  const [rootAuthGeneration, setRootAuthGeneration] = useState(0), [authPrepareFailed, setAuthPrepareFailed] = useState(false);
+  const [rootAuthGeneration, setRootAuthGeneration] = useState(0), [rootAuthKick, setRootAuthKick] = useState(0), [authPrepareFailed, setAuthPrepareFailed] = useState(false);
   const rootEntry = useRef<{active: boolean} | undefined>(undefined), rootPrepare = useRef<{active: boolean; entry: {active: boolean}} | undefined>(undefined);
   const preparedAuthSource = useRef<NativePorticoSignIn | undefined>(undefined);
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
@@ -149,13 +149,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const directoryConnectRef = useRef<(value: HostedServer, automatic?: boolean, expectedTarget?: HostedServer) => void>(() => {});
   const stopRetry = () => {++retryEpoch.current; if (retryTimer.current !== undefined) clearTimeout(retryTimer.current); retryTimer.current = undefined;};
   const busyRef = useRef(busy), stageRef = useRef(stage), onBackRef = useRef(onBack), backRef = useRef<() => void>(() => {});
+  const authPrepareFailedRef = useRef(authPrepareFailed);
   // An opaque revision, advanced by every editable register field (the password
   // included), so a Submit drawn against an older draft cannot send its old values.
   const registerOpeningRef = useRef(registerOpening), providerOpeningRef = useRef(providerOpening), registerDraftRev = useRef(0);
   // The transaction whose provider-suggested name has already been seeded into this draft.
   const providerNameSeed = useRef<string | undefined>(undefined);
   registerOpeningRef.current = registerOpening; providerOpeningRef.current = providerOpening;
-  busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack;
+  busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack; authPrepareFailedRef.current = authPrepareFailed;
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace; createSource?: () => NativeAccountWorkspace};
@@ -519,7 +520,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const entry = rootEntry.current;
     if (!entry?.active || rootPrepare.current?.entry === entry) return;
     const opening = {active: true, entry}; rootPrepare.current = opening;
-    void run(async () => {
+    const work = run(async () => {
       try {await portico(opening);}
       catch (failure) {
         // A retired root entry or a special path publishes neither failure nor error.
@@ -527,9 +528,17 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         setAuthPrepareFailed(true); throw failure;
       } finally {if (rootPrepare.current === opening) rootPrepare.current = undefined;}
     });
+    // If the previous owner settled before its busy=true render, the fresh entry
+    // still needs one deterministic commit after that owner releases.
+    void work.finally(() => {
+      if (!lifetime.current || stageRef.current !== 'welcome' || authPrepareFailedRef.current) return;
+      const next = rootEntry.current;
+      if (!next?.active || next === entry || rootPrepare.current?.entry === next) return;
+      setRootAuthKick(value => value + 1);
+    });
     // Entry/stage changes retire the opening; portico checks it around its awaits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, busy, rootAuthGeneration, authPrepareFailed, initialStage, invitationActive]);
+  }, [stage, busy, rootAuthKick, rootAuthGeneration, authPrepareFailed, initialStage, invitationActive]);
   const signInWithProvider = (id: IdentityOptions['providers'][number]['id']) => {void run(async () => {
     const tx = await account.current!.provider(id); setTransaction(tx);
     if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {await account.current!.finishProvider(); await directory();} else setStage('provider');
