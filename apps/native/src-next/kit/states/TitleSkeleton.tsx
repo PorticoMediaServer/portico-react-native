@@ -57,13 +57,13 @@ export function TitleSkeleton({elapsedMs, pressed, shell, tabs, playAction, slow
           <SkeletonBlock height={46} shine style={{flex: 1}} />
           <SkeletonBlock width={46} height={46} /><SkeletonBlock width={46} height={46} /><SkeletonBlock width={46} height={46} />
         </View>
-        <SkeletonBlock width="100%" height={14} style={{marginTop: 20}} />
-        <SkeletonBlock width="70%" height={14} style={{marginTop: 9}} />
+        <SkeletonBlock width="100%" height={14} radius={theme.platform === 'phone' ? 7 : undefined} style={{marginTop: 20}} />
+        <SkeletonBlock width="70%" height={14} radius={theme.platform === 'phone' ? 7 : undefined} style={{marginTop: 9}} />
       </>}
       <View style={{marginTop: 22}}>{tabs}</View>
       {children ?? (show ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 18}}>
         <SkeletonBlock width={136} height={136 * 9 / 16} />
-        <View style={{flex: 1}}><SkeletonBlock width="80%" height={14} /><SkeletonBlock width="40%" height={11} radius={6} style={{marginTop: 9}} /></View>
+        <View style={{flex: 1}}><SkeletonBlock width="80%" height={14} radius={theme.platform === 'phone' ? 7 : undefined} /><SkeletonBlock width="40%" height={11} radius={6} style={{marginTop: 9}} /></View>
       </View> : null)}
     </View>}
     {tv && <>

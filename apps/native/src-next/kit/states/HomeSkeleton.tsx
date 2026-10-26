@@ -67,7 +67,7 @@ export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, r
     </View>}
     <View style={{position: 'absolute', left: 0, right: 0, top: rowTop}}>
       <View style={{paddingLeft: gutter, marginBottom: tv ? 22 : 4}}>
-        {rowTitle != null ? <Text style={[theme.type.rowHeading, {color: theme.colors.text}]}>{rowTitle}</Text> : show ? <SkeletonBlock width={tv ? 300 : 170} height={tv ? 30 : 18} /> : null}
+        {rowTitle != null ? <Text style={[theme.type.rowHeading, {color: theme.colors.text}]}>{rowTitle}</Text> : show ? <SkeletonBlock width={tv ? 300 : 170} height={tv ? 30 : 18} radius={theme.platform === 'phone' ? 7 : undefined} /> : null}
       </View>
       <View style={{flexDirection: 'row', gap: wideGap, paddingTop: tv ? 0 : 8, paddingLeft: gutter}}>
         {Array.from({length: wideCount}, (_, index) => {
@@ -76,7 +76,7 @@ export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, r
         })}
       </View>
       {show && <View style={{marginTop: tv ? 44 : 26, paddingLeft: gutter}}>
-        <SkeletonBlock width={tv ? 300 : 170} height={tv ? 30 : 18} style={{marginBottom: tv ? 22 : 12}} />
+        <SkeletonBlock width={tv ? 300 : 170} height={tv ? 30 : 18} radius={theme.platform === 'phone' ? 7 : undefined} style={{marginBottom: tv ? 22 : 12}} />
         <GridSkeleton elapsedMs={elapsedMs} width={width - gutter} viewportHeight={Math.max(0, height - rowTop - wideWidth * 9 / 16 - 120)} scrollOffset={0}
           cardWidth={tv ? 214 : 118} columns={Math.ceil((width - gutter) / ((tv ? 214 : 118) + wideGap))} gap={wideGap} captions={false} />
       </View>}
