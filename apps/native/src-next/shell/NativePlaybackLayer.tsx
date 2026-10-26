@@ -190,7 +190,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
       || !current.dock.local || (!current.dock.local.expanded) !== fromDocked) return;
     void adapter.onTransition(collapse ? adapter.dock.collapse(original) : adapter.dock.expand(original)).catch(runtime.reportError);
   }});
-  const audioFence = !theme.isTV && fence && local && (local.kind === 'music' || local.kind === 'audiobook') && sameFence(local.fence, fence) ? fence : undefined;
+  const audioFence = !theme.isTV && !snapshot.dock.remote && fence && local && (local.kind === 'music' || local.kind === 'audiobook') && sameFence(local.fence, fence) ? fence : undefined;
   const coverOpening = useRef({open: false, key: {}});
   if (listeningOpen && !coverOpening.current.open) coverOpening.current = {open: true, key: {}};
   else if (!listeningOpen && coverOpening.current.open) coverOpening.current = {...coverOpening.current, open: false};
@@ -198,7 +198,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const coverCurrent = useCallback(() => {
     if (runtime.retirementSignal?.aborted) return false;
     const current = adapter.getSnapshot();
-    return alive.current && coverOpening.current.key === coverOpeningKey && !current.retired && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
+    return alive.current && coverOpening.current.key === coverOpeningKey && !current.retired && !current.dock.remote && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
       && (!navigation || navigation.getSnapshot() === navigationState);
   }, [adapter, authority, audioFence, navigation, navigationState, runtime.retirementSignal, coverOpeningKey]);
   const coverSubscribe = useCallback((listener: () => void) => {
