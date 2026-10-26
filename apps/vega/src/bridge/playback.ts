@@ -1,14 +1,15 @@
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
-import React, {useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
+import React, {useCallback, useContext, useLayoutEffect, useRef, useState} from 'react';
+import {AppState, StyleSheet, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
 import {ModuleEvents, failure, withEvents} from './events';
 import {AudioRenditionUnavailable, HlsSource, type AudioSelection, type SourceError} from './hls';
 import {uuid} from './random';
-import {applySubtitles, clearSubtitles, subtitleDisplay, tickSubtitles, type SubtitleCommand} from './subtitles';
+import {applySubtitles, clearSubtitles, tickSubtitles, type SubtitleCommand} from './subtitles';
 import {registerSystemMediaSource, TransportKeys, type SystemMediaRegistration} from './system-media';
 import {VegaSurfaceComposition} from './surface-composition';
+import {CaptionLabel} from './caption-label';
 
 /**
  * `NativeModules.PorticoPlaybackModule` and the `PorticoPlayer` view, over the SDK's W3C media
@@ -753,28 +754,5 @@ export function PorticoPlayer({lease: viewLease, surfaceActive = true, pictureIn
   const laidOut = useCallback((event: LayoutChangeEvent) => { const {width, height} = event.nativeEvent.layout; setSize({width, height}); onLayout?.(event); }, [onLayout]);
   return React.createElement(View, {...view, onLayout: laidOut},
     active && viewLease ? React.createElement(LeaseSurface, {key: viewLease, heldLease: viewLease}) : null,
-    active ? React.createElement(SubtitleLabel, size) : null);
-}
-
-/**
- * The subtitle text, laid out as the other engines lay it out: a band nine tenths of the picture
- * wide, text centered, sized to the picture (3.5% of its width, between 12 and 40, times
- * Portico's caption size), a twelfth of the picture's height up from the bottom, or at the top
- * when the cue says so. Portico's caption background is a soft black box (the default), a solid
- * one, or none, where the line gets an edge of its own to stay readable over a bright picture.
- * (The other engines measure the picture inside the view; here the view's own size is used, which
- * differs only for a picture narrower than the screen. They also follow the caption style set in
- * the system's Accessibility settings, which this SDK does not tell an app.)
- */
-function SubtitleLabel({width, height}: {width: number; height: number}): React.ReactElement | null {
-  const {display: cue, style} = useSyncExternalStore(subtitleDisplay.subscribe, subtitleDisplay.current);
-  if (!cue.text || !width || !height) return null;
-  const fontSize = Math.max(12, Math.min(40, width * 0.035)) * style.scale;
-  const box = style.background === 'none' ? 'transparent' : style.background === 'opaque' ? '#000000' : 'rgba(0,0,0,0.7)';
-  const edge = style.background === 'none' ? {textShadowColor: '#000000', textShadowRadius: Math.max(2, fontSize * 0.08), textShadowOffset: {width: 0, height: 0}} : null;
-  return React.createElement(View, {
-    pointerEvents: 'none',
-    accessible: true,
-    style: [{position: 'absolute', left: width * 0.05, width: width * 0.9, maxHeight: height * 0.6, paddingVertical: 4, backgroundColor: box}, cue.top ? {top: 8} : {bottom: Math.max(8, height * 0.08)}],
-  }, React.createElement(Text, {style: [{color: '#ffffff', textAlign: 'center', fontSize, lineHeight: Math.round(fontSize * 1.25), fontWeight: '500', fontStyle: cue.italic ? 'italic' : 'normal'}, edge]}, cue.text));
+    active ? React.createElement(CaptionLabel, size) : null);
 }
