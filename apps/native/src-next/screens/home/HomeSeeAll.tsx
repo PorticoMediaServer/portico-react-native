@@ -15,7 +15,7 @@ import {AmbientArt} from '../../kit/artwork';
 import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {WindowedGrid, type LayoutSelection} from '../../kit/layout';
 import {Icon} from '../../kit/Icon';
-import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
+import {LoadingBoundary, LoadingPaint, SkeletonBlock, StateView} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {authorityKey} from '../../shell/model';
@@ -111,7 +111,11 @@ function HomeSeeAllReady({controller, runtime, active, onBack, onPlay, onOpen, o
           itemWidth={list ? window.width - 32 : width} itemHeight={list ? 70 : width * 1.5 + (tv ? 74 : 48)}
           gap={list ? 0 : tv ? 32 : 12} rowGap={list ? 0 : tv ? 40 : 22} gutter={list ? 16 : gutter} rightGutter={list ? 16 : tv ? 96 : theme.gutter}
           paddingBottom={40} style={{flex: 1}} testID={list ? 'home-see-all-list' : 'home-see-all-grid'}
-          renderPlaceholder={index => <SkeletonBlock key={index} width={list ? window.width - 32 : width} height={list ? 70 : width * 1.5}/>}
+          renderPlaceholder={index => {
+            const placeholderWidth = list ? window.width - 32 : width, placeholderHeight = list ? 70 : width * 1.5;
+            return <LoadingPaint key={index} ready={false} skeleton={<SkeletonBlock width={placeholderWidth} height={placeholderHeight}/>}
+              style={{width: placeholderWidth, height: placeholderHeight}}/>;
+          }}
           renderItem={(item, cell) => <FocusItem focusId={item.membershipId}>{list
             ? <HomeListRow entry={item.entry} runtime={runtime} width={window.width - 32} onFocus={cell.onFocus} onBlur={cell.onBlur}
                 onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}}
