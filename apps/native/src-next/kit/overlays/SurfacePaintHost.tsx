@@ -24,17 +24,38 @@ export function overlayPaintKey(opening: object): string {
 
 /** Original read-only page validity. Never constructs or rebinds a business opening. */
 export function overlayPaintPermit(current: () => boolean, subscriptions: readonly Subscribe[], signals: readonly AbortSignal[] = []): OverlayPaintPermit {
-  return {current, subscribe: listener => {
-    const off = subscriptions.map(subscribe => subscribe(listener));
-    for (const signal of signals) signal.addEventListener('abort', listener);
-    return () => {for (const release of off) release(); for (const signal of signals) signal.removeEventListener('abort', listener);};
+  let failed = false;
+  const read = () => {
+    if (failed) return false;
+    try {return current() === true;} catch {failed = true; return false;}
+  };
+  return {current: read, subscribe: listener => {
+    if (!read()) return noop;
+    const off: (() => void)[] = [], attached: AbortSignal[] = [];
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      // These are read-only paint watchers, not business controllers. A retired
+      // watcher cannot block the remaining cleanup or regain paint permission.
+      for (const release of off) {try {release();} catch {failed = true;}}
+      for (const signal of attached) {try {signal.removeEventListener('abort', listener);} catch {failed = true;}}
+    };
+    try {
+      for (const subscribe of subscriptions) off.push(subscribe(listener));
+      for (const signal of signals) {signal.addEventListener('abort', listener); attached.push(signal);}
+    } catch {
+      failed = true; dispose(); listener();
+    }
+    return dispose;
   }};
 }
 
 function PaintEntry({entry, remove}: {entry: Entry; remove: (id: string, closing: object) => void}) {
   const [expired, setExpired] = useState(false);
-  const valid = useSyncExternalStore(entry.open ? noSubscription : entry.permit?.subscribe ?? noSubscription,
-    entry.open ? () => true : () => allowed(entry.permit));
+  const watching = !entry.open && !entry.superseded;
+  const valid = useSyncExternalStore(watching ? entry.permit?.subscribe ?? noSubscription : noSubscription,
+    entry.open ? () => true : () => watching && allowed(entry.permit));
   useLayoutEffect(() => {
     if (entry.open || !entry.closing) {setExpired(false); return;}
     const closing = entry.closing;
