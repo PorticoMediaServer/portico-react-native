@@ -1,9 +1,9 @@
-import React, {useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {ReadingListMembership, ReadingManifest, ReadingReadMark} from '../../../../../packages/client-core/src';
+import type {ReadingItem, ReadingListMembership, ReadingManifest, ReadingReadMark} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable, ResumeButton, Tabs} from '../../kit/controls';
 import {Icon, type IconName} from '../../kit/Icon';
@@ -16,8 +16,9 @@ import {nativePublicationReadsAvailable} from '../../../platform/offline-reading
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import type {NativeReadBook} from './read-book-model';
+import type {NativeReadBook, NativeReadSeriesShelfState} from './read-book-model';
 import type {NativeReadOwnerEditLease} from './read-book-model';
+import {VolumeCard} from './ReadSeriesScreen';
 import type {NativeReadVersion} from './read-book-model';
 import {ReadOwnerEditSheet} from './ReadOwnerEditSheet';
 import {ReadCollectionSheet} from './ReadCollectionSheet';
@@ -45,6 +46,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   runtime: NativeShellRuntime; onBack: () => void; onOpenSettings: () => void;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  const shelf = useSyncExternalStore(controller.subscribeShelf, controller.shelfSnapshot);
   // tablet-read 2/2b draw one reading column and one 380 pt contents column side by side;
   // 2c keeps the single column. The shell's own classification decides: a landscape phone
   // (wide but short, e.g. 914x411) stays a phone page, and portrait keeps one column.
@@ -64,6 +66,9 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   // The exact selected version from the page's versions producer, never looked up again.
   const selectedVersion = state.sourceId ? state.versions.find(value => value.sourceId === state.sourceId) : undefined;
   const series = controller.series(), saved = manifest ? controller.savedProgression(manifest) : undefined;
+  // tablet-read 2b: the rest of this series, read from the same signed series
+  // producer the series page uses, once this page's own manifest is ready.
+  useEffect(() => {if (state.phase === 'ready' && manifest && series) void controller.loadSeriesShelf(manifest, series).catch(() => {});}, [controller, manifest, series?.id, state.phase]);
   const savedProgress = state.progress?.progress;
   const currentSection = savedProgress && !savedProgress.stale ? savedProgress.location.section : undefined;
   const contents = manifest?.format === 'epub' ? manifest.contents ?? [] : [];
@@ -128,7 +133,10 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
         versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
-        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}/>;
+        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
+        shelf={shelf} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
+        onShelfRetry={() => {void controller.retrySeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
+        onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>;
   return <View testID={`native-read-book-${controller.item.id}`} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl) ? <AmbientArt source={runtime.ambient(controller.item.coverUrl ?? manifest?.metadata.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
@@ -171,7 +179,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef, onHeroHeight}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean; rowHero: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
@@ -179,6 +187,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
   listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
   canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>; onHeroHeight: (height: number) => void;
+  shelf: NativeReadSeriesShelfState; onShelfMore: () => void; onShelfRetry: () => void; onShelfItem: (item: ReadingItem) => void;
 }) {
   const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false);
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
@@ -288,9 +297,35 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
     onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
   }))}/>;
-  if (!wide) return <View style={{width: '100%', maxWidth: rowHero ? 820 : 640, alignSelf: 'center'}}>{hero}{opening}{panel}{versionsMenu}</View>;
+  // Frame 2b's card geometry: 190 pt expanded, 118 pt on the phone, 2:3 art.
+  const shelfWidth = wide ? 190 : theme.platform === 'phone' ? 118 : 150, shelfHeight = shelfWidth * 3 / 2;
+  const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: 30}}>
+    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingHorizontal: 20, marginBottom: 10}}>
+      <Text accessibilityRole="header" style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{t('next.kit.booksInSeries')}</Text>
+      <Text numberOfLines={1} style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{series.name}</Text>
+      <Focusable testID="native-read-book-series-all" accessibilityRole="link" accessibilityLabel={t('next.layout.seeAll')} hitSlop={10}
+        onPress={() => onSeries(series, manifest)} style={{marginLeft: 'auto'}}>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+          <Text style={[browseType(theme, 13, 600), {color: theme.colors.accentStrong}]}>{t('next.layout.seeAll')}</Text>
+          <Icon name="i-right" size={14} color={theme.colors.accentStrong}/>
+        </View>
+      </Focusable>
+    </View>
+    {shelf.phase === 'error' ? <StateView {...runtime.error(shelf.error, onShelfRetry, 'library')}/>
+      : <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: 20, gap: 10, paddingBottom: 4}}
+        onScroll={event => {
+          // Only a real cursor pages, and only when the track reaches its end.
+          const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+          if (shelf.nextCursor && contentOffset.x + layoutMeasurement.width >= contentSize.width - shelfWidth / 2) onShelfMore();
+        }}>
+        {shelf.items.map(item => <VolumeCard key={`${item.id}:${item.sourceId}`} item={item} width={shelfWidth} height={shelfHeight} comic={comic} theme={theme} runtime={runtime}
+          onOpen={() => onShelfItem(item)}/>)}
+      </ScrollView>}
+    {shelf.moreError ? <StateView {...runtime.error(shelf.moreError, onShelfRetry, 'library')}/> : null}
+  </View> : null;
+  if (!wide) return <View style={{width: '100%', maxWidth: rowHero ? 820 : 640, alignSelf: 'center'}}>{hero}{opening}{panel}{shelfSection}{versionsMenu}</View>;
   return <View testID="native-read-book-split" style={{width: '100%', maxWidth: 1180, alignSelf: 'center'}}>
-    {hero}{opening}{widePanel}{versionsMenu}
+    {hero}{opening}{widePanel}{shelfSection}{versionsMenu}
   </View>;
 }
 
