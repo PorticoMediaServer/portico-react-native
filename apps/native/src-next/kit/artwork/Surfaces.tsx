@@ -1,4 +1,4 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useLayoutEffect, useRef} from 'react';
 import {Animated, StyleSheet, View} from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
@@ -74,7 +74,7 @@ function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false, tv
 }
 
 /** Continuous ambient wash and independently sharp foreground, with Q43's cheap TV representation. */
-export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundFrameStyle, foregroundStyle, foregroundFraction, foregroundFade, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
+export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundFrameStyle, foregroundStyle, foregroundFraction, foregroundFade, onReady, onFallbackReady, onError, onStatusChange, testID}: AmbientArtProps) {
   const theme = useTheme();
   const reduce = useReducedMotion();
   const fallbackOpacity = useRef(new Animated.Value(1)).current;
@@ -86,6 +86,16 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
   const maskedHero = theme.isTV && treatment === 'hero';
   const list = (sources ?? (source ? [source] : [])).slice(0, 3);
   const sourceIdentity = JSON.stringify(list.map(item => item.cacheKey));
+  const empty = !foreground && list.length === 0, fallbackReported = useRef(false);
+  useLayoutEffect(() => {
+    if (!empty) {fallbackReported.current = false; return;}
+    // The palette is a real committed presentation when no image was offered.
+    // Keep this separate from onReady: no source or decode fact is fabricated.
+    if (visible && !fallbackReported.current && onFallbackReady) {
+      fallbackReported.current = true;
+      onFallbackReady();
+    }
+  });
   useEffect(() => {fallbackOpacity.stopAnimation(); fallbackOpacity.setValue(1);}, [sourceIdentity, fallbackOpacity]);
   useEffect(() => () => fallbackOpacity.stopAnimation(), [fallbackOpacity]);
   const alpha = wash ? 0.42 : cover ? 0.62 : theme.spec.hero.ambient.alpha[theme.platform];

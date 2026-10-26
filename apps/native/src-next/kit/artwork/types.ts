@@ -73,6 +73,8 @@ export type AmbientArtProps = Readonly<{
   foregroundFade?: 'left';
   /** Fires after the foreground decoded, or after ambient decode when there is no foreground. */
   onReady?: (source: ArtworkSource) => void;
+  /** The visible palette committed with no foreground or ambient image offered; no image-decode claim. */
+  onFallbackReady?: () => void;
   /** Actual foreground Image failure or scheduler exhaustion; ambient failure only without foreground. */
   onError?: (source: ArtworkSource) => void;
   onStatusChange?: (status: ArtworkStatus) => void;
