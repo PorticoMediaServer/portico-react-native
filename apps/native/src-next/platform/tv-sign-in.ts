@@ -23,7 +23,11 @@ function storage<T>(authority: string): SetupCodeStorage<T> {
 }
 const requestId = async () => {
   const value: unknown = await NativeModules.PorticoRuntime.newRequestId();
-  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw invalid(); return value;
+  // Apple NSUUID and the Vega bridge emit uppercase UUIDs; the durable
+  // activation journal requires their canonical lowercase v4 representation.
+  const canonical = typeof value === 'string' ? value.toLowerCase() : '';
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(canonical)) throw invalid();
+  return canonical;
 };
 
 /** Server-local Quick Connect is same-account sign-in consent. It has no pending/trust gate. */
