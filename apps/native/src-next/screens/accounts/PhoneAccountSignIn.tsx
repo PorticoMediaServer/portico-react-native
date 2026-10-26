@@ -29,7 +29,7 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
           style={{width: 17 * 512 / 117, height: 17, alignSelf: 'flex-start'}}/>
         <Text accessibilityRole="header" style={[nativeType({size: 34, lineHeight: 35.36, weight: 800, tracking: -.04}, theme.textScale),
           {color: theme.colors.text, marginTop: 46, marginBottom: 8, includeFontPadding: false}]}>{t('web.signin.welcomeHome')}</Text>
-        <Text style={[nativeType({size: 14.5, lineHeight: 21.75, weight: 400}, theme.textScale), {color: theme.colors.textSecondary, marginBottom: 20}]}>{t('auth.accountLead')}</Text>
+        <Text style={[nativeType({size: 14.5, lineHeight: 21.75, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, marginBottom: 20}]}>{t('auth.accountLead')}</Text>
         {error}
         {onRetry && <Button testID="accounts-auth-retry" variant="glass" disabled={busy} style={{width: '100%', alignSelf: 'stretch', height: 48, borderRadius: 11, marginBottom: 10}}
           textStyle={{fontSize: 16 * theme.textScale, fontWeight: '700'}} onPress={onRetry}>{t('action.tryAgain')}</Button>}
@@ -43,7 +43,7 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
         {passwordEnabled && <>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4, marginBottom: 14}}>
             <View style={{flex: 1, height: 1, backgroundColor: theme.colors.line}}/>
-            <Text style={[nativeType({size: 13, lineHeight: 19.5, weight: 600}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('auth.orWithEmail')}</Text>
+            <Text style={[nativeType({size: 13, lineHeight: 19.5, weight: 600, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('auth.orWithEmail')}</Text>
             <View style={{flex: 1, height: 1, backgroundColor: theme.colors.line}}/>
           </View>
           <View style={{gap: 12}}>
@@ -63,7 +63,7 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
         </>}
         <Button testID="accounts-auth-local" variant="text" size="compact" disabled={busy} style={{marginTop: 10}} textStyle={{fontSize: 14 * theme.textScale, fontWeight: '700', color: theme.colors.textSecondary}}
           onPress={onLocal}>{t('auth.signInDirectly')}</Button>
-        <Text style={[nativeType({size: 12, lineHeight: 18, weight: 400}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}>
+        <Text style={[nativeType({size: 12, lineHeight: 18, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}>
           {t('auth.agreeToTerms')}{' '}
           <Text accessibilityRole="link" suppressHighlighting onPress={() => {void Linking.openURL('https://getportico.tv/terms').catch(() => {});}}
             style={{color: theme.colors.accentStrong}}>{t('auth.terms')}</Text>{t('list.and', {first: '', second: ''})}
