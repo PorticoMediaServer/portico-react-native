@@ -90,6 +90,12 @@ internal class PorticoAudioTrackOutput(private val context: Context, private val
     slot = own
   }
 
+  fun flushed(track: AudioTrack, value: AudioOutputProvider.OutputConfig) {
+    // A superseded wrapper can flush only its own descriptor, never replace a newer slot.
+    if (slot != null) return
+    opened(track, value)
+  }
+
   /** Called at Media3's actual FINAL write, after its startup ramp, trims and processors. Buffer
    * identity is required: a delayed/new processor buffer cannot inherit today's input source. */
   private fun finalProof(own: Slot, buffer: ByteBuffer): PorticoOutputWitness? {
@@ -315,7 +321,14 @@ internal class PorticoObservedOutputProvider(context: Context, private val obser
         observation.written(track, buffer, before, proof)
         return accepted
       }
-      override fun flush() { observation.retireTrack(track); actual.flush() }
+      override fun flush() {
+        observation.retireTrack(track)
+        actual.flush()
+        // Media3 may reuse this exact native output after a seek. It is a new observation
+        // lifetime with empty played-frame history, not permission to reuse an old run's proof.
+        // No source/mixer fact exists until a fresh original piece reaches a final write.
+        observation.flushed(track, config)
+      }
       override fun release() { observation.retireTrack(track); actual.release() }
     }
   }

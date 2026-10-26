@@ -261,8 +261,14 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   // Device preference only. An actual sink observation is separately source/track/route bound;
   // changing this value immediately retires the previous mode's output proof and USB preference.
   fun setSampleRateMatching(mode: String) {
+    val parsed = PorticoAudioSampleRate.parse(mode)
+    if (PorticoAudioSampleRate.mode == parsed) return
     controller.retireAudioOutput()
-    PorticoAudioSampleRate.mode = PorticoAudioSampleRate.parse(mode)
+    PorticoAudioSampleRate.mode = parsed
+    // Re-enter this owner's ordinary current-lease/route proof. The controller replaces only
+    // an incompatible PCM pipeline at its retained position; no source/queue/lease is adopted
+    // from a later read and no output observation is inferred from the preference itself.
+    apply()
   }
 
 
