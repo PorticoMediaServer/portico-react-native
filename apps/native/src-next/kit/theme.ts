@@ -46,7 +46,7 @@ export function createTheme({isTV, width, reduceMotion = false, textScale = 1}: 
   // TV page and panel headings are drawn at 44/800 with -.03 tracking (tv-more .pg,
   // the TV panel h3); the shared ten-foot scale publishes 44/700 at -.027. Both
   // Android TV and Apple TV draw this one correction, scaled once with the rest.
-  if (isTV) type.title = {...type.title, fontWeight: '800', letterSpacing: -0.03 * 44 * textScale};
+  if (isTV) type.title = {...type.title, fontFamily: fontFamilies[800], fontWeight: '800', letterSpacing: -0.03 * 44 * textScale};
   return {
     platform, layoutMode, width, isTV, colors, space: spacing, type, spec: componentSpec, layout, layers, targets,
     radii: isTV ? platformRadii.tv : platformRadii.phone, baseRadii: radii,

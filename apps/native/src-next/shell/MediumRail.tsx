@@ -46,7 +46,7 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
       style={{width: expanded ? 224 : mediumRailMetrics.itemWidth, minHeight: expanded ? 44 : 48, paddingTop: 8, paddingBottom: 6, borderRadius: mediumRailMetrics.itemRadius,
         flexDirection: expanded ? 'row' : 'column', paddingHorizontal: expanded ? 12 : 0, alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center', gap: expanded ? 12 : 4, backgroundColor: selected ? `${theme.colors.text}1A` : undefined}}>
       <Icon name={entry.icon} size={expanded ? 20 : mediumRailMetrics.iconSize} color={selected ? theme.colors.text : theme.colors.textTertiary}/>
-      <Text numberOfLines={1} style={[theme.type.captionStrong, {fontSize: expanded ? 15 : 10.5, lineHeight: expanded ? 20 : 13.5, color: selected ? theme.colors.text : theme.colors.textTertiary, maxWidth: expanded ? 168 : mediumRailMetrics.itemWidth, textAlign: expanded ? 'left' : 'center'}]}>{entry.label}</Text>
+      <Text numberOfLines={1} style={[nativeType({size: expanded ? 15 : 10.5, weight: 600, tracking: expanded ? 0 : -0.005, lineHeight: 'normal'}, theme.textScale), {lineHeight: expanded ? 20 : 13.5, color: selected ? theme.colors.text : theme.colors.textTertiary, maxWidth: expanded ? 168 : mediumRailMetrics.itemWidth, textAlign: expanded ? 'left' : 'center'}]}>{entry.label}</Text>
     </Focusable>;
   };
   const hairline = <View accessible={false} style={{width: expanded ? 200 : 40, height: 1, backgroundColor: theme.colors.line, marginVertical: expanded ? 9 : 6}}/>;
