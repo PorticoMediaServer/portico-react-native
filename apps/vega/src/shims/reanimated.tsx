@@ -33,6 +33,11 @@ type Callback = (finished?: boolean) => void;
 // as an assignment of a number. What is assigned is a `Motion`, which the value then follows.
 const asValue = <Value,>(motion: Motion): Value => motion as unknown as Value;
 
+/** Stops a value where it stands, as the library's `cancelAnimation` does. */
+export function cancelAnimation<Value>(value: SharedValue<Value>): void {
+  (value as unknown as Cell<Value>).halt();
+}
+
 const standard: Curve = Vega.Easing.inOut(Vega.Easing.quad);
 
 export function withTiming<Value extends number>(toValue: Value, config?: TimingConfig, callback?: Callback): Value {

@@ -59,6 +59,13 @@ export class Cell<T> {
   /** The value as it is, without being counted as a reader. */
   peek(): T { return this.current; }
 
+  /** Stops whatever is moving the value, leaving it where it stands. */
+  halt(): void {
+    const stop = this.stop;
+    this.stop = undefined;
+    stop?.();
+  }
+
   /** Sets the value without disturbing whatever is moving it. */
   put(next: T): void {
     if (Object.is(next, this.current)) return;
