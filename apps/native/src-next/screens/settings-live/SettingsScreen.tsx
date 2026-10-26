@@ -43,7 +43,7 @@ import {parseSettingsConfiguration} from '../../../../../packages/client-core/sr
 import {readSettingsBinding, settingsBinding, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
 import {settingsSpec} from '../../../../../packages/client-core/src/presentation/settings-spec';
 import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
-import {ServerHeader} from '../../kit/shell/ServerIdentity';
+import {ServerBand, ServerHeader} from '../../kit/shell/ServerIdentity';
 import {alpha} from '../../kit/shell/visual';
 import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
 import {NativeLiveOwnerController} from './live-owner-controller';
@@ -302,7 +302,8 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
         </ScrollView>}
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
-        {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}/>}
+        {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}
+          band={serverPage ? <ServerBand viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} height={56} style={{position: 'absolute', inset: 0}}/> : undefined}/>}
         {!compact && !dashboardPage && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && !remoteAccessPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
         {dashboardPage ? <NativeDashboardScreen controller={dashboard!} ports={ports} runtime={runtime} inline onDenied={dashboardDenied} deniedFallback={null}/> : remoteAccessPage ? <NativeRemoteAccessPage ports={ports} runtime={runtime} compactHeader={compact}/> : segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
