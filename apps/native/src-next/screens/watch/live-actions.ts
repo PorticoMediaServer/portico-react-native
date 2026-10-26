@@ -9,8 +9,10 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeLiveWatchPort, subscribeNativeLiveWatchPort, type NativeLiveWatchPort} from '../settings-live/watch-port';
 import {seriesFormDefaults, type SeriesForm} from '../settings-live/recording-rule-presentation';
 import type {NativeTVLiveGuide} from './live-guide';
+import {captureLiveActionSource, type NativeLiveActionSource} from './live-action-source';
+import {nativeShellRoutes} from '../../shell/route-registry';
 
-type Source = NonNullable<ReturnType<NativeTVLiveGuide['captureSource']>>;
+type Source = NativeLiveActionSource;
 export type NativeLiveActionOffer = Readonly<{id: number; channel: GuideChannelRow; programme: GuideProgram}>;
 export type NativeLiveActionSheet = Readonly<{id: number; kind: 'more' | 'series' | 'details'; offer: NativeLiveActionOffer;
   port: NativeLiveWatchPort; lifetime: DVRCommandLifetime; defaults?: SeriesForm}>;
@@ -31,13 +33,16 @@ export class NativeTVLiveActions {
   private sequence = 0;
   private confirmationTimer?: ReturnType<typeof setTimeout>;
   private command?: AbortController;
+  private preparingServices?: AbortController;
   private sheet?: NativeLiveActionSheet;
   private sheetController?: AbortController;
   private seriesEntry?: {sheet: NativeLiveActionSheet};
   private favoriteCommand?: {sheet: NativeLiveActionSheet; channel: GuideChannelRow; favorite: boolean; hidden: boolean};
   private opening?: {source: Source; projected: ChannelProgramme; port: NativeLiveWatchPort; controller: AbortController; viewerFence?: string};
-  constructor(private context: NativeShellBootstrapContext, private guide: NativeTVLiveGuide) {
-    this.off = [context.playback.subscribe(this.update), guide.subscribe(this.update), subscribeNativeLiveWatchPort(context, this.update)];
+  constructor(private context: NativeShellBootstrapContext, private guide: NativeTVLiveGuide, private presented: () => boolean,
+    subscribePresented: (listener: () => void) => () => void) {
+    this.off = [context.playback.subscribe(this.update), guide.subscribe(this.update), context.navigation.subscribe(this.update), context.subscribeAuthority(this.update),
+      subscribePresented(this.update), subscribeNativeLiveWatchPort(context, this.update)];
     this.update();
   }
   getSnapshot = () => this.state;
@@ -52,19 +57,17 @@ export class NativeTVLiveActions {
   }
   private async read(opening: NonNullable<NativeTVLiveActions['opening']>, signal: AbortSignal) {
     if (!this.current(opening) || signal.aborted) throw retired();
-    const raw = legacyChannel(opening.source.origin.row);
-    if (!raw) throw retired();
-    const options = opening.source.origin.options, now = Date.now();
-    const route: GuideRoute = {kind: raw.provenance, sourceId: raw.sourceId, timezone: options.timezone, search: options.search ?? '',
+    const target = opening.source.target, options = opening.source.query, now = Date.now();
+    const route: GuideRoute = {kind: target.kind, sourceId: target.sourceId, timezone: options.timezone, search: options.search ?? '',
       start: new Date(now).toISOString(), end: new Date(now + 3 * 3600_000).toISOString(),
       ...(options.group ? {group: options.group} : {}), ...(options.favorites !== undefined ? {favorites: options.favorites} : {}), ...(options.includeHidden ? {includeHidden: true} : {})};
     const query = new URLSearchParams({kind: route.kind, sourceId: route.sourceId, timezone: route.timezone, search: route.search,
-      start: route.start, end: route.end, channels: raw.id, limit: '1', cursor: ''});
+      start: route.start, end: route.end, channels: target.channelId, limit: '1', cursor: ''});
     if (route.favorites !== undefined) query.set('favorites', String(route.favorites));if (route.includeHidden) query.set('includeHidden', 'true');if (route.group) query.set('group', route.group);
     const response = await opening.source.api.request<unknown>(`${routePath('get_guide')}?${query}`, 'GET', undefined, signal);
     if (!this.current(opening) || signal.aborted) throw retired();
     const guide = parseChannelGuide(response, opening.source.authority.serverId, route);
-    const rows = guide.channels.filter(row => row.id === raw.id && row.sourceId === raw.sourceId && row.provenance === raw.provenance && row.generation === opening.source.fence.channelGeneration);
+    const rows = guide.channels.filter(row => row.id === target.channelId && row.sourceId === target.sourceId && row.provenance === target.kind && row.generation === target.generation);
     if (rows.length !== 1 || guide.channels.length !== 1 || opening.viewerFence !== undefined && guide.viewerFence !== opening.viewerFence) throw new Error('channel_source_unavailable');
     const channel = rows[0]!, programme = channel.programmes.find(row => row.id === opening.projected.id
       && Date.parse(row.start) === opening.projected.startMs && Date.parse(row.end) === opening.projected.endMs);
@@ -72,15 +75,26 @@ export class NativeTVLiveActions {
     return {channel: legacyChannelRow(channel), programme: legacyProgram(programme), viewerFence: guide.viewerFence};
   }
   private update = () => {
-    if (this.disposed || this.opening && this.current(this.opening)) return;
+    if (this.disposed || this.preparingServices || this.opening && this.current(this.opening)) return;
     this.command?.abort();this.command = undefined;this.sheetController?.abort();this.sheetController = undefined;this.sheet = undefined;
     clearTimeout(this.confirmationTimer);this.confirmationTimer = undefined;
     this.favoriteCommand = undefined;
     this.seriesEntry = undefined;
     this.opening?.controller.abort();this.opening = undefined;
-    const source = this.guide.captureSource(), port = nativeLiveWatchPort(this.context), projected = this.context.playback.getSnapshot().playback.linear?.programme;
-    if (!source || !port?.current() || !projected || !Number.isFinite(projected.startMs) || !Number.isFinite(projected.endMs) || projected.endMs <= projected.startMs) {this.publish(empty);return;}
-    const opening: NonNullable<NativeTVLiveActions['opening']> = {source, port, projected: Object.freeze({...projected}), controller: new AbortController()};this.opening = opening;
+    const source = captureLiveActionSource(this.context, this.guide, this.presented), projected = this.context.playback.getSnapshot().playback.linear?.programme;
+    if (!source || !projected || !Number.isFinite(projected.startMs) || !Number.isFinite(projected.endMs) || projected.endMs <= projected.startMs) {this.publish(empty);return;}
+    const controller = new AbortController();let port = nativeLiveWatchPort(this.context);
+    if (!port?.current()) {
+      this.preparingServices = controller;let prepared = false;
+      try {prepared = nativeShellRoutes.prepareDestination(this.context, {kind: 'live'}, source.route, Object.freeze({signal: controller.signal,
+        isCurrent: () => !this.disposed && this.preparingServices === controller && source.current()}));}
+      catch {prepared = false;}
+      finally {if (this.preparingServices === controller) this.preparingServices = undefined;}
+      if (!prepared) {controller.abort();this.publish(empty);return;}
+      port = nativeLiveWatchPort(this.context);
+    }
+    if (!port?.current() || !source.current()) {controller.abort();this.publish(empty);return;}
+    const opening: NonNullable<NativeTVLiveActions['opening']> = {source, port, projected: Object.freeze({...projected}), controller};this.opening = opening;
     this.publish(empty);
     if (!this.current(opening)) return;
     void this.read(opening, opening.controller.signal).then(value => {
@@ -178,5 +192,5 @@ export class NativeTVLiveActions {
     if (!this.current(opening)) return;
     this.confirmationTimer = setTimeout(() => {if (this.current(opening)) this.publish({...this.state, confirmed: undefined});}, 6000);
   }
-  dispose() {this.disposed = true;this.seriesEntry = undefined;clearTimeout(this.confirmationTimer);this.command?.abort();this.sheetController?.abort();this.opening?.controller.abort();for (const off of this.off) off();this.listeners.clear();}
+  dispose() {this.disposed = true;this.preparingServices?.abort();this.preparingServices = undefined;this.seriesEntry = undefined;clearTimeout(this.confirmationTimer);this.command?.abort();this.sheetController?.abort();this.opening?.controller.abort();for (const off of this.off) off();this.listeners.clear();}
 }

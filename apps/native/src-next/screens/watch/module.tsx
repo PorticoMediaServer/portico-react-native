@@ -76,7 +76,6 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   let disposed = false;
   const current = () => !disposed && context.current();
   const liveGuide = Platform.isTV ? new NativeTVLiveGuide(context) : undefined;
-  const liveActions = liveGuide ? new NativeTVLiveActions(context, liveGuide) : undefined;
   // Media's retry changes the failed phase and source itself, so these controllers
   // belong to the module and its route, never to the error surface. They abort on a
   // route/authority replacement, a collapsed watch or disposal — not on phase,
@@ -84,6 +83,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   const retries = new Set<{controller: AbortController; route: Readonly<{authority: ReturnType<typeof context.authority>; revision: number}>}>();
   const expanded = () => context.playback.getSnapshot().dock.local?.expanded === true
     && (!Platform.isTV || groupPort()?.playerVisible?.() !== false);
+  const liveActions = liveGuide ? new NativeTVLiveActions(context, liveGuide, () => current() && expanded(), subscribeGroupPort) : undefined;
   const abortAll = () => {for (const operation of retries) operation.controller.abort(); retries.clear();};
   // A pending retry belongs to the route it was started under. Collapsing the watch,
   // replacing the route or authority, or disposing the module aborts it; the retry's
