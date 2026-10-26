@@ -1,6 +1,7 @@
 import {AppState, NativeModules} from 'react-native';
 import {startFailureHttp, type NativePlaybackStartFailure} from './start-failure';
 import {capacityRetryHttp, type NativePlaybackCapacityWait} from './capacity-retry';
+import {createNativeListeningReadPort} from './listening-controls';
 import {PlaybackService, type PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {DetailService, type DetailProjection} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -44,7 +45,7 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeListeningReadPort, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 /** No credentials: exact admission principal generation for one original start. */
 const startupPrincipal = (session: import('../../../../../packages/client-core/src/index').LocalSession | undefined) => session
@@ -872,6 +873,51 @@ export class NativePlaybackRuntime {
       if (scoped.signal.aborted || !current()) return;
       throw error;
     } finally { unroute(); scoped.close(); }
+  };
+
+  /** Read-only audiobook facts. Mutation signatures remain with Media's accepting owner API. */
+  listeningRead = (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime): NativeListeningReadPort | undefined => {
+    if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
+    const original = this.currentSession(), principal = this.o.session(), context = this.queue.listening.getSnapshot().context, occurrence = original?.queue;
+    const native = this.playback.getSnapshot().nativeListening, connection = this.o.api.getRouteConnection(), route = this.o.api.getRouteSnapshot();
+    if (!original || original.kind !== 'audio' || original.role !== 'local' || original.state === 'ended' || original.end
+      || original.id !== fence.sessionId || original.itemId !== fence.itemId || original.versionId !== fence.sourceId
+      || original.presentation.generation !== fence.generation || !occurrence || occurrence.entryId !== fence.entryId
+      || !principal?.sessionFamilyId || !context || context.kind !== 'audiobook_file' || context.itemId !== fence.itemId
+      || !native?.binding || native.terminal || native.binding.sessionId !== fence.sessionId || native.binding.generation !== fence.generation || native.binding.itemId !== fence.itemId
+      || !connection || route?.phase !== 'ready') return;
+    const captured = Object.freeze({...fence, playback: Object.freeze({...fence.playback, scope: Object.freeze({...fence.playback.scope})})});
+    const binding = Object.freeze({...native.binding}), owner = native.owner, family = principal.sessionFamilyId;
+    const viewerKey = (value: NonNullable<ReturnType<NativePlaybackRuntimeOptions['session']>>) => JSON.stringify([value.viewer.authority, value.viewer.serverId, value.viewer.accountId, value.viewer.profileId]);
+    const originalViewer = viewerKey(principal);
+    const authority = authorityKey(this.bound), start = this.startEpoch, libraryId = context.libraryId, queueId = occurrence.queueId;
+    const current = () => {
+      const live = this.fence(), session = this.currentSession(), viewer = this.o.session(), details = this.queue.listening.getSnapshot();
+      const heard = this.playback.getSnapshot().nativeListening, liveRoute = this.o.api.getRouteSnapshot();
+      return this.currentAuthority() && authorityKey(this.o.authority()) === authority && this.startEpoch === start
+        && !lifetime.signal.aborted && lifetime.isCurrent() && !!viewer && viewer.sessionFamilyId === family && viewerKey(viewer) === originalViewer
+        && !!live && sameFence(live, captured) && !!session && session.id === original.id && session.kind === 'audio' && session.role === original.role
+        && session.state !== 'ended' && !session.end && session.itemId === captured.itemId && session.versionId === captured.sourceId
+        && session.presentation.generation === captured.generation && session.queue?.queueId === queueId && session.queue.entryId === captured.entryId
+        && details.phase !== 'disposed' && details.context?.kind === 'audiobook_file' && details.context.itemId === captured.itemId && details.context.libraryId === libraryId
+        && !!heard && heard.owner === owner && !heard.terminal && sameBindingFact(heard.binding, binding)
+        && this.o.api.getRouteConnection() === connection && liveRoute?.phase === 'ready' && liveRoute.revision === route.revision && liveRoute.origin === route.origin;
+    };
+    const port = createNativeListeningReadPort({
+      target: {libraryId, itemId: captured.itemId, sessionId: captured.sessionId, sessionGeneration: captured.generation, sourceId: captured.sourceId},
+      scope: {serverId: this.bound.serverId, viewerId: JSON.stringify([principal.viewer.authority, principal.viewer.accountId, principal.viewer.profileId, family, this.bound.epoch])},
+      lifetime, current, request: this.request,
+      facts: () => {
+        if (!current()) throw new Error('native_listening_read_retired');
+        const heard = this.playback.getSnapshot().nativeListening!, details = this.queue.listening.getSnapshot(), audiobook = this.o.settings().audiobook;
+        return {rate: {selected: heard.rate, ...(heard.effectiveRate === undefined ? {} : {effective: heard.effectiveRate}), ...(heard.supportedRates === undefined ? {} : {supported: heard.supportedRates})},
+          preferences: {phase: details.phase, values: details.preferences, ...(audiobook ? {audiobook} : {})}};
+      },
+      subscribe: [this.subscribe, listener => this.playback.subscribe(listener), listener => this.queue.listening.subscribe(listener),
+        listener => this.o.api.subscribeRoute(listener), listener => this.o.subscribeAuthority(listener), listener => this.o.subscribeSettings(listener)],
+    });
+    if (!port.current()) {port.dispose(); return;}
+    return port;
   };
 
   private currentSession(): Session | undefined {

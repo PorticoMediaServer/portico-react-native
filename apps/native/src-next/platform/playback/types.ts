@@ -28,6 +28,9 @@ import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
 import type {SubtitlePreferences} from '../../../../../packages/client-core/src/preference-effects';
 import type {NativePlaybackStartFailure} from './start-failure';
 import type {NativePlaybackCapacityWait} from './capacity-retry';
+import type {ListeningSnapshot} from '../../../../../packages/client-core/src/listening';
+import type {AudiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
+import type {PlayerChapter, PlayerChaptersData, PlayerChaptersSnapshot} from '../../../../../packages/client-core/src/player-chapters';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
@@ -57,6 +60,25 @@ export type NativePlaybackVersionSelection = Readonly<{
 }>;
 export type NativeExternalPresentationLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackReadLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+/** Read facts only. No chapter seek action or playback mutation availability is projected. */
+export type NativeListeningReadSnapshot = Readonly<{phase: 'retired'}> | Readonly<{
+  phase: 'current';
+  rate: Readonly<{selected: number; effective?: number; supported?: readonly number[]}>;
+  preferences: Readonly<{phase: ListeningSnapshot['phase']; values: ListeningSnapshot['preferences']; audiobook?: AudiobookPreferences}>;
+  chapters: Readonly<{phase: PlayerChaptersSnapshot['phase']; pagination: PlayerChaptersSnapshot['pagination'];
+    data: (Pick<PlayerChaptersData, 'scope' | 'revision' | 'status' | 'reason' | 'duration' | 'totalCount' | 'nextCursor'>
+      & Readonly<{chapters: readonly Pick<PlayerChapter, 'id' | 'index' | 'title' | 'startSeconds' | 'endSeconds' | 'thumbnailUrl'>[]}>) | null}>;
+}>;
+export type NativeListeningReadPort = Readonly<{
+  current: () => boolean;
+  getSnapshot: () => NativeListeningReadSnapshot;
+  subscribe: (listener: () => void) => () => void;
+  /** These operations only read pages of the captured source; they never select a chapter. */
+  readChapters: () => Promise<void>;
+  readNextChapterPage: () => Promise<void>;
+  readPreviousChapterPage: () => Promise<void>;
+  dispose: () => void;
+}>;
 export type NativeOfflinePlaybackLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{
@@ -157,6 +179,8 @@ export interface NativePlaybackAdapter {
   subtitleControls: (fence: PlaybackFence) => NativePlaybackSubtitleControls | undefined;
   /** Fresh read only; never adopts/replans the session or fabricates report facts. */
   readSession?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<Session | undefined>;
+  /** Original-source audiobook facts only, pending Media's occurrence-bound accepting API. */
+  listeningRead?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => NativeListeningReadPort | undefined;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   Surface: ComponentType<NativePlaybackSurfaceProps>;
