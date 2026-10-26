@@ -1,11 +1,11 @@
-import React, {useEffect, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
 import {Platform, View} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
-import {createNativeReadingSearch, type NativeReadingSearchPort} from './reading-search';
+import {createNativeReadingSearch, type NativeReadingSearchPort, type ReadingSearchOpening} from './reading-search';
 import {ReadingSearchScreen} from './ReadingSearchScreen';
 
 type SearchRoute = Extract<NativeShellRoute, {kind: 'search-reading'}>;
@@ -52,13 +52,21 @@ export function createNativeReadingSearchModule(context: NativeShellBootstrapCon
 function ReadingSearchHost({entry, runtime, navigation, onBack}: Readonly<{
   entry: Entry; runtime: NativeShellRuntime; navigation: NativeShellBootstrapContext['navigation']; onBack: () => void;
 }>) {
-  const visible = useSyncExternalStore(navigation.subscribe, () => navigation.getSnapshot().route === entry.route);
+  // The committed snapshot this render belongs to, never read again later: the opening
+  // handed to this render's handlers is captured from it and retired synchronously when
+  // the commit changes or the surface unmounts.
+  const snapshot = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
+  const visible = snapshot.route === entry.route;
+  const [opening, setOpening] = useState<ReadingSearchOpening | undefined>(undefined);
   useEffect(() => {entry.port.attachReporter(runtime.reportError);}, [entry, runtime]);
-  // A committed visible opening is the only authority the page acts under: it runs the
-  // carried words the first time, and re-witnesses the new navigation commit on Back.
-  useEffect(() => {if (visible) entry.port.admit();}, [entry, visible]);
+  useLayoutEffect(() => {
+    if (!visible || snapshot.route !== entry.route) {setOpening(undefined); return;}
+    const admitted = entry.port.admit(snapshot);
+    setOpening(admitted);
+    return () => {if (admitted) entry.port.retire(admitted);};
+  }, [entry, snapshot, visible]);
   return <View pointerEvents={visible ? 'auto' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: visible ? 'flex' : 'none'}}>
-    <ReadingSearchScreen port={entry.port} runtime={runtime} query={entry.route.query} onBack={onBack}/>
+    <ReadingSearchScreen port={entry.port} opening={opening} runtime={runtime} query={entry.route.query} onBack={onBack}/>
   </View>;
 }
