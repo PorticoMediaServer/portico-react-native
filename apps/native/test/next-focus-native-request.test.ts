@@ -16,6 +16,7 @@ async function overlayHost(isTV: boolean) {
       BackHandler: {addEventListener: (_event: string, handler: () => boolean) => {
         backHandlers.add(handler); return {remove: () => backHandlers.delete(handler)};
       }}},
+    '../../platform/tv-menu': {captureTVMenuKey: () => () => {}},
     '../../platform/overlay-keys': {registerOverlayKeys: (handler: unknown) => {
       keyHandlers.add(handler); return () => keyHandlers.delete(handler);
     }},

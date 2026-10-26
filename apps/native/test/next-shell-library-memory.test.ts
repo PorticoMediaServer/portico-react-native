@@ -14,12 +14,13 @@ test('a real screen-owned Library destination is remembered and a late initial r
   const theme = createTheme({width: 390, isTV: false}), registry = createFocusRegistry(), writes: string[] = [], navigations: any[] = [];
   let finish!: (id: string) => void, snapshot: any = {authority, destination: {kind: 'home'}, contentVisible: true, libraries: [
     {id: 'new', name: 'Actual new', kind: 'movie'}, {id: 'old', name: 'Actual old', kind: 'movie'},
-  ], account: {}, profile: {}, hasLiveTV: false, homeVisible: true, selectionActive: false};
+  ], account: {actions: []}, profile: {}, hasLiveTV: false, homeVisible: true, selectionActive: false};
   const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
     memory: {read: () => new Promise<string>(resolve => {finish = resolve;}), remember: async (_scope: unknown, id: string) => {writes.push(id);}},
     onDestination: (destination: unknown) => {navigations.push(destination); snapshot = {...snapshot, destination};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}, scrollToTop() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: number) => React.useRef({value}).current, withTiming: (value: unknown) => value},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 44, bottom: 34})}, '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'},

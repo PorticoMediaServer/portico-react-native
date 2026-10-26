@@ -6,6 +6,7 @@ import {OverlaysProvider} from '../kit/overlays';
 import {AccountMenu} from '../kit/shell';
 import {useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
+import {useTVMenuCapture} from '../platform/tv-menu';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
@@ -34,6 +35,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   /** The sidebar's own breakpoint, captured so the hook reads a plain value. */
   const wideSidebar = dimensions.width >= 1024;
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
+  useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {const remember = () => {const saved = registry.capture();
     if (saved && (saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true)) pageFocus.current = saved;
@@ -50,6 +52,11 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const holdRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(lease), []);
   const releaseRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(current => current === lease ? undefined : current), []);
   const [homeScrolled, setHomeScrolled] = useState(false);
+  const focused = registry.capture();
+  const homeStart = destination.kind === 'home' && snapshot.homeVisible && !snapshot.homeObscured
+    && !snapshot.mediaExpanded && !homeScrolled && !accountOpen && !chromeHidden && snapshot.contentVisible !== false
+    && focused?.regionId === ids.spotlight && focused.childId === 'play';
+  useTVMenuCapture(theme.isTV && !homeStart);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const sidebarRevision = useRef(0);
   const sidebarLifetime = useRef<object | undefined>(undefined);

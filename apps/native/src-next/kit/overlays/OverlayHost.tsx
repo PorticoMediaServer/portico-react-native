@@ -1,6 +1,7 @@
 import React, {createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, StyleSheet, View, type GestureResponderEvent} from 'react-native';
 import {registerOverlayKeys} from '../../platform/overlay-keys';
+import {captureTVMenuKey} from '../../platform/tv-menu';
 import {useTheme} from '../theme';
 import {FocusProvider, requestNativeFocus, useOptionalFocusRegistry} from '../focus';
 import {containsPoint, type Rect} from './geometry';
@@ -97,6 +98,7 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
     const registration = {};
     const remove = stack.register(registration, reason => dismissRef.current(reason));
     const releaseKeys = retainOverlayKeys();
+    const releaseMenu = captureTVMenuKey();
     const timer = setTimeout(() => {if (stack.isTop(registration)) focusTarget(initial.current?.current);}, delay.current);
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!stack.isTop(registration)) return false;
@@ -108,6 +110,7 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
       back.remove();
       const wasTop = remove();
       releaseKeys();
+      releaseMenu();
       releaseReturn?.();
       releaseOpener?.();
       if (wasTop && restoring.current) {

@@ -244,7 +244,7 @@ test('a new hero source at the same index owns a fresh clock and unmount fences 
 
 const authority: shellModel.ShellAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: '1', viewerFence: 'viewer'};
 function shellRuntime(onMemoryRead?: () => void) {
-  let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [{id: 'movies', kind: 'movie'}], hasLiveTV: false, profile: {}, account: {}};
+  let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [{id: 'movies', kind: 'movie'}], hasLiveTV: false, profile: {}, account: {actions: []}};
   const reads: ReturnType<typeof deferred<string | undefined>>[] = [], destinations: unknown[] = [];
   const runtime = {subscribe: () => () => {}, getSnapshot: () => snapshot,
     memory: {read: () => {onMemoryRead?.(); const read = deferred<string | undefined>(); reads.push(read); return read.promise;}, remember: async () => {}},
@@ -256,6 +256,7 @@ function shellRuntime(onMemoryRead?: () => void) {
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime) {
   const registry = createFocusRegistry();
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}})}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
