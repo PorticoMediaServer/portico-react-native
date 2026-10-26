@@ -231,3 +231,72 @@ test('scoped TV profile entry uses actual current/remembered offered face and ke
     assert.equal(content.props.retainDisabledFocus, true, 'same focused face retains its visual ring while checking');
   } finally {picker.host.unmount(); state.theme = previousTheme;}
 });
+
+// FX-173 / BLK-TV-006 authored UNRUN source: the shared state action must reach its
+// FocusRegion with an identity. Element declarations here prove the identity the
+// region consumes; they do not claim native graph acceptance or a device walk.
+test('shared state actions hand their effective identity to the focus region, including the no-prefix fallback', () => {
+  let pressed = 0;
+  const noPrefix = mount(StateActionButton, {action: {id: 'retry', label: 'Retry', onPress: () => {pressed++;}}});
+  try {
+    const button = noPrefix.tree as Element;
+    // Without any caller testID the caller's required semantic action id is the identity.
+    assert.equal((button.props as any).focusId, 'retry');
+    assert.equal((button.props as any).testID, undefined);
+    assert.equal(nativeControlID(button), undefined, 'no testID is invented for the native host');
+    (button.props as any).onPress(); assert.equal(pressed, 1);
+  } finally {noPrefix.host.unmount();}
+
+  const prefixed = mount(StateActionButton, {testID: 'native-start-refusal', action: {id: 'retry', label: 'Retry', onPress() {}}});
+  try {
+    const button = prefixed.tree as Element, expected = id('native-start-refusal', 'action', 'retry');
+    assert.equal((button.props as any).testID, expected, 'the derived testID is unchanged');
+    assert.equal((button.props as any).focusId, expected, 'the region receives that same identity as focusId');
+    assert.equal(nativeControlID(button), expected);
+  } finally {prefixed.host.unmount();}
+
+  const overridden = mount(StateActionButton, {testID: 'native-start-refusal', action: {id: 'retry', label: 'Retry', testID: 'native-start-explicit', onPress() {}}});
+  try {
+    const button = overridden.tree as Element;
+    assert.equal((button.props as any).testID, 'native-start-explicit', 'an action testID override still wins');
+    assert.equal((button.props as any).focusId, 'native-start-explicit');
+    assert.equal(nativeControlID(button), 'native-start-explicit');
+  } finally {overridden.host.unmount();}
+});
+
+test('a state action keeps one identity across busy, enabled and sibling compositions', () => {
+  const action = {id: 'retry', label: 'Retry', onPress() {}};
+  // One mounted binding across busy -> enabled: the identity and the eligibility of
+  // the same child are what a region retains, not a replacement element.
+  const binding = mount(StateActionButton, {testID: 'tv.people.failure', action, loading: true, disabled: true});
+  try {
+    assert.equal((binding.tree as Element).props.focusId, id('tv.people.failure', 'action', 'retry'));
+    assert.equal(nativeControlID(binding.tree as Element), id('tv.people.failure', 'action', 'retry'));
+    binding.update({testID: 'tv.people.failure', action, loading: false, disabled: false});
+    assert.equal((binding.tree as Element).props.focusId, id('tv.people.failure', 'action', 'retry'), 'busy to enabled keeps the same identity');
+    assert.equal(nativeControlID(binding.tree as Element), id('tv.people.failure', 'action', 'retry'), 'the same native child keeps that testID');
+    assert.equal((binding.tree as Element).props.disabled, false);
+  } finally {binding.host.unmount();}
+
+  // TVPeoplePanel's composition: one FocusRegion, a runtime error StateView whose
+  // actions are the shared component, and distinct sibling prefixes elsewhere.
+  const composition = mount(StateView, {title: 'Error', primaryAction: {id: 'retry', label: 'Retry', onPress() {}}, secondaryAction: {id: 'back', label: 'Back', testID: 'tv.people.back', onPress() {}}, additionalActions: [{id: 'details', label: 'Details', onPress() {}}]});
+  try {
+    const actions = ofType(composition.tree, StateActionButton);
+    assert.equal(actions.length, 3);
+    const mounted = actions.map(element => mount(StateActionButton, element.props));
+    try {
+      const ids = mounted.map(instance => (instance.tree as Element).props.focusId);
+      // No StateView prefix here: each action's own semantic id is its identity.
+      assert.deepEqual(ids, ['retry', 'tv.people.back', 'details']);
+      assert.equal(new Set(ids).size, 3, 'primary, secondary and additional actions never collide');
+    } finally {for (const instance of mounted) instance.host.unmount();}
+  } finally {composition.host.unmount();}
+
+  const library = mount(StateView, {testID: 'tv.library.failure', title: 'Error', primaryAction: {id: 'retry', label: 'Retry', onPress() {}}});
+  try {
+    const libraryAction = mount(StateActionButton, ofType(library.tree, StateActionButton)[0]!.props);
+    try {assert.equal((libraryAction.tree as Element).props.focusId, id('tv.library.failure', 'action', 'retry'), 'distinct sibling prefixes keep distinct identities');}
+    finally {libraryAction.host.unmount();}
+  } finally {library.host.unmount();}
+});
