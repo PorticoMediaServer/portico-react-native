@@ -100,6 +100,11 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   // starts only in the current interaction, tracks only while the source is
   // unchanged, commits once on a successful end, and cancels on failure, a new
   // interaction or unmount. Taps and the accessibility actions take the same path.
+  // Plain, worklet-safe timing configs: the Reanimated worklets capture these
+  // values instead of calling the JS motion helper at gesture time.
+  const exitTiming = useMemo(() => motion.timing('standard', 'out'), [motion]);
+  const outwardTiming = useMemo(() => motion.reduce ? exitTiming : {...exitTiming, duration: 200}, [motion, exitTiming]);
+  const transforms = motion.transforms;
   const scrubEpoch = useSharedValue(-1), scrubVersion = useSharedValue(0), scrubActive = useSharedValue(0);
   const seekFraction = useCallback((fraction: number) => {
     if (!currentInteraction() || scrubStart === undefined || scrubEnd === undefined) return;
@@ -155,30 +160,29 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
         // a drag and its release stay in step. Reduced motion keeps the bar in
         // place and fades it linearly; the return keeps the snap spring, and the
         // same successful completion gate decides the dismissal.
-        const timed = motion.timing('standard', 'out');
         if (spring === undefined) {
           x.value = 0;
-          fade.value = withTiming(0, timed, done);
+          fade.value = withTiming(0, exitTiming, done);
         } else {
-          x.value = withTiming(direction * width.value * 1.25, {...timed, duration: 200}, done);
+          x.value = withTiming(direction * width.value * 1.25, outwardTiming, done);
         }
       } else if (spring) x.value = withSpring(0, {...spring, velocity: event.velocityX});
-      else {x.value = 0; fade.value = withTiming(1, motion.timing('standard', 'out'));}
+      else {x.value = 0; fade.value = withTiming(1, exitTiming);}
     }).onFinalize((_event, success) => {
       if (!success && lifetime.value === gestureSource.epoch) {
         run.value++; active.value = false; cancelAnimation(x); cancelAnimation(fade);
         x.value = spring ? withSpring(0, spring) : 0; fade.value = 1;
       }
-    }), [x, xOrigin, width, spring, fade, dismissFromGesture, visible, expandedBar, gestureSource, lifetime, run, active, motion]);
+    }), [x, xOrigin, width, spring, fade, dismissFromGesture, visible, expandedBar, gestureSource, lifetime, run, active, outwardTiming, exitTiming]);
   const gestures = useMemo(() => morph ? Gesture.Race(aside, morph.dockGesture) : aside, [aside, morph]);
   // Local video uses the single ancestor shared with its native picture. Applying
   // x/fade here too would double the chrome's movement and opacity.
   const animated = useAnimatedStyle(() => {
     // Opacity follows the bar's actual travel while it can transform; reduced
     // motion has no displacement and uses its own linear fade.
-    const travel = motion.transforms && !sharedPicture ? Math.max(0, Math.min(1, 1 - Math.abs(x.value - xOrigin.value) / Math.max(1, width.value))) : 1;
+    const travel = transforms && !sharedPicture ? Math.max(0, Math.min(1, 1 - Math.abs(x.value - xOrigin.value) / Math.max(1, width.value))) : 1;
     return {opacity: sharedPicture ? 1 : Math.min(travel, fade.value), transform: [{translateX: sharedPicture ? 0 : x.value}, {scale: held.value}]};
-  });
+  }, [transforms, sharedPicture]);
   const beginHold = useCallback(() => {
     if (!currentInteraction()) return;
     hold.current = {source: gestureSource, used: false};
