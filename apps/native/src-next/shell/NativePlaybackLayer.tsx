@@ -28,6 +28,7 @@ import {NativeVideoSnapshotCapture} from './video-snapshot';
 import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
 import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 import {TVStartFailure} from './TVStartFailure';
+import {TouchPlaybackPreparation} from './TouchPlaybackPreparation';
 import {TouchStartFailure} from './TouchStartFailure';
 
 const noListeningSubscribe = () => () => {};
@@ -326,6 +327,8 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
+    {!theme.isTV && !snapshot.retired && sameAuthority(snapshot.authority, authority) && !snapshot.startFailure && !snapshot.capacityWait
+      && snapshot.playback.preparation && <TouchPlaybackPreparation message={runtime.text.t(snapshot.playback.preparation.messageId)}/>}
     {(snapshot.startFailure || snapshot.capacityWait) && (theme.isTV
       ? <TVStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>
       : <TouchStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>)}

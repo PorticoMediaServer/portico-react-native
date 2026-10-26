@@ -27,6 +27,8 @@ export type NativeShellVideoSnapshot = Readonly<{
   release: () => Promise<void>;
 }>;
 export type NativeShellPlaybackSnapshot = Readonly<{
+  /** Actual runtime retirement, never inferred from a missing session/fence. */
+  retired: NativePlaybackRuntimeSnapshot['retired'];
   authority: ShellAuthority;
   dock: DockState;
   playback: PlaybackSnapshot;

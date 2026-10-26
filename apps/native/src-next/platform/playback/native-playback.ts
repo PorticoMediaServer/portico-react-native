@@ -33,7 +33,7 @@ import {PlaybackApiError, idempotencyKey, type V1Http, type V1Request} from '../
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import type {MediaPlayer, PlayerEvent, PlayerObservation, PlayerSource, PlayerState} from '../../../../../packages/client-core/src/playback-v1/port';
 import {parseObservedPlayback, type ObservedPlayback} from '../../../../../packages/client-core/src/playback-v1/observed-playback';
-import {PlaybackSessionController, SessionsClient, type SessionChange, type SessionChangeContext, type StartOptions, type StartTarget, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
+import {PlaybackSessionController, SessionsClient, type SessionChange, type SessionChangeContext, type StartOptions, type StartTarget, type StartContext, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import {requireSessionChangeCurrent} from '../../../../../packages/client-core/src/playback-v1/change-context';
 import {toPlaybackSession} from '../../../../../packages/client-core/src/playback-v1/session-shape';
 import type {DiscTitleRef, Session} from '../../../../../packages/client-core/src/playback-v1/types';
@@ -437,8 +437,9 @@ export class NativePlayback {
         return v ? v.durationMs / 1000 : 0;
       } catch { return 0; } // The engine reports the duration once it has the media.
     };
-    const start = async (target: StartTarget, options: StartOptions, key: string = (self.host.key ?? idempotencyKey)(), durationSeconds?: number, signal?: AbortSignal) => {
-      const session = self.keep(await self.client.start(target, options, key, {signal}));
+    const start = async (target: StartTarget, options: StartOptions, key: string = (self.host.key ?? idempotencyKey)(), durationSeconds?: number, signal?: AbortSignal,
+      context: Pick<StartContext, 'isCurrent' | 'capturePreparing' | 'onPreparing'> = {}) => {
+      const session = self.keep(await self.client.start(target, options, key, {...context, signal}));
       return {session, playback: toPlaybackSession(session, session.discTitle
         ? await duration(session.itemId ?? '', session.versionId, signal, session.discTitle)
         : durationSeconds ?? await duration(session.itemId ?? '', session.versionId, signal))};
