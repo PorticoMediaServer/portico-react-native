@@ -343,7 +343,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
           enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
-      </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}
+      </View> : <><FocusRegion id={ids.savedToolbar} enabled={active.visible} orientation="horizontal"
+        edges={{up: ids.savedTabs, down: ids.savedGrid, left: ids.rail}}
         onLayout={event => {measurement.region = event.nativeEvent.layout.y;}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 24}}>
         {tab !== 'history' ? <>
@@ -365,9 +366,13 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
+      </FocusRegion>
+      {/* The cards below the toolbar are their own region: a card remembers its column and row
+          without the toolbar's controls sharing that memory, and Up from a card returns here. */}
+      <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedToolbar, left: ids.rail}}>
       <View onLayout={event => {measurement.body = event.nativeEvent.layout.y;}}
         style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
-      </FocusRegion>}
+      </FocusRegion></>}
     </View></ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
