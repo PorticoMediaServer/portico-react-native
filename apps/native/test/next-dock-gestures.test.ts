@@ -1,3 +1,5 @@
+import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
+import {dockHandoverFixture} from './helpers/screen-harness.mjs';
 import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
 import {nativeEqualizer} from '../platform/equalizer.ts';
@@ -31,7 +33,8 @@ const linear = (value: number) => value;
 type Animation = {to: any; config?: any; complete?: (finished: boolean) => void; apply?: () => void; sample?: (value: any) => void; owner?: any; cancelled?: boolean};
 function elements(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(elements);
-  return React.isValidElement<any>(node) ? [node, ...elements(node.props.children)] : [];
+  // Presentation slots are materialised JSX, not evaluated component bodies.
+  return React.isValidElement<any>(node) ? [node, ...['children', 'row', 'opener', 'art', 'words', 'controls', 'tools', 'line'].flatMap(key => elements(node.props[key]))] : [];
 }
 async function rig({reduced = false, docked = false, kind = 'video', os = 'android', tv = false, paused = false, controlledClock = false}: {reduced?: boolean; docked?: boolean; kind?: 'video' | 'live' | 'music'; os?: string; tv?: boolean; paused?: boolean; controlledClock?: boolean} = {}) {
   const animations: Animation[] = [], cancelled: any[] = [], js: (() => void)[] = [], actions: any[] = [], transitions: any[] = [], requests: number[] = [];
@@ -85,7 +88,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     NativeModules: {PorticoHaptics: {selection: async () => {requests.push(now); return true;}}},
     BackHandler: {addEventListener: (_event: string, callback: () => boolean) => {backCallbacks.push(callback);activeBack.add(callback);return {remove() {activeBack.delete(callback);}};}}, useWindowDimensions: () => ({width: 400, height: 800})};
   const visual = {alpha: () => '#000', DockFacts: 'DockFacts', dockStyles: {fill: {position: 'absolute', inset: 0}}, dockType: () => ({})};
-  const common = {react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture, GestureDetector: 'GestureDetector'},
+  const common = {'./DockHandover': dockHandoverFixture, react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture, GestureDetector: 'GestureDetector'},
     '../../../../../packages/player-core/src/index': {sameFence}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     '../Icon': {Icon: 'Icon'}, './visual': visual, './model': model, '../../platform/layout/player-presentation': {playerPostureCrossFadeMs}};
   const {selectionHaptic} = await screenModule(new URL('../src-next/platform/haptics.ts', import.meta.url), {react, 'react-native': native});
@@ -110,6 +113,8 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const signalView = await screenModule(new URL('../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     './listening-presentation': {expandedListeningOccupant},
+    '../kit/dock/video-exit-paint': {DockVideoExitImages},
+    '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},

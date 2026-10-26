@@ -86,6 +86,8 @@ export type PlayerMorphController = {
   chromeGesture: (enabled: boolean) => PanGesture;
 };
 export type DockHostProps = {
+  /** Consume only an original pre-retirement captured image and its measured slot. */
+  takeVideoExit?: import('./video-exit-paint').TakeDockVideoExit;
   testID?: string;
   dock: PlaybackDock;
   snapshot: DockState;
@@ -99,7 +101,7 @@ export type DockHostProps = {
   tvExpanded?: boolean;
   onTVExpandedChange?: (expanded: boolean) => void;
   returnFocusRef?: React.RefObject<View | null>;
-  onVideoSlot?: (rect: DockRect) => void;
+  onVideoSlot?: (rect: DockRect, sourceCurrent?: () => boolean) => void;
   morph?: PlayerMorphController;
   notice?: DockNoticeModel;
   onNoticeDismiss?: () => void;
