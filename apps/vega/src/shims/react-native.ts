@@ -154,10 +154,16 @@ export function useTVEventHandler(handler: (event: TVRemoteEvent) => void): void
     trace(`key ${name}${raw.eventKeyAction === undefined ? '' : ' ' + raw.eventKeyAction}`);
     const keys = held.current;
     if (raw.eventKeyAction === 0) {
-      // A held key repeats its "down"; only the first one starts the hold.
-      if (keys.has(name)) return;
-      const key = {long: false, timer: setTimeout(() => { key.long = true; latest.current({eventType: longName(name), eventKeyAction: 0}); }, HOLD_MS)};
-      keys.set(name, key);
+      const held = keys.get(name);
+      if (!held) {
+        const key = {long: false, timer: setTimeout(() => { key.long = true; latest.current({eventType: longName(name), eventKeyAction: 0}); }, HOLD_MS)};
+        keys.set(name, key);
+        return;
+      }
+      // The device repeats a held key's "down" at its own rate. Before the hold is long there is
+      // nothing to report - a tap is one press, delivered on release. Once it is long each repeat
+      // is one more long event, so a held direction moves at the rate the device repeats at.
+      if (held.long) latest.current({eventType: longName(name), eventKeyAction: 0});
       return;
     }
     if (raw.eventKeyAction === 1) {
