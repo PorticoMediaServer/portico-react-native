@@ -297,29 +297,40 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
     onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
   }))}/>;
-  // Frame 2b's card geometry: 190 pt expanded, 118 pt on the phone, 2:3 art.
-  const shelfWidth = wide ? 190 : theme.platform === 'phone' ? 118 : 150, shelfHeight = shelfWidth * 3 / 2;
-  const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: 30}}>
-    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingHorizontal: 20, marginBottom: 10}}>
-      <Text accessibilityRole="header" style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{t('next.kit.booksInSeries')}</Text>
-      <Text numberOfLines={1} style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{series.name}</Text>
+  // Frame 2b's resolved styles inside .dev.ipad-land (tablet-read.html lines 782 and
+  // 820-830 override kit.css): --gutter 32, .row margin-top 28, .row-head h2 21,
+  // .track padding 8/32/10 gap 14, .card 142 wide (2:3 art 213), .card .t 13.5/600
+  // nowrap margin-top 10, .card .s 13/400 margin-top 2. The native ScrollView has no
+  // horizontal padding of its own, so the section's 32 is the screen-edge inset the
+  // frame's .dev gutter asks for; nothing adds a second 64. Phone and upright keep
+  // the values they were merged with.
+  const expanded = wide;
+  const inset = expanded ? 32 : rowHero ? 28 : 20;
+  const shelfWidth = expanded ? 142 : theme.platform === 'phone' ? 118 : 150, shelfHeight = shelfWidth * 3 / 2;
+  const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: expanded ? 28 : 30}}>
+    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: expanded ? 14 : 10, paddingHorizontal: inset, marginBottom: expanded ? 14 : 10}}>
+      <Text accessibilityRole="header" style={[browseType(theme, expanded ? 21 : 19, 700, -.015), {color: theme.colors.text}]}>{t('next.kit.booksInSeries')}</Text>
+      <Text numberOfLines={1} style={[browseType(theme, expanded ? 14 : 13, expanded ? 400 : 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{series.name}</Text>
       <Focusable testID="native-read-book-series-all" accessibilityRole="link" accessibilityLabel={t('next.layout.seeAll')} hitSlop={10}
         onPress={() => onSeries(series, manifest)} style={{marginLeft: 'auto'}}>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-          <Text style={[browseType(theme, 13, 600), {color: theme.colors.accentStrong}]}>{t('next.layout.seeAll')}</Text>
-          <Icon name="i-right" size={14} color={theme.colors.accentStrong}/>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: expanded ? 2 : 4}}>
+          <Text style={[browseType(theme, expanded ? 14 : 13, 600), {color: expanded ? theme.colors.textTertiary : theme.colors.accentStrong}]}>{t('next.layout.seeAll')}</Text>
+          <Icon name="i-right" size={expanded ? 16 : 14} color={expanded ? theme.colors.textTertiary : theme.colors.accentStrong}/>
         </View>
       </Focusable>
     </View>
     {shelf.phase === 'error' ? <StateView {...runtime.error(shelf.error, onShelfRetry, 'library')}/>
-      : <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: 20, gap: 10, paddingBottom: 4}}
+      : <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100}
+        contentContainerStyle={expanded
+          ? {paddingHorizontal: inset, paddingTop: 8, paddingBottom: 10, gap: 14}
+          : {paddingHorizontal: 20, paddingTop: 0, paddingBottom: 4, gap: 10}}
         onScroll={event => {
           // Only a real cursor pages, and only when the track reaches its end.
           const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
           if (shelf.nextCursor && contentOffset.x + layoutMeasurement.width >= contentSize.width - shelfWidth / 2) onShelfMore();
         }}>
         {shelf.items.map(item => <VolumeCard key={`${item.id}:${item.sourceId}`} item={item} width={shelfWidth} height={shelfHeight} comic={comic} theme={theme} runtime={runtime}
-          onOpen={() => onShelfItem(item)}/>)}
+          variant={expanded ? 'shelf' : 'default'} onOpen={() => onShelfItem(item)}/>)}
       </ScrollView>}
     {shelf.moreError ? <StateView {...runtime.error(shelf.moreError, onShelfRetry, 'library')}/> : null}
   </View> : null;
