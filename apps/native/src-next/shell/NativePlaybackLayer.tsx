@@ -1,5 +1,6 @@
 import {DockVideoExitProvider, DockVideoExitCanvas} from '../kit/dock/DockHandover';
 import {DockVideoExitImages} from '../kit/dock/video-exit-paint';
+import {useListeningCoverPublication} from '../kit/dock/ListeningCoverBridge';
 import {usePlayerMorphPublication} from '../kit/dock/PlayerMorphBridge';
 import {InitialPicturePresentation} from '../kit/dock/InitialPicturePresentation';
 import {initialPictureKey} from '../kit/dock/initial-picture-model';
@@ -189,7 +190,30 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
       || !current.dock.local || (!current.dock.local.expanded) !== fromDocked) return;
     void adapter.onTransition(collapse ? adapter.dock.collapse(original) : adapter.dock.expand(original)).catch(runtime.reportError);
   }});
-  usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV && expandedReady ? pictureFence : undefined);
+  const audioFence = !theme.isTV && fence && local && (local.kind === 'music' || local.kind === 'audiobook') && sameFence(local.fence, fence) ? fence : undefined;
+  const coverOpening = useRef({open: false, key: {}});
+  if (listeningOpen && !coverOpening.current.open) coverOpening.current = {open: true, key: {}};
+  else if (!listeningOpen && coverOpening.current.open) coverOpening.current = {...coverOpening.current, open: false};
+  const coverOpeningKey = coverOpening.current.key;
+  const coverCurrent = useCallback(() => {
+    if (runtime.retirementSignal?.aborted) return false;
+    const current = adapter.getSnapshot();
+    return alive.current && !current.retired && sameAuthority(current.authority, authority) && !!audioFence && sameFence(current.fence, audioFence)
+      && (!navigation || navigation.getSnapshot() === navigationState);
+  }, [adapter, authority, audioFence, navigation, navigationState, runtime.retirementSignal]);
+  const coverSubscribe = useCallback((listener: () => void) => {
+    const signal = runtime.retirementSignal;
+    if (signal?.aborted) return () => {};
+    signal?.addEventListener('abort', listener, {once: true});
+    return () => signal?.removeEventListener('abort', listener);
+  }, [runtime.retirementSignal]);
+  const audioArtwork = useMemo(() => audioFence && sameAuthority(snapshot.authority, authority) ? runtime.artwork(snapshot.entry?.posterUrl) : undefined,
+    [audioFence, snapshot.authority, authority, runtime, snapshot.entry?.posterUrl]);
+  const coverPublication = useMemo(() => audioFence && audioArtwork ? {fence: audioFence, source: audioArtwork,
+    controller: morph, scope: navigationState, opening: coverOpeningKey, current: coverCurrent, subscribe: coverSubscribe} : undefined,
+    [audioFence, audioArtwork, morph, navigationState, coverOpeningKey, coverCurrent, coverSubscribe]);
+  useListeningCoverPublication(coverPublication);
+  usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV ? audioFence ?? (expandedReady ? pictureFence : undefined) : undefined);
   const {dockX, dockFade, dockTravelFade} = morph;
   const miniExitCurrent = useCallback((proof: NonNullable<typeof miniExitProof.current>) => {
     if (runtime.retirementSignal?.aborted) return false;
@@ -363,7 +387,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     if (alive.current && image && retainedImage.current?.owner === capture && retainedImage.current.image === image && sameAuthority(current.authority, authority) && sameFence(current.fence, image.fence)) setImageState({image, state});
   };
   const presentation: DockPresentation | undefined = fence && snapshot.subject ? {fence, identity: playbackIdentity(snapshot.subject, 'dock', runtime.text),
-    artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
+    artwork: audioArtwork ?? runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, skipForwardSeconds: runtime.skipForwardSeconds, capabilities: snapshot.capabilities} : undefined;
   const cast=playOnState?.cast,castSource=cast?.source;

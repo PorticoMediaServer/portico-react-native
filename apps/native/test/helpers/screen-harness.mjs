@@ -59,3 +59,11 @@ export const surfacePaintFixture = {
 // These shallow input/slot cases inspect the materialised current row; the
 // actual handover hooks have separate source vectors and are not run here.
 export const dockHandoverFixture = {DockHandover: 'DockHandover', DockPaintRow: 'DockPaintRow'};
+// Geometry is outside these shallow command/focus fixtures. The production
+// default without a publication is no shared cover and an unchanged local slot.
+export const listeningCoverFixture = {
+  ListeningCoverProvider: ({children}) => children,
+  ListeningCoverLocalPaint: 'ListeningCoverLocalPaint',
+  useListeningCoverPublication() {},
+  useListeningCoverSlot: () => ({measure() {}, style: {}}),
+};

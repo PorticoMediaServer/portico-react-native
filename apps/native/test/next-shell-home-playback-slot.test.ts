@@ -1,4 +1,5 @@
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -27,6 +28,7 @@ test('actual playback layer converts measured window slot to its own origin and 
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
+    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     react: h.react, 'react-native': {BackHandler: {}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},

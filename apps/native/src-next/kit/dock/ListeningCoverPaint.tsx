@@ -40,9 +40,9 @@ export function ListeningCoverPaint({source, full, mini, progress, visible = tru
   return <Animated.View testID={testID} pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
     style={[styles.box, {left: full.x, top: full.y, width: full.width, height: full.height}, placement]}>
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={StyleSheet.absoluteFill}>
-      <Artwork source={source} width={full.width} height={full.height} visible={visible} onReady={onReady} onError={onError}/>
+      <Artwork source={source} width={full.width} height={full.height} visible={visible} arrivalDurationMs={0} onReady={onReady} onError={onError}/>
     </View>
   </Animated.View>;
 }
 
-const styles = StyleSheet.create({box: {position: 'absolute', overflow: 'hidden'}});
+const styles = StyleSheet.create({box: {position: 'absolute', overflow: 'hidden', borderRadius: 14}});

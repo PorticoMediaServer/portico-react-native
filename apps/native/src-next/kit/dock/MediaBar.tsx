@@ -10,6 +10,7 @@ import {Popover} from '../overlays';
 import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {ListeningCoverLocalPaint, useListeningCoverSlot} from './ListeningCoverBridge';
 import {BlurView} from '../../platform/native-blur';
 import {selectionHaptic} from '../../platform/haptics';
 import {DockHandover, DockPaintRow} from './DockHandover';
@@ -19,7 +20,7 @@ import {sameDockFence, commandAllowed, dockCommand, expandedDockMetrics, mediumD
 import {alpha, DockFacts, dockStyles as s, dockType} from './visual';
 import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMorphController} from './types';
 
-const dockPaintTypes = [DockPaintRow, View, Text, Image, React.Fragment, Artwork, Button, Focusable, Icon, DockFacts, ActivityIndicator];
+const dockPaintTypes = [DockPaintRow, View, Text, Image, React.Fragment, Artwork, Button, Focusable, Icon, DockFacts, ActivityIndicator, ListeningCoverLocalPaint];
 
 export type MediaBarProps = DockRenderProps & {
   onVideoSlot?: (rect: DockRect, sourceCurrent?: () => boolean) => void;
@@ -44,6 +45,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const {presentation: p, remote, playback} = occupant;
   const menuSource = useRef(playback.fence), menuRemote = useRef(remote?.id);
   const video = occupant.mode === 'video', wide = video || !!remote;
+  const audioCover = useListeningCoverSlot(!remote && playback.fence.kind !== 'cast-view' && (occupant.mode === 'music' || occupant.mode === 'audiobook') ? playback.fence : undefined, 'mini', art, visible && slotAdmission !== null && slotAdmission?.isCurrent() !== false);
   // tablet-play 4a/13: an expanded window draws the dock at the content's foot.
   const expandedBar = !theme.isTV && theme.platform === 'web';
   const sharedPicture = video && morph?.dockMotionHosted === true, x = sharedPicture ? morph.dockX : localX, fade = sharedPicture ? morph.dockFade : localFade;
@@ -244,13 +246,14 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     measureArt();
     return () => {request.current++;};
   }, [measureArt]);
+  const measureAudioCover = audioCover.measure;
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const measured = event.nativeEvent.layout.width;
     artLayout.current++;
     width.value = measured;
     setExpandedWidth(current => current === Math.round(measured) ? current : Math.round(measured));
-    measureArt();
-  }, [width, measureArt]);
+    measureArt(); measureAudioCover();
+  }, [width, measureArt, measureAudioCover]);
   const label = remote ? t('next.dock.native.openRemote', {title: p.identity.title, device: p.device ?? t('cast.theTV')}) : t('next.dock.native.openPlayerLabel', {title: p.identity.title});
   const button = (type: DockAction, icon: IconName, name: string, size = 22, close = false, skip?: 'back' | 'forward', primary = false) => {
     const enabled = commandAllowed(occupant, type);
@@ -295,10 +298,12 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     onPressOut={endHold}
     accessibilityActions={[{name: 'activate', label: remote ? label : t('next.dock.native.openPlayer')}, {name: 'stop', label: t('action.stop')}]}
     onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'stop') dismiss(); else if (event.nativeEvent.actionName === 'activate') act(remote ? 'open-remote' : 'expand');}}/>;
-  const artPaint = <View ref={art} collapsable={false} onLayout={() => {artLayout.current++; measureArt();}} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
+  const artPaint = <View ref={art} collapsable={false} onLayout={() => {artLayout.current++; measureArt(); audioCover.measure();}} pointerEvents="none" style={[artStyle, {backgroundColor: theme.colors.shadow}]}>
+      <ListeningCoverLocalPaint fence={!video && !remote && playback.fence.kind !== 'cast-view' ? playback.fence : undefined} style={{width: artWidth, height: artHeight}}>
       {!video && <Artwork source={p.artwork} width={artWidth} height={artHeight} visible={visible} priority imageStyle={{opacity: connecting || terminal ? .55 : 1}}/>}
       {video && <View style={[s.expand, {backgroundColor: alpha(theme.colors.dim, .62)}]}><Icon name="i-full" size={11}/></View>}
       {remote && <View style={[s.fill, s.center, {backgroundColor: alpha(theme.colors.dim, .55)}]}>{connecting ? <ActivityIndicator size={20} color={theme.colors.text}/> : <Icon name="i-tvdev" size={18}/>}</View>}
+      </ListeningCoverLocalPaint>
     </View>;
   const wordsPaint = <><Text numberOfLines={1} ellipsizeMode="tail" style={[dockType(theme, titleSize, 700), {color: theme.colors.text}]}>{p.identity.title}</Text>
       <DockFacts parts={subtitle} style={{...dockType(theme, subtitleSize, 400), color: theme.colors.textSecondary}} gap={12}/>

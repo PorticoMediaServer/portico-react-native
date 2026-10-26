@@ -1,3 +1,4 @@
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -22,6 +23,7 @@ test('a real screen-owned Library destination is remembered and a late initial r
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
+    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     '../platform/tv-menu': {useTVMenuCapture: () => {}},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},

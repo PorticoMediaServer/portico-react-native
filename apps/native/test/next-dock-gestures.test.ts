@@ -1,5 +1,6 @@
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
 import {dockHandoverFixture} from './helpers/screen-harness.mjs';
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
 import {nativeEqualizer} from '../platform/equalizer.ts';
@@ -88,7 +89,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     NativeModules: {PorticoHaptics: {selection: async () => {requests.push(now); return true;}}},
     BackHandler: {addEventListener: (_event: string, callback: () => boolean) => {backCallbacks.push(callback);activeBack.add(callback);return {remove() {activeBack.delete(callback);}};}}, useWindowDimensions: () => ({width: 400, height: 800})};
   const visual = {alpha: () => '#000', DockFacts: 'DockFacts', dockStyles: {fill: {position: 'absolute', inset: 0}}, dockType: () => ({})};
-  const common = {'./DockHandover': dockHandoverFixture, react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture, GestureDetector: 'GestureDetector'},
+  const common = {'./ListeningCoverBridge': listeningCoverFixture, './DockHandover': dockHandoverFixture, react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture, GestureDetector: 'GestureDetector'},
     '../../../../../packages/player-core/src/index': {sameFence}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     '../Icon': {Icon: 'Icon'}, './visual': visual, './model': model, '../../platform/layout/player-presentation': {playerPostureCrossFadeMs}};
   const {selectionHaptic} = await screenModule(new URL('../src-next/platform/haptics.ts', import.meta.url), {react, 'react-native': native});
@@ -117,6 +118,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
+    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     ...common, '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme},
     '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},

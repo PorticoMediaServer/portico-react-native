@@ -17,6 +17,7 @@ import {AmbientArt, Artwork} from '../../../kit/artwork';
 import {Button} from '../../../kit/controls';
 import {Icon} from '../../../kit/Icon';
 import {useTheme} from '../../../kit/theme';
+import {useListeningCoverSlot} from '../../../kit/dock/ListeningCoverBridge';
 import {browseType} from '../../../kit/browse/presentation';
 import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
@@ -100,6 +101,8 @@ export function TVListeningRoute({value, scope, onPresenceChange}: {value?: NowP
 
 function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
+  const coverSlot = useRef<View>(null);
+  const sharedCover = useListeningCoverSlot(playback.fence, 'full', coverSlot);
   // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
   // and revision this screen drew, so a queue that moved on refuses it.
@@ -198,7 +201,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const cover = Math.max(160, Math.min(410, wide ? width - QUEUE_WIDTH - 120 : width - 96));
   const column = <View testID={`${testID}-column`} style={{flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 28, paddingTop: wide ? 36 : 20}}>
     {playingFrom ? <Text numberOfLines={1} style={[browseType(theme, 13, 600), {marginBottom: 14, textAlign: 'center', color: theme.colors.textSecondary}]}>{t('next.music.playingFrom', {source: playingFrom})}</Text> : null}
-    {p.artwork ? <Artwork source={p.artwork} width={cover} height={cover} style={{borderRadius: 14}}/> : null}
+    {p.artwork ? <View ref={coverSlot} collapsable={false} onLayout={sharedCover.measure} style={{width: cover, height: cover}}><Animated.View style={sharedCover.style}><Artwork source={p.artwork} width={cover} height={cover} style={{borderRadius: 14}}/></Animated.View></View> : null}
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
@@ -266,7 +269,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         <NativeWatchEqualizer onBack={closePanel} copy={equalizerCopy()} reportError={reportError} store={nativeEqualizer}/>
       </View> : null}
       {side ? <View style={{flex: 1, flexDirection: 'row'}}>
-        <ScrollView contentContainerStyle={{flexGrow: 1, justifyContent: 'center'}} style={{flex: 1, minWidth: 0}} showsVerticalScrollIndicator={false}>{column}</ScrollView>
+        <ScrollView onScroll={sharedCover.measure} scrollEventThrottle={16} contentContainerStyle={{flexGrow: 1, justifyContent: 'center'}} style={{flex: 1, minWidth: 0}} showsVerticalScrollIndicator={false}>{column}</ScrollView>
         <View style={{width: QUEUE_WIDTH, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: 'rgba(9,19,27,.66)'}}>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 20, paddingBottom: 6}}>
             {queue && lyrics ? <>
@@ -281,7 +284,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
           </View>
           {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : lyrics}
         </View>
-      </View> : <ScrollView contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
+      </View> : <ScrollView onScroll={sharedCover.measure} scrollEventThrottle={16} contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
     </View>
     {theme.isTV && notice && <NativeListeningNotice notice={notice} persistent/>}
   </View></TVMusicFocus>;

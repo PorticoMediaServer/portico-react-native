@@ -1,4 +1,5 @@
 import {dockHandoverFixture} from './helpers/screen-harness.mjs';
+import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -61,6 +62,7 @@ async function rig(reduced = false) {
     '../../../../../packages/i18n/src/index': {defaultI18n}, '../../../../../packages/player-core/src/index': {sameFence},
     '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: () => ''},
     './DockHandover': dockHandoverFixture,
+    './ListeningCoverBridge': listeningCoverFixture,
     '../artwork': {Artwork: 'Artwork'}, '../controls': {Button: 'Button', Focusable: 'Focusable'}, '../overlays': {Popover: 'Popover'}, '../Icon': {Icon: 'Icon'},
     '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion}, '../../platform/native-blur': {BlurView: 'BlurView'}, '../../platform/haptics': {selectionHaptic: async () => false}, './model': model,
     './visual': {alpha: () => '#000', DockFacts: 'DockFacts', dockStyles: {}, dockType: () => ({})},
