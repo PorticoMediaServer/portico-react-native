@@ -1,6 +1,6 @@
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
-import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
+import {expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -61,7 +61,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../../../kit/theme': {useTheme: () => {throw Error('unexpected_music_signal_render');}, nativeType: () => {throw Error('unexpected_music_signal_render');}},
   });
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
-    './listening-presentation': {expandedListeningOccupant},
+    './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
@@ -76,7 +76,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
     '../kit/dock/model': dockModel,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
-    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen'},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview'},
     '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
     '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'NativeListeningNotice'},
     '../screens/destinations/music/MusicSignal': musicSignal,
