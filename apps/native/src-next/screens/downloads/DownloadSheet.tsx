@@ -94,6 +94,8 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
     mpv: Platform.OS === 'android' && (NativeModules.PorticoMpvPlaybackModule as undefined | {available?: boolean})?.available === true, player: engine ?? 'automatic'});
   const blocked = view && !view.policy.allowDownloads;
   const storage = view?.storage.remainingBytes;
+  // The episode question belongs to real shows and seasons; an album asks only for its files and a smaller copy.
+  const episodic = container?.kind === 'show' || container?.kind === 'season';
   return <BottomSheet open onOpenChange={open => {if (!open) close();}} testID="native-download-sheet" title={t('action.download')} description={request.title} fitContent
     footer={done ? <View style={{flexDirection: 'row', gap: 12}}><Focusable accessibilityRole="button" onPress={close} focusRadius={12} style={{minHeight: 48, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center'}}><Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{t('action.close')}</Text></Focusable>
       <Focusable accessibilityRole="button" onPress={() => {close(); context.navigation.open({kind: 'downloads'}, context.authority());}} focusRadius={12} style={{minHeight: 48, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.text, borderRadius: 12}}><Text style={[theme.type.bodyStrong, {color: theme.colors.ink}]}>{t('downloads.view')}</Text></Focusable></View> : undefined}>
@@ -102,8 +104,8 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
       {done ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{done}</Text> : <>
         {blocked && view && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{downloadReasonMessage(view.policy.reason) || t('downloads.offForProfile')}</Text>}
         {container && !deviceId && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('downloads.noDevice')}</Text>}
-        {container && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{policyRow('all', t('downloads.policyAll'))}{policyRow('unwatched', t('downloads.policyUnwatched'))}{policyRow('next', t('downloads.policyNext'))}</View>}
-        {container && policy === 'next' && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{[1, 3, 5].map(count => <Focusable key={count} accessibilityRole="button" accessibilityState={{selected: keepNext === count}} onPress={() => setKeepNext(count)} focusRadius={12}
+        {episodic && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{policyRow('all', t('downloads.policyAll'))}{policyRow('unwatched', t('downloads.policyUnwatched'))}{policyRow('next', t('downloads.policyNext'))}</View>}
+        {episodic && policy === 'next' && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{[1, 3, 5].map(count => <Focusable key={count} accessibilityRole="button" accessibilityState={{selected: keepNext === count}} onPress={() => setKeepNext(count)} focusRadius={12}
           style={{minHeight: 48, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center'}}><Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{t('downloads.keepNext', {count})}</Text>{keepNext === count && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.accentStrong}}/>}</Focusable>)}</View>}
         {!done && !container && !view && error === undefined && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.checking')}</Text>}
         {view && !blocked && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{view.options.map(titleOption)}</View>}
