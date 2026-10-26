@@ -17,9 +17,9 @@ const gesture = () => {const value: Record<string, unknown> = {}; for (const key
 const focusRegistry = registryModule.createFocusRegistry();
 let event: (event: {eventType: string; eventKeyAction: number}) => void;
 let isTV = true;
-const motion = {timing: () => ({duration: 0})};
-const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {
-  '../../kit/dock/PlayerMorphBridge': {usePublishedPlayerMorph: () => undefined},
+const motion = {duration: () => 180, timing: () => ({duration: 0})};
+const chromeModules = {
+  '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined, usePublishedPlayerMorph: () => undefined},
   './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})},
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', useTVEventHandler: (handler: typeof event) => {event = handler;}},
   'react-native-reanimated': {Easing: {linear: (value: number) => value}, default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
@@ -39,7 +39,8 @@ const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watc
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => focusRegistry}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {body: {}, bodyStrong: {}, caption: {}}})},
   '../../kit/useMotion': {useMotion: () => motion, useReducedMotion: () => true}, './controls': {NativeWatchControls}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
-});
+};
+const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), chromeModules);
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'version', entryId: 'entry', generation: 1});
 
 test('TV first Select event plus its genuine picture press only reveals; second press toggles playback', () => {
@@ -166,4 +167,38 @@ test('seek preview keeps transport native targets mounted for a guide-based Down
     assert.equal(find('watch-transport').props.style.opacity, 1);
     assert.equal(focusRegistry.capture()?.childId, 'watch-option-quality');
   } finally {host.unmount(); controls.dispose();}
+});
+
+/** Authored UNRUN source: actual chrome/controller with controlled paint driver,
+ * not a native timing or first-frame admission check. */
+test('a slow first frame never bypasses ordinary timer and toggle hiding after the entrance', async t => {
+  const previousTV = isTV; isTV = false;
+  let now = 10000, nextTimer = 0; const timers = new Map<number, {callback: () => void; at: number}>();
+  t.mock.method(Date, 'now', () => now);
+  const controls = new NativeWatchControls(false, {now: () => now,
+    set: (callback, delay) => {const id = ++nextTimer; timers.set(id, {callback, at: now + delay}); return id;},
+    clear: handle => {timers.delete(handle as number);}});
+  const paint = {key: {}, fence, title: {value: 0}, page: {value: 1}, controls: {value: 1}, landed: true, entering: false, controlsAdmitted: true};
+  const {NativeWatchChrome: Chrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {
+    ...chromeModules, '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => paint, usePublishedPlayerMorph: () => undefined},
+    'react-native-reanimated': {...chromeModules['react-native-reanimated'], useAnimatedStyle: (read: () => any) => new Proxy({}, {get: (_target, key) => read()[key]})},
+  });
+  const source = {fence, retired: false, dock: {local: {expanded: true}}, queue: {}, capabilities: {play: true, pause: true, seek: true}, playback: {intent: 'playing', positionSeconds: 17, duration: 100}};
+  const playback = {getSnapshot: () => source, toggle: async () => {}};
+  controls.source(fence, {expanded: true, autoHide: true, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: false});
+  let tree: any;
+  const host = createHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true, skipBackSeconds: 10, skipForwardSeconds: 30, skipModes: {intro: 'ask', recap: 'ask', credits: 'ask'}, onMinimize() {}, reportError: assert.fail});});
+  const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all) : React.isValidElement(node) ? [node, ...all((node as any).props.children)] : [];
+  try {
+    host.mount(); host.flush(); now += 5000;
+    for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
+    host.flush();
+    assert.equal(controls.getSnapshot().visible, false);
+    const hidden = all(tree).find(node => node.type === 'Animated' && node.props.pointerEvents === 'none' && node.props.importantForAccessibility === 'no-hide-descendants');
+    assert.ok(hidden); assert.equal(hidden.props.style.at(-1).opacity, 0);
+    assert.equal(paint.controls.value, 1, 'the initial presentation is still present and its entrance is already complete');
+    controls.reveal(fence); host.flush(); controls.toggleVisibility(fence); host.flush();
+    const toggled = all(tree).find(node => node.type === 'Animated' && node.props.pointerEvents === 'none' && node.props.importantForAccessibility === 'no-hide-descendants');
+    assert.equal(toggled.props.style.at(-1).opacity, 0);
+  } finally {host.unmount(); controls.dispose(); isTV = previousTV;}
 });

@@ -70,6 +70,8 @@ export type PlayerMorphController = {
   velocity: SharedValue<number>;
   dragging: SharedValue<boolean>;
   releaseVelocity: SharedValue<number>;
+  /** UI-only release goal, including before its guarded JS command settles. */
+  presentationGoal?: SharedValue<number>;
   request: (docked: boolean, velocity?: number) => void;
   /** Shared ancestor motion for video chrome AND its retained native picture. */
   dockMotionHosted: boolean;

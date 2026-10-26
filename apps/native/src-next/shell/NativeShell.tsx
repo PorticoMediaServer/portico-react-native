@@ -3,7 +3,7 @@ import {View, useWindowDimensions} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {OverlaysProvider} from '../kit/overlays';
-import {PlayerMorphProvider} from '../kit/dock/PlayerMorphBridge';
+import {PlayerMorphProvider, useInitialPlayerPagePaint} from '../kit/dock/PlayerMorphBridge';
 import {DockClearanceProvider} from '../kit/dock/DockClearance';
 import {SurfacePaintHost} from '../kit/overlays/SurfacePaintHost';
 import {AccountMenu} from '../kit/shell';
@@ -31,6 +31,8 @@ export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
 }
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {
+  const initialPlayer = useInitialPlayerPagePaint();
+  const initialTitle = initialPlayer?.title;
   const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const chromeHidden = useSyncExternalStore(subscribeNativeScreenChrome, nativeScreenChromeHidden);
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
@@ -187,6 +189,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   }, [accountOpen, chromeHidden, current, expanded, ids.rail, registry, runtime, theme.isTV, tvListeningPresent]);
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
+  const initialTitleStyle = useAnimatedStyle(() => ({opacity: initialTitle?.value ?? 1}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const barHeight = layout.tabs && !chromeHidden ? phoneBarHeight(insets.bottom, landscapePhone) : 0;
   // foldable3e/3f: the phone bar leaves only on medium; the dock floats at the foot.
@@ -222,7 +225,8 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {theme.isTV ? <View style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height, transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{content}</View> : content}
     {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority} contentInset={sideWidth} onTVListeningPresenceChange={theme.isTV ? setTVListeningPresent : undefined}/>}
     {runtime.renderWatch && <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>{runtime.renderWatch()}</View>}
-    {runtime.renderRoutes()}
+    {theme.isTV ? runtime.renderRoutes() : <Animated.View pointerEvents={initialPlayer ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer}
+      importantForAccessibility={initialPlayer ? 'no-hide-descendants' : 'auto'} style={[{position: 'absolute', inset: 0}, initialTitleStyle]}>{runtime.renderRoutes()}</Animated.View>}
     {runtime.renderSelection()}
     {runtime.renderDownloads?.()}
   </View>;

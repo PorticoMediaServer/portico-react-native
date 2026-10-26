@@ -6,6 +6,7 @@ import {sameFence, type PlaybackFence} from '../../../../../packages/player-core
 import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {useMotion} from '../../kit/useMotion';
+import {useInitialPlayerPaint} from '../../kit/dock/PlayerMorphBridge';
 import {useOptionalFocusRegistry} from '../../kit/focus';
 import {useScreenReader} from '../../kit/useScreenReader';
 import {TVPanelTransition, TVPanelSlide, TVPanelScrim, useTVPanelPresence} from '../../kit/overlays/TVPanelMotion';
@@ -180,7 +181,11 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     paneFade.value = withTiming(1, {...motion.timing(), duration: playerPostureCrossFadeMs});
   }, [layoutKey, motion, paneFade, isTV]);
   useEffect(() => () => {cancelAnimation(paneFade);}, [paneFade]);
-  const paneFadeStyle = useAnimatedStyle(() => ({opacity: paneFade.value}));
+  const initialPlayer = useInitialPlayerPaint(isTV ? undefined : fence), initialPage = initialPlayer?.page, reduced = motion.reduce;
+  // The measured picture slot remains fixed; only the surrounding watch page
+  // rises. Moving the slot would change the very target the artwork is using.
+  const paneFadeStyle = useAnimatedStyle(() => initialPage ? {opacity: paneFade.value * initialPage.value,
+    transform: [{translateY: reduced ? 0 : 24 * (1 - initialPage.value)}]} : {opacity: paneFade.value});
   // states 11: one failure names one exact fence, session and place. The hook is
   // declared above every conditional return; it only ever captures with a valid fence.
   const failureRef = useRef<{key: string; failure: NativePlaybackFailure} | undefined>(undefined);
@@ -212,7 +217,8 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
     && source.capabilities.retry === true && !!playback.retry && !!fence && sameFence(source.fence, failureRef.current.failure.fence);
   const failed = bindings.failed && isTV && !panelOpen && failureRef.current
     ? bindings.failed(context, failureRef.current.failure, state.visible) : undefined;
-  const content = <Animated.View testID="watch-panes" pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
+  const content = <Animated.View testID="watch-panes" pointerEvents={initialPlayer && !initialPlayer.controlsAdmitted ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer && !initialPlayer.controlsAdmitted}
+    importantForAccessibility={initialPlayer && !initialPlayer.controlsAdmitted ? 'no-hide-descendants' : 'auto'} style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
     {postPlay ? <View testID="watch-post-play-pane" style={{position: 'absolute', inset: 0}}>{postPlay}</View> : <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}

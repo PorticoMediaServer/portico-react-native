@@ -25,6 +25,7 @@ export type PlayerMorphOptions = {
 export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false, onRelease}: PlayerMorphOptions): PlayerMorphController {
   const motion = useMotion();
   const progress = useSharedValue(docked ? 1 : 0), velocity = useSharedValue(0), dragging = useSharedValue(false), releaseVelocity = useSharedValue(0);
+  const presentationGoal = useSharedValue(docked ? 1 : 0);
   const dockX = useSharedValue(0), dockFade = useSharedValue(1), dockTravelFade = useSharedValue(1);
   const origin = useSharedValue(0), span = useSharedValue(travel), lastTime = useSharedValue(0);
   const intent = useRef({fence, docked, epoch: 1});
@@ -62,12 +63,13 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
     runOnUI((goal: number, requestedSpeed?: number) => {
       'worklet';
       const inherited = requestedSpeed ?? velocity.value;
+      presentationGoal.value = goal;
       releaseVelocity.value = inherited;
       const finish = completionFor(goal);
       // Reanimated inherits the running spring's instantaneous velocity on retarget.
       progress.value = spring ? withSpring(goal, {...spring, velocity: inherited}, finish) : withTiming(goal, timing, finish);
     })(target ? 1 : 0, speed);
-  }, [progress, velocity, releaseVelocity, spring, timing, completionFor]);
+  }, [progress, velocity, releaseVelocity, spring, timing, completionFor, presentationGoal]);
   useEffect(() => {
     epoch.value = source.epoch; run.value++; dragging.value = false;
     cancelAnimation(progress); cancelAnimation(dockX); cancelAnimation(dockFade);
@@ -110,6 +112,7 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
         // RNGH calls onEnd(false) BEFORE onFinalize(false) for ACTIVE cancellation.
         if (!success || !dragging.value || epoch.value !== source.epoch || started.value !== run.value || !source.fence) return;
         const target = releaseDock(progress.value, event.velocityY);
+        presentationGoal.value = target;
         dragging.value = false;
         releaseVelocity.value = velocity.value;
         const finish = completionFor(target);
@@ -119,13 +122,14 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
       .onFinalize((_event, success) => {
         if (!success && dragging.value && epoch.value === source.epoch && started.value === run.value) {
           run.value++; dragging.value = false; cancelAnimation(progress);
+          presentationGoal.value = source.docked ? 1 : 0;
           const finish = completionFor(source.docked ? 1 : 0);
           progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}, finish) : withTiming(source.docked ? 1 : 0, timing, finish);
         }
       });
     return {gesture: pan(false), dockGesture: pan(true), chromeGesture: (enabled: boolean) => pan(false).enabled(enabled && !!source.fence && !source.docked)};
-  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, timing, released, source, epoch, run, started, completionFor]);
-  return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockTravelFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockTravelFade, dockMotionHosted, gestures]);
+  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, timing, released, source, epoch, run, started, completionFor, presentationGoal]);
+  return useMemo(() => ({progress, velocity, dragging, releaseVelocity, presentationGoal, request, dockX, dockFade, dockTravelFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, presentationGoal, request, dockX, dockFade, dockTravelFade, dockMotionHosted, gestures]);
 }
 
 export type PlayerMorphProps = {

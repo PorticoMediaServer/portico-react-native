@@ -1,4 +1,6 @@
 import {usePlayerMorphPublication} from '../kit/dock/PlayerMorphBridge';
+import {InitialPicturePresentation} from '../kit/dock/InitialPicturePresentation';
+import {initialPictureKey} from '../kit/dock/initial-picture-model';
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, Image, Platform, View, useWindowDimensions} from 'react-native';
 import {GestureDetector} from 'react-native-gesture-handler';
@@ -75,6 +77,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   // picture to the full window. Retain internal morph geometry while hidden.
   const fullFrame = watch ? expandedBounds ?? lastExpandedFrame.current ?? windowFrame : windowFrame;
   const expandedReady = !watch || expandedBounds !== undefined;
+  const initialGeometry = useRef<{key: object; frame: NativeShellBounds} | undefined>(undefined);
+  const offeredInitial = snapshot.initialPresentation;
+  if (!offeredInitial || initialGeometry.current?.key !== offeredInitial.key) initialGeometry.current = undefined;
+  if (offeredInitial && expandedBounds && !docked && fence && sameFence(offeredInitial.fence, fence)) initialGeometry.current = {key: offeredInitial.key, frame: expandedBounds};
   const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const retainedImage = useRef<Readonly<{owner: NativeVideoSnapshotCapture; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const [imageState, setImageState] = useState<Readonly<{image: NativeShellVideoSnapshot; state: 'ready' | 'failed'}>>();
@@ -252,6 +258,11 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   }, [lyricsKeys]);
   const lyricsOffered = !!lyricsTarget && !!runtime.lyrics && runtime.lyricsEnabled?.() === true;
   if (!sameAuthority(snapshot.authority, authority)) return null;
+  const initial = !theme.isTV && initialGeometry.current?.key === snapshot.initialPresentation?.key && !snapshot.retired && snapshot.playback.phase !== 'error'
+    && snapshot.initialPresentation && fence && sameFence(snapshot.initialPresentation.fence, fence) ? snapshot.initialPresentation : undefined;
+  const initialFull = initial && initialGeometry.current?.key === initial.key ? initialGeometry.current.frame : undefined;
+  const initialFrame = initial && snapshot.firstVideoFrame && snapshot.firstVideoFrame.sessionId === initial.fence.sessionId
+    && snapshot.firstVideoFrame.generation === initial.fence.generation;
   const Surface = adapter.Surface;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
   const imageSettled = (state: 'ready' | 'failed') => {
@@ -330,6 +341,8 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
+    {initial && initialFull && <InitialPicturePresentation key={initialPictureKey(initial.key)} offer={initial} host={host} full={initialFull}
+      dock={dockSlot} docked={docked} firstFrame={!!initialFrame} controller={morph} travel={height}/>}
     {!theme.isTV && !snapshot.retired && sameAuthority(snapshot.authority, authority) && !snapshot.startFailure && !snapshot.capacityWait
       && snapshot.playback.preparation && <TouchPlaybackPreparation message={runtime.text.t(snapshot.playback.preparation.messageId)}/>}
     {preparation && <TVPlaybackPreparation message={runtime.text.t(preparation.messageId)}/>}

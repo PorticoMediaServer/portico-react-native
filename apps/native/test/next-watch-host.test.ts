@@ -14,6 +14,7 @@ const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', ac
 let window = {width: 890, height: 626};
 let posture: any = {status: 'unavailable', window: null, folds: []};
 const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
+    '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined},
   '../settings-live/group-port': {groupPort: () => undefined, subscribeGroupPort: () => () => {}},
   '../../kit/focus': {useOptionalFocusRegistry: () => undefined},
   '../../kit/useScreenReader': {useScreenReader: () => false},

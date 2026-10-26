@@ -21,7 +21,7 @@ import {useMotion, useReducedMotion} from '../../kit/useMotion';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
 import {useSkipPromptMotion} from './useSkipPromptMotion';
-import {usePublishedPlayerMorph} from '../../kit/dock/PlayerMorphBridge';
+import {useInitialPlayerPaint, usePublishedPlayerMorph} from '../../kit/dock/PlayerMorphBridge';
 import {NativeUpNextCard} from './UpNextCard';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 import type {NativeWatchNotice} from './playback-info';
@@ -196,10 +196,19 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // Chrome and the native picture follow the same progress and release guard;
   // each physical detector still owns a distinct native RNGH instance.
   const pictureMorph = usePublishedPlayerMorph(fence);
+  const initialPlayer = useInitialPlayerPaint(fence), initialControls = initialPlayer?.controls;
+  const initialEntering = initialPlayer?.entering === true;
+  const revealedInitial = useRef<object | undefined>(undefined);
+  useEffect(() => {
+    if (theme.isTV || !fence || !initialPlayer?.landed || revealedInitial.current === initialPlayer.key
+      || !sameFence(playback.getSnapshot().fence, fence)) return;
+    revealedInitial.current = initialPlayer.key;
+    controls.reveal(fence, Date.now() + motion.duration('standard') + 4000);
+  }, [initialPlayer, fence, theme.isTV, playback, controls, motion]);
   const minimizeSwipe = useMemo(() => pictureMorph?.chromeGesture(!theme.isTV && !state.panel && !liveOverlayOpen)
     ?? Gesture.Pan().enabled(false), [pictureMorph, theme.isTV, state.panel, liveOverlayOpen]);
   const pictureProgress = pictureMorph?.progress;
-  const chromeMorphStyle = useAnimatedStyle(() => ({opacity: pictureProgress ? 1 - Math.max(0, Math.min(1, pictureProgress.value)) : 1}));
+  const chromeMorphStyle = useAnimatedStyle(() => ({opacity: (pictureProgress ? 1 - Math.max(0, Math.min(1, pictureProgress.value)) : 1) * (initialControls?.value ?? 1)}));
   const seekFocused = theme.isTV && visible && !state.panel && focus?.regionId === 'watch-seek-region' && focus.childId === 'watch-seek';
   const [groupPillPresent, setGroupPillPresent] = useState(false);
   const groupPillHost = useCallback((host: number | undefined) => setGroupPillPresent(host !== undefined), []);
@@ -293,9 +302,12 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   }, [theme.isTV, visible]);
   useEffect(() => {
     // motion.html 2.6/4.5: controls enter standard, timer exit slow; no geometry animation here.
-    opacity.value = withTiming(visible ? 1 : 0, motion.timing(visible || state.hideReason !== 'timer' ? 'standard' : 'slow'));
+    // Only the entrance suppresses a duplicate visibility fade. An ordinary
+    // hide/toggle always retains its own opacity clock, even while firstFrame
+    // is slow and the original poster is still present.
+    opacity.value = visible && initialEntering ? 1 : withTiming(visible ? 1 : 0, motion.timing(visible || state.hideReason !== 'timer' ? 'standard' : 'slow'));
     return () => cancelAnimation(opacity);
-  }, [visible, motion, opacity, state.hideReason]);
+  }, [visible, motion, opacity, state.hideReason, initialEntering]);
   const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
   const returnedPanelTarget = useRef<typeof state.returnTarget>(undefined);
   useEffect(() => {
@@ -489,7 +501,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // tablet-play1: an expanded window draws the desktop player's two bars — a top
   // bar with the way out, the title and the tools, and a bottom bar with the seek,
   // the times and one row holding the pills either side of a centred transport.
-  if (bar) return <GestureDetector gesture={minimizeSwipe}><Animated.View testID="watch-chrome" pointerEvents="box-none" style={[{width, height}, chromeMorphStyle]}>
+  if (bar) return <GestureDetector gesture={minimizeSwipe}><Animated.View testID="watch-chrome" pointerEvents={initialPlayer && !initialPlayer.controlsAdmitted ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer && !initialPlayer.controlsAdmitted} importantForAccessibility={initialPlayer && !initialPlayer.controlsAdmitted ? 'no-hide-descendants' : 'auto'} style={[{width, height}, chromeMorphStyle]}>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{flex: 1}}>
@@ -544,7 +556,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     </View>}
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={115} gutter={32} available={width}/>}
   </Animated.View></GestureDetector>;
-  if (tabletop) return <GestureDetector gesture={minimizeSwipe}><Animated.View testID="watch-chrome" pointerEvents="box-none" style={[{width, height}, chromeMorphStyle]}>
+  if (tabletop) return <GestureDetector gesture={minimizeSwipe}><Animated.View testID="watch-chrome" pointerEvents={initialPlayer && !initialPlayer.controlsAdmitted ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer && !initialPlayer.controlsAdmitted} importantForAccessibility={initialPlayer && !initialPlayer.controlsAdmitted ? 'no-hide-descendants' : 'auto'} style={[{width, height}, chromeMorphStyle]}>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{flex: 1, flexDirection: 'column', justifyContent: stacked ? 'flex-start' : 'space-between', paddingTop: stacked ? 12 : 0}}>
@@ -585,7 +597,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     </View>}
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={4} gutter={22} available={width}/>}
   </Animated.View></GestureDetector>;
-  return <GestureDetector gesture={minimizeSwipe}><Animated.View testID="watch-chrome" pointerEvents="box-none" style={[{width, height}, chromeMorphStyle]}>
+  return <GestureDetector gesture={minimizeSwipe}><Animated.View testID="watch-chrome" pointerEvents={initialPlayer && !initialPlayer.controlsAdmitted ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer && !initialPlayer.controlsAdmitted} importantForAccessibility={initialPlayer && !initialPlayer.controlsAdmitted ? 'no-hide-descendants' : 'auto'} style={[{width, height}, chromeMorphStyle]}>
     <FocusRegion id="watch-surface" entry="watch-picture" style={{position: 'absolute', inset: 0}}><Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
       hasTVPreferredFocus={theme.isTV && !visible && !liveOverlayOpen && !promptEntry} focusable={theme.isTV && !visible && !state.panel && !liveOverlayOpen} onPress={() => {if (!controlsCurrent()) return;if (theme.isTV) controls.key(fence); else controls.toggleVisibility(fence);}} style={{position: 'absolute', inset: 0}}/></FocusRegion>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>

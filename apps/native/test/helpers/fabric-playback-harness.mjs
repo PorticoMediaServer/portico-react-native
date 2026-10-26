@@ -101,7 +101,9 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
   const signalView = await screenModule(new URL('../../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
-    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},...common,
+    '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
+    '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
+    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},...common,
     '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme}, '../kit/focus': {focusTestID: () => 'playback'}, './tv-focus': {tvFocusIds: () => ({surface: () => 'playback'})},
     '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen'},
     '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
@@ -133,7 +135,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     ({NativeShell} = await screenModule(new URL('../../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
-    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},...common,
+    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},...common,
       'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},
       '../kit/overlays': {OverlaysProvider: Container}, '../kit/shell': {AccountMenu: Empty}, '../kit/browse': {},
       '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => motion},

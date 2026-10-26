@@ -20,7 +20,9 @@ test('actual playback layer converts measured window slot to its own origin and 
   const adapter = {getSnapshot: () => current, subscribe: () => () => {}, Surface: 'ActualSurface', dock};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
-    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
+    '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
+    '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
+    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     react: h.react, 'react-native': {BackHandler: {}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
     'react-native-reanimated': {default: {View: 'Animated.View'}, useAnimatedStyle: (style: () => unknown) => style()},

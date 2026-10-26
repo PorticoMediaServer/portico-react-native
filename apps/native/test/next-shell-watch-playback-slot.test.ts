@@ -58,7 +58,9 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../../../kit/theme': {useTheme: () => {throw Error('unexpected_music_signal_render');}, nativeType: () => {throw Error('unexpected_music_signal_render');}},
   });
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
-    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
+    '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
+    '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
+    '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     react: {...React, default: React}, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: options.os ?? 'android'}, View: 'View', useWindowDimensions: () => dimensions},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
     'react-native-reanimated': {default: {View: 'Animated.View'}, useAnimatedStyle: (style: () => unknown) => style()},
@@ -242,6 +244,7 @@ test('actual WatchHost panel/control geometry reaches the persistent layer throu
   const d = await layer(true, outlet, {os: 'ios'}), controls = new NativeWatchControls(false);
   const measurements: ((x: number, y: number, width: number, height: number) => void)[] = [];
   const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
+    '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide, Dimensions: {get: () => wide}},
     '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
     '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
