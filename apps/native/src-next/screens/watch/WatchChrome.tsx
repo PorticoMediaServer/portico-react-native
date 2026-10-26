@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {TVControlLabel} from './TVControlLabel';
 import {Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
@@ -348,7 +349,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     const target = liveCurrent ? direction < 0 ? liveGuide.previous : liveGuide.next : undefined;
     if (!target) return <View style={{width: small, height: small}}/>;
     const id = direction < 0 ? 'watch-channel-down' : 'watch-channel-up';
-    return <View style={{position: 'relative'}}>
+    return <TVControlLabel focused={controlsEnabled && focus?.childId === id} label={t(direction < 0 ? 'player.channelDown' : 'player.channelUp')} detail={[target.channel.number, target.channel.name].filter(Boolean).join(' ')}>
       <Focusable focusId={id} testID={id} accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled || liveGuide.busy}
         accessibilityLabel={t(direction < 0 ? 'next.live.channelDown' : 'next.live.channelUp', {channel: target.channel.name, number: target.channel.number})}
         onPress={() => {if (controlsCurrent()) void props.liveGuide?.tune(target, liveGuide, props.reportError);}}
@@ -357,21 +358,17 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <Icon name={direction < 0 ? 'i-chdown' : 'i-chup'} size={24} color={theme.colors.text}/>
         {direction > 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
       </Focusable>
-      {focus?.childId === id && <View pointerEvents="none" style={{position: 'absolute', bottom: 86, alignSelf: 'center', width: 360, padding: 16, borderRadius: 16, backgroundColor: theme.colors.raisedHigh}}>
-        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t(direction < 0 ? 'player.channelDown' : 'player.channelUp')}</Text>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{[target.channel.number, target.channel.name].filter(Boolean).join(' ')}</Text>
-      </View>}
-    </View>;
+    </TVControlLabel>;
   };
-  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
+  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <TVControlLabel focused={controlsEnabled && focus?.childId === `watch-${id}`} label={label} primary={primary} align={id === 'options' || id === 'pip' ? 'end' : 'center'}><Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={controlsEnabled} disabled={disabled || !controlsEnabled} onPress={() => {if (controlsCurrent()) onPress();}} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
-    iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
-  const skip = (forward: boolean) => <Focusable focusId={forward ? 'watch-skip-forward' : 'watch-skip-back'} testID={forward ? 'watch-skip-forward' : 'watch-skip-back'} focusable={controlsEnabled} disabled={!controlsEnabled || !source.capabilities.seek} accessibilityRole="button"
+    iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/></TVControlLabel>;
+  const skip = (forward: boolean) => <TVControlLabel focused={controlsEnabled && focus?.childId === (forward ? 'watch-skip-forward' : 'watch-skip-back')} label={t(forward ? 'player.skipForwardSeconds' : 'player.skipBackSeconds', {seconds: forward ? props.skipForwardSeconds : props.skipBackSeconds})}><Focusable focusId={forward ? 'watch-skip-forward' : 'watch-skip-back'} testID={forward ? 'watch-skip-forward' : 'watch-skip-back'} focusable={controlsEnabled} disabled={!controlsEnabled || !source.capabilities.seek} accessibilityRole="button"
     accessibilityLabel={t(forward ? 'player.skipForwardSeconds' : 'player.skipBackSeconds', {seconds: forward ? props.skipForwardSeconds : props.skipBackSeconds})}
     onPress={() => act(expected => playback.skip(expected, forward ? props.skipForwardSeconds : -props.skipBackSeconds))}
     style={{width: small, height: small, alignItems: 'center', justifyContent: 'center', opacity: source.capabilities.seek ? 1 : .4}}>
     <SkipIcon color={theme.colors.text} forward={forward} seconds={forward ? props.skipForwardSeconds : props.skipBackSeconds} size={theme.isTV ? 36 : compact ? 30 : 38}/>
-  </Focusable>;
+  </Focusable></TVControlLabel>;
   const option = (name: NativeWatchPanel, label: string, value?: string) => <Focusable focusId={`watch-option-${name}`} testID={`watch-option-${name}`} accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled} onPress={() => panel(name)} style={{minHeight: theme.isTV ? 64 : 36, paddingHorizontal: theme.isTV ? 18 : 12, paddingVertical: theme.isTV ? 10 : 6, justifyContent: 'center', borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raisedHigh}}>
     {theme.isTV ? <><Text style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 20, lineHeight: 24, color: theme.colors.text}}>{label}</Text>{value && <Text numberOfLines={1} style={{fontFamily: theme.type.body.fontFamily, fontSize: 20, lineHeight: 24, color: theme.colors.textSecondary}}>{value}</Text>}</> : <Text style={[theme.type.caption, {color: theme.colors.text}]}>{value ? label ? `${label} ${value}` : value : label}</Text>}
   </Focusable>;
@@ -405,10 +402,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const transport = source.playback.phase === 'error' && theme.isTV ? null : <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 22 : bar ? 14 : tabletop ? 36 : compact ? 12 : 38}}>
     {theme.isTV && fence.kind === 'channel' ? channelStep(-1) : queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
     {skip(false)}
-    <Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
+    <TVControlLabel focused={controlsEnabled && focus?.childId === 'watch-toggle'} label={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} primary><Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
       accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={theme.isTV && controlsEnabled}
       focusable={controlsEnabled} disabled={!controlsEnabled || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
-      style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : compact && tablet ? 34 : 28}/>
+      style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : compact && tablet ? 34 : 28}/></TVControlLabel>
     {skip(true)}
     {theme.isTV && fence.kind === 'channel' ? channelStep(1) : queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, bar ? 48 : theme.isTV || compact ? undefined : 46)}
   </View>;
