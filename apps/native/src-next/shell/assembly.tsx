@@ -48,7 +48,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const feedback = nativeScreenServices(context);
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined;
-  const tvPageBack = new Map<string, () => boolean>();
+  const tvPageBack = new Map<string, {handler: () => boolean}[]>();
   let homeTopPending = false;
   let tvRailBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void; spotlight: HomeSpotlight; index: number; context: string}>(), scroll = new Map<string, () => void>();
@@ -232,7 +232,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       const navigation = context.navigation.getSnapshot();
       if (Platform.isTV && navigation.route.kind === 'shell') {
         const pageBack = tvPageBack.get(JSON.stringify(navigation.destination));
-        if (pageBack?.()) return true;
+        if (pageBack && [...pageBack].reverse().some(registration => registration.handler())) return true;
         // Rail-page Back is a ladder, independent of the order pages were visited.
         if (navigation.destination.kind === 'home') return false;
         homeTopPending = true;
@@ -393,8 +393,10 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: (handler, destination = {kind: 'home'}) => {
-      const key = JSON.stringify(destination); tvPageBack.set(key, handler);
-      return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
+      const key = JSON.stringify(destination), registration = {handler};
+      const stack = tvPageBack.get(key) ?? []; stack.push(registration); tvPageBack.set(key, stack);
+      return () => {const index = stack.indexOf(registration); if (index < 0) return; stack.splice(index, 1);
+        if (!stack.length && tvPageBack.get(key) === stack) tvPageBack.delete(key);};
     },
     mixes,
     musicDiscover: musicNavigation.open,

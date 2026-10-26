@@ -1,12 +1,13 @@
-import React, {createContext, forwardRef, useCallback, useContext, useLayoutEffect, useRef, useSyncExternalStore} from 'react';
+import React, {createContext, forwardRef, useCallback, useContext, useLayoutEffect, useMemo, useRef, useSyncExternalStore} from 'react';
 import {findNodeHandle, TVFocusGuideView, View, type FocusGuideMethods, type ViewProps} from 'react-native';
 import {useTheme} from '../theme';
 import {createFocusRegistry, focusTestID, type FocusAddress, type FocusHost, type FocusRegionConfig, type FocusRegistry} from './registry';
+import type {FocusCell} from './cell-navigation';
 import {useHostRef} from './useHostRef';
 
 const RegistryContext = createContext<FocusRegistry | null>(null);
 const RegionContext = createContext<string | undefined>(undefined);
-const ItemContext = createContext<Readonly<{focusId: string; testID?: string; waiting?: boolean}> | undefined>(undefined);
+const ItemContext = createContext<Readonly<{focusId: string; testID?: string; waiting?: boolean; cell?: FocusCell}> | undefined>(undefined);
 export function FocusProvider({registry, children}: {registry?: FocusRegistry; children: React.ReactNode}) {
   const parent = useContext(RegistryContext), own = useRef<FocusRegistry | undefined>(undefined);
   if (!own.current) own.current = createFocusRegistry();
@@ -18,8 +19,8 @@ export function useFocusRegistry(): FocusRegistry {
   if (!registry) throw new Error('A FocusProvider must contain regions that share focus.');
   return registry;
 }
-export function FocusItem({focusId, testID, waiting, children}: {focusId: string; testID?: string; waiting?: boolean; children: React.ReactNode}) {
-  return <ItemContext.Provider value={{focusId, testID, waiting}}>{children}</ItemContext.Provider>;
+export function FocusItem({focusId, testID, waiting, cell, children}: {focusId: string; testID?: string; waiting?: boolean; cell?: FocusCell; children: React.ReactNode}) {
+  return <ItemContext.Provider value={{focusId, testID, waiting, cell}}>{children}</ItemContext.Provider>;
 }
 export function useFocusWaiting(): boolean {return useContext(ItemContext)?.waiting ?? false;}
 export type FocusRegionProps = Omit<ViewProps, 'id' | 'onFocus' | 'onBlur'> & FocusRegionConfig & {onFocusChange?: (ownsFocus: boolean) => void};
@@ -30,13 +31,13 @@ export const FocusRegion = forwardRef<View, FocusRegionProps>(function FocusRegi
   return parent ? <Region {...props} onFocusChange={onFocusChange} ref={ref}>{children}</Region>
     : <FocusProvider><Region {...props} onFocusChange={onFocusChange} ref={ref}>{children}</Region></FocusProvider>;
 });
-const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, entryRegion, parent: configuredParent, entryPolicy = 'memory', order, neighbors, screenStart, edges, stops, orientation = 'free', hold = false, enabled = true, onFocusChange, children, testID, ...view}, ref) {
+const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, entryRegion, parent: configuredParent, entryPolicy = 'memory', order, neighbors, screenStart, edges, grid, timeGrid, stops, orientation = 'free', hold = false, enabled = true, onFocusChange, children, testID, ...view}, ref) {
   const parent = useContext(RegionContext);
   const registry = useFocusRegistry(), {isTV} = useTheme(), owner = useRef({});
   const onHost = useCallback((host: Guide | null) => {registry.attachRegion(id, host, owner.current);}, [id, registry]);
   const {native, ref: setRef} = useHostRef<View, Guide>(ref, onHost);
   const revision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
-  const config = {id, entry, entryRegion, parent: configuredParent ?? parent, entryPolicy, order, neighbors, screenStart, edges, stops, orientation, hold, enabled};
+  const config = {id, entry, entryRegion, parent: configuredParent ?? parent, entryPolicy, order, neighbors, screenStart, edges, grid, timeGrid, stops, orientation, hold, enabled};
   useLayoutEffect(() => {registry.configure(config);});
   useLayoutEffect(() => {
     const registrationOwner = owner.current;
@@ -69,26 +70,27 @@ export function useFocusTarget<T extends FocusHost = View>({focusId, testID, dis
   const childId = focusId ?? item?.focusId ?? testID;
   const stableTestID = testID ?? item?.testID ?? (regionId && childId ? focusTestID(regionId, childId) : undefined);
   if (regionId && !childId && !disabled) throw new Error('A region child requires a stable focusId or testID from its caller.');
-  const owner = useRef({});
-  const committed = useRef({registry, regionId, childId, disabled});
+  const owner = useRef({}), cellKey = JSON.stringify(item?.cell);
+  const cell = useMemo<FocusCell | undefined>(() => cellKey ? JSON.parse(cellKey) : undefined, [cellKey]);
+  const committed = useRef({registry, regionId, childId, disabled, cell});
   const onHost = useCallback((host: T | null) => {
     const c = committed.current;
-    if (c.registry && c.regionId && c.childId) c.registry.attach({regionId: c.regionId, childId: c.childId}, c.disabled ? null : host, owner.current);
+    if (c.registry && c.regionId && c.childId) c.registry.attach({regionId: c.regionId, childId: c.childId}, c.disabled ? null : host, owner.current, c.cell);
   }, []);
   const {native, ref: setRef} = useHostRef<T>(ref ?? null, onHost);
   const emptySubscribe = useCallback(() => () => {}, []), zero = useCallback(() => 0, []);
   useSyncExternalStore(registry?.subscribe ?? emptySubscribe, registry?.getSnapshot ?? zero, registry?.getSnapshot ?? zero);
   useLayoutEffect(() => {
-    committed.current = {registry, regionId, childId, disabled};
+    committed.current = {registry, regionId, childId, disabled, cell};
     if (!registry || !regionId || !childId) return;
     const address = {regionId, childId};
-    registry.attach(address, disabled ? null : native.current, owner.current);
+    registry.attach(address, disabled ? null : native.current, owner.current, cell);
     const registrationOwner = owner.current;
     return () => {registry.attach(address, null, registrationOwner);};
-  }, [childId, disabled, native, regionId, registry]);
+  }, [cell, childId, disabled, native, regionId, registry]);
   const config = regionId ? registry?.config(regionId) : undefined;
   const edgeProps: Pick<ViewProps, 'nextFocusUp' | 'nextFocusDown' | 'nextFocusLeft' | 'nextFocusRight'> = {};
-  const order = regionId ? registry?.order(regionId) : undefined;
+  const order = regionId && (config?.orientation === 'horizontal' || config?.orientation === 'vertical') ? registry?.order(regionId) : undefined;
   if (registry && config?.edges && childId) {
     for (const direction of ['up', 'down', 'left', 'right'] as const) {
       const target = config.edges[direction];
@@ -104,6 +106,16 @@ export function useFocusTarget<T extends FocusHost = View>({focusId, testID, dis
     }
   }
   const address: FocusAddress | undefined = regionId && childId ? {regionId, childId} : undefined;
+  if (registry && address && !config?.hold) {
+    for (const [direction, target] of Object.entries(registry.destinations(address))) {
+      const host = 'regionId' in target ? registry.host(target.regionId) : registry.child({regionId: address.regionId, childId: target.childId});
+      const handle = host ? findNodeHandle(host as View) : null;
+      if (handle != null) {
+        const key = {up: 'nextFocusUp', down: 'nextFocusDown', left: 'nextFocusLeft', right: 'nextFocusRight'} as const;
+        edgeProps[key[direction as keyof typeof key]] = handle;
+      }
+    }
+  }
   return {ref: setRef, testID: stableTestID, waiting: item?.waiting ?? false, ...edgeProps,
     onFocus: () => {if (registry && address && !disabled) registry.didFocus(address);},
     onBlur: () => {if (registry && address) registry.didBlur(address);},

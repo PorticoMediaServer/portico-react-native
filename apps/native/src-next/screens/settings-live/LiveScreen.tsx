@@ -11,7 +11,7 @@ import {legacyChannel, legacyProgramme, legacyProgram, layoutRow, nowNext, pxPer
 import {GuideFeatureClient, type GuideAiring, type GuideReminder} from '../../../../../packages/client-core/src/guide/directory';
 import type {RecordingDraft} from '../../../../../packages/client-core/src/dvr';
 import {Button, Chip, Focusable, Segmented, Select} from '../../kit/controls';
-import {FocusRegion} from '../../kit/focus';
+import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Dialog, ToastHost, type ToastMessage} from '../../kit/overlays';
 import {Artwork, ChannelMark} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
@@ -28,11 +28,12 @@ import type {NativeSettingsLivePorts} from './ports';
 import type {NativeLiveController} from './live-controller';
 import type {NativeRecordingsController} from './recordings-controller';
 import {NativeRecordingsScreen} from './RecordingsScreen';
+import {tvGuideNavigationCells, tvGuideFocusStart} from '../../tv/layout/guide-focus';
 import {useTVPageBack} from '../destinations/useTVPageBack';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
-import {nativeGuideCellWindow, nativeGuideElapsedWidth} from './guide-pan-model';
+import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
 import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
 import type {NativeLiveOwnerController} from './live-owner-controller';
@@ -134,6 +135,21 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   useEffect(() => {controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}, [controller, guide, start, end]);
   const source = state.sources.find(value => (value.provenance === 'library-channel' ? 'library' : value.id) === state.options.sourceId);
   const selectedSources = useMemo(() => source ? [source] : state.sources, [source, state.sources]);
+  const tvRegistry = useFocusRegistry(), tvRange = nativeGuidePanRange(selectedSources, end - start);
+  const revealTVCell = (index: number, cell?: GuideCell) => {
+    const shell = runtime.getSnapshot();
+    if (!theme.isTV || !controller.lifetime.current() || shell.destination.kind !== 'live' || shell.contentVisible === false || shell.mediaExpanded) return;
+    // Native focus has already arrived. This only brings that native host's row/time into view.
+    if (index < visible.current.first || index >= visible.current.last) list.current?.scrollToIndex({index, animated: false, viewPosition: .5});
+    let focusStart = start;
+    if (cell) {
+      const anchor = tvRegistry.cellPosition(grid)?.time ?? cell.start;
+      const target = tvGuideFocusStart(anchor, start, end, SLOT_MS);
+      const next = nativeGuidePanTarget(target, end - start, tvRange);
+      if (next !== undefined && next !== start) {focusStart = next; setStart(next);}
+    }
+    controller.setViewport({firstRow: Math.min(index, visible.current.first), lastRow: Math.max(index + 1, visible.current.last), start: focusStart, end: focusStart + (end - start)});
+  };
   const pan = useGuideTimePan({enabled: !theme.isTV && view === 'guide' && !recordingsOpen && !selected, revision: state.revision, start, end, pxPerMs: px, channelWidth, sources: selectedSources, commit: setStart, current: controller.lifetime.current});
   const panPosition = pan.position, panActive = pan.active;
   const rulerShift = useAnimatedStyle(() => ({transform: [{translateX: panActive ? start * px - panPosition.value : 0}]}), [panActive, start, px]);
@@ -148,7 +164,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const pastShade = useAnimatedStyle(() => ({width: Math.max(0, Math.min((now - (panActive ? panPosition.value / px : start)) * px, width - channelWidth))}), [panActive, start, px, now, width, channelWidth]);
   const earlierNow = useAnimatedStyle(() => ({display: now < (panActive ? panPosition.value / px : start) ? 'flex' : 'none'}), [panActive, start, px, now]);
   const laterNow = useAnimatedStyle(() => ({display: now >= (panActive ? panPosition.value / px + (end - start) : end) ? 'flex' : 'none'}), [panActive, start, end, px, now]);
-  const overscan = panActive ? (end - start) / 2 : 0;
+  const overscan = theme.isTV ? tvRange ? SLOT_MS : 0 : panActive ? (end - start) / 2 : 0;
   const groups = [...new Set((source ? [source] : state.sources).flatMap(value => value.groups))];
   const {locale, hour12} = nativeGuideRegion(runtime.text);
   const clock = useMemo(() => nativeGuideClock(locale, state.options.timezone, hour12, theme.isTV), [locale, state.options.timezone, hour12, theme.isTV]);
@@ -204,7 +220,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const sortPicker = phoneChrome ? <NativeLivePhonePicker testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={sortOptions.map(option => ({id: option.value, label: option.label}))} onChange={chooseSort} placement="bottom-end" secondary>{sortOptions.find(option => option.value === state.options.sort)?.label}</NativeLivePhonePicker>
     : <Select testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={sortOptions} onValueChange={chooseSort}/>;
   const hasRecordings = state.sources.some(value => value.recordAvailable);
-  const controls = ids.surface('live.controls'), grid = ids.surface('live.grid');
+  const controls = ids.surface('live.controls'), grid = ids.surface('live.grid'), filters = ids.surface('live.filters');
   useTVPageBack(runtime, {kind: 'live'}, theme.isTV, {
     registerTop: true, scope: JSON.stringify([state.revision, view]),
     current: () => controller.lifetime.current() && !recordingsOpen && !ownerOpen && !selected,
@@ -217,7 +233,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
       const cells = layoutRow(offered.programs, {viewStart: openingStart - overscan, viewEnd: openingStart + (end - start) + overscan,
         pxPerMs: px, now, gapPx: 6, tiers: {full: 300, title2: 150, title: 32}});
       const cell: GuideCellIdentity | undefined = programme ? {kind: 'programme', id: programme.id}
-        : (offered.complete || offered.failed) && cells[0] ? {kind: 'gap', start: cells[0].start} : undefined;
+        : cells[0] ? {kind: 'gap', start: cells[0].start} : undefined;
       return cell ? {regionId: grid, childId: cellFocusId(channel, cell)} : undefined;
     },
     atTop: () => guideOffset.current <= 0 && start === floorTo(now, SLOT_MS) - SLOT_MS,
@@ -234,12 +250,16 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} owner={owner} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
   // A later programme leads with Record and offers Remind me; Watch live appears once it is on.
   const onNowProgramme = selected?.program !== undefined && selected.program.start <= now && selected.program.end > now;
+  const showTVWatch = !!selected?.channel.tuneAvailable && (onNowProgramme || !selected.program);
+  const tvCanRecord = !!selected && selected.channel.kind === 'live' && selected.channel.recordAvailable && !!selected.program && selected.program.end > now;
+  const tvCanRemind = !!selected && selected.channel.kind === 'live' && !!selected.program && selected.program.start > now;
+  const tvProgrammeOrder = [...(showTVWatch ? ['live-watch'] : []), ...(tvCanRecord ? ['live-record', 'live-record-series'] : []), 'live-channel-favorite', ...(tvCanRemind ? ['live-remind'] : [])];
   const watchProgramme = selected?.channel.tuneAvailable ? <Button ref={opener} testID="live-watch" icon="i-play" onPress={() => watch(selected.channel)}>{t(onNowProgramme ? 'guide.watchLive' : 'guide.watchChannel')}</Button> : null;
   const programmeBody = selected ? <View style={{gap: 20}}>
         {selected.program && <ProgrammeDetails programme={selected.program} now={now} runtime={runtime}/>}
-        {(onNowProgramme || theme.isTV) && watchProgramme}
+        {(theme.isTV ? showTVWatch : onNowProgramme) && watchProgramme}
         {selected.channel.kind === 'live' && selected.channel.recordAvailable && selected.program && selected.program.end > now && <View style={{flexDirection: 'row', gap: 10}}>
-          <Button style={{flex: 1}} ref={!selected.channel.tuneAvailable ? opener : undefined} variant="glass" testID="live-record" icon="i-rec" loading={recording} disabled={recording || !!selected.program.recording} onPress={() => {
+          <Button style={{flex: 1}} ref={theme.isTV ? !showTVWatch ? opener : undefined : !selected.channel.tuneAvailable ? opener : undefined} variant="glass" testID="live-record" icon="i-rec" focusableWhenDisabled loading={recording} disabled={recording || !!selected.program.recording} onPress={() => {
             const channel = legacyChannel(selected.channel), programme = selected.program && legacyProgramme(selected.program);
             if (!channel || !programme) return;
             setRecording(true);
@@ -252,7 +272,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
           }}>{t(selected.program.recording?.state === 'recording' ? 'web.dvr.state.recording' : selected.program.recording?.state === 'conflicted' ? 'web.dvr.state.conflicted' : selected.program.recording ? 'guide.recordingScheduled' : 'guide.record')}</Button>
           <Button style={{flex: 1}} variant="glass" testID="live-record-series" onPress={() => {if (selected.program) void askSeries(selected.channel, selected.program);}}>{t('guide.recordSeries')}</Button>
         </View>}
-        {theme.isTV && <Button variant="glass" testID="live-channel-favorite" icon={selected.channel.favorite ? 'i-star-f' : 'i-star'}
+        {theme.isTV && <Button ref={theme.isTV && !showTVWatch && !tvCanRecord ? opener : undefined} focusableWhenDisabled variant="glass" testID="live-channel-favorite" icon={selected.channel.favorite ? 'i-star-f' : 'i-star'}
           accessibilityState={{selected: selected.channel.favorite}} disabled={state.mutating} onPress={favorite}>
           {t(selected.channel.favorite ? 'channels.removeFavorite' : 'channels.addFavorite')}</Button>}
         {selected.channel.kind === 'live' && selected.program && selected.program.start > now && (() => {
@@ -260,7 +280,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
           if (!channel) return null;
           const airing = programme && {channel: {id: channel.id, sourceId: channel.sourceId, provenance: channel.provenance, generation: channel.generation, name: channel.name, number: channel.number, group: channel.group}, programme};
           const existing = reminders.get(selected.program!.id);
-          return <Button variant="glass" testID="live-remind" icon={existing ? 'i-bell-f' : 'i-bell'} disabled={!airing} onPress={() => {if (airing) remind(airing, existing);}}>{t(existing ? 'guide.stopRemind' : 'guide.remind')}</Button>;
+          return <Button variant="glass" testID="live-remind" focusableWhenDisabled icon={existing ? 'i-bell-f' : 'i-bell'} disabled={!airing} onPress={() => {if (airing) remind(airing, existing);}}>{t(existing ? 'guide.stopRemind' : 'guide.remind')}</Button>;
         })()}
         {!onNowProgramme && !theme.isTV && watchProgramme}
         {later.length > 0 && <View style={{gap: 10}} testID="live-later">
@@ -283,6 +303,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {recordError !== undefined && <StateView testID="live-record-error" {...runtime.error(recordError, () => setRecordError(undefined))}/>}
         {state.mutationError !== undefined && <StateView testID="live-channel-preference-error" {...runtime.error(state.mutationError, favorite)}/>}
   </View> : null;
+  const programmeFocusBody = theme.isTV && programmeBody ? <FocusRegion id={ids.surface('live.programme')} order={tvProgrammeOrder} grid={{columns: 1, count: tvProgrammeOrder.length}} stops={{up: true, down: true, left: true, right: true}}>{programmeBody}</FocusRegion> : programmeBody;
   return <Screen title={!theme.isTV && !phoneChrome ? t('search.chip.liveTV') : undefined} style={theme.isTV ? {paddingTop: 56, paddingRight: 8} : phoneChrome ? {paddingTop: insets.top + (landscape ? 0 : 14)} : undefined}>
     <View ref={content} onLayout={event => {setMeasuredWidth(event.nativeEvent.layout.width); measureContent();}}
       style={{flex: 1, paddingLeft: insetLeft, paddingRight: twoPane ? Math.max(insetRight, contentWidth - guideEnd) : insetRight}}>
@@ -293,7 +314,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} onPress={() => setOwnerOpen(true)}/>}
       </View>}
       {landscape && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', height: 50, paddingTop: 6, marginBottom: 6}}><Text accessibilityRole="header" style={[shellType(24, 800, 'normal', -.035), {color: theme.colors.text}]}>{t('search.chip.liveTV')}</Text>{viewSwitch}{filterChips}{sortPicker}{hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}{managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} onPress={() => setOwnerOpen(true)}/>}</View>}
-      {!phoneChrome && <FocusRegion id={controls} orientation="horizontal" edges={{left: ids.rail}} style={{flexDirection: 'row', gap: theme.isTV ? 22 : 12, alignItems: 'center', marginBottom: theme.isTV ? 24 : 20, minHeight: theme.isTV ? 64 : undefined}}>
+      {!phoneChrome && <FocusRegion id={controls} orientation="horizontal" edges={{left: ids.rail, down: filters}} stops={theme.isTV ? {up: true} : undefined} style={{flexDirection: 'row', gap: theme.isTV ? 22 : 12, alignItems: 'center', marginBottom: theme.isTV ? 24 : 20, minHeight: theme.isTV ? 64 : undefined}}>
         {theme.isTV && <Text accessibilityRole="header" style={[shellType(44, 800, 'normal', -.03), {color: theme.colors.text, marginRight: 14}]}>{t('search.chip.liveTV')}</Text>}
         {sourcePicker}
         {!theme.isTV && <><Chip testID="live-view-list" selected={view === 'list'} onPress={() => setView('list')}>{t('channels.viewList')}</Chip><Chip testID="live-view-guide" selected={view === 'guide'} onPress={() => setView('guide')}>{t('channels.viewGuide')}</Chip></>}
@@ -303,7 +324,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {!theme.isTV && sortPicker}
         {managesServer && <Button testID="live-owner-open" variant="glass" size="small" icon="i-sliders" onPress={() => setOwnerOpen(true)}>{t('settings.server.live')}</Button>}
       </FocusRegion>}
-      {!landscape && <FocusRegion id={ids.surface('live.filters')} orientation="horizontal" edges={{left: ids.rail, up: controls}} style={{marginBottom: theme.isTV ? 38 : stackedHeader ? 8 : 30}}>
+      {!landscape && <FocusRegion id={filters} orientation="horizontal" entry={state.options.favorites ? 'favorites' : state.options.group ? `group:${state.options.group}` : 'all'} edges={{left: ids.rail, up: controls, down: grid}} style={{marginBottom: theme.isTV ? 38 : stackedHeader ? 8 : 30}}>
         {filterChips}
       </FocusRegion>}
       {stackedHeader && <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: compact ? 20 : 0}}>{view === 'guide' ? dayPicker : <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><Text style={[shellType(13, 700), {color: theme.colors.text}]}>{t('guide.onNow')}</Text><Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{clock(now)}</Text></View>}{sortPicker}</View>}
@@ -314,11 +335,12 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         secondaryAction={managesServer ? {id: 'discover-tuners', label: t('next.states.findTuners'), icon: 'i-search', onPress: () => {setInitialOwnerAction('discover'); setOwnerOpen(true);}} : undefined}/> : <>
         <GestureDetector gesture={pan.gesture}><View style={{flex: 1}} accessibilityActions={panActive ? [{name: 'decrement', label: t('guide.earlier')}, {name: 'increment', label: t('guide.later')}] : undefined} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'decrement') pan.adjust(-4 * SLOT_MS); else if (event.nativeEvent.actionName === 'increment') pan.adjust(4 * SLOT_MS);}}>
         {view === 'guide' && <View style={{height: theme.isTV ? 50 : 30, flexDirection: 'row', marginLeft: landscape ? 0 : channelWidth}}>{landscape && <View style={{width: channelWidth, paddingLeft: 4}}>{dayPicker}</View>}<View style={{flex: 1, overflow: 'hidden'}}><Animated.View style={[{flex: 1}, rulerShift]}>{rulerTicks(start - overscan, end + overscan, px, state.options.timezone).map(tick => <View key={tick.atMs} style={{position: 'absolute', left: tick.x - overscan * px, height: theme.isTV ? 28 : 22, borderLeftWidth: 1, borderLeftColor: theme.colors.line}}><Text style={[shellType(theme.isTV ? 20 : 11), {marginLeft: 10, color: theme.colors.textSecondary}]}>{clock(tick.atMs)}</Text></View>)}</Animated.View></View></View>}
-        <FocusRegion id={grid} style={{flex: 1}}>
+        <FocusRegion id={grid} edges={theme.isTV ? {up: filters, left: ids.rail} : undefined} stops={theme.isTV ? {right: true, down: true} : undefined}
+          timeGrid={theme.isTV ? {initialTime: now, start, end} : undefined} style={{flex: 1}}>
         <VirtualizedList ref={list} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
           onLayout={() => list.current?.scrollToOffset({offset: guideOffset.current, animated: false})} onScroll={event => {guideOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16}
           onViewableItemsChanged={({viewableItems}) => {const indices = viewableItems.map(value => value.index).filter((value): value is number => value !== null); if (!indices.length) return; visible.current = {first: Math.min(...indices), last: Math.max(...indices)}; controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}}
-          renderItem={({item: index}) => <LiveRow panPosition={panPosition} panActive={panActive} laneWidth={width - channelWidth} clock={clock} entryEnabled={state.revision === 0 && recordingsReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} grid={grid} watch={watch}/>}/>
+          renderItem={({item: index}) => <LiveRow tvRange={tvRange} onTVFocus={revealTVCell} panPosition={panPosition} panActive={panActive} laneWidth={width - channelWidth} clock={clock} entryEnabled={state.revision === 0 && recordingsReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} grid={grid} watch={watch}/>}/>
         </FocusRegion>
         {phone && view === 'guide' && <Animated.View pointerEvents="none" style={[{position: 'absolute', left: channelWidth, top: 30, bottom: 0}, pastShade]}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={`${shadeId}-past`} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.38}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.12}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${shadeId}-past)`}/></Svg></Animated.View>}
         {view === 'guide' && (inNowSpan || panActive) && <View pointerEvents="none" style={{position: 'absolute', left: channelWidth, right: 0, top: 0, bottom: theme.isTV ? 60 : 0, overflow: 'hidden'}}><Animated.View style={[{position: 'absolute', left: nowX, top: 0, bottom: 0, width: theme.isTV ? 3 : 2, backgroundColor: `${theme.colors.accentStrong}88`}, nowShift]}><Animated.View style={[{position: 'absolute', top: theme.isTV ? 0 : 4, width: 60, height: theme.isTV ? 30 : 22, alignItems: 'center', justifyContent: 'center', borderRadius: theme.isTV ? 6 : 4, backgroundColor: theme.colors.accentStrong}, nowPillShift]}><Text style={[shellType(theme.isTV ? 20 : 12, 800), {color: theme.colors.ink}]}>{clock(now)}</Text></Animated.View></Animated.View></View>}
@@ -333,11 +355,11 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
       <ScrollView contentContainerStyle={{padding: 20, gap: 18, paddingBottom: 48}}>
         <View style={{paddingRight: 40}}>{selected && <ProgrammeHeader channel={selected.channel} programme={selected.program} now={now} runtime={runtime} busy={state.mutating} onFavorite={favorite} showGroup/>}</View>
         <Text style={[shellType(24, 800, 'normal', -.03), {color: theme.colors.text}]}>{selected?.program?.title ?? selected?.channel.name ?? ''}</Text>
-        {programmeBody}
+        {programmeFocusBody}
       </ScrollView>
     </View>}
-    <Dialog open={selected !== undefined && !twoPane} onOpenChange={value => {if (!value) setSelected(undefined);}} title={selected?.program?.title ?? selected?.channel.name ?? ''} headerContext={selected && <ProgrammeHeader channel={selected.channel} programme={selected.program} now={now} runtime={runtime} busy={state.mutating} onFavorite={favorite}/>} placement={theme.isTV || landscape || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : landscape ? 376 : theme.width >= 700 ? 400 : undefined} initialFocusRef={selected?.channel.tuneAvailable || selected?.channel.recordAvailable && selected.program ? opener : undefined} returnFocusRef={selectedOpener} testID="live-programme">
-      {programmeBody}
+    <Dialog open={selected !== undefined && !twoPane} onOpenChange={value => {if (!value) setSelected(undefined);}} title={selected?.program?.title ?? selected?.channel.name ?? ''} headerContext={selected && <ProgrammeHeader channel={selected.channel} programme={selected.program} now={now} runtime={runtime} busy={state.mutating} onFavorite={favorite}/>} placement={theme.isTV || landscape || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : landscape ? 376 : theme.width >= 700 ? 400 : undefined} initialFocusRef={theme.isTV || selected?.channel.tuneAvailable || selected?.channel.recordAvailable && selected.program ? opener : undefined} returnFocusRef={selectedOpener} testID="live-programme">
+      {programmeFocusBody}
     </Dialog>
     <NativeSeriesRuleSheet controller={recordings} draft={series?.draft} defaults={series?.defaults} runtime={runtime} open={series !== undefined}
       onOpenChange={value => {if (!value) setSeries(undefined);}}
@@ -362,10 +384,10 @@ const cellFocusId = (channel: GuideChannelRow, cell: GuideCellIdentity) =>
     cell.kind === 'programme' ? cell.id : cell.kind === 'gap' ? cell.start : null]);
 const cellRefKey = (cell: GuideCell) => JSON.stringify([cell.program ? 'programme' : 'gap', cell.program?.id ?? cell.start]);
 
-function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index, controller, runtime, start, end, now, channelWidth, rowHeight, px, list, onOpen, grid, watch}: {panPosition: SharedValue<number>; panActive: boolean; laneWidth: number; clock: (at: number) => string | undefined; entryEnabled: boolean; index: number; controller: NativeLiveController; runtime: NativeShellRuntime; start: number; end: number; now: number; channelWidth: number; rowHeight: number; px: number; list: boolean; onOpen: (channel: GuideChannelRow, program?: GuideProgram, node?: View | null) => void; grid: string; watch: (channel: GuideChannelRow) => void}) {
+function LiveRow({tvRange, onTVFocus, panPosition, panActive, laneWidth, clock, entryEnabled, index, controller, runtime, start, end, now, channelWidth, rowHeight, px, list, onOpen, grid, watch}: {tvRange: ReturnType<typeof nativeGuidePanRange>; onTVFocus: (index: number, cell?: GuideCell) => void; panPosition: SharedValue<number>; panActive: boolean; laneWidth: number; clock: (at: number) => string | undefined; entryEnabled: boolean; index: number; controller: NativeLiveController; runtime: NativeShellRuntime; start: number; end: number; now: number; channelWidth: number; rowHeight: number; px: number; list: boolean; onOpen: (channel: GuideChannelRow, program?: GuideProgram, node?: View | null) => void; grid: string; watch: (channel: GuideChannelRow) => void}) {
   const theme = useTheme(), t = runtime.text.t, guide = controller.guide;
   useSyncExternalStore(listener => guide.subscribePage(guide.pageOf(index), listener), () => guide.getSnapshot().version);
-  const overscan = panActive ? (end - start) / 2 : 0;
+  const overscan = theme.isTV ? tvRange ? SLOT_MS : 0 : panActive ? (end - start) / 2 : 0;
   const channel = guide.channelAt(index), programs = channel?.guide === 'none' ? {programs: [], complete: true, failed: false} : guide.programsFor(index, start - overscan, end + overscan);
   const shift = useAnimatedStyle(() => ({transform: [{translateX: panActive ? start * px - panPosition.value : 0}]}), [panActive, start, px]);
   const first = programs.programs.find(value => value.start <= now && value.end > now) ?? programs.programs[0];
@@ -376,25 +398,36 @@ function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index,
   // is what this row draws; only the guide can enter on a real programme or gap.
   const entryCell: GuideCellIdentity | undefined = list ? {kind: 'now'}
     : first ? {kind: 'programme', id: first.id}
-      : (programs.complete || programs.failed) && cells[0] ? {kind: 'gap', start: cells[0].start} : undefined;
+      : cells[0] ? {kind: 'gap', start: cells[0].start} : undefined;
   const entry = useScreenEntry(theme.isTV && entryEnabled && index === 0 && channel && entryCell ? {regionId: grid, childId: cellFocusId(channel, entryCell)} : undefined, controller.lifetime.current);
   const channelRef = useRef<View>(null), programRefs = useRef(new Map<string, View>());
-  if (!channel) return <View style={{height: rowHeight, marginBottom: rowGap, backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}/>;
+  if (!channel) return theme.isTV ? <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}>
+    <FocusItem focusId={`pending-channel:${index}`} cell={{row: index, kind: 'channel'}}><Focusable focusKind="row" accessibilityLabel={t('saved.loading')} onFocus={() => onTVFocus(index)} style={{width: channelWidth, height: rowHeight}}/></FocusItem>
+    <FocusItem focusId={`pending-programme:${index}`} cell={{row: index, kind: 'programme', start, end}}><Focusable focusKind="row" accessibilityLabel={t('saved.loading')} onFocus={() => onTVFocus(index)} style={{flex: 1, height: rowHeight}}/></FocusItem>
+  </View> : <View style={{height: rowHeight, marginBottom: rowGap, backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}/>;
   const logo = runtime.artwork(channel.logoUrl);
   const current = nowNext(programs.programs, now), nextText = nativeGuideNext(current.next, clock, runtime.text);
   if (list && !theme.isTV) return <NativeLiveListRow channel={channel} programme={current.now} next={current.next} now={now} runtime={runtime} clock={clock} height={rowHeight} onOpen={node => onOpen(channel, current.now, node)}/>;
   return <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', gap: theme.isTV ? 18 : phoneGrid ? 2 : 8}}>
     <View style={{width: channelWidth - (theme.isTV ? 18 : phoneGrid ? 2 : 8)}}>
-      <Focusable ref={channelRef} focusId={channelFocusId(channel)} testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
+      <FocusItem focusId={channelFocusId(channel)} cell={theme.isTV ? {row: index, kind: 'channel'} : undefined}><Focusable ref={channelRef} focusId={channelFocusId(channel)} testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onFocus={() => onTVFocus(index)} onLongPress={theme.isTV ? () => onOpen(channel, undefined, channelRef.current) : undefined} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
         <View style={{width: theme.isTV ? 56 : landscapePhone ? 32 : 36, height: theme.isTV ? 56 : landscapePhone ? 32 : 36}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : landscapePhone ? 32 : 36}/>{compactChannel && channel.favorite && <View style={{position: 'absolute', right: -7, top: -6, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.ink, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/></View>}</View>
         <View style={{flex: compactChannel ? undefined : 1, alignItems: compactChannel ? 'center' : undefined}}>{!compactChannel && <View style={{flexDirection: 'row', alignItems: 'center', gap: 5}}><Text numberOfLines={2} style={[shellType(theme.isTV ? 22 : landscapePhone ? 12.5 : 13, 700), {color: theme.colors.text, flexShrink: 1}]}>{channel.name}</Text>{landscapePhone && channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}</View>}<Text style={[shellType(theme.isTV ? 18 : 11), {color: theme.colors.textSecondary}]}>{channel.number}</Text></View>
-      </Focusable>
+      </Focusable></FocusItem>
     </View>
     <View style={{flex: 1, overflow: 'hidden'}} onLayout={entry}>
-      {list ? <Focusable ref={node => {if (node) programRefs.current.set('now', node);}} focusId={cellFocusId(channel, {kind: 'now'})} testID={`live-now-${channel.id}`} onPress={() => onOpen(channel, current.now, programRefs.current.get('now'))} style={{height: rowHeight, padding: 14, backgroundColor: theme.colors.raised, borderRadius: 12, gap: 8}}><ScreenText>{current.now?.title ?? t('guide.noInformation')}</ScreenText>{nextText && <Text style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textSecondary}]}>{nextText}</Text>}</Focusable>
-        : <Animated.View style={[{flex: 1}, shift]}>{cells.map(cell => {
-          const refKey = cellRefKey(cell);
-          return <NativeLiveGuideCell key={refKey} focusId={cellFocusId(channel, cell.program ? {kind: 'programme', id: cell.program.id} : {kind: 'gap', start: cell.start})} cell={cell} gapLabel={runtime.text.t(channel.guide === 'none' ? 'guide.noGuide' : 'guide.noInformation')} gapBody={channel.guide === 'none' ? runtime.text.t('guide.noGuideBody') : undefined} loading={cell.kind === 'gap' && !programs.complete && !programs.failed} failed={cell.kind === 'gap' && programs.failed} retry={() => guide.invalidate()} left={cell.x - overscan * px + (phoneGrid ? 2 : 0)} laneWidth={laneWidth} panPosition={panPosition} panActive={panActive} start={start} now={now} px={px} rowHeight={rowHeight} compact={phoneGrid} clock={clock} runtime={runtime} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} refNode={node => {if (node) programRefs.current.set(refKey, node); else programRefs.current.delete(refKey);}} onPress={() => onOpen(channel, cell.program, programRefs.current.get(refKey))}/>;
+      {list ? <FocusItem focusId={cellFocusId(channel, {kind: 'now'})} cell={theme.isTV ? {row: index, kind: 'programme', start, end} : undefined}><Focusable onFocus={() => onTVFocus(index)} onLongPress={theme.isTV ? () => onOpen(channel, current.now, programRefs.current.get('now')) : undefined} ref={node => {if (node) programRefs.current.set('now', node);}} focusId={cellFocusId(channel, {kind: 'now'})} testID={`live-now-${channel.id}`} onPress={() => onOpen(channel, current.now, programRefs.current.get('now'))} style={{height: rowHeight, padding: 14, backgroundColor: theme.colors.raised, borderRadius: 12, gap: 8}}><ScreenText>{current.now?.title ?? t('guide.noInformation')}</ScreenText>{nextText && <Text style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textSecondary}]}>{nextText}</Text>}</Focusable></FocusItem>
+        : <Animated.View style={[{flex: 1}, shift]}>{(theme.isTV ? tvGuideNavigationCells(cells.filter(cell => !tvRange || cell.end > tvRange.first && cell.start < tvRange.last + (end - start)),
+          channel.guide !== 'none' && tvRange ? {first: tvRange.first, last: tvRange.last + (end - start)} : undefined, start - overscan, px, SLOT_MS) : cells).map(cell => {
+          const refKey = cellRefKey(cell), loading = 'pending' in cell && cell.pending === true || cell.kind === 'gap' && !programs.complete && !programs.failed;
+          const paint = <NativeLiveGuideCell focusId={cellFocusId(channel, cell.program ? {kind: 'programme', id: cell.program.id} : {kind: 'gap', start: cell.start})} cell={cell} gapLabel={runtime.text.t(channel.guide === 'none' ? 'guide.noGuide' : 'guide.noInformation')} gapBody={channel.guide === 'none' ? runtime.text.t('guide.noGuideBody') : undefined} loading={loading} failed={cell.kind === 'gap' && programs.failed} retry={() => guide.invalidate()} left={theme.isTV && loading ? 0 : cell.x - overscan * px + (phoneGrid ? 2 : 0)} laneWidth={laneWidth} panPosition={panPosition} panActive={panActive} start={start} now={now} px={px} rowHeight={rowHeight} compact={phoneGrid} clock={clock} runtime={runtime} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} refNode={node => {if (node) programRefs.current.set(refKey, node); else programRefs.current.delete(refKey);}} onTVFocus={() => onTVFocus(index, cell)} onPress={() => onOpen(channel, cell.program, programRefs.current.get(refKey))}/>;
+          const focusId = cellFocusId(channel, cell.program ? {kind: 'programme', id: cell.program.id} : {kind: 'gap', start: cell.start});
+          return <FocusItem key={refKey} focusId={focusId} cell={theme.isTV ? {row: index, kind: 'programme', boundary: 'pending' in cell && cell.pending === true, start: cell.start, end: cell.end} : undefined}>
+            {theme.isTV && loading
+              ? <Focusable focusId={focusId} focusKind="row" accessibilityLabel={t('saved.loading')} onFocus={() => onTVFocus(index, cell)}
+                style={{position: 'absolute', left: cell.x - overscan * px, top: 0, width: cell.width, height: rowHeight}}>{paint}</Focusable>
+              : paint}
+          </FocusItem>;
         })}</Animated.View>}
     </View>
   </View>;
@@ -415,7 +448,7 @@ function NativeLiveListRow({channel, programme, next, now, runtime, clock, heigh
   </Focusable>;
 }
 
-function NativeLiveGuideCell({cell, focusId, gapLabel, gapBody, loading, failed, retry, left, laneWidth, panPosition, panActive, start, now, px, rowHeight, compact, clock, runtime, testID, refNode, onPress}: {cell: GuideCell; focusId: string; gapLabel: string; gapBody?: string; loading: boolean; failed: boolean; retry: () => void; left: number; laneWidth: number; panPosition: SharedValue<number>; panActive: boolean; start: number; now: number; px: number; rowHeight: number; compact: boolean; clock: (at: number) => string | undefined; runtime: NativeShellRuntime; testID: string; refNode: (node: View | null) => void; onPress: () => void}) {
+function NativeLiveGuideCell({cell, focusId, gapLabel, gapBody, loading, failed, retry, left, laneWidth, panPosition, panActive, start, now, px, rowHeight, compact, clock, runtime, testID, refNode, onPress, onTVFocus}: {onTVFocus: () => void; cell: GuideCell; focusId: string; gapLabel: string; gapBody?: string; loading: boolean; failed: boolean; retry: () => void; left: number; laneWidth: number; panPosition: SharedValue<number>; panActive: boolean; start: number; now: number; px: number; rowHeight: number; compact: boolean; clock: (at: number) => string | undefined; runtime: NativeShellRuntime; testID: string; refNode: (node: View | null) => void; onPress: () => void}) {
   const theme = useTheme(), fadeId = useId().replace(/:/g, ''), padding = theme.isTV ? 16 : compact ? 7 : 8;
   const gap = cell.kind === 'gap', narrow = compact && (cell.tier === 'title' || cell.tier === 'sliver');
   const background = !theme.isTV && gap ? 'transparent' : cell.state === 'now' ? theme.colors.raisedHigh : !theme.isTV && cell.state === 'past' ? alpha(theme.colors.raised, .5) : theme.colors.raised;
@@ -429,8 +462,8 @@ function NativeLiveGuideCell({cell, focusId, gapLabel, gapBody, loading, failed,
     return {width: clipped ? isTV ? 20 : 10 : 0, opacity: clipped ? 1 : 0};
   }, [clippedStart, left, panActive, start, px, isTV]);
   if (loading) return <GuideLoadingMarker cellWidth={cellWidth} rowHeight={rowHeight} compact={compact} left={left} testID={`${testID}-loading`}/>;
-  if (failed) return <Focusable ref={refNode} focusId={focusId} testID={`${testID}-error`} accessibilityRole="button" accessibilityLabel={runtime.text.t('guide.tileFailed')} onPress={retry} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: theme.colors.raised}}><Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}><Text numberOfLines={2} style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textTertiary}]}>{runtime.text.t('guide.tileFailed')}</Text></Animated.View></Focusable>;
-  return <Focusable ref={refNode} focusId={focusId} testID={testID} accessibilityRole="button" accessibilityLabel={cell.program?.title ?? gapLabel} onPress={onPress} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: background, borderWidth: !theme.isTV && gap ? 1 : 0, borderColor: theme.colors.line, overflow: 'hidden'}}>
+  if (failed) return <Focusable ref={refNode} focusId={focusId} testID={`${testID}-error`} accessibilityRole="button" accessibilityLabel={runtime.text.t('guide.tileFailed')} onFocus={onTVFocus} onLongPress={theme.isTV ? retry : undefined} onPress={retry} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: theme.colors.raised}}><Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}><Text numberOfLines={2} style={[shellType(theme.isTV ? 20 : 12), {color: theme.colors.textTertiary}]}>{runtime.text.t('guide.tileFailed')}</Text></Animated.View></Focusable>;
+  return <Focusable ref={refNode} focusId={focusId} testID={testID} accessibilityRole="button" accessibilityLabel={cell.program?.title ?? gapLabel} onFocus={onTVFocus} onLongPress={theme.isTV ? onPress : undefined} onPress={onPress} focusKind="row" style={{position: 'absolute', left, top: compact ? 3 : 0, width: cellWidth, height: rowHeight - (compact ? 6 : 0), borderRadius: compact ? 8 : 12, backgroundColor: background, borderWidth: !theme.isTV && gap ? 1 : 0, borderColor: theme.colors.line, overflow: 'hidden'}}>
     {!theme.isTV && gap && <View pointerEvents="none" style={{position: 'absolute', inset: 0}}><Svg width="100%" height="100%" accessible={false}><Defs><Pattern id={`${fadeId}-gap`} patternUnits="userSpaceOnUse" width={14} height={14} patternTransform="rotate(45)"><Rect width={7} height={14} fill={theme.colors.text} fillOpacity={.035}/></Pattern></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId}-gap)`}/></Svg></View>}
     <Animated.View style={[{position: 'absolute', left: padding, top: 0, bottom: 0, justifyContent: 'center'}, content]}>
       <View style={{flexDirection: 'row', alignItems: 'flex-start'}}>{!theme.isTV && cell.program?.recording && <View style={{width: 7, height: 7, borderRadius: 4, marginTop: 4.5, marginRight: 5, backgroundColor: theme.colors.record}}/>}<Animated.View style={[{overflow: 'hidden'}, clip]}><Icon name="i-left" size={theme.isTV ? 16 : 10} color={theme.colors.textTertiary}/></Animated.View><Text numberOfLines={narrow ? 1 : 2} ellipsizeMode={narrow ? "tail" : "clip"} style={[shellType(theme.isTV ? 22 : gap ? 12.5 : narrow ? 12 : 13, gap && !theme.isTV ? 600 : 700), {color: !theme.isTV && (gap || cell.state === 'past') ? theme.colors.textTertiary : theme.colors.text, lineHeight: theme.isTV ? undefined : narrow ? 15 : 16, flexShrink: 1}]}>{cell.program?.title ?? gapLabel}</Text>{!theme.isTV && <View pointerEvents="none" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 8}}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={fadeId} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={background} stopOpacity="0"/><Stop offset="1" stopColor={background}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${fadeId})`}/></Svg></View>}</View>

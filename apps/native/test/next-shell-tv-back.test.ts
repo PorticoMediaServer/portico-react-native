@@ -132,6 +132,14 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   assert.equal(back(), false, 'Home opening state yields to OS despite prior destinations');
   removeTop();
   removeSearch();
+  const liveCalls: string[] = [];
+  const parentGuide = bindings.registerTVPageBack(() => {liveCalls.push('guide'); return true;}, {kind: 'live'});
+  const recordings = bindings.registerTVPageBack(() => {liveCalls.push('recordings'); return true;}, {kind: 'live'});
+  navigation.open({kind: 'shell', destination: {kind: 'live'}}, authority);
+  const hiddenParent = bindings.registerTVPageBack(() => false, {kind: 'live'});
+  back(); hiddenParent(); recordings(); back();
+  assert.deepEqual(liveCalls, ['recordings', 'guide'], 'closing a nested route restores the still-mounted page Back owner');
+  parentGuide();
   navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
   navigation.open(titleRoute(entry), authority);
   assert.deepEqual(bindings.getState().destination, {kind: 'saved'}, 'a title retains its real origin for Back');

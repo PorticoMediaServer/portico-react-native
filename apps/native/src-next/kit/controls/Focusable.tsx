@@ -14,6 +14,8 @@ export type ControlState = PressableStateCallbackType & {focused: boolean; hover
 export type FocusableProps = Omit<PressableProps, 'children'> & {
   children?: React.ReactNode | ((state: ControlState) => React.ReactNode);
   focusId?: string;
+  /** TV read-only/pending choices remain focus stops while commands are disabled. */
+  focusableWhenDisabled?: boolean;
   focusKind?: FocusKind;
   focusRadius?: number;
   focusInset?: boolean;
@@ -50,13 +52,15 @@ const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter
 
 /** The platform moves focus; this primitive only draws it and owns its Menu registration. */
 export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
-  children, style, disabled, focusable, focusId, testID, focusKind = 'button', focusRadius = 10,
+  children, style, disabled, focusable, focusableWhenDisabled, onPress, onAccessibilityAction, onAccessibilityTap, onMagicTap, focusId, testID, focusKind = 'button', focusRadius = 10,
   focusInset = false, focusTreatment = 'default', pressDurationMs, pressScale, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
   onLongPressAction, accessibilityState, ...props
 }, ref) {
   const {isTV, colors, layers, platform} = useTheme();
   const motion = useMotion(), paint = useOverlayPaintMode();
-  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: disabled || !paint.interactive || focusable === false, ref});
+  const retainDisabledFocus = isTV && focusableWhenDisabled === true && paint.interactive;
+  const nativeDisabled = !paint.interactive || disabled && !retainDisabledFocus;
+  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: nativeDisabled || focusable === false, ref});
   const observation = useNativeObservation<View>({kind: 'view', semanticId: binding.testID, role: props.accessibilityRole ?? 'button',
     flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ && typeof style !== 'function' ? StyleSheet.flatten(style) : undefined,
     declaredStyleComplete: typeof style !== 'function'}, binding.ref);
@@ -68,25 +72,26 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
 
   // motion.html 4.1: native focus draws with quick/out tokens.
   useEffect(() => {
-    scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && !disabled ? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
-    halo.value = withTiming(focused && !disabled ? 1 : 0, motion.timing('quick'));
-  }, [focused, disabled, isTV, focusKind, focusTreatment, motion, scale, halo]);
+    scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && (!disabled || retainDisabledFocus) ? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
+    halo.value = withTiming(focused && (!disabled || retainDisabledFocus) ? 1 : 0, motion.timing('quick'));
+  }, [focused, disabled, retainDisabledFocus, isTV, focusKind, focusTreatment, motion, scale, halo]);
   useFocusedMenu(isTV, focused, disabled || !paint.interactive, waiting || !paint.interactive ? undefined : onLongPressAction);
 
   const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV && pressScale === undefined ? 1 : 1 - pressed.value * (1 - (pressScale ?? .97))) : 1}]}));
   const ring = useAnimatedStyle(() => ({opacity: halo.value}));
   const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
-  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={observation.ref} disabled={disabled || !paint.interactive} focusable={disabled || !paint.interactive ? false : focusable}
-    onPress={paint.interactive ? props.onPress : undefined} onAccessibilityAction={paint.interactive ? props.onAccessibilityAction : undefined}
+  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={observation.ref} disabled={nativeDisabled} focusable={nativeDisabled ? false : focusable}
+    onPress={disabled || !paint.interactive ? undefined : onPress} onAccessibilityAction={disabled || !paint.interactive ? undefined : onAccessibilityAction}
+    onAccessibilityTap={disabled || !paint.interactive ? undefined : onAccessibilityTap} onMagicTap={disabled || !paint.interactive ? undefined : onMagicTap}
     accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
     tvParallaxProperties={{...props.tvParallaxProperties, enabled: false}}
     onFocus={event => {if (!paint.interactive) return; binding.onFocus(); setFocused(true); onFocus?.(event); observation.recordFocus(event, true);}}
     onBlur={event => {if (!paint.interactive) return; binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event); observation.recordFocus(event, false);}}
     onHoverIn={event => {if (!paint.interactive) return; setHovered(true); onHoverIn?.(event);}}
     onHoverOut={event => {if (!paint.interactive) return; setHovered(false); onHoverOut?.(event);}}
-    onPressIn={event => {if (!paint.interactive) return; pressed.value = withTiming(1, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressIn?.(event);}}
-    onPressOut={event => {if (!paint.interactive) return; pressed.value = withTiming(0, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressOut?.(event);}}
+    onPressIn={disabled || !paint.interactive ? undefined : event => {pressed.value = withTiming(1, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressIn?.(event);}}
+    onPressOut={disabled || !paint.interactive ? undefined : event => {pressed.value = withTiming(0, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressOut?.(event);}}
     onLongPress={disabled || waiting || !paint.interactive ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
     pressableStyleInput={typeof style === 'function' ? style : undefined}
     observeResolvedStyle={typeof __DEV__ !== 'undefined' && __DEV__ ? observation.recordDeclaredStyle : undefined}
@@ -99,7 +104,7 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
         style={[styles.ring, {inset: -offset, borderRadius: focusRadius + offset,
           borderWidth: focusSpec.ringWidth[platform], borderColor: colors.focus,
           ...(isTV ? {shadowColor: colorAlpha(colors.accentStrong, focusSpec.glow.alpha), shadowOffset: {width: focusSpec.glow.x, height: focusSpec.glow.y}, shadowOpacity: 1, shadowRadius: focusSpec.glow.blur / 2} : {})}, ring]} /> : null}
-      {typeof children === 'function' ? children({...state, focused, hovered}) : children}
+      {typeof children === 'function' ? children({...state, pressed: disabled || !paint.interactive ? false : state.pressed, focused, hovered}) : children}
     </>}
   </AnimatedPressable>;
 });

@@ -192,3 +192,26 @@ test('F-HOME-63 shared native boundary retries data once per Right stroke only o
   } finally {driver.unmount();}
   assert.equal(removed, 2);
 });
+
+test('opted-in cell bindings resolve semantic first-column and short-row destinations on real native hosts', async () => {
+  const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
+  contexts[0]!.current = registry; contexts[1]!.current = 'grid';
+  contexts[2]!.current = {focusId: 'last', cell: {index: 10}};
+  registry.configure({id: 'grid', grid: {columns: 4, count: 11}, edges: {left: 'keyboard'}});
+  registry.attachRegion('keyboard', {nativeTag: 20, requestTVFocus() {}} as Host);
+  const previous = {nativeTag: 7, requestTVFocus() {}} as Host;
+  registry.attach({regionId: 'grid', childId: 'previous'}, previous, {}, {index: 7});
+  registry.didFocus({regionId: 'grid', childId: 'previous'});
+  let bound: any;
+  const driver = createHookHost(() => {bound = mod.useFocusTarget({});}); driver.mount();
+  try {
+    bound.ref({nativeTag: 10, requestTVFocus() {}}); driver.flush(); bound.onFocus(); driver.flush();
+    assert.equal(bound.nextFocusUp, 7, 'native Up restores the column before the short row');
+    assert.equal(bound.nextFocusRight, 10, 'the native host owns the true-end stop');
+    contexts[2]!.current = {focusId: 'first-column', cell: {index: 8}}; driver.rerender();
+    assert.equal(bound.nextFocusLeft, 20, 'Left on a later first-column cell reaches the keyboard region');
+    const before = registry.getSnapshot();
+    contexts[2]!.current = {focusId: 'first-column', cell: {index: 8}}; driver.rerender();
+    assert.equal(registry.getSnapshot(), before, 'equal inline descriptors do not detach or republish the native host');
+  } finally {driver.unmount();}
+});

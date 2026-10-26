@@ -59,7 +59,7 @@ function mount(component: any, initial: Record<string, any>) {
     native() {const found = elements(tree).filter(node => node.type === 'Pressable'); assert.equal(found.length, 1); return found[0]!;}};
 }
 
-async function controls(isTV = false, reduce = false) {
+async function controls(isTV = false, reduce = false, interactive = true) {
   const PropsFilter = await installedFilter();
   const theme = createTheme({isTV, width: isTV ? 1920 : 390, reduceMotion: reduce});
   const motion = {transforms: !reduce, timing: () => ({duration: reduce ? 160 : 120})};
@@ -94,7 +94,7 @@ async function controls(isTV = false, reduce = false) {
     '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, './registry': await import('../src-next/kit/focus/registry.ts'),
   });
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
-    '../overlays/OverlayPaintContext': liveOverlayPaint,
+    '../overlays/OverlayPaintContext': {...liveOverlayPaint, useOverlayPaintMode: () => ({...liveOverlayPaint.useOverlayPaintMode(), interactive})},
     react, 'react-native': native, 'react-native-reanimated': animated, '@portico/design': {focusSpec},
     '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     './control-model': controlModel, './useFocusedMenu': {useFocusedMenu}, '../focus': focusModule,
@@ -298,6 +298,40 @@ test('inset TV focus keeps one ring and custom faces retain caller geometry with
       }
       assert.deepEqual(handles[0]!.read().transform, [{scale: focusTreatment === 'none' ? 1 : controlModel.focusScale('button', true)}]);
       assert.equal(nativeStyle(control.native()).height, 64); assert.equal(nativeStyle(control.native()).flex, 1);
+    } finally {control.host.unmount();}
+  }
+});
+
+test('TV opt-in disabled choices retain their native stop and ring while every command channel is inert', async () => {
+  for (const isTV of [true, false]) {
+    const {Focusable, handles} = await controls(isTV);
+    const command = () => {throw new Error('Disabled choice executed a command');};
+    const control = mount(Focusable, {focusableWhenDisabled: true, disabled: true, onPress: command, onLongPress: command,
+      onLongPressAction: command, onAccessibilityAction: command, onAccessibilityTap: command, onMagicTap: command});
+    try {
+      const node = control.native();
+      assert.equal(node.props.disabled, !isTV); assert.equal(node.props.focusable, isTV ? undefined : false);
+      assert.equal(node.props.accessibilityState.disabled, true);
+      for (const key of ['onPress', 'onLongPress', 'onAccessibilityAction', 'onAccessibilityTap', 'onMagicTap', 'onPressIn', 'onPressOut']) assert.equal(node.props[key], undefined, key);
+      await act(() => control.native().props.onFocus({}));
+      assert.equal(handles[1]!.read().opacity, isTV ? 1 : 0);
+      assert.equal(menu(), false, 'an inert focused choice never owns a context action');
+    } finally {control.host.unmount();}
+  }
+});
+
+test('inert outgoing paint dominates TV focusableWhenDisabled and ignores retained native events', async () => {
+  for (const disabled of [false, true]) {
+    const {Focusable, handles} = await controls(true, false, false);
+    const command = () => {throw new Error('Outgoing paint invoked an input callback');};
+    const control = mount(Focusable, {focusableWhenDisabled: true, disabled, onPress: command, onLongPress: command,
+      onLongPressAction: command, onAccessibilityAction: command, onAccessibilityTap: command, onMagicTap: command,
+      onFocus: command, onBlur: command, onHoverIn: command, onHoverOut: command});
+    try {
+      const node = control.native(); assert.equal(node.props.disabled, true); assert.equal(node.props.focusable, false);
+      for (const key of ['onPress', 'onLongPress', 'onAccessibilityAction', 'onAccessibilityTap', 'onMagicTap', 'onPressIn', 'onPressOut']) assert.equal(node.props[key], undefined);
+      await act(() => {node.props.onFocus({}); node.props.onBlur({}); node.props.onHoverIn({}); node.props.onHoverOut({});});
+      assert.equal(handles[1]!.read().opacity, 0); assert.equal(menu(), false);
     } finally {control.host.unmount();}
   }
 });

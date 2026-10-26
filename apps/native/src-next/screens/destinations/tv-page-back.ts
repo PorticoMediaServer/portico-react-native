@@ -16,7 +16,7 @@ export function createTVPageBack(registry: Pick<FocusRegistry, 'capture' | 'focu
     if (target) {
       // A native host may synchronously publish focus. Retire before requesting it.
       pending = false;
-      if (!registry.focus(target)) pending = alive && page.current();
+      if (!registry.focus(target, {resetCellMemory: true})) pending = alive && page.current();
     }
   };
   const unsubscribe = registry.subscribe(retry);
