@@ -144,13 +144,12 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
   await this.refresh();if(this.current===active)await this.bridge.listeningAdvance(active.owner,reason,entryId??null);
  }
  async deadlines(value:ListeningDeadlines){const active=this.current;if(!active)return;await this.refresh();if(this.current===active)await this.bridge.listeningDeadlines(active.owner,value);}
- async configure(policy:NativeListeningPolicy){
-  const original=capturedPolicy(policy);this.policy=original;const active=this.current;if(!active)return;
-  if(!this.bridge.listeningPolicy)throw new Error('This native host does not implement unified listening policy.');
+ async configure(policy:NativeListeningPolicy):Promise<boolean>{
+  const original=capturedPolicy(policy);this.policy=original;const active=this.current;if(!active||!this.bridge.listeningPolicy)return false;
   const accepted=await this.bridge.listeningPolicy(active.owner,original);
   // An accepted policy may itself pause/advance playback. Keep its owner, not the live header;
   // replacement ownership or a newer policy must never acknowledge this older command.
-  if(accepted!==true||this.current!==active||this.policy!==original)throw new Error('This listening policy is no longer current.');
+  return accepted===true&&this.current===active&&this.policy===original;
  }
  async detach(stop:boolean){++this.epoch;const active=this.current;this.current=undefined;if(active){active.unsubscribe();await this.bridge.retireListening(active.owner,stop);}}
  async sessionUpdated(sessionId:string){const active=this.current;if(!active||active.sessionId!==sessionId||!this.bridge.listeningSessionUpdated)return;await this.bridge.listeningSessionUpdated(active.owner,sessionId);}
