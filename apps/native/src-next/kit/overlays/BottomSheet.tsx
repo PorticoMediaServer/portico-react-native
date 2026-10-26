@@ -103,12 +103,12 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   }, [heights, dismissOnGesture, dismiss, choose]);
   const pan = Gesture.Pan().enabled(!side).onBegin(() => {cancelAnimation(shown); start.value = shown.value;}).onUpdate(event => {
     shown.value = resistSheet(start.value - event.translationY, max);
-  }).onEnd(event => {runOnJS(released)(shown.value, event.velocityY);}).onFinalize((_event, success) => {
+  }).onEnd((event, success) => {if (success) runOnJS(released)(shown.value, event.velocityY);}).onFinalize((_event, success) => {
     if (!success) runOnJS(choose)(index);
   });
   const sheetStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: [{translateY: max - shown.value}]}));
   const scrimStyle = useAnimatedStyle(() => ({opacity: motion.reduce ? opacity.value : side ? sideProgress.value : Math.max(0, Math.min(1, shown.value / max))}));
-  const footerStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateY: Math.max(0, (1 - shown.value / heights[0]) * footerHeight)}]}));
+  const footerStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: side || motion.reduce ? [] : [{translateY: shown.value - max + Math.max(0, (1 - shown.value / heights[0]) * footerHeight)}]}));
   const tvStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateX: (1 - sideProgress.value) * sideWidth}]}));
   const close = <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
   if (!present) return null;
@@ -117,20 +117,29 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     <View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', backdropOpacity)}, scrimStyle]} pointerEvents="none"/>
       <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
-      {side ? <Animated.View testID={testID} style={[styles.tv, {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20, backgroundColor: theme.colors.raised}, tvStyle, style]}>
-        {theme.isTV && <PanelBackground/>}<FocusBoundary modal testID={testID} style={styles.root}>{headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader side inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction}/>}{body}{(footer != null || showClose) && <View style={{paddingTop: 20}}>{footer ?? close}</View>}</FocusBoundary>
-      </Animated.View> : <>
-        <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[styles.sheet, {height: max, backgroundColor: theme.colors.raised, borderColor: alpha(theme.colors.text, 0.08)}, sheetStyle, style]}>
-          <GestureDetector gesture={pan}><Animated.View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}><View accessible accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityValue={{min: 1, max: heights.length, now: index + 1, text: defaultI18n.t('next.overlays.native.sheetPosition', {position: index + 1, count: heights.length})}}
-            accessibilityActions={[{name: 'increment', label: defaultI18n.t('next.overlays.native.expandSheet')}, {name: 'decrement', label: defaultI18n.t('next.overlays.native.collapseSheet')}, ...(dismissOnGesture ? [{name: 'dismiss' as const, label: defaultI18n.t('action.close')}] : [])]}
-            onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'dismiss') {if (dismissOnGesture) dismiss('gesture');} else choose(index + (event.nativeEvent.actionName === 'increment' ? 1 : -1));}}>
-            <View style={[styles.grabber, {backgroundColor: theme.colors.lineStrong}]}/></View>
-            {headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction ?? (showClose ? close : undefined)}/>}
+      {/* One native content ancestry across compact/medium. Changing geometry
+          cannot recreate the ScrollView or a focused TextInput/IME session. */}
+      <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[side ? styles.tv : styles.sheet,
+        side ? {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20}
+          : {height: max, borderColor: alpha(theme.colors.text, 0.08)},
+        {backgroundColor: theme.colors.raised}, side ? tvStyle : sheetStyle, style]}>
+        {theme.isTV && <PanelBackground/>}
+        <FocusBoundary modal testID={testID} style={styles.root}>
+          <GestureDetector gesture={pan}><Animated.View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>
+            <View style={side ? {display: 'none'} : undefined} accessible={!side} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityValue={{min: 1, max: heights.length, now: index + 1, text: defaultI18n.t('next.overlays.native.sheetPosition', {position: index + 1, count: heights.length})}}
+              accessibilityActions={[{name: 'increment', label: defaultI18n.t('next.overlays.native.expandSheet')}, {name: 'decrement', label: defaultI18n.t('next.overlays.native.collapseSheet')}, ...(dismissOnGesture ? [{name: 'dismiss' as const, label: defaultI18n.t('action.close')}] : [])]}
+              onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'dismiss') {if (dismissOnGesture) dismiss('gesture');} else choose(index + (event.nativeEvent.actionName === 'increment' ? 1 : -1));}}>
+              <View style={[styles.grabber, {backgroundColor: theme.colors.lineStrong}]}/>
+            </View>
+            {headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader side={side} inset={!side} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction ?? (!side && showClose ? close : undefined)}/>}
           </Animated.View></GestureDetector>
           {body}
-        </Animated.View>
-        {footer != null && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footer, {backgroundColor: theme.colors.raised, paddingTop: footerPadding?.top ?? 14, paddingBottom: footerPadding ? keyboardTop !== undefined ? footerPadding.keyboardBottom : Math.max(insets.bottom, footerPadding.bottom) : (keyboardInset > 0 ? 0 : insets.bottom) + 16, borderTopWidth: showFooterSeparator ? 1 : 0, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer}</Animated.View>}
-      </>}
+          {(footer != null || side && showClose) && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
+            style={[side ? {paddingTop: 20} : styles.footer,
+              side ? undefined : {backgroundColor: theme.colors.raised, paddingTop: footerPadding?.top ?? 14, paddingBottom: footerPadding ? keyboardTop !== undefined ? footerPadding.keyboardBottom : Math.max(insets.bottom, footerPadding.bottom) : (keyboardInset > 0 ? 0 : insets.bottom) + 16,
+                borderTopWidth: showFooterSeparator ? 1 : 0, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer ?? close}</Animated.View>}
+        </FocusBoundary>
+      </Animated.View>
     </View></View>
   </Modal>;
 }
