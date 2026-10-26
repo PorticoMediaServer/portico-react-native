@@ -35,6 +35,8 @@ import {NativePlaybackCoordinator, type NativeBinding} from './NativePlaybackCoo
 import {nativeExternalPresentationBinding, sameNativePresentation} from './external-presentation';
 import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
+import {captureNativePreparingOwner, nativePreparingStarts} from './preparing-owner';
+import type {NativeStartRegistration} from './preparing-start';
 import {NativeOfflinePlayback, type NativeOfflineSource} from './offline-playback';
 import type {OfflineEntry} from '../../../platform/offline-downloads';
 import {captionStyle} from './caption-style';
@@ -94,6 +96,7 @@ export class NativePlaybackRuntime {
   private readonly sessionFamilyId: string;
   private readonly scope: QueueScope;
   private readonly http: PlaybackScopeHttp;
+  private readonly preparingStarts: NativeStartRegistration;
   private readonly optionsClient: PlaybackOptionsClient;
   private readonly offline?: NativeOfflinePlayback;
   private offlineSource?: NativeOfflineSource;
@@ -178,7 +181,10 @@ export class NativePlaybackRuntime {
     this.sessionFamilyId = session.sessionFamilyId;
     // These are the actual controller identifiers V1QueuePlayer publishes (its constructor).
     this.scope = Object.freeze({serverId: viewer.serverId, authority: viewer.authority as 'local' | 'hosted', accountId: viewer.accountId, profileId: viewer.profileId, controllerId: 'v1', controllerEpoch: 'v1', commandLaneId: 'v1'});
+    this.preparingStarts = nativePreparingStarts(options.api).attach(() => captureNativePreparingOwner(options.api, options.session),
+      id => !!this.path?.session(id) || this.path?.controller.getSnapshot().session?.id === id || this.playback?.getSnapshot().session?.id === id);
     this.http = new PlaybackScopeHttp(localV1Http(options.api), () => this.currentAuthority(), (request, response) => this.retiredStart(request, response));
+    const originalHttp = {send: (request: V1Request) => {this.preparingStarts.observe(request); return this.http.send(request);}};
     const visibility = {hidden: () => AppState.currentState !== 'active', onVisible(listener: () => void) {
       const off = AppState.addEventListener('change', state => {if (state === 'active') listener();});return () => off.remove();
     }};
@@ -187,7 +193,7 @@ export class NativePlaybackRuntime {
       if (!context || !request.signal || !this.startAdmission) return;
       return () => this.currentAuthority() && this.startOperationCurrent(epoch) && !request.signal!.aborted && context() && guard?.() !== false;
     };
-    const capacity = capacityRetryHttp({http: this.http, life: this.startLife.signal, captureCurrent,
+    const capacity = capacityRetryHttp({http: originalHttp, life: this.startLife.signal, captureCurrent,
       isCurrent: () => this.currentAuthority(), timers: options.timers, foreground: () => !visibility.hidden(), onVisible: visibility.onVisible,
       publish: wait => {this.capacityWait = wait;if (this.snapshot) this.changed();}});
     const startHttp = options.startFailurePresentation ? startFailureHttp({http: capacity, api: options.api, events: options.events,
@@ -195,9 +201,17 @@ export class NativePlaybackRuntime {
       subscribeCurrent: listener => {const offs = [options.subscribeAuthority(listener), options.subscribeStartContext?.(listener)];return () => offs.forEach(off => off?.());},
       publish: failure => {this.startFailure = failure;if (this.snapshot) this.changed();},
       cancelStart: () => {this.beginOperation();this.changed();},
-    }) : this.http;
+    }) : originalHttp;
     this.optionsClient = new PlaybackOptionsClient(this.http);
-    this.path = new NativePlayback({http: startHttp, key: options.requestId, timers: options.timers});
+    this.path = new NativePlayback({http: startHttp, key: options.requestId, timers: options.timers, preparingStarts: this.preparingStarts,
+      captureStartCurrent: () => {
+        const epoch = this.startEpoch, principal = startupPrincipal(this.o.session()), initial = this.startAdmission, original = this.startContext;
+        // The queue's own later start has its current core context, not the
+        // route that originally opened playback. Initial user Play retains it.
+        const actor = () => this.currentAuthority() && epoch === this.startEpoch && principal !== undefined && startupPrincipal(this.o.session()) === principal;
+        return () => actor() && (!initial || this.startContext === original && original?.() !== false) && actor()
+          && (!initial || this.startContext === original);
+      }});
     if (options.offlineDevice) this.offline = new NativeOfflinePlayback(options.session, options.offlineDevice);
     this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
     this.queue = new V1QueuePlayer({http: startHttp, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
@@ -229,6 +243,7 @@ export class NativePlaybackRuntime {
     return session?.sessionFamilyId === this.sessionFamilyId && authorityKey(this.o.authority()) === authorityKey(this.bound) && viewer?.serverId === this.scope?.serverId && viewer.accountId === this.scope.accountId && viewer.profileId === this.scope.profileId && viewer.authority === this.scope.authority;
   }
   private retiredStart(request: V1Request, response: V1Response): void {
+    this.preparingStarts.retired(request, response);
     if (request.method !== 'POST' || ![200, 201].includes(response.status) || !this.authorityMatches()) return;
     let session: Session;
     if (request.path === routePath('create_queue')) {
