@@ -12,6 +12,8 @@ import type {ReadingHostSession} from '../../../../../packages/client-core/src/r
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {LoadingPaint, StateView, SkeletonBlock} from '../../kit/states';
+import {Button} from '../../kit/controls/Button';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
@@ -41,7 +43,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       host: Boolean(host.current), view: Boolean(view.current), active: callbacks.current.active}));
   };
   const theme = useTheme(), view = useRef<WebView>(null), host = useRef<ReturnType<typeof createReadingHost>>(undefined);
-  const dimensions = useWindowDimensions(), posture = usePlatformPosture();
+  const dimensions = useWindowDimensions(), posture = usePlatformPosture(), insets = useSafeAreaInsets();
   // foldable6/tablet-read5: only a real vertical crease for this exact window may
   // request the two-page spread; an absent report keeps the ordinary one page.
   const crease = posture.status === 'available' && posture.window?.width === dimensions.width && posture.window.height === dimensions.height
@@ -214,5 +216,14 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         onContentProcessDidTerminate={failRenderedReader}
         onRenderProcessGone={failRenderedReader}/> : null}
       </LoadingPaint>}
+    {!state.url || state.failed ? <View pointerEvents="box-none" style={{position: 'absolute', left: 12, top: insets.top + 8, zIndex: 20}}>
+      {/* Authored reader Back, phone-read.html .nb .gr 38px and tablet-read.html .rtop .back 44px:
+          outside the guest so a failed or not-yet-open Read still has the only way back. The
+          caller supplies admission; this only presses while it is the active render. */}
+      <Button testID="native-read-host-back" variant="icon" size="compact" icon="i-left" iconOnly
+        accessibilityLabel={defaultI18n.t('action.back')} focusRadius={dimensions.width >= 700 ? 22 : 19}
+        onPress={() => {if (callbacks.current.active) callbacks.current.onBack();}}
+        style={{height: dimensions.width >= 700 ? 44 : 38, width: dimensions.width >= 700 ? 44 : 38, paddingHorizontal: 0}}/>
+    </View> : null}
   </View>;
 }
