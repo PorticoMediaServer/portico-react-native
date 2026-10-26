@@ -7,6 +7,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Button} from '../controls/Button';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {TVDesignCanvas} from './TVDesignCanvas';
 import {useOverlayLifecycle} from './OverlayHost';
 import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
@@ -114,7 +115,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   if (!present) return null;
   const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onScroll={event => {scrollOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
-    <View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
+    <TVDesignCanvas><View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', backdropOpacity)}, scrimStyle]} pointerEvents="none"/>
       <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
       {/* One native content ancestry across compact/medium. Changing geometry
@@ -140,7 +141,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
                 borderTopWidth: showFooterSeparator ? 1 : 0, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer ?? close}</Animated.View>}
         </FocusBoundary>
       </Animated.View>
-    </View></View>
+    </View></View></TVDesignCanvas>
   </Modal>;
 }
 const styles = StyleSheet.create({

@@ -3,6 +3,7 @@ import type {SavedDefinition} from '../../../../packages/client-core/src/persona
 import type {LibraryTabId} from '../../../../packages/client-core/src/presentation/library-tabs';
 import type {IconName} from '../kit/Icon';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../screens/read/platform';
+import {tvCanvasFrame} from '../platform/layout/tv-canvas';
 
 export type ShellScope = Readonly<{serverId: string; accountId: string; profileId: string}>;
 export type ShellAuthority = ShellScope & Readonly<{epoch: string; viewerFence: string}>;
@@ -82,8 +83,7 @@ export type ShellLayout = Readonly<{kind: 'phone' | 'tablet' | 'desktop' | 'tv';
 /** TV is one letterboxed 1920x1080 coordinate system, never separately enlarged text/cards. */
 export function shellLayout(width: number, height: number, isTV: boolean): ShellLayout {
   if (isTV) {
-    const scale = Math.min(width / 1920, height / 1080);
-    return {kind: 'tv', panel: 'side', tabs: false, rail: false, scale, left: (width - 1920 * scale) / 2, top: (height - 1080 * scale) / 2, width: 1920, height: 1080};
+    return {kind: 'tv', panel: 'side', tabs: false, rail: false, ...tvCanvasFrame(width, height)};
   }
   // foldable1/tablet: 600-1023 uses the 84 pt rail, never the phone tab bar.
   // A phone in landscape is wider than 600 but short: phone-guide 2 draws the

@@ -2,6 +2,8 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
+import {tvCanvasFrame} from '../../platform/layout/tv-canvas';
+import {TVDesignCanvas} from './TVDesignCanvas';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Button} from '../controls/Button';
 import {Focusable} from '../controls/Focusable';
@@ -77,7 +79,7 @@ function CenteredDialog({open, onOpenChange, title, headerContext, description, 
   if (!animation.present) return null;
   const width = suppliedWidth ?? (size === 'md' ? theme.isTV ? 900 : 480 : theme.spec.overlay.width[size][theme.platform]);
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
-    <View style={styles.modalRoot} accessibilityViewIsModal importantForAccessibility="yes" onAccessibilityEscape={() => dismiss('escape')}>
+    <TVDesignCanvas><View style={styles.modalRoot} accessibilityViewIsModal importantForAccessibility="yes" onAccessibilityEscape={() => dismiss('escape')}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, {backgroundColor: scrimColor ?? alpha(theme.isTV ? '#04090d' : '#03080c', theme.isTV ? 0.62 : 0.64)}, scrimStyle]}/>
       <Pressable accessible={false} focusable={false} style={StyleSheet.absoluteFill} onPress={() => {if (dismissOnOutsidePress) dismiss('outside');}}/>
       <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[{width: width || '100%', maxWidth: '92%', maxHeight: `${theme.spec.overlay.maxHeight[theme.platform] * 100}%`, borderRadius: theme.isTV ? 26 : 20, paddingTop: theme.isTV ? 48 : 26, paddingHorizontal: theme.isTV ? 52 : 26, paddingBottom: theme.isTV ? 44 : 22, backgroundColor: faceColor ?? theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.text, 0.09)}, animation.style, style]}>
@@ -90,7 +92,7 @@ function CenteredDialog({open, onOpenChange, title, headerContext, description, 
         </FocusBoundary>
         {showClose && !theme.isTV && <Focusable testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} focusRadius={18} accessibilityRole="button" accessibilityLabel={defaultI18n.t('action.close')} hitSlop={4} onPress={() => dismiss('close-button')} style={{position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-close" size={20} color={theme.colors.textTertiary}/></Focusable>}
       </Animated.View>
-    </View>
+    </View></TVDesignCanvas>
   </Modal>;
 }
 export function Dialog(props: DialogProps) {
@@ -107,15 +109,19 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
   const hostWidth = frame.width || viewport.width;
   const hostHeight = frame.height || viewport.height;
   const canvas = theme.isTV && logicalCanvas && Number.isFinite(logicalCanvas.width) && logicalCanvas.width > 0 && Number.isFinite(logicalCanvas.height) && logicalCanvas.height > 0 ? logicalCanvas : undefined;
-  const canvasScale = canvas ? Math.min(hostWidth / canvas.width, Math.max(0, hostHeight - topInset) / canvas.height) : 1;
-  const actualWidth = canvas ? canvas.width * canvasScale : width ?? (theme.isTV ? 640 : 440);
+  const actualWidth = canvas?.width ?? width ?? (theme.isTV ? 640 : 440);
+  // Portal hit testing uses window coordinates, including Vega's outer scale.
+  // The rendered panel itself uses the same logical canvas as the page.
+  const physical = tvCanvasFrame(hostWidth, hostHeight);
   const animation = useSurfaceMotion(open, 'side', actualWidth);
   const scrimStyle = useScrimStyle(animation.progress);
   const closeRef = useRef<View>(null);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
   useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID, restoreFocus);
   const panelWidth = Math.min(actualWidth, hostWidth);
-  const rect = {x: frame.x + hostWidth - panelWidth, y: frame.y + topInset, width: panelWidth, height: Math.max(0, hostHeight - topInset)};
+  const rect = theme.isTV
+    ? {x: frame.x + physical.left + (physical.width - actualWidth) * physical.scale, y: frame.y + physical.top + topInset * physical.scale, width: actualWidth * physical.scale, height: Math.max(0, physical.height - topInset) * physical.scale}
+    : {x: frame.x + hostWidth - panelWidth, y: frame.y + topInset, width: panelWidth, height: Math.max(0, hostHeight - topInset)};
   if (!animation.present) return null;
   const padding = {paddingTop: theme.isTV ? 64 : 24, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0};
   const content = <>{theme.isTV && <PanelBackground/>}
@@ -126,11 +132,11 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
         {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16}}>{footer}</View>}
       </FocusBoundary></>;
   return <OverlayPortal rect={rect} onOutsidePress={closeOnOutsidePress ? () => dismiss('outside') : undefined}>
-    {theme.isTV && <Animated.View testID={testID ? `${testID}-scrim` : undefined} pointerEvents="none" accessible={false}
+    <TVDesignCanvas>{theme.isTV && <Animated.View testID={testID ? `${testID}-scrim` : undefined} pointerEvents="none" accessible={false}
       style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.colors.ink, .62)}, scrimStyle]}/>}
     <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu}, canvas ? undefined : padding, animation.style, canvas ? undefined : style]}>
-      {canvas ? <View style={[padding, style, {position: 'absolute', top: 0, left: 0, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvasScale}]}]}>{content}</View> : content}
-    </Animated.View>
+      {canvas ? <View style={[padding, style, {position: 'absolute', top: 0, left: 0, width: canvas.width, height: canvas.height}]}>{content}</View> : content}
+    </Animated.View></TVDesignCanvas>
   </OverlayPortal>;
 }
 const styles = StyleSheet.create({root: {flex: 1}, modalRoot: {flex: 1, justifyContent: 'center', alignItems: 'center'}, side: {position: 'absolute', right: 0, bottom: 0, shadowColor: '#000', shadowOffset: {width: -20, height: 0}, shadowOpacity: 0.6, shadowRadius: 40}});
