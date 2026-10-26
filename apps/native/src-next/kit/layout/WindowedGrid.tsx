@@ -32,11 +32,13 @@ export type WindowedGridProps<T> = {
   /** Actual native contentOffset.y, including a final position within a row. */
   onScrollOffset?: (offset: number) => void;
   onItemFocus?: (item: T, index: number) => void;
+  /** Existing measured layout, for declarative native focus-cell boundaries. */
+  onGeometry?: (columns: number, stride: number) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const theme = useTheme();
   const columnGap = gap ?? (theme.isTV ? 28 : 12), verticalGap = rowGap ?? (theme.isTV ? 36 : 22);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
@@ -50,6 +52,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   const snapshot = useSyncExternalStore(collection.subscribe, collection.getSnapshot, collection.getSnapshot);
   const columns = Math.max(1, Math.floor((viewport.width - leading - trailing + columnGap) / (itemWidth + columnGap)));
   const stride = itemHeight + verticalGap;
+  useLayoutEffect(() => {if (viewport.width > 0) onGeometry?.(columns, stride);}, [columns, onGeometry, stride, viewport.width]);
   const total = snapshot.total ?? collection.pageSize;
   const window = gridWindow(total, columns, stride, Math.max(0, scroll + stickyOffset - paddingTop), Math.max(0, viewport.height - stickyOffset), overscanRows);
   const firstMounted = window.startRow * columns, lastMounted = Math.min(total - 1, (window.endRow + 1) * columns - 1);

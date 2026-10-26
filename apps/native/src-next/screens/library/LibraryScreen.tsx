@@ -14,7 +14,7 @@ import {serverTextLabel} from '../../../../../packages/client-core/src/presentat
 import {CircleCard, GenreTile, PlaylistMosaic, PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {AmbientArt, Artwork} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
-import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
+import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, QuickToggle, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
@@ -312,7 +312,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     else if (empty) setEmptyHeld(true);
   }, [empty, scope]);
   const emptyShown = empty || emptyHeld;
-  const firstCard = state.collection?.itemAt(0), firstCardRegion = firstCard ? ids.libraryCard(state.library.id, nativeLibraryEntryKey(firstCard)) : undefined;
+  const firstCard = state.collection?.itemAt(0), firstCardRegion = firstCard ? theme.isTV ? ids.libraryGrid(state.library.id, state.tab.id) : ids.libraryCard(state.library.id, nativeLibraryEntryKey(firstCard)) : undefined;
   useDestinationEntryFocus(active, emptyShown && theme.isTV ? {regionId: emptyRegion, childId: 'browse-home'} : undefined);
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', ebook: 'books', comic: 'titles'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
@@ -476,7 +476,11 @@ function LibraryEmpty({runtime, regionId, upRegionId, firstCardRegion, onLeave, 
   </FocusRegion>;
 }
 
-function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, paneWidth, tablet, expanded, filtersOpen, onFilters, dockedFilters, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; /** The live width of this route's column, after the rail or sidebar and any docked pane. */ paneWidth: number; /** True on the medium and expanded tablet layouts, where the drawn grid is not the phone's. */ tablet: boolean; /** The one expanded classification the skeleton uses too: 1024 and wider. */ expanded: boolean; /** The route owns the filter draft, so the panel is drawn beside or over this grid. */ filtersOpen: boolean; onFilters: () => void; /** True while that panel is docked beside the grid. */ dockedFilters: boolean; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
+function LibraryGridRegion(props: FocusRegionProps) {
+  return useTheme().isTV ? <FocusRegion {...props}/> : <>{props.children}</>;
+}
+
+export function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, paneWidth, tablet, expanded, filtersOpen, onFilters, dockedFilters, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; /** The live width of this route's column, after the rail or sidebar and any docked pane. */ paneWidth: number; /** True on the medium and expanded tablet layouts, where the drawn grid is not the phone's. */ tablet: boolean; /** The one expanded classification the skeleton uses too: 1024 and wider. */ expanded: boolean; /** The route owns the filter draft, so the panel is drawn beside or over this grid. */ filtersOpen: boolean; onFilters: () => void; /** True while that panel is docked beside the grid. */ dockedFilters: boolean; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
   const theme = useTheme(), registry = useFocusRegistry(), grid = useRef<WindowedGridHandle>(null);
   const collection = source.collection!, state = useSyncExternalStore(collection.subscribe, collection.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
@@ -493,7 +497,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const authority = runtime.getSnapshot().authority;
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]);
   const first = restoring.current ? collection.residentItems().find(entry => nativeLibraryEntryKey(entry) === restoring.current!.key) ?? collection.itemAt(openingIndex) : collection.itemAt(0);
-  const firstKey = first && nativeLibraryEntryKey(first), firstAddress = useMemo(() => firstKey ? {regionId: ids.libraryCard(source.library.id, firstKey), childId: firstKey} : undefined, [firstKey, ids, source.library.id]);
+  const gridRegion = ids.libraryGrid(source.library.id, source.tab.id);
+  const firstKey = first && nativeLibraryEntryKey(first), firstAddress = useMemo(() => firstKey ? {regionId: theme.isTV ? gridRegion : ids.libraryCard(source.library.id, firstKey), childId: firstKey} : undefined, [firstKey, gridRegion, ids, source.library.id, theme.isTV]);
   const top = useCallback(() => grid.current?.scrollToIndex(0), []);
   useEffect(() => {if (source.queryRevision > 0) top();}, [source.queryRevision, top]);
   const entered = useCallback(() => {if (restoring.current) grid.current?.scrollToIndex(openingIndex); else top(); onEntered();}, [onEntered, top, openingIndex]);
@@ -504,7 +509,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     registerTop: true, scope: JSON.stringify([active.revision, source.queryRevision, source.tab.id]),
     current: () => activation.getSnapshot().visible && !entryCovered,
     start: () => {const entry = collection.itemAt(0), key = entry && nativeLibraryEntryKey(entry);
-      return key ? {regionId: ids.libraryCard(source.library.id, key), childId: key} : undefined;},
+      return key ? {regionId: gridRegion, childId: key} : undefined;},
     atTop: () => offset.current <= 0, scrollTop: top,
   });
   useEffect(() => !theme.isTV ? runtime.registerScrollToTop({kind: 'library', libraryId: source.library.id}, () => {
@@ -555,11 +560,12 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const rowGap = list ? 0 : theme.isTV ? 40 : tabletGeometry ? tabletGeometry.rowGap : 22;
   const gutter = theme.isTV ? theme.gutter : tabletGeometry ? tabletGeometry.gutter : 16;
   const rightGutter = list ? gutter : theme.isTV ? 72 : tabletGeometry ? tabletGeometry.rightGutter : 26;
-  const columns = list ? 1 : theme.isTV ? Math.max(1, Math.floor((paneWidth - gutter - rightGutter + gap) / (width + gap))) : tablet ? tabletGeometry!.columns : 3;
+  const [measuredColumns, setMeasuredColumns] = useState(1);
+  const onGridGeometry = useCallback((columns: number) => setMeasuredColumns(columns), []);
   const rowGutter = tabletGeometry?.gutter ?? theme.gutter;
   return <View style={{flex: 1}}>
     {selection && selected?.active ? selection.render(path => {const art = path ? runtime.artwork(path) : undefined;
-      return art ? <Artwork source={art} width={48} height={48}/> : undefined;}) : <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
+      return art ? <Artwork source={art} width={48} height={48}/> : undefined;}) : <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id), ...(theme.isTV ? {down: applied.length ? appliedRegion : gridRegion} : {})}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filtersOpen} docked={dockedFilters} gutter={tabletGeometry?.gutter}
         showSelect={!expanded}
         trailing={theme.isTV || theme.platform === 'phone' ? undefined : <>{count && !dockedFilters ? <Text style={[browseType(theme, 14.5, 600), {color: theme.colors.textSecondary, marginRight: 6}]}>{count}</Text> : null}<ViewToggle value={view.mode} onValueChange={changeView}/></>}
@@ -575,7 +581,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       {toolbar.quick.map(preset => <FocusItem key={preset.id} focusId={`quick:${preset.id}`}><QuickToggle checked={preset.active} onCheckedChange={enabled => destination.setQuick(preset.id, enabled)}>{preset.label?.text ?? labels.quick(preset)}</QuickToggle></FocusItem>)}
     </FocusRegion>}
     {!!applied.length ? <FocusRegion id={appliedRegion} entry={applied[0].id} orientation="horizontal" enabled={active.visible}
-      edges={{left: ids.rail, up: ids.libraryToolbar(source.library.id), ...(firstKey ? {down: ids.libraryCard(source.library.id, firstKey)} : {})}}
+      edges={{left: ids.rail, up: ids.libraryToolbar(source.library.id), ...(firstKey ? {down: theme.isTV ? gridRegion : ids.libraryCard(source.library.id, firstKey)} : {})}}
       style={{paddingHorizontal: theme.isTV ? theme.gutter : rowGutter, paddingTop: theme.isTV ? 24 : tablet ? 12 : 10, paddingBottom: theme.isTV ? 14 : theme.platform === 'phone' ? 0 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
       {applied.map(filter => <Focusable key={filter.id} focusId={filter.id} disabled={!active.visible} accessibilityLabel={defaultI18n.t('next.browse.native.removeFilter', {field: filter.fieldName})}
         onPress={() => destination.setQuery(source.predicates.filter(node => JSON.stringify(node) !== filter.id))}
@@ -591,9 +597,12 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     </FocusRegion> : count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.isTV ? theme.gutter : rowGutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
     {count && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
+    <LibraryGridRegion id={gridRegion} enabled={active.visible} entry={firstKey} grid={theme.isTV ? {columns: measuredColumns, count: state.total} : undefined}
+      edges={theme.isTV ? {left: ids.rail, up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : undefined}
+      screenStart={{regionId: ids.libraryToolbar(source.library.id), childId: theme.isTV ? 'sort' : 'filters'}} style={{flex: 1}}>
     <WindowedGrid key={view.generation} ref={grid} testID={list ? "library-list" : "library-grid"} collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={list ? 70 : itemHeight}
       gap={gap} rowGap={rowGap} gutter={gutter} rightGutter={rightGutter} selection={selected}
-      onVisibleRange={changedRange} onScrollOffset={changedOffset} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
+      onVisibleRange={changedRange} onScrollOffset={changedOffset} onGeometry={theme.isTV ? onGridGeometry : undefined} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
       renderPlaceholder={() => <View style={{width, height: list ? 70 : artHeight, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}
       renderItem={(entry, context) => {
         const key = nativeLibraryEntryKey(entry);
@@ -606,11 +615,11 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
           }
           context.onFocus();
         };
-        return <FocusRegion id={ids.libraryCard(source.library.id, key)} entry={key} entryPolicy="entry" order={[key]} enabled={active.visible}
-          edges={{...(context.index % columns === 0 ? {left: ids.rail} : {}), ...(context.index < columns ? {up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : {})}}>
-          {list ? <LibraryListRow entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={focused} onBlur={context.onBlur} onSelect={context.selection?.onEnter ?? selection?.start}/> : <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={focused} onBlur={context.onBlur} onSelect={context.selection?.onEnter ?? selection?.start}/>}
-        </FocusRegion>;
+        const card = list ? <LibraryListRow entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={focused} onBlur={context.onBlur} onSelect={context.selection?.onEnter ?? selection?.start}/> : <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={focused} onBlur={context.onBlur} onSelect={context.selection?.onEnter ?? selection?.start}/>;
+        return theme.isTV ? <FocusItem focusId={key} cell={{index: context.index}}>{card}</FocusItem>
+          : <FocusRegion id={ids.libraryCard(source.library.id, key)} entry={key} entryPolicy="entry" order={[key]} enabled={active.visible}>{card}</FocusRegion>;
       }}/>
+    </LibraryGridRegion>
     {alphabet && state.positionIndex !== undefined && state.total !== undefined && <AlphabetRail positionIndex={state.positionIndex}
       total={state.total} firstVisible={visible.first} lastVisible={visible.last} testID="library-alphabet" onJump={index => grid.current?.scrollToIndex(index)}
       height={theme.isTV ? 514 : 480} style={{position: 'absolute', right: theme.isTV ? 40 : 2, top: theme.isTV ? 174 : 110}}/>}

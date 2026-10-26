@@ -25,6 +25,7 @@ export function nativeDestinationFocusIds(authority: ShellAuthority) {
     savedGrid: `${prefix}.saved.grid`,
     libraryTabs: (libraryId: string) => `${prefix}.library.${JSON.stringify(libraryId)}.tabs`,
     libraryToolbar: (libraryId: string) => `${prefix}.library.${JSON.stringify(libraryId)}.toolbar`,
+    libraryGrid: (libraryId: string, tabId: string) => `${prefix}.library.${JSON.stringify(libraryId)}.grid.${JSON.stringify(tabId)}`,
     libraryCard: (libraryId: string, id: string) => `${prefix}.library.${JSON.stringify(libraryId)}.card.${id}`,
   };
 }

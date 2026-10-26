@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
+import {createWindowedCollection} from '../../../packages/client-core/src/collections/windowed.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
 import * as libraryJump from '../src-next/screens/library/jump.ts';
@@ -21,7 +23,7 @@ const alpha = (color: string, opacity: number) => `${color}${Math.round(opacity 
 const flatten = (style: any): Record<string, unknown> => Array.isArray(style) ? Object.assign({}, ...style.flat(9).filter(Boolean).map(flatten)) : style ?? {};
 
 async function libraryScreen(width: number, isTV = false) {
-  const host = hooks(), theme = createTheme({width, isTV});
+  const registry = createFocusRegistry(), host = hooks(), theme = createTheme({width, isTV});
   const modules = {
     react: host.react,
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height: 844}),
@@ -35,7 +37,7 @@ async function libraryScreen(width: number, isTV = false) {
     '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
     '../../kit/artwork': {AmbientArt: 'AmbientArt'},
     '../../kit/controls': {Focusable: 'Focusable', Button: 'Button'},
-    '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({})},
+    '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
     '../../kit/browse': {LibraryHeader: 'LibraryHeader', LibraryMenu: 'LibraryMenu', LibrarySwitcher: 'LibrarySwitcher', StickyBrowseHeader: 'StickyBrowseHeader', ViewToggle: 'ViewToggle'},
     '../../kit/overlays': {Menu: 'Menu'},
     '../../kit/browse/presentation': {alpha, browseType: (used: any, size: number, weight = 600, tracking = 0) => ({fontSize: size * used.textScale, fontWeight: weight, letterSpacing: tracking * size})},
@@ -46,7 +48,8 @@ async function libraryScreen(width: number, isTV = false) {
     '../../kit/useMotion': {useMotion: () => ({transforms: false, timing: () => ({})})},
     '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({nativeBlur: false, blurAmount: 0})},
     '../home/model': {homeCardText: () => ({caption: undefined})},
-    '../destinations/focus': {createDestinationEntryFocus: () => ({}), nativeDestinationFocusIds: () => ({rail: 'rail', libraryTabs: (id: string) => `tabs:${id}`, libraryToolbar: (id: string) => `toolbar:${id}`, libraryCard: (id: string, key: string) => `card:${id}:${key}`})},
+    '../destinations/focus': {createDestinationEntryFocus: () => ({}), nativeDestinationFocusIds: () => ({rail: 'rail', libraryTabs: (id: string) => `tabs:${id}`, libraryToolbar: (id: string) => `toolbar:${id}`, libraryGrid: (id: string, tab: string) => `grid:${id}:${tab}`, libraryCard: (id: string, key: string) => `card:${id}:${key}`})},
+    '../destinations/useTVPageBack': {useTVPageBack: () => {}},
     '../destinations/useEntryFocus': {useDestinationEntryFocus: () => {}},
     './model': {NativeLibraryDestination: 'NativeLibraryDestination', nativeLibraryEntryKey: (entry: any) => entry.id, nativeLibraryCanSave: () => true},
     './LibraryToolbar': {LibraryToolbar: 'LibraryToolbar'}, './LibraryListRow': {LibraryListRow: 'LibraryListRow'},
@@ -63,7 +66,7 @@ async function libraryScreen(width: number, isTV = false) {
     ...modules, './LibraryJumpSheet': jumpSheet, './jump': libraryJump,
     '../../platform/home-action-diagnostics': {homeActionDiagnostics},
   });
-  return {theme, module, host};
+  return {theme, module, host, registry};
 }
 
 test('a library page renders with no selection port and routes the supplied tablet Select action', async () => {
@@ -185,7 +188,7 @@ test('the result count has its own 10/20 row on phone and the TV size elsewhere'
 test('the phone sort chip uses the drawn chip geometry and TV keeps its control', async () => {
   const sorts = [{id: 'title', directions: ['asc', 'desc'], defaultDirection: 'asc'}];
   const render = async (width: number, isTV = false) => {
-    const host = hooks(), theme = createTheme({width, isTV});
+    const registry = createFocusRegistry(), host = hooks(), theme = createTheme({width, isTV});
     const module = await screenModule(new URL('../src-next/screens/library/LibrarySortMenu.tsx', import.meta.url), {
       react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
       '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}},
@@ -212,4 +215,42 @@ test('the phone sort chip uses the drawn chip geometry and TV keeps its control'
   assert.equal(tvChip.borderRadius, 14);
   assert.equal(tvChip.paddingHorizontal, 26);
   assert.equal(elements(tv.chip!.props.children).find(node => node.type === 'Icon')!.props.size, 26);
+});
+
+
+test('TV Library composes one measured grid with toolbar memory, short rows and genuine per-card native metadata', async () => {
+  const {module, host, registry} = await libraryScreen(1920, true);
+  const items = Array.from({length: 8}, (_, index) => ({id: `served-${index}`, kind: 'movie', title: `Title ${index}`}));
+  const collection = createWindowedCollection({fetchPage: async () => ({items, total: items.length}), pageSize: 40, maxResidentPages: 4, keyOf: (item: any) => item.id});
+  collection.ensureRange(0, 7); await new Promise<void>(resolve => setImmediate(resolve));
+  const source = {library: {id: 'movies', kind: 'movie'}, tab: {id: 'browse', shows: 'titles'}, collection, memory: {firstVisibleIndex: 0}, queryRevision: 0, predicates: [], sort: {field: 'title', direction: 'asc'}, capabilities: {}};
+  const activation = {subscribe: () => () => {}, getSnapshot: () => ({visible: true, intent: 'restore', revision: 1})};
+  const props = {source, destination: {getMemory: () => ({offset: 0}), getSnapshot: () => source}, activation, paneWidth: 1640, tablet: false,
+    runtime: {getSnapshot: () => ({authority: {}}), text: {}}, labels: {}, actions: {}, entryRequest() {}, onEntered() {}, onFilters() {}};
+  const render = () => host.render(() => module.LibraryGrid(props));
+  try {
+    let tree = render(), nodes = elements(tree), grid = nodes.find(node => node.type === 'WindowedGrid')!;
+    grid.props.onGeometry(3, 412); tree = render(); nodes = elements(tree); grid = nodes.find(node => node.type === 'WindowedGrid')!;
+    const region = nodes.find(node => node.props.id === 'grid:movies:browse')!;
+    assert.deepEqual(region.props.grid, {columns: 3, count: 8});
+    assert.deepEqual(region.props.edges, {left: 'rail', up: 'toolbar:movies'});
+    assert.equal(nodes.find(node => node.props.id === 'toolbar:movies')!.props.edges.down, region.props.id);
+    registry.configure(region.props);
+    const requested: string[] = [], hosts = new Map<string, any>();
+    for (let index = 0; index < items.length; index++) {
+      const slot = grid.props.renderItem(items[index], {index, onFocus() {}, onBlur() {}});
+      assert.equal(slot.type, 'FocusItem'); assert.deepEqual(slot.props.cell, {index});
+      const native = {requestTVFocus() {requested.push(items[index].id);}}; hosts.set(items[index].id, native);
+      registry.attach({regionId: region.props.id, childId: slot.props.focusId}, native, {}, slot.props.cell);
+    }
+    const address = (index: number) => ({regionId: region.props.id, childId: items[index].id});
+    registry.didFocus(address(5)); registry.didFocus(address(7));
+    assert.deepEqual(registry.destinations(address(7)).up, {childId: 'served-5'}, 'the intended third column survives a short last row');
+    assert.deepEqual(registry.destinations(address(3)).left, {regionId: 'rail'});
+    assert.deepEqual(registry.destinations(address(2)).up, {regionId: 'toolbar:movies'});
+    assert.equal(registry.entryTarget(region.props.id), hosts.get('served-7'), 'toolbar Down resolves the genuine remembered card');
+    assert.deepEqual(requested, [], 'native destination preparation never moves focus');
+    const saved = registry.capture(); registry.attach(address(7), null); registry.restore(saved);
+    assert.equal(requested.at(-1), 'served-6', 'removal at the end falls back to the previous genuine card');
+  } finally {collection.dispose();}
 });
