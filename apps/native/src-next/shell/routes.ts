@@ -74,12 +74,21 @@ export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute => {
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
+/** One actual opening in this authority's history, including root/current. The
+ * occurrence is presentation identity, never a route admission or command. */
+export type NativeRoutePresentation = Readonly<{occurrence: string; route: NativeShellRoute; destination: ShellDestination}>;
 export type NativeDestinationIntent = 'enter' | 'restore' | 'top';
 export type NativeDestinationActivation = Readonly<{visible: boolean; intent: NativeDestinationIntent; revision: number}>;
 export type NativeDestinationActivationPort = Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => NativeDestinationActivation}>;
 export type NativeRouteAdmission = (route: NativeShellRoute, origin: ShellDestination) => boolean;
 const sameDestination = (a: ShellDestination, b: ShellDestination): boolean => a.kind === b.kind &&
   (a.kind !== 'library' || b.kind === 'library' && a.libraryId === b.libraryId);
+const noPresentations: readonly NativeRoutePresentation[] = Object.freeze([]);
+let navigationSequence = 0;
+const navigationIdentity = () => {
+  if (navigationSequence >= Number.MAX_SAFE_INTEGER) throw new Error('Navigation identity exhausted');
+  return `navigation-${++navigationSequence}`;
+};
 
 /** Read real navigation intent without taking ownership of screen focus or scroll memory. */
 export function nativeDestinationActivation(navigation: NativeShellNavigation, destination: ShellDestination): NativeDestinationActivationPort {
@@ -107,8 +116,13 @@ export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: 
 /** One authority lifetime and one history. Async callers must retain the authority they read. */
 export class NativeShellNavigation {
   private snapshot: NativeRouteSnapshot;
-  private history: Readonly<{route: NativeShellRoute; destination: ShellDestination}>[] = [];
+  private history: NativeRoutePresentation[] = [];
   private retained: readonly NativeShellRoute[] = Object.freeze([]);
+  private presentations: readonly NativeRoutePresentation[];
+  private readonly identity = navigationIdentity();
+  private openingSequence = 0;
+  private occurrence = this.nextOccurrence();
+  private nativePopClaim?: object;
   private listeners = new Set<() => void>();
   private alive = true;
   private intent: NativeDestinationIntent = 'enter';
@@ -119,11 +133,17 @@ export class NativeShellNavigation {
     this.admission = admission;
     const destination: ShellDestination = {kind: 'home'};
     const route: NativeShellRoute = {kind: 'shell', destination};
-    this.snapshot = Object.freeze({authority, route, destination, revision: 0});
+    this.snapshot = Object.freeze({authority: Object.freeze({...authority}), route, destination, revision: 0});
+    this.presentations = Object.freeze([Object.freeze({occurrence: this.occurrence, route, destination})]);
   }
   getSnapshot = (): NativeRouteSnapshot => this.snapshot;
   /** Exact route descriptors still in this authority's Back stack. */
   retainedRoutes = (): readonly NativeShellRoute[] => this.isCurrent() ? this.retained : [];
+  /** Stable readonly projection of real admitted history. No extra root,
+   * by-item dedupe, renderer or tab-local history is manufactured here. */
+  presentationStack = (): readonly NativeRoutePresentation[] => {
+    try {return this.isCurrent() ? this.presentations : noPresentations;} catch {return noPresentations;}
+  };
   getIntent = (): NativeDestinationIntent => this.intent;
   isCurrent = (): boolean => this.current(this.snapshot.authority);
   allows = (route: NativeShellRoute, origin: ShellDestination = route.kind === 'shell' ? route.destination : this.snapshot.destination): boolean =>
@@ -133,37 +153,69 @@ export class NativeShellNavigation {
     return this.alive && sameAuthority(authority, this.snapshot.authority) && sameAuthority(authority, this.currentAuthority());
   }
   open(route: NativeShellRoute, expectedAuthority: ShellAuthority): boolean {
-    if (!this.current(expectedAuthority) || !this.allows(route)) return false;
-    this.history.push({route: this.snapshot.route, destination: this.snapshot.destination});
-    this.publish(route, 'enter');
+    const expected = this.snapshot, previous = this.presentations.at(-1);
+    const owns = () => this.alive && this.snapshot === expected && this.presentations.at(-1) === previous;
+    if (!previous || !owns() || !this.current(expectedAuthority) || !owns() || !this.allows(route)
+      || !owns() || !this.current(expectedAuthority) || !owns()) return false;
+    const occurrence = this.nextOccurrence();
+    this.history.push(previous);
+    this.publish(route, 'enter', undefined, occurrence);
     return true;
   }
   back(expectedAuthority: ShellAuthority): boolean {
-    if (!this.current(expectedAuthority)) return false;
-    const entry = this.history.at(-1);
-    if (!entry || !this.allows(entry.route, entry.destination)) return false;
-    this.history.pop();
-    this.publish(entry.route, 'restore', entry.destination);
-    return true;
+    if (!sameAuthority(expectedAuthority, this.snapshot.authority)) return false;
+    return this.commitNativePop(this.snapshot, this.occurrence);
+  }
+  /** The native presenter captures both values when Back/gesture begins.
+   * Cancellation calls nothing. Rejecting this compare-pop never uses latest. */
+  commitNativePop = (expected: NativeRouteSnapshot, expectedOccurrence: string): boolean => {
+    if (this.nativePopClaim || this.snapshot !== expected || this.occurrence !== expectedOccurrence) return false;
+    const revision = expected.revision, entry = this.history.at(-1), claim = {};
+    if (!entry) return false;
+    this.nativePopClaim = claim;
+    let committed = false;
+    const owns = () => this.nativePopClaim === claim && this.alive && this.snapshot === expected
+      && this.snapshot.revision === revision && this.occurrence === expectedOccurrence && this.history.at(-1) === entry;
+    try {
+      if (!owns() || !this.current(expected.authority) || !owns()) return false;
+      if (this.admission && this.admission(entry.route, entry.destination) !== true) return false;
+      // Admission/current-authority callbacks can reenter, navigate or retire.
+      // Only this original snapshot/history pair may be popped afterwards.
+      if (!owns() || !this.current(expected.authority) || !owns()) return false;
+      this.history.pop();
+      committed = true;
+      this.publish(entry.route, 'restore', entry.destination, entry.occurrence);
+      return true;
+    } catch {return committed;}
+    finally {if (this.nativePopClaim === claim) this.nativePopClaim = undefined;}
   }
   /** A zap replaces only the exact channel opening that advertised it. */
   replaceChannel(expected: NativeRouteSnapshot, route: Extract<NativeShellRoute, {kind: 'channel'}>, expectedAuthority: ShellAuthority): boolean {
-    if (!this.current(expectedAuthority) || this.snapshot !== expected || expected.route.kind !== 'channel' || !this.allows(route)) return false;
+    if (!this.current(expectedAuthority) || this.snapshot !== expected || expected.route.kind !== 'channel' || !this.allows(route)
+      || !this.current(expectedAuthority) || !this.alive || this.snapshot !== expected) return false;
     this.publish(route, 'enter'); return true;
   }
   top(destination: ShellDestination, expectedAuthority: ShellAuthority): boolean {
-    if (!this.current(expectedAuthority) || this.snapshot.route.kind !== 'shell' || !sameDestination(destination, this.snapshot.route.destination) || !this.allows(this.snapshot.route)) return false;
-    this.publish(this.snapshot.route, 'top'); return true;
+    const expected = this.snapshot;
+    if (!this.current(expectedAuthority) || this.snapshot !== expected || expected.route.kind !== 'shell' || !sameDestination(destination, expected.route.destination) || !this.allows(expected.route)
+      || !this.current(expectedAuthority) || !this.alive || this.snapshot !== expected) return false;
+    this.publish(expected.route, 'top'); return true;
   }
-  private publish(route: NativeShellRoute, intent: NativeDestinationIntent, restoredDestination?: ShellDestination): void {
+  private nextOccurrence(): string {
+    if (this.openingSequence >= Number.MAX_SAFE_INTEGER) throw new Error('Navigation occurrence exhausted');
+    return `${this.identity}:${++this.openingSequence}`;
+  }
+  private publish(route: NativeShellRoute, intent: NativeDestinationIntent, restoredDestination?: ShellDestination, occurrence = this.occurrence): void {
     this.intent = intent;
+    this.occurrence = occurrence;
     this.retained = Object.freeze(this.history.map(entry => entry.route));
     this.snapshot = Object.freeze({...this.snapshot, route, destination: restoredDestination ?? (route.kind === 'shell' ? route.destination : this.snapshot.destination), revision: this.snapshot.revision + 1});
+    this.presentations = Object.freeze([...this.history, Object.freeze({occurrence, route, destination: this.snapshot.destination})]);
     for (const listener of [...this.listeners]) listener();
   }
   dispose(): void {
     if (!this.alive) return;
-    this.alive = false; this.history = []; this.retained = Object.freeze([]);
+    this.alive = false; this.history = []; this.retained = Object.freeze([]); this.presentations = noPresentations;
     for (const listener of [...this.listeners]) listener();
     this.listeners.clear();
   }
