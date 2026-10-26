@@ -468,8 +468,8 @@ internal class PorticoPlaybackController(private val context: Context) {
    * One way to build a player, for the player itself and for the second one a music crossfade
    * starts under it (which then becomes the player): the same data source, the same memory limit
    * on a small device, the same cap at the screen's size, and no subtitles of the player's own.
-   * A player built for listening has the gain stage and always decodes to plain sound; a player
-   * for a title with a picture keeps the ordinary output, passthrough included.
+   * The file listening renderer has the gain stage and decodes to PCM. Ordinary streams keep
+   * the standard output, including its own device/route-checked passthrough admission.
    */
   private fun build(music: Boolean, ownsFocus: Boolean, listening: Boolean = music): ExoPlayer {
     val http = OkHttpDataSource.Factory(mediaClient)
@@ -506,11 +506,21 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   private fun engine(): ExoPlayer {
     player?.let { return it }
-    val made = build(music = false, ownsFocus = true, listening = listeningOwner != null)
+    val made = build(music = false, ownsFocus = true, listening = listeningUsesPCM())
     made.addListener(listener)
     player = made
     playerIsDeck = false
     return made
+  }
+
+  /** A supported file plan keeps the precision/rate pipeline even with effects off. The
+   * ordinary fallback has no such plan; forcing it through the PCM-only sink would suppress
+   * Media3's existing encoded-output path. Neither case adds a codec or an output fact. */
+  private fun listeningUsesPCM(): Boolean {
+    if (listeningOwner == null) return false
+    val rendered = planOf(command?.get("audioRender"))
+    @Suppress("UNCHECKED_CAST") val plain = command?.get("seekPlan") as? Map<String, Any?>
+    return PorticoAudioPlan.playable(rendered) || PorticoAudioPlan.playable(plain)
   }
 
   /** What the player measures of the connection as it downloads, for Automatic quality. */
@@ -528,6 +538,16 @@ internal class PorticoPlaybackController(private val context: Context) {
       player = null
       playerIsDeck = false
       attachmentListeners.toList().forEach { it() }
+    }
+    // The accepted ordinary replacement may cross between file rendering and a plain stream.
+    // unload() has already stopped/cleared the original; do not reuse its incompatible sink.
+    player?.takeIf { audioGains.containsKey(it) != listeningUsesPCM() }?.let { old ->
+      old.removeListener(listener)
+      audioSources.remove(old)
+      audioGains.remove(old)
+      old.release()
+      player = null
+      playerIsDeck = false
     }
     val engine = engine()
     val original = originalAudioSource()
