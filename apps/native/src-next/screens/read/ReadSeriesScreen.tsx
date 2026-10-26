@@ -7,7 +7,7 @@ import type {ReadingItem} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
-import {StateView, SkeletonBlock} from '../../kit/states';
+import {StateView, SkeletonBlock, LoadingPaint} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRoute} from '../../shell/routes';
@@ -76,8 +76,9 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
         setCollapsed(current => {const next = heroHeight > 0 && contentOffset.y > heroHeight - 50; return next === current ? current : next;});
         if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.more().catch(() => {});}}
       scrollEventThrottle={64} showsVerticalScrollIndicator={false}>
-      {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/> : null}
-      {state.phase !== 'ready' && state.phase !== 'error' ? <SkeletonBlock width="100%" height={360}/> : null}
+      {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/>
+        : <LoadingPaint ready={state.phase === 'ready'} immediate={state.phase === 'ready'}
+          skeleton={<SkeletonBlock width="100%" height={360}/>} style={state.phase === 'ready' ? {flexGrow: 0, flexShrink: 0, flexBasis: 'auto'} : {height: 360}} testID="native-read-series-paint">
       {state.phase === 'ready' ? <View style={{width: '100%', maxWidth: 900, alignSelf: 'center'}}>
         <View style={{alignItems: 'center', paddingHorizontal: 20}} onLayout={event => {
           const next = Math.round(event.nativeEvent.layout.height);
@@ -129,6 +130,7 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
         {state.items.length === 0 ? <StateView testID="native-read-series-empty" variant="inline" title={t('library.emptySeries')} body={t('library.emptySeriesBody')}/> : null}
         {state.moreError ? <StateView {...runtime.error(state.moreError, () => {void controller.more().catch(runtime.reportError);}, 'library')}/> : null}
       </View> : null}
+      </LoadingPaint>}
     </ScrollView>
   </View>;
 }
