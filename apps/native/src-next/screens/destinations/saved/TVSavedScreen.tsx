@@ -18,19 +18,20 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
-import {TVLoadedGrid} from '../../../tv/layout/TVLoadedGrid';
+import {TVFocusGrid} from '../../../tv/layout/TVFocusGrid';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
 import {SavedConfirmSheet} from '../../saved/SavedForms';
 import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
 import {useTVPageBack} from '../useTVPageBack';
 import {useDestinationEntryFocus} from '../useEntryFocus';
 import {sameAuthority, type ShellAuthority} from '../../../shell/model';
-import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
+import {SavedTVDirectory, type SavedTVDirectoryHandle} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
 
 const t = defaultI18n.t;
 const itemID = (item: {id: string}) => item.id;
+const historyFocusable = (row: {media?: ContentEntry}) => !!row.media;
 const factLine = (text: string) => Object.freeze([{id: 'caption', text, role: 'value' as const}]);
 type Tab = NativeTVSavedTab;
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen' | 'play'>;
@@ -86,13 +87,13 @@ function Empty({tab, browseHome}: {tab: Tab; browseHome: () => void}) {
   return <StateView testID="saved-empty" variant="centered" title={t(copy.title)} body={body} primaryAction={{id: 'browse-home', label: t('saved.browseHome'), onPress: browseHome}}/>;
 }
 
-function HistoryRow({entry, updatedAt, positionSeconds, completed, runtime, actions, openEntry, onFocus}: {
-  entry: ContentEntry; updatedAt?: string; positionSeconds?: number; completed?: boolean; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onFocus?: () => void;
+function HistoryRow({entry, updatedAt, positionSeconds, completed, runtime, actions, openEntry, onFocus, disabled}: {
+  entry: ContentEntry; updatedAt?: string; positionSeconds?: number; completed?: boolean; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onFocus?: () => void; disabled?: boolean;
 }) {
   const theme = useTheme(), progress = entry.duration && positionSeconds !== undefined ? Math.max(0, Math.min(1, positionSeconds / entry.duration)) : undefined;
   const remaining = entry.duration && positionSeconds !== undefined ? durationText(Math.max(0, entry.duration - positionSeconds), runtime.text.t) : undefined;
   const video = ['movie', 'episode', 'show', 'season', 'extra'].includes(entry.kind), art = runtime.artwork(video ? entry.backdropUrl ?? entry.stillUrl : entry.posterUrl);
-  return <Focusable onFocus={onFocus} testID={`saved-history-${encodeURIComponent(entry.id)}`} accessibilityRole="button" accessibilityLabel={entry.show?.name ?? entry.displayTitle ?? entry.title}
+  return <Focusable disabled={disabled} onFocus={onFocus} testID={`saved-history-${encodeURIComponent(entry.id)}`} accessibilityRole="button" accessibilityLabel={entry.show?.name ?? entry.displayTitle ?? entry.title}
     onPress={() => entry.playback ? actions.play(entry) : openEntry(entry)} onLongPressAction={() => actions.menu(entry)} focusKind="row" focusRadius={16} style={{height: 104}}>
     {({focused}) => <View style={{height: 104, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 26, paddingLeft: 14, paddingRight: 28, borderRadius: 16, backgroundColor: focused ? theme.colors.raisedHigh : undefined}}>
       <View style={{width: 156, height: 88, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised, flexShrink: 0}}>
@@ -141,7 +142,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // relative to its own parent, so a parent's layout callback arriving later cannot bake a stale
   // offset into a card, and a sheet is retired with the scope that drew it.
   const page = useRef<ScrollView>(null), contentRoot = useRef<View>(null), [scrollY, setScrollY] = useState(0), [viewportHeight, setViewportHeight] = useState(1080), [contentHeight, setContentHeight] = useState(0);
-  const measured = useRef({scope: '', region: 0, body: 0, grids: new Map<'posters' | 'squares', number>(),
+  const directoryPage = useRef<SavedTVDirectoryHandle | null>(null);
+  const measured = useRef({scope: '', region: 0, body: 0, section: 0, grids: new Map<'posters' | 'squares', number>(),
     cards: new Map<string, Readonly<{section: 'posters' | 'squares'; y: number}>>()});
   type JumpOpening = Readonly<{token: number; scope: string}>;
   const jump = useRef<JumpOpening | undefined>(undefined), jumpToken = useRef(0), jumpAlive = useRef(true);
@@ -200,7 +202,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const owner = useRef<Readonly<{controller: unknown; authority: ShellAuthority}> | undefined>(undefined);
   const replaced = owner.current === undefined || owner.current.controller !== controller || !sameAuthority(owner.current.authority, authority);
   if (replaced) owner.current = {controller, authority};
-  if (replaced || measured.current.scope !== scope) measured.current = {scope, region: 0, body: 0, grids: new Map(), cards: new Map()};
+  if (replaced || measured.current.scope !== scope) measured.current = {scope, region: 0, body: 0, section: 0, grids: new Map(), cards: new Map()};
   if (jump.current && (replaced || jump.current.scope !== scope || !active.visible)) jump.current = undefined;
   const opening = jumpOpening && jump.current === jumpOpening && jumpOpening.scope === scope && active.visible ? jumpOpening : undefined;
   // The confirm retires with the query, the period, the destination revision, the authority or
@@ -266,7 +268,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const jumpCurrent = (target: JumpOpening) => jumpAlive.current && jump.current === target && target.scope === scope && active.visible;
   const cardTop = (id: string): number | undefined => {
     const at = measurement.cards.get(id), grid = at ? measurement.grids.get(at.section) : undefined;
-    return at && grid !== undefined ? measurement.region + measurement.body + grid + at.y : undefined;
+    return at && grid !== undefined ? measurement.region + measurement.body + measurement.section + grid + at.y : undefined;
   };
   const selectedLetter = (() => {
     if (!jumpLetters.length) return undefined;
@@ -279,11 +281,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // card mounted.
   const measure = (section: 'posters' | 'squares', entry: ContentEntry, child: React.ReactNode, top?: number) => <View key={`${scope}:${entry.id}`} style={{width: 200}}
     onLayout={event => {measurement.cards.set(entry.id, {section, y: top ?? event.nativeEvent.layout.y});}}>{child}</View>;
-  const card = (entry: ContentEntry, onFocus?: () => void, top?: number) => measure('posters', entry, <PosterCard onFocus={onFocus} testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
+  const card = (entry: ContentEntry, onFocus?: () => void, top?: number) => measure('posters', entry, <PosterCard disabled={!active.visible} onFocus={onFocus} testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>, top);
   // tv-more3: on a saved album or audiobook, OK plays it; hold OK still opens its menu. A square
   // that has nothing to play keeps opening its own page.
-  const square = (entry: ContentEntry, onFocus?: () => void, top?: number) => measure('squares', entry, <SquareCard onFocus={onFocus} testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
+  const square = (entry: ContentEntry, onFocus?: () => void, top?: number) => measure('squares', entry, <SquareCard disabled={!active.visible} onFocus={onFocus} testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
     {...(entry.playback ? {primaryAction: 'play' as const, onPlay: () => actions.play(entry)} : {onNavigate: () => openEntry(entry)})}
     onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>, top);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
@@ -299,17 +301,25 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     // An initial list estimate only; TVLoadedGrid adopts each native measured row.
     return 104 + (day && day !== previous ? (index ? 30 : 6) + 10 + 22 * theme.textScale : 0);
   }, [snapshot.entries, runtime.text.locale, theme.textScale]);
+  const posterRegion = `${ids.savedGrid}.posters`, squareRegion = `${ids.savedGrid}.squares`, historyRegion = `${ids.savedGrid}.history`;
+  const firstSection = tab === 'history' ? snapshot.entries.some(historyFocusable) ? historyRegion : undefined : posters.length ? posterRegion : squares.length ? squareRegion : undefined;
+  const gridFocus = (id: string, getFocusId: (entry: ContentEntry) => string) => ({id, getFocusId, enabled: active.visible,
+    edges: {left: ids.rail, up: id === squareRegion && posters.length ? posterRegion : ids.savedToolbar,
+      ...(id === posterRegion && squares.length ? {down: squareRegion} : {})},
+    neighbors: {previous: id === squareRegion && posters.length ? posterRegion : ids.savedToolbar,
+      ...(id === posterRegion && squares.length ? {next: squareRegion} : {})},
+    screenStart: {regionId: ids.savedToolbar, childId: tab === 'history' ? 'saved-period-7d' : 'saved-sort'}});
   const body = snapshot.phase === 'error' ? <StateView testID="saved-error" variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
     : snapshot.phase !== 'ready' ? null
-      : tab === 'history' ? (snapshot.entries.length ? <TVLoadedGrid key={`${scope}:history:${period}`} items={snapshot.entries} getKey={itemID} itemWidth={1} itemHeight={104} gap={0} rowGap={0}
+      : tab === 'history' ? (snapshot.entries.length ? <TVFocusGrid focus={{...gridFocus(historyRegion, entry => entry.id), getFocusId: row => `saved-history-${encodeURIComponent(row.id)}`, isFocusable: historyFocusable}} key={`${scope}:history:${period}`} items={snapshot.entries} getKey={itemID} itemWidth={1} itemHeight={104} gap={0} rowGap={0}
         scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} getRowHeight={historyHeight}
         renderItem={(row, cell) => {const index = cell.index;const day = dayLabel(row.updatedAt, runtime.text.locale), previous = index ? dayLabel(snapshot.entries[index - 1]?.updatedAt, runtime.text.locale) : undefined;
           return <React.Fragment key={row.id}>{day && day !== previous ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: index ? 30 : 6, marginBottom: 10}}><Text style={[browseType(theme, 22, 700), {color: theme.colors.textTertiary}]}>{day}</Text></View> : null}
-            {row.media ? <HistoryRow entry={row.media} updatedAt={row.updatedAt} positionSeconds={row.positionSeconds} completed={row.completed} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={cell.onFocus}/> : null}</React.Fragment>;}}/> : <Empty tab="history" browseHome={browseHome}/>)
+            {row.media ? <HistoryRow disabled={!active.visible} entry={row.media} updatedAt={row.updatedAt} positionSeconds={row.positionSeconds} completed={row.completed} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={cell.onFocus}/> : null}</React.Fragment>;}}/> : <Empty tab="history" browseHome={browseHome}/>)
         : tab === 'watchlist' || tab === 'favorites' ? ((posters.length || squares.length)
-          ? <View>
-            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<TVLoadedGrid key={`${scope}:posters`} items={posters} getKey={itemID} itemWidth={200} itemHeight={380} gap={32} rowGap={40} scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} onLayout={event => {measurement.grids.set('posters', event.nativeEvent.layout.y);}} onGeometry={posterGeometry} renderItem={(entry, cell) => card(entry, cell.onFocus, cell.top)}/></> : null}
-            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<TVLoadedGrid key={`${scope}:squares`} items={squares} getKey={itemID} itemWidth={200} itemHeight={280} gap={32} rowGap={40} scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} onLayout={event => {measurement.grids.set('squares', event.nativeEvent.layout.y);}} onGeometry={squareGeometry} renderItem={(entry, cell) => square(entry, cell.onFocus, cell.top)}/></> : null}
+          ? <View onLayout={event => {measurement.section = event.nativeEvent.layout.y;}}>
+            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<TVFocusGrid focus={gridFocus(posterRegion, entry => `saved-poster-${encodeURIComponent(entry.id)}`)} key={`${scope}:posters`} items={posters} getKey={itemID} itemWidth={200} itemHeight={380} gap={32} rowGap={40} scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} onLayout={event => {measurement.grids.set('posters', event.nativeEvent.layout.y);}} onGeometry={posterGeometry} renderItem={(entry, cell) => card(entry, cell.onFocus, cell.top)}/></> : null}
+            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<TVFocusGrid focus={gridFocus(squareRegion, entry => `saved-square-${encodeURIComponent(entry.id)}`)} key={`${scope}:squares`} items={squares} getKey={itemID} itemWidth={200} itemHeight={280} gap={32} rowGap={40} scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} onLayout={event => {measurement.grids.set('squares', event.nativeEvent.layout.y);}} onGeometry={squareGeometry} renderItem={(entry, cell) => square(entry, cell.onFocus, cell.top)}/></> : null}
           </View> : <Empty tab={tab} browseHome={browseHome}/>)
         : null;
   // tv-more1/3 draw the server's own quick filters, with counts in the Filters menu; a server
@@ -323,7 +333,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // A card's focus child is its testID, whose id is URI-encoded; a tile's focus id is not.
   const firstChild = tab === 'watchlist' || tab === 'favorites'
     ? (posters[0] ? `saved-poster-${encodeURIComponent(posters[0].id)}` : squares[0] ? `saved-square-${encodeURIComponent(squares[0].id)}` : undefined)
-    : tab === 'history' ? (snapshot.entries[0] ? `saved-history-${encodeURIComponent(snapshot.entries[0].id)}` : undefined)
+    : tab === 'history' ? (snapshot.entries.find(historyFocusable) ? `saved-history-${encodeURIComponent(snapshot.entries.find(historyFocusable)!.id)}` : undefined)
       : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
         : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
   // An empty page draws its own Browse Home action, and that is where entry focus belongs when
@@ -333,12 +343,14 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       : tab === 'watchlist' || tab === 'favorites' ? !posters.length && !squares.length : false)
     ? focusTestID('saved-empty', JSON.stringify(['action', 'browse-home'])) : undefined;
   const entryChild = firstChild ?? emptyEntry;
-  useDestinationEntryFocus(active, entryChild ? {regionId: ids.savedGrid, childId: entryChild} : undefined);
+  const firstRegion = directoryView ? `${ids.savedGrid}.cards` : firstSection ?? ids.savedGrid;
+  useDestinationEntryFocus(active, entryChild ? {regionId: firstRegion, childId: entryChild} : undefined);
   useTVPageBack(runtime, {kind: 'saved'}, theme.isTV, {
     registerTop: true, scope: JSON.stringify([active.revision, tab, sort, filter, period]),
     current: () => activation.getSnapshot().visible,
-    start: () => entryChild ? {regionId: ids.savedGrid, childId: entryChild} : undefined,
-    atTop: () => scrollY <= 0, scrollTop: () => page.current?.scrollTo({y: 0, animated: false}),
+    start: () => entryChild ? {regionId: firstRegion, childId: entryChild} : undefined,
+    atTop: () => scrollY <= 0 && (!directoryView || directoryPage.current?.atTop() !== false),
+    scrollTop: () => {directoryPage.current?.scrollTop(); page.current?.scrollTo({y: 0, animated: false});},
   });
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -348,11 +360,12 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       <SavedTVTabs destination={tabsDestination} reportError={runtime.reportError} authority={authority} activation={activation} contentRegionId={ids.savedGrid}/>
       {directoryView ? <View style={{height: 860, paddingTop: 12}}>
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
-          enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
+          pageRef={directoryPage} enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
-      </View> : <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedTabs, left: ids.rail}}
-        onLayout={event => {measurement.region = event.nativeEvent.layout.y;}}>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 24}}>
+      </View> : <View onLayout={event => {measurement.region = event.nativeEvent.layout.y;}}>
+      <FocusRegion id={ids.savedToolbar} enabled={active.visible} orientation="horizontal" entry={tab === 'history' ? 'saved-period-7d' : 'saved-sort'}
+        edges={{up: ids.savedTabs, left: ids.rail, down: ids.savedGrid}}
+        style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 24}}>
         {tab !== 'history' ? <>
           <Button focusId="saved-sort" ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
           <Button focusId="saved-filter" ref={filterAnchor} variant="glass" icon="i-filter" size="compact" onPress={() => setFilterOpen(true)} accessibilityLabel={t('filter.title')}>{t('filter.title')}</Button>
@@ -371,10 +384,11 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
           <Button focusId="saved-clear-history" variant="glass" icon="i-trash" size="compact" style={{marginLeft: 'auto'}} onPress={openClear}>{t('web.saved.clearHistory')}</Button>
         </>}
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
-      </View>
-      <View onLayout={event => {measurement.body = event.nativeEvent.layout.y;}}
-        style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
-      </FocusRegion>}
+      </FocusRegion>
+      <FocusRegion id={ids.savedGrid} enabled={active.visible} entry={emptyEntry} entryRegion={firstSection}
+        edges={{up: ids.savedToolbar, left: ids.rail}} onLayout={event => {measurement.body = event.nativeEvent.layout.y;}}
+        style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</FocusRegion>
+      </View>}
     </View></ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>

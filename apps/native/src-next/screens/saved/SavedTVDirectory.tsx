@@ -7,7 +7,7 @@ import type {PlaylistCard, PlaylistListFilter} from '../../../../../packages/cli
 import {Focusable} from '../../kit/controls';
 import {AmbientArt, CoverMosaic, MediaArt} from '../../kit/artwork';
 import {CardFrame} from '../../kit/cards/primitives';
-import {FocusRegion, type FocusEdges} from '../../kit/focus';
+import {FocusItem, FocusRegion, type FocusEdges} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -19,6 +19,7 @@ import {savedCollectionCount, savedItemCount, savedLibraryName, savedTitleCount,
 
 const t = defaultI18n.t;
 
+export type SavedTVDirectoryHandle = Readonly<{scrollTop: () => void; atTop: () => boolean}>;
 export type NativeSavedTVDirectoryView = 'playlists' | 'collections' | 'views';
 
 /** The TV landing's three directory bodies (collections.html 15–17). The TV
@@ -32,13 +33,19 @@ export type NativeSavedTVDirectoryProps = Readonly<{
   enabled: boolean;
   regionId: string;
   edges?: FocusEdges;
+  pageRef?: React.Ref<SavedTVDirectoryHandle>;
   select: (route: Readonly<{view: NativeSavedTVDirectoryView; sort?: string; direction?: 'asc' | 'desc'; filter?: PlaylistListFilter}>) => void;
   openPlaylist: (card: PlaylistCard) => void;
   openResource: (resource: PersonalResource) => void;
 }>;
 
-export function SavedTVDirectory({view, destination, runtime, libraries, enabled, regionId, edges, select, openPlaylist, openResource}: NativeSavedTVDirectoryProps) {
+export function SavedTVDirectory({view, destination, runtime, libraries, enabled, regionId, edges, pageRef, select, openPlaylist, openResource}: NativeSavedTVDirectoryProps) {
   const theme = useTheme();
+  const page = React.useRef<ScrollView>(null), offset = React.useRef(0);
+  const [measuredColumns, setColumns] = React.useState(1);
+  const attachPage = React.useCallback((host: ScrollView | null) => {if (page.current !== host) {page.current = host; offset.current = 0;}}, []);
+  const scope = React.useMemo(() => ({view, destination}), [view, destination]), currentScope = React.useRef(scope); currentScope.current = scope;
+  React.useImperativeHandle(pageRef, () => ({scrollTop: () => page.current?.scrollTo({y: 0, animated: false}), atTop: () => offset.current <= 0}), []);
   const snapshot = React.useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const saved = snapshot.saved, personal = snapshot.personal;
   const playlists = view === 'playlists' ? (saved?.projection?.sections ?? []).flatMap(section => section.entries.filter((entry): entry is PlaylistCard => entry.kind === 'playlist')) : [];
@@ -51,8 +58,15 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   // collections.html 15-17: the page starts at 200 and ends 96 from the right, so six 236 tiles
   // (34 apart) or three 520 saved-view tiles (32 apart) fit the frame's row exactly.
   const columns = view === 'views' ? {columnGap: 32, rowGap: 36} : {columnGap: 34, rowGap: 44};
-  return <FocusRegion id={regionId} orientation="vertical" enabled={enabled} edges={edges} style={{flex: 1}}>
-    <View style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight}}>
+  const gridId = `${regionId}.cards`, toolbarId = `${regionId}.toolbar`, moreId = `${regionId}.more`;
+  const hasToolbar = view === 'playlists' && !!sorts.length;
+  const hasMore = !!(view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor);
+  const entries = view === 'playlists' ? playlists : resources;
+  const firstId = entries[0] ? tileId(view, entries[0].id) : undefined;
+  const start = edges?.up ? {regionId: edges.up, childId: view} : firstId ? {regionId: gridId, childId: firstId} : undefined;
+  return <FocusRegion id={regionId} entryRegion={firstId ? gridId : hasToolbar ? toolbarId : undefined} enabled={enabled} edges={edges} style={{flex: 1}}>
+    <FocusRegion id={toolbarId} entry="tv-saved-sort" orientation="horizontal" enabled={enabled && hasToolbar}
+      edges={{...edges, down: gridId}} style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight}}>
       {view === 'playlists' && !!sorts.length && <PlaylistToolbar sorts={sorts} filters={filters} enabled={enabled}
         value={{sort: saved?.projection?.query.sort ?? sorts[0]?.id ?? '',
           direction: saved?.projection?.query.direction === 'asc' ? 'asc' : 'desc',
@@ -60,24 +74,30 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
         onSelect={next => select({view: 'playlists', ...(next.sort !== undefined ? {sort: next.sort} : {}),
           ...(next.direction !== undefined ? {direction: next.direction} : {}), ...(next.filter !== undefined ? {filter: next.filter} : {})})}/>}
       <Text style={[browseType(theme, 22), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{countText}</Text>
-    </View>
+    </FocusRegion>
     {error && !loading ? <StateView variant="panel" {...runtime.error(error, () => {void destination.retry().catch(runtime.reportError);})}/>
       : loading ? <Text style={[browseType(theme, 24), {color: theme.colors.textTertiary, textAlign: 'center', paddingTop: 40}]}>{t('saved.loading')}</Text>
       : !count ? <StateView variant="panel" icon={view === 'playlists' ? 'i-queue' : view === 'collections' ? 'i-stack' : 'i-filter'}
         title={t(view === 'playlists' ? 'web.saved.empty.playlists' : view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views')}
         body={t(view === 'playlists' ? 'web.saved.empty.playlistsBody' : view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}/>
-      : <ScrollView contentContainerStyle={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingBottom: 40}}>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', ...columns}}>
-          {view === 'playlists' ? playlists.map(card => <SavedTVPlaylistTile key={card.id} card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/>)
-            : view === 'collections' ? resources.map(resource => <SavedTVCollectionTile key={resource.id} resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/>)
-              : resources.map(resource => <SavedTVViewTile key={resource.id} resource={resource} libraries={libraries} runtime={runtime} onOpen={() => openResource(resource)}/>)}
-        </View>
-        {!!(view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingTop: 20}}>
+      : <ScrollView key={view} ref={attachPage} onScroll={event => {if (currentScope.current === scope) offset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} contentContainerStyle={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingBottom: 40}}>
+        <FocusRegion id={gridId} enabled={enabled} entry={firstId} grid={{columns: measuredColumns, count: entries.length}}
+          edges={{...edges, ...(hasToolbar ? {up: toolbarId} : {}), ...(hasMore ? {down: moreId} : {})}}
+          neighbors={{previous: hasToolbar ? toolbarId : edges?.up, ...(hasMore ? {next: moreId} : {})}} screenStart={start}
+          onLayout={event => {const width = event.nativeEvent.layout.width, tileWidth = view === 'views' ? 520 : 236;
+            if (width > 0) setColumns(Math.max(1, Math.floor((width + columns.columnGap) / (tileWidth + columns.columnGap))));}}
+          style={{flexDirection: 'row', flexWrap: 'wrap', ...columns}}>
+          {view === 'playlists' ? playlists.map((card, index) => <FocusItem key={card.id} focusId={tileId(view, card.id)} cell={{index}}><SavedTVPlaylistTile disabled={!enabled} card={card} runtime={runtime} onOpen={() => openPlaylist(card)}/></FocusItem>)
+            : view === 'collections' ? resources.map((resource, index) => <FocusItem key={resource.id} focusId={tileId(view, resource.id)} cell={{index}}><SavedTVCollectionTile disabled={!enabled} resource={resource} runtime={runtime} onOpen={() => openResource(resource)}/></FocusItem>)
+              : resources.map((resource, index) => <FocusItem key={resource.id} focusId={tileId(view, resource.id)} cell={{index}}><SavedTVViewTile disabled={!enabled} resource={resource} libraries={libraries} runtime={runtime} onOpen={() => openResource(resource)}/></FocusItem>)}
+        </FocusRegion>
+        {hasMore && <FocusRegion id={moreId} enabled={enabled} entry="tv-saved-more" edges={{...edges, up: gridId}}
+          neighbors={{previous: gridId}} screenStart={start} style={{alignItems: 'center', paddingTop: 20}}>
           <Focusable accessibilityRole="button" focusId="tv-saved-more" disabled={!enabled} onPress={() => {void destination.next(view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);}}
             style={{height: 64, paddingHorizontal: 26, borderRadius: 14, backgroundColor: theme.colors.raised, justifyContent: 'center'}}>
             <Text style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{t('action.showMore')}</Text>
           </Focusable>
-        </View>}
+        </FocusRegion>}
       </ScrollView>}
   </FocusRegion>;
 }
@@ -97,9 +117,9 @@ function changedDay(value: string | undefined): string | undefined {
   return defaultI18n.date(date, 'dayMonth');
 }
 
-function SavedTVPlaylistTile({card, runtime, onOpen}: {card: PlaylistCard; runtime: NativeShellRuntime; onOpen: () => void}) {
+function SavedTVPlaylistTile({card, runtime, onOpen, disabled}: {card: PlaylistCard; runtime: NativeShellRuntime; onOpen: () => void; disabled?: boolean}) {
   const theme = useTheme(), covers = (card.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source), day = changedDay(card.lastChanged);
-  return <CardFrame testID={tileId('playlists', card.id)} focusId={tileId('playlists', card.id)} title={card.title} width={236} onNavigate={onOpen}>
+  return <CardFrame disabled={disabled} testID={tileId('playlists', card.id)} focusId={tileId('playlists', card.id)} title={card.title} width={236} onNavigate={onOpen}>
     {() => <View style={{width: 236}}>
       <View style={{width: 236, height: 236, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
         <CoverMosaic covers={covers} shape="square" width={236} height={236} visible/>
@@ -118,12 +138,12 @@ function SavedTVPlaylistTile({card, runtime, onOpen}: {card: PlaylistCard; runti
   </CardFrame>;
 }
 
-function SavedTVCollectionTile({resource, runtime, onOpen}: {resource: PersonalResource; runtime: NativeShellRuntime; onOpen: () => void}) {
+function SavedTVCollectionTile({resource, runtime, onOpen, disabled}: {resource: PersonalResource; runtime: NativeShellRuntime; onOpen: () => void; disabled?: boolean}) {
   const theme = useTheme(), covers = (resource.artworkPaths ?? []).map(path => runtime.artwork(path)).filter((source): source is NonNullable<typeof source> => !!source),
     visibility = savedVisibility(resource, true),
     // collections.html 16's tile says the shorter line; the page (20) keeps the fuller one.
     visibilityText = visibility.id === 'server' ? t('next.saved.visibleToEveryone') : visibility.text;
-  return <CardFrame testID={tileId('collections', resource.id)} focusId={tileId('collections', resource.id)} title={resource.name} width={236} onNavigate={onOpen}>
+  return <CardFrame disabled={disabled} testID={tileId('collections', resource.id)} focusId={tileId('collections', resource.id)} title={resource.name} width={236} onNavigate={onOpen}>
     {() => <View style={{width: 236}}>
       <View style={{width: 236, height: 236, borderRadius: 14, overflow: 'hidden'}}>
         <CoverMosaic covers={covers} shape="square" width={236} height={236} visible/>
@@ -138,10 +158,10 @@ function SavedTVCollectionTile({resource, runtime, onOpen}: {resource: PersonalR
   </CardFrame>;
 }
 
-function SavedTVViewTile({resource, libraries, runtime, onOpen}: {resource: PersonalResource; libraries: readonly Library[]; runtime: NativeShellRuntime; onOpen: () => void}) {
+function SavedTVViewTile({resource, libraries, runtime, onOpen, disabled}: {resource: PersonalResource; libraries: readonly Library[]; runtime: NativeShellRuntime; onOpen: () => void; disabled?: boolean}) {
   const theme = useTheme(), library = savedLibraryName(libraries, resource.definition?.libraryId), samples = (resource.samples ?? []).slice(0, 4),
     square = samples.length > 0 && ['album', 'song', 'book', 'audiobook_file'].includes(samples[0]!.kind);
-  return <CardFrame testID={tileId('views', resource.id)} focusId={tileId('views', resource.id)} title={resource.name} width={520} onNavigate={onOpen}>
+  return <CardFrame disabled={disabled} testID={tileId('views', resource.id)} focusId={tileId('views', resource.id)} title={resource.name} width={520} onNavigate={onOpen}>
     {() => <View style={{width: 520, height: 300, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {!!samples[0] && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .32}}><AmbientArt source={runtime.ambient(samples[0]!.backdropUrl ?? samples[0]!.posterUrl)} treatment="library"/></View>}
       <View style={{flex: 1, paddingHorizontal: 28, paddingVertical: 26}}>
