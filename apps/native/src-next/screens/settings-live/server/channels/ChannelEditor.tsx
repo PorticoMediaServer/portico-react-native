@@ -1,5 +1,5 @@
-import React,{useEffect,useMemo,useState,useSyncExternalStore} from 'react';
-import {Modal,ScrollView,Text,View} from 'react-native';
+import React,{useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
+import {Animated,Easing,Modal,ScrollView,Text,View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {applyChannelConditions} from '../../../../../../../packages/client-core/src/server-admin/channel-conditions';
 import {librarySampleLabel,type LibraryChannelConfig,type LibraryChannelRule,type LibraryChannelOrder} from '../../../../../../../packages/client-core/src/library-channels';
@@ -8,6 +8,7 @@ import type {NativeShellRuntime} from '../../../../shell/runtime';
 import {Button,Select,Switch,TextField} from '../../../../kit/controls';
 import {shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
+import {useMotion} from '../../../../kit/useMotion';
 import type {NativeChannelsGroup} from './model';
 import {NativeChannelConditions} from './ChannelConditions';
 import {NativeChannelPins} from './ChannelPins';
@@ -23,6 +24,11 @@ const EPISODE_WORDS=['builder.episodes.none','builder.episodes.inOrder','builder
 export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChannelsGroup;runtime:NativeShellRuntime;isCurrent:()=>boolean}) {
   const {editor,fields,presets}=group,state=useSyncExternalStore(editor.subscribe,editor.getSnapshot,editor.getSnapshot),presetState=useSyncExternalStore(presets.subscribe,presets.getSnapshot,presets.getSnapshot),theme=useTheme(),insets=useSafeAreaInsets(),t=runtime.text.t as typeof defaultI18n.t;
   const [tried,setTried]=useState(false),[conditionsValid,setConditionsValid]=useState(true),[hoursEditing,setHoursEditing]=useState(false);
+  const motion=useMotion(),open=isCurrent()&&state.phase!=='closed';
+  // Presence keeps the Modal mounted through the reduced fade-out; the platform's slide needs no help.
+  const [present,setPresent]=useState(open&&motion.reduce);
+  const fade=useRef(new Animated.Value(motion.reduce?0:1)).current;
+  useEffect(()=>{if(!motion.reduce)return;if(open)setPresent(true);const animation=Animated.timing(fade,{toValue:open?1:0,duration:motion.duration('standard'),easing:Easing.linear,useNativeDriver:true});animation.start(({finished})=>{if(finished&&!open)setPresent(false);});return()=>animation.stop();},[fade,motion,open]);
   const validation=useMemo(()=>({source:editor,conditions:true,hours:true}),[editor]);
   const config=state.config,rule=config?.rules.find(value=>value.id===config.defaultRuleId),libraryIds=rule?.query.libraryIds,locked=state.busy||state.pending;
   useEffect(()=>{if(isCurrent()&&state.phase==='editing'&&!presets.getSnapshot().loaded)void presets.load();},[group,presets,isCurrent,state.phase]);
@@ -38,7 +44,9 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
   const close=()=>{if(!isCurrent()||editor.getSnapshot().busy)return;editor.close();};
   const save=()=>{if(!current()||state.busy)return;setTried(true);if(allowed())void(state.pending?editor.retry():editor.save());};
   const orderOptions=[...ORDERS.map(value=>({value,label:t(ORDER_WORDS[value]),disabled:false})),...(leastSupported||rule?.query.order==='least-played'?[{value:'least-played',label:t('builder.preset.leastPlayed'),disabled:!leastSupported}]:[])];
-  return <Modal visible={isCurrent()&&state.phase!=='closed'} animationType="slide" presentationStyle="fullScreen" onRequestClose={close}><View style={{flex:1,backgroundColor:theme.colors.ink,paddingTop:insets.top,paddingBottom:insets.bottom}}>
+  // Reduced motion: no platform slide; the editor fades as a transparent overlay over the page beneath, and
+  // presence holds the Modal open until that fade finishes. Default motion keeps the native slide.
+  return <Modal visible={motion.reduce?present:open} animationType={motion.reduce?'none':'slide'} transparent={motion.reduce} presentationStyle={motion.reduce?'overFullScreen':'fullScreen'} onRequestClose={close}><Animated.View style={{flex:1,opacity:motion.reduce?fade:1}}><View style={{flex:1,backgroundColor:theme.colors.ink,paddingTop:insets.top,paddingBottom:insets.bottom}}>
     <View style={{height:56,paddingHorizontal:14,flexDirection:'row',alignItems:'center',gap:10}}><Button variant="text" size="compact" disabled={state.busy} onPress={close}>{t('builder.cancel')}</Button><Text numberOfLines={1} style={[shellType(17,700),{flex:1,textAlign:'center',color:theme.colors.text}]}>{t(state.templateName?'builder.reviewTemplate':'builder.editTitle',{name:state.templateName??''})}</Text><Button size="compact" disabled={state.busy||!config||!conditionsValid||hoursEditing} loading={state.busy} onPress={save}>{t(state.pending?'action.tryAgain':'builder.save')}</Button></View>
     <ScrollView contentContainerStyle={{padding:20,gap:14,paddingBottom:40}} keyboardShouldPersistTaps="handled">
       {state.phase==='loading'&&<Text style={{color:theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}{state.error&&<Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(state.pending?'error.unconfirmedChange':'error.unavailable')}</Text>}
@@ -60,5 +68,5 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
       {state.preview&&<View style={{gap:8}}>{state.preview.rules.map(value=><View key={value.ruleId}><Text style={{color:theme.colors.text}}>{t('builder.matches',{count:value.eligible})}</Text>{value.sample.map(sample=><Text key={sample.itemId} style={{color:theme.colors.textSecondary}}>{librarySampleLabel(sample)}</Text>)}</View>)}{state.preview.firstDay.map(value=><Text key={value.id} style={{color:theme.colors.textSecondary}}>{new Intl.DateTimeFormat(runtime.text.locale,{timeZone:config.timezone,hour:'numeric',minute:'2-digit'}).format(value.startMs)} · {value.title}</Text>)}</View>}
       </>}
     </ScrollView>
-  </View></Modal>;
+  </View></Animated.View></Modal>;
 }
