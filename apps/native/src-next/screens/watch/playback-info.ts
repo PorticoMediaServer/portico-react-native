@@ -5,8 +5,9 @@ type PlaybackLoss = PlaybackInfo['losses'][number];
 import {playbackFence, sameFence, type PlaybackFence, type QueuePlaybackFence} from '../../../../../packages/player-core/src';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime} from '../../platform/playback/types';
 
-/** tv-player/phone-player 5 and 13: one quiet note about what the committed plan lost. */
-export type NativeWatchNotice = Readonly<{message: string; icon: 'picture' | 'sound'}>;
+/** tv-player/phone-player 5 and 13: one quiet note about what the committed plan lost.
+ * `message` is the plain one-line union; `lead`/`detail` are its two drawn halves. */
+export type NativeWatchNotice = Readonly<{message: string; lead: string; detail: string; icon: 'picture' | 'sound'}>;
 
 const featureKeys: Readonly<Record<PlaybackLoss['feature'], MessageId>> = {
   dolbyVision: 'next.kit.hdr.dolbyVision', hdr10plus: 'next.kit.hdr.hdr10Plus', hdr: 'next.kit.hdr',
@@ -47,12 +48,15 @@ export function nativeWatchLossNotice(info: Pick<PlaybackInfo, 'losses'>): Nativ
   const features = [...new Set(info.losses.map(loss => t(featureKeys[loss.feature])))];
   const playingValues = [...new Set(info.losses.map(loss => playing(loss.replacement)).filter((value): value is string => !!value))];
   if (!playingValues.length) return undefined;
+  // tv-player/phone-player 5 and 13: the frames put the lost feature and where in
+  // bold, then say what plays in the quieter weight. Both halves are the
+  // catalogue's own sentences; message stays their plain one-line union.
   const screenOnly = info.losses.every(loss => loss.feature === 'hdr');
-  const where = t(screenOnly ? 'next.watch.notice.onScreen' : 'next.watch.notice.onDevice');
-  const message = info.losses.length === 1
-    ? t('next.watch.notice.one', {feature: features[0]!, where, playing: playingValues[0]!})
-    : t('next.watch.notice.many', {features: joinWithAnd(features), where, playing: joinWithAnd(playingValues)});
-  return Object.freeze({message, icon: info.losses.some(loss => pictureFeature(loss.feature)) ? 'picture' as const : 'sound' as const});
+  const lead = info.losses.length === 1
+    ? t(screenOnly ? 'next.info.loss.one.screen' : 'next.info.loss.one.device', {feature: features[0]!})
+    : t(screenOnly ? 'next.info.loss.many.screen' : 'next.info.loss.many.device', {features: joinWithAnd(features)});
+  const detail = t('next.info.loss.playing', {values: info.losses.length === 1 ? playingValues[0]! : joinWithAnd(playingValues)});
+  return Object.freeze({message: `${lead} ${detail}`, lead, detail, icon: info.losses.some(loss => pictureFeature(loss.feature)) ? 'picture' as const : 'sound' as const});
 }
 
 export type NativePlaybackInfo = Readonly<{

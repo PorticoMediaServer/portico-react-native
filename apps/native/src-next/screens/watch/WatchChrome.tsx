@@ -82,7 +82,7 @@ export type NativeWatchChromeProps = Readonly<{
 const NOTICE_SECONDS = 6;
 /** tv-player/phone-player 5 and 13: one quiet line, once per playback, that never
  * takes focus and clears the top row. The plan's own words, not a code. */
-function LossNotice({notice, top, gutter}: {notice: NonNullable<NativeWatchChromeProps['notice']>; top: number; gutter: number}) {
+function LossNotice({notice, top, gutter, available}: {notice: NonNullable<NativeWatchChromeProps['notice']>; top: number; gutter: number; available: number}) {
   const theme = useTheme(), reduced = useReducedMotion(), line = useSharedValue(1);
   const [expired, setExpired] = useState<string | undefined>(undefined);
   useEffect(() => {
@@ -95,17 +95,33 @@ function LossNotice({notice, top, gutter}: {notice: NonNullable<NativeWatchChrom
   const drain = useAnimatedStyle(() => ({width: `${line.value * 100}%`}));
   if (expired === notice.key) return null;
   const phone = !theme.isTV;
+  const icon = notice.value.icon === 'picture' ? 'i-film' : 'i-audio';
+  // playback-info 13: the phone's note is one 44 pt line inside a 28 pt glass
+  // circle, inset 54 pt from the picture's right edge, with the remaining-time
+  // line as a 2 pt foot (the lane's own override of the 3 pt base). It grows
+  // only when a longer message needs a second line.
   return <View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityRole="alert" testID="watch-loss-notice"
-    style={{position: 'absolute', top, right: gutter, maxWidth: phone ? 320 : 560, borderRadius: phone ? 12 : 20, overflow: 'hidden',
-      paddingLeft: phone ? 12 : 20, paddingRight: phone ? 14 : 26, paddingTop: phone ? 9 : 14, paddingBottom: phone ? 11 : 18,
-      backgroundColor: 'rgba(9,19,27,.82)', boxShadow: `inset 0 0 0 1px rgba(237,245,250,.1), 0 18px 40px -18px rgba(0,0,0,.85)`}}>
-    <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 9 : 14}}>
-      <Icon name={notice.value.icon === 'picture' ? 'i-film' : 'i-audio'} size={phone ? 16 : 24} color={theme.colors.textSecondary}/>
-      <Text style={[nativeType({size: phone ? 13.5 : 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flexShrink: 1, color: theme.colors.text}]}>{notice.value.message}</Text>
+    style={{position: 'absolute', top, right: gutter, maxWidth: phone ? Math.max(0, available - gutter * 2) : 560, borderRadius: phone ? 12 : 20, overflow: 'hidden',
+      paddingLeft: phone ? 8 : 20, paddingRight: phone ? 16 : 26, paddingTop: phone ? 0 : 14, paddingBottom: phone ? 0 : 18,
+      ...(phone ? {minHeight: 44, justifyContent: 'center' as const, backgroundColor: 'rgba(12,25,35,.84)'} : {backgroundColor: 'rgba(9,19,27,.82)'}),
+      boxShadow: phone ? 'inset 0 0 0 1px rgba(237,245,250,.1), 0 18px 36px -14px rgba(0,0,0,1)'
+        : 'inset 0 0 0 1px rgba(237,245,250,.1), 0 18px 40px -18px rgba(0,0,0,.85)'}}>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 10 : 14}}>
+      {phone
+        ? <View style={{width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(237,245,250,.1)'}}>
+          <Icon name={icon} size={16} color={theme.colors.text}/>
+        </View>
+        : <Icon name={icon} size={24} color={theme.colors.textSecondary}/>}
+      <Text style={[nativeType({size: phone ? 13.5 : 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flexShrink: 1, color: theme.colors.textSecondary}]}>
+        <Text style={[nativeType({size: phone ? 13.5 : 24, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{notice.value.lead}</Text>
+        {` ${notice.value.detail}`}
+      </Text>
     </View>
-    {!reduced && <View style={{marginTop: phone ? 7 : 10, height: 2, borderRadius: 1, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.18)'}}>
-      <Animated.View style={[{height: 2, backgroundColor: theme.colors.accentStrong}, drain]}/>
-    </View>}
+    {!reduced && (phone
+      ? <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, height: 2, backgroundColor: 'rgba(237,245,250,.38)'}, drain]}/>
+      : <View style={{marginTop: 10, height: 2, borderRadius: 1, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.18)'}}>
+        <Animated.View style={[{height: 2, backgroundColor: theme.colors.accentStrong}, drain]}/>
+      </View>)}
   </View>;
 }
 
@@ -482,7 +498,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
       </View>}
     </Animated.View>
-    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={115} gutter={32}/>}
+    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={115} gutter={32} available={width}/>}
   </View></GestureDetector>;
   if (tabletop) return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
@@ -523,7 +539,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
       </View>}
     </Animated.View>
-    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={4} gutter={22}/>}
+    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={4} gutter={22} available={width}/>}
   </View></GestureDetector>;
   return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
@@ -673,7 +689,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>}
       </FocusRegion>
     </Animated.View>
-    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={theme.isTV ? 168 : 68} gutter={theme.isTV ? 96 : 16}/>}
+    {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={theme.isTV ? 168 : 64} gutter={theme.isTV ? 96 : 54} available={width}/>}
     {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: theme.isTV ? 96 : 60,
       bottom: theme.isTV ? 284 : visible ? 110 : 20}}>
       {theme.isTV
