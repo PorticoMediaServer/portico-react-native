@@ -173,6 +173,7 @@ fun main() {
   val sixteen = PorticoAudioOutput.choose(floatRoute, 96000, 2, C.ENCODING_PCM_16BIT, true)
   check(sixteen.encoding == C.ENCODING_PCM_16BIT && sixteen.bytePassthrough && !sixteen.bitPerfect)
   gainProvenanceFoundations()
+  bandlimitedRateFoundations()
 }
 
 /** Test-only stream stamps. Production must obtain them from the renderer, never these fixtures. */
@@ -224,14 +225,14 @@ private fun gainProvenanceFoundations() {
   stage.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
   val a = PorticoGainWitness(first, 2f)
   val b = PorticoGainWitness(next, 3f)
-  val firstPiece = stage.process(provenancePcm(3), 0L, 1, a)
+  val firstPiece = stage.process(provenancePcm(96), 0L, 1, a)
   check(firstPiece.witness?.sameAs(a) == true)
-  check(stage.process(provenancePcm(3), 1000L, 1, b) === firstPiece) // retained delegate piece
+  check(stage.process(provenancePcm(96), 1000L, 1, b) === firstPiece) // retained delegate piece
   stage.accepted(firstPiece)
-  val boundary = stage.process(provenancePcm(3), 2000L, 1, b)
-  check(boundary.frames > 0 && boundary.witness == null) // interpolation crosses original streams
+  val boundary = stage.process(provenancePcm(96), 2000L, 1, b)
+  check(boundary.frames > 0 && boundary.witness == null) // the FIR support crosses original streams
   stage.accepted(boundary)
-  val current = stage.process(provenancePcm(3), 3000L, 1, b)
+  val current = stage.process(provenancePcm(96), 3000L, 1, b)
   check(current.witness?.sameAs(b) == true)
   stage.accepted(current)
   val tail = stage.takeTail()!!
@@ -241,12 +242,12 @@ private fun gainProvenanceFoundations() {
 
   val changing = PorticoRateStage()
   changing.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
-  val beforeChange = changing.process(provenancePcm(3), 0L, 1, a)
+  val beforeChange = changing.process(provenancePcm(96), 0L, 1, a)
   changing.accepted(beforeChange)
-  val changedGain = changing.process(provenancePcm(3), 1000L, 1, PorticoGainWitness(first, 3f))
+  val changedGain = changing.process(provenancePcm(96), 1000L, 1, PorticoGainWitness(first, 3f))
   check(changedGain.witness == null) // one stream with unlike actual coefficients is also mixed
   changing.accepted(changedGain)
-  check(changing.process(provenancePcm(3), 2000L, 1).witness == null) // unknown never inherits a prior proof
+  check(changing.process(provenancePcm(96), 2000L, 1).witness == null) // unknown never inherits a prior proof
 
   val route = PorticoAudioOutput.Route(listOf(PorticoAudioOutput.Device("provenance-test", listOf(
       PorticoAudioOutput.Profile(C.ENCODING_PCM_FLOAT, 44100, 1),
@@ -254,7 +255,7 @@ private fun gainProvenanceFoundations() {
   gain.components(2f, 1.0, true, first.source); gain.reset()
   val pipeline = PorticoMusicPipeline(gain, route = { route }, sampleRateMode = { "off" }, preferredSampleRate = { 48000 })
   pipeline.configure(format(C.ENCODING_PCM_FLOAT, 44100, 1))
-  check(pipeline.handle(provenancePcm(3), 0L, 1, first) { _, _, _ -> true })
+  check(pipeline.handle(provenancePcm(96), 0L, 1, first) { _, _, _ -> true })
   check(pipeline.acceptedWitness?.stream === first)
   pipeline.configure(format(C.ENCODING_PCM_FLOAT, 32000, 1))
   check(pipeline.acceptedWitness == null)
@@ -268,6 +269,102 @@ private fun gainProvenanceFoundations() {
   pipeline.configure(format(C.ENCODING_PCM_FLOAT, 48000, 1))
   check(pipeline.handle(provenancePcm(8), 0L, 1) { _, _, _ -> true })
   check(pipeline.acceptedWitness == null)
+}
+
+/** Exercise the actual stage, including split input, backpressure, finite tail and channel identity.
+ * These are authored sources only; no signal, decoder, output device or audible pass is inferred. */
+private fun bandlimitedRateFoundations() {
+  fun render(sourceRate: Int, targetRate: Int, channels: Int, samples: FloatArray,
+             chunks: IntArray): FloatArray {
+    val stage = PorticoRateStage()
+    stage.configure(sourceRate, channels, C.ENCODING_PCM_FLOAT, targetRate)
+    val output = ArrayList<Float>()
+    var acceptedFrames = 0
+    fun accept(piece: PorticoRateStage.Piece) {
+      check(piece.timeUs == 1234L + Math.round(acceptedFrames * 1_000_000.0 / targetRate))
+      val copy = piece.buffer.duplicate().order(ByteOrder.nativeOrder())
+      check(copy.remaining() == piece.frames * channels * 4)
+      while (copy.hasRemaining()) output.add(copy.float)
+      acceptedFrames += piece.frames
+      stage.accepted(piece)
+    }
+    var offset = 0
+    var chunk = 0
+    val frames = samples.size / channels
+    while (offset < frames) {
+      val count = minOf(chunks[chunk++ % chunks.size], frames - offset)
+      val input = ByteBuffer.allocateDirect(count * channels * 4).order(ByteOrder.nativeOrder())
+      repeat(count * channels) { input.putFloat(samples[offset * channels + it]) }
+      input.flip()
+      val piece = stage.process(input, 1234L + Math.round(offset * 1_000_000.0 / sourceRate), 1)
+      check(stage.process(input, piece.timeUs, 1) === piece) // one retained piece across backpressure
+      check(input.position() == 0) // the decoder's input is not consumed by this stage
+      accept(piece)
+      offset += count
+    }
+    val tail = stage.takeTail()
+    if (tail != null) {
+      check(stage.takeTail() === tail)
+      accept(tail)
+    }
+    check(stage.takeTail() == null && stage.tailAccepted)
+    val expectedFrames = (frames.toLong() * targetRate + sourceRate - 1) / sourceRate
+    check(acceptedFrames.toLong() == expectedFrames)
+    return output.toFloatArray()
+  }
+
+  // The right channel is above the target Nyquist: integer-position linear decimation aliases it
+  // loudly to 12 kHz. The left channel's independent 3 kHz tone must retain its level and channel.
+  val tone = FloatArray(8192 * 2) { index ->
+    val frame = index / 2
+    val hz = if (index % 2 == 0) 3000.0 else 36000.0
+    (0.25 * kotlin.math.sin(2 * Math.PI * hz * frame / 96000)).toFloat()
+  }
+  val decimated = render(96000, 48000, 2, tone, intArrayOf(97, 13, 1024, 1))
+  fun rms(channel: Int): Double {
+    var energy = 0.0
+    val frames = decimated.size / 2
+    for (frame in 256 until frames - 256) {
+      val value = decimated[frame * 2 + channel].toDouble()
+      energy += value * value
+    }
+    return kotlin.math.sqrt(energy / (frames - 512))
+  }
+  check(kotlin.math.abs(rms(0) - 0.25 / kotlin.math.sqrt(2.0)) < 0.002)
+  check(rms(1) < 0.0002) // actual stopband energy, not just a selected filter coefficient
+
+  for ((sourceRate, targetRate) in listOf(44100 to 48000, 96000 to 44100, 48000 to 32000)) {
+    val source = FloatArray(4099) { (0.2 * kotlin.math.sin(2 * Math.PI * 1100 * it / sourceRate)).toFloat() }
+    val whole = render(sourceRate, targetRate, 1, source, intArrayOf(source.size))
+    val split = render(sourceRate, targetRate, 1, source, intArrayOf(1, 7, 127, 509))
+    check(whole.contentEquals(split)) // phase/history and EOS do not depend on decoder chunking
+  }
+  // Tiny inputs flush their whole finite duration, with no artificial filter-delay padding.
+  for (size in listOf(1, 2, 3, 31)) {
+    val constant = render(44100, 48000, 1, FloatArray(size) { 0.25f }, intArrayOf(1))
+    check(constant.all { kotlin.math.abs(it - 0.25f) < 0.00001f })
+  }
+  // An unchanged rate bypasses even allocation/filtering; unity precision remains bit-exact.
+  val exact = PorticoRateStage()
+  exact.configure(96000, 1, C.ENCODING_PCM_FLOAT, 96000)
+  val original = provenancePcm(17)
+  val pass = exact.process(original, 0L, 1)
+  check(pass.buffer === original && pass.frames == 17)
+  exact.accepted(pass)
+  check(exact.takeTail() == null)
+  exact.configure(7350, 1, C.ENCODING_PCM_FLOAT, 7350)
+  val lowRate = provenancePcm(7)
+  check(exact.process(lowRate, 0L, 1).buffer === lowRate) // no new global rate ceiling/floor
+
+  // Flush retires retained frames, phase, provenance and clock, without borrowing the old tail.
+  val reset = PorticoRateStage()
+  reset.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
+  reset.accepted(reset.process(provenancePcm(3), 0L, 1))
+  reset.flush()
+  val fresh = reset.process(provenancePcm(96), 50000L, 1)
+  check(fresh.timeUs == 50000L)
+  reset.accepted(fresh)
+  check(reset.takeTail() != null)
 }
 
 private fun provenancePcm(frames: Int): ByteBuffer {

@@ -3,10 +3,12 @@ package tv.getportico.portico.native
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.ceil
-import kotlin.math.floor
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * The music sink's rate stage (Smart/Strict/Off, music-plus 14). Reviewable engine WIP.
+ * The music sink's rate stage (Smart/Strict/Off, music-plus 14).
  *
  * Ownership: frames are copied out of the incoming buffer on the first call, so a sink retry
  * always sees the same retained piece — same buffer, time and count. Each stream gets its own
@@ -19,13 +21,13 @@ import kotlin.math.floor
  * its original timestamp, and the end-of-stream tail continues the same clock instead of jumping
  * back to the last input buffer's start.
  *
- * Rate conversion is linear at the encoding the gain already produced. It is a correctness-first
- * stage, not a qualified music sample-rate converter: downsampling here has no anti-alias filter,
- * so nothing in this file supports a claim of transparent or bit-perfect resampling. The finite
- * input is drained exactly: while streaming, positions are emitted where a following source frame
- * exists; at end of stream every position inside the input duration is emitted, holding the final
- * frame for the last fractional positions. A downsample whose next phase is past the end therefore
- * invents nothing, and an upsample gets every position the input duration supports.
+ * Rate conversion uses a normalized, phase-interpolated Blackman-windowed sinc. The cutoff
+ * follows the lower Nyquist frequency and its support grows when downsampling; frequencies above
+ * the output band are filtered before decimation. Unchanged rates still bypass every filter and
+ * copy. Streaming waits for the filter's future support, retaining its original past frames; EOS
+ * extends only the first/last sample and emits exactly the positions inside the finite input
+ * duration. No extra audible frames, timestamp shift or artificial tail is added. This is a DSP
+ * implementation, not a physical output, transparent-resampling or bit-perfect qualification.
  *
  * Modes: Off opens at this device's preferred rate; Strict at the file's rate (route refusal is a
  * caller fact); Smart at the file's rate unless the route is known to refuse it.
@@ -49,7 +51,10 @@ internal class PorticoRateStage {
   private var channels = 0
   private var encoding = 0
   private var frame = 0
-  private var position = 0.0
+  // Exact rational source position: no cumulative floating-point phase drift across chunks.
+  private var position = 0L
+  private var phase = 0L
+  private var filter: SincFilter? = null
   private var pending = FloatArray(0)
   private var pendingCount = 0
   private var startTimeUs = -1L
@@ -92,15 +97,18 @@ internal class PorticoRateStage {
 
   /** Start a stream at [targetRate]; the pipeline decides that, and never changes it under audio. */
   fun configure(sourceRate: Int, channels: Int, encoding: Int, targetRate: Int): Int {
+    val outputRate = if (targetRate > 0) targetRate else sourceRate
     require(sourceRate > 0 && channels > 0 && PorticoAudioOutput.supports(encoding)) {
       "unsupported rate stage format"
     }
+    val nextFilter = if (sourceRate == outputRate) null else SincFilter(sourceRate, outputRate)
     clear()
     this.sourceRate = sourceRate
     this.channels = channels
     this.encoding = encoding
     frame = PorticoAudioOutput.bytesPerSample(encoding) * channels
-    this.targetRate = if (targetRate > 0) targetRate else sourceRate
+    this.targetRate = outputRate
+    filter = nextFilter
     return this.targetRate
   }
 
@@ -181,6 +189,7 @@ internal class PorticoRateStage {
     channels = 0
     encoding = 0
     frame = 0
+    filter = null
   }
 
   /** Retire every retained piece and the clock with it; nothing of this stream survives. */
@@ -188,7 +197,8 @@ internal class PorticoRateStage {
     pending = FloatArray(0)
     provenance.clear()
     pendingCount = 0
-    position = 0.0
+    position = 0L
+    phase = 0L
     retained = null
     tail = null
     ended = false
@@ -216,19 +226,27 @@ internal class PorticoRateStage {
         pending[(pendingCount + index) * channels + channel] = read(source)
       }
     }
+    val proof = witness.takeIf { source.remaining() == 0 }
     val last = provenance.peekLast()
-    if (last != null && (last.witness?.sameAs(witness) == true || last.witness == null && witness == null)) last.frames += frames
-    else provenance.addLast(Run(frames, witness))
+    if (last != null && (last.witness?.sameAs(proof) == true || last.witness == null && proof == null)) last.frames += frames
+    else provenance.addLast(Run(frames, proof))
     pendingCount += frames
   }
 
-  private fun witnessAt(index: Int): PorticoGainWitness? {
-    val first = provenance.peekFirst() ?: return null
-    if (index < first.frames) return first.witness
-    var at = index
+  /** Every real source frame in the filter support must have the same original witness. */
+  private fun witnessFor(first: Int, last: Int): PorticoGainWitness? {
+    if (first < 0 || last < first) return null
+    var offset = 0
+    var proof: PorticoGainWitness? = null
     for (run in provenance) {
-      if (at < run.frames) return run.witness
-      at -= run.frames
+      val end = offset + run.frames
+      if (end > first && offset <= last) {
+        val contributor = run.witness ?: return null
+        if (proof != null && !proof.sameAs(contributor)) return null
+        proof = contributor
+      }
+      offset = end
+      if (offset > last) return proof
     }
     return null
   }
@@ -244,54 +262,94 @@ internal class PorticoRateStage {
     }
   }
 
-  /** Emit every target position the finite input supports, consuming whole source frames. */
+  /** Emit every target position whose filter support is available; flush the finite EOS once. */
   private fun produce(eos: Boolean): Piece {
-    val step = sourceRate.toDouble() / targetRate
+    val kernel = checkNotNull(filter)
     val last = pendingCount - 1
-    val duration = pendingCount.toDouble()
-    val capacity = maxOf(1, ceil(duration / step).toInt() + 2)
+    val capacity = maxOf(1, ceil(pendingCount.toDouble() * targetRate / sourceRate).toInt() + 2)
     val out = FloatArray(capacity * channels)
     var produced = 0
-    var proof: PorticoGainWitness? = null
-    var complete = true
-    fun include(index: Int) {
-      if (!complete) return
-      val contributor = witnessAt(index)
-      if (contributor == null || proof != null && !proof!!.sameAs(contributor)) complete = false
-      else if (proof == null) proof = contributor
-    }
-    while (produced < capacity) {
-      val at = floor(position).toInt()
-      if (at < last) {
-        include(at); include(at + 1)
-        val fraction = (position - at).toFloat()
-        for (channel in 0 until channels) {
-          val a = pending[at * channels + channel]
-          val b = pending[(at + 1) * channels + channel]
-          out[produced * channels + channel] = a + (b - a) * fraction
+    var firstContributor = pendingCount
+    var lastContributor = -1
+    while (position < pendingCount && produced < capacity) {
+      val at = position.toInt()
+      // A future decoder buffer must supply the right wing during streaming. Only EOS may
+      // extend the final sample. Keeping the left wing also preserves cross-buffer provenance.
+      if (!eos && position + kernel.radius >= pendingCount) break
+      val weights = kernel.weights(phase.toDouble() / targetRate)
+      firstContributor = minOf(firstContributor, maxOf(0, at - kernel.radius))
+      lastContributor = maxOf(lastContributor, minOf(last, at + kernel.radius))
+      for (channel in 0 until channels) {
+        var value = 0.0
+        for (tap in weights.indices) {
+          val sourceFrame = (at + tap - kernel.radius).coerceIn(0, last)
+          value += pending[sourceFrame * channels + channel] * weights[tap]
         }
-      } else if (eos && at == last && position < duration) {
-        include(at)
-        // Inside the input duration but past the last whole source frame: hold that frame. Past the
-        // duration the next phase is beyond the stream, so nothing is invented.
-        for (channel in 0 until channels) {
-          out[produced * channels + channel] = pending[at * channels + channel]
-        }
-      } else {
-        break
+        out[produced * channels + channel] = value.toFloat()
       }
       produced++
-      position += step
+      phase += sourceRate
+      position += phase / targetRate
+      phase %= targetRate
     }
-    val consumed = minOf(floor(position).toInt(), pendingCount)
+    // Resolve proof BEFORE removing history. Unlike/unknown frames anywhere in the FIR support
+    // suppress this entire piece, including an old source's contribution to a new source's edge.
+    val proof = if (produced > 0) witnessFor(firstContributor, lastContributor) else null
+    val consumed = minOf(maxOf(0L, position - kernel.radius), pendingCount.toLong()).toInt()
     if (consumed > 0) {
       consumeProvenance(consumed)
       System.arraycopy(pending, consumed * channels, pending, 0, (pendingCount - consumed) * channels)
       pendingCount -= consumed
       position -= consumed
     }
-    return Piece(encode(produced, out), timeFor(outputFrames), lastCount, produced,
-        proof.takeIf { complete && produced > 0 })
+    return Piece(encode(produced, out), timeFor(outputFrames), lastCount, produced, proof)
+  }
+
+  /** Bounded polyphase FIR. Adjacent normalized phases are interpolated, not rounded to a phase.
+   * The 32 zero crossings at the lower rate give a fixed transition width in the output band.
+   * Tables belong to this stage/format; no process-global cache or current-source lookup. */
+  private class SincFilter(sourceRate: Int, targetRate: Int) {
+    private val scale = minOf(1.0, targetRate.toDouble() / sourceRate)
+    // Covers every ratio in the existing 8–768 kHz playable-plan range (at most 96:1).
+    // Refuse a larger FIR before allocation; unchanged rates never enter this bound.
+    val radius = ceil(32.0 / scale).also { require(it <= 3072.0) { "unsupported rate ratio" } }.toInt()
+    private val taps = radius * 2 + 1
+    private val phases = 256
+    private val table = FloatArray((phases + 1) * taps)
+    private val interpolated = DoubleArray(taps)
+
+    init {
+      val cutoff = 0.94 * scale
+      for (phase in 0..phases) {
+        val fraction = phase.toDouble() / phases
+        var sum = 0.0
+        for (tap in 0 until taps) {
+          val distance = tap - radius - fraction
+          val windowAt = distance / radius
+          val window = if (kotlin.math.abs(windowAt) >= 1.0) 0.0 else
+            0.42 + 0.5 * cos(PI * windowAt) + 0.08 * cos(2 * PI * windowAt)
+          val x = PI * cutoff * distance
+          val value = cutoff * (if (kotlin.math.abs(x) < 1e-12) 1.0 else sin(x) / x) * window
+          table[phase * taps + tap] = value.toFloat()
+          sum += value
+        }
+        check(sum.isFinite() && sum > 0)
+        for (tap in 0 until taps) table[phase * taps + tap] =
+            (table[phase * taps + tap] / sum).toFloat()
+      }
+    }
+
+    fun weights(fraction: Double): DoubleArray {
+      val at = (fraction * phases).coerceIn(0.0, phases.toDouble())
+      val lower = at.toInt().coerceAtMost(phases - 1)
+      val mix = at - lower
+      for (tap in 0 until taps) {
+        val a = table[lower * taps + tap].toDouble()
+        val b = table[(lower + 1) * taps + tap].toDouble()
+        interpolated[tap] = a + (b - a) * mix
+      }
+      return interpolated
+    }
   }
 
   private fun encode(frames: Int, source: FloatArray): ByteBuffer {
