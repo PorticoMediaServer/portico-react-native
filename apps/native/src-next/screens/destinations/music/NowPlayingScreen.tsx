@@ -382,10 +382,10 @@ function ListeningCoverTarget({gesture, slot, onLayout, size, children}: {gestur
 
 function useListeningChromeGesture(fence: PlaybackFence, disabled: boolean) {
   const blocked = useContext(ListeningChromeGate), mode = useOverlayPaintMode();
-  const controller = usePublishedPlayerMorph(fence), current = useSharedValue(false);
+  const controller = usePublishedPlayerMorph(fence), current = useSharedValue(false), permit = useListeningPaintPermit(fence);
   const allowed = !disabled && !blocked && mode.interactive;
   useLayoutEffect(() => {current.value = allowed; return () => {current.value = false;};}, [current, allowed]);
-  return useMemo(() => controller?.chromeGesture(allowed, current), [controller, allowed, current]);
+  return useMemo(() => controller?.chromeGesture(allowed, current, permit?.current), [controller, allowed, current, permit]);
 }
 function ListeningSwipeArea({fence, children}: {fence: PlaybackFence; children: React.ReactNode}) {
   const gesture = useListeningChromeGesture(fence, false);

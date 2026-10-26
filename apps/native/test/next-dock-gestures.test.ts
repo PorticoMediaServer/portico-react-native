@@ -694,3 +694,19 @@ test('retired passive chrome gate refuses queued begin/update/release and finali
     pan.callbacks.onBegin(); assert.equal(r.controller().dragging.value, false, 'a queued old begin cannot re-arm retired paint');
   } finally {r.close();}
 });
+
+
+for (const retirement of ['target', 'page'] as const) test(`queued chrome release after original ${retirement} retirement cancels only original paint without a business transition`, async () => {
+  const r = await rig();
+  try {
+    const current = {value: true}; let page = true;
+    const pan = r.controller().chromeGesture(true, current, () => page);
+    pan.callbacks.onBegin(); pan.callbacks.onUpdate(vertical); pan.callbacks.onEnd(vertical, true);
+    if (retirement === 'target') current.value = false; else page = false;
+    await r.flushJS(); await r.flushMotionJS();
+    assert.equal(r.transitions.length, 0);
+    assert.equal(r.dock.getSnapshot().local?.expanded, true);
+    assert.equal(r.controller().dragging.value, false);
+    assert.equal(r.animations.at(-1)!.to, 0, 'original expanded UI state is restored instead of leaving a rejected mini pose');
+  } finally {r.close();}
+});

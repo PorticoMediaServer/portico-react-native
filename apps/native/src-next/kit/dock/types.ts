@@ -83,7 +83,7 @@ export type PlayerMorphController = {
   gesture: PanGesture;
   dockGesture: PanGesture;
   /** Distinct physical handler, same progress/velocity and original release guard. */
-  chromeGesture: (enabled: boolean, current?: SharedValue<boolean>) => PanGesture;
+  chromeGesture: (enabled: boolean, current?: SharedValue<boolean>, paintCurrent?: () => boolean) => PanGesture;
 };
 export type DockHostProps = {
   /** Consume only an original pre-retirement captured image and its measured slot. */
