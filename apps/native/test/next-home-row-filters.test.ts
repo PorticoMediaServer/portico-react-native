@@ -37,5 +37,15 @@ test('Home row vocabulary uses the translator the screen is showing', () => {
   assert.equal(homeBrowseLabel({id: 'genre'}, i18n), 'GB/filter.field.genre');
   assert.deepEqual(words, ['filter.field.genre'], 'the supplied translator names the row unless the catalogue lacks the word');
   assert.equal(homeBrowseLabel({id: 'genre'}), defaultI18n.t('filter.field.genre'));
-  assert.throws(() => homeBrowseLabel({id: 'invented-field'}, i18n), /native_browse_copy_unavailable/);
+});
+
+test('a capability the catalogue has no word for is shown as its own id in words', () => {
+  const words: string[] = [];
+  const i18n = {has: (id: string): id is MessageId => id === 'filter.field.genre', t: (id: MessageId) => {words.push(id); return `GB/${id}`;}};
+  const value = {id: 'bestMatchSort', labelKey: 'arbitrary.untranslated.key'};
+  assert.equal(homeBrowseLabel(value, i18n), 'Best match sort', 'the fallback splits camelCase words');
+  assert.deepEqual(words, [], 'no translation is asked for a word the catalogue lacks, and an arbitrary labelKey is never rendered');
+  assert.equal(value.id, 'bestMatchSort', 'the admitted capability id is not rewritten by presentation');
+  assert.equal(homeBrowseLabel({id: 'episode_count'}, i18n), 'Episode count', 'underscored ids read as words');
+  assert.equal(homeBrowseLabel({id: 'invented-field'}, i18n), 'Invented field', 'hyphenated ids read as words');
 });
