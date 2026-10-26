@@ -30,30 +30,35 @@ export function LoadingBoundary({ready, skeleton, children, immediate = false, q
   const [phase, setPhase] = useState<LoadingPhase>(phaseRef.current);
   const opacity = useRef(new Animated.Value(cached.current ? 1 : 0)).current;
   const animation = useRef<Animated.CompositeAnimation | undefined>(undefined);
+  const entered = useRef(cached.current);
   const stop = () => {animation.current?.stop(); animation.current = undefined;};
   useEffect(() => stop, []);
+  // Quiet window and phase only: a policy or duration change must never restart the wait.
   useEffect(() => {
     if (!ready) {
-      stop();
       cached.current = cachedAfterLoadingCycle(cached.current, false);
-      if (phaseRef.current !== 'quiet') {phaseRef.current = 'quiet'; setPhase('quiet');}
+      const quiet = nextLoadingPhase(phaseRef.current, {type: 'readyChanged', ready: false});
+      if (quiet !== phaseRef.current) {phaseRef.current = quiet; setPhase(quiet);}
       const timer = setTimeout(() => {
         const next = nextLoadingPhase(phaseRef.current, {type: 'quietElapsed'});
-        phaseRef.current = next; setPhase(next);
+        if (next !== phaseRef.current) {phaseRef.current = next; setPhase(next);}
       }, quietMs);
       return () => clearTimeout(timer);
     }
-    const alreadyContent = phaseRef.current === 'content';
-    const next = nextLoadingPhase(phaseRef.current, {type: 'readyChanged', ready});
-    if (!alreadyContent) {phaseRef.current = next; setPhase(next);}
+    const next = nextLoadingPhase(phaseRef.current, {type: 'readyChanged', ready: true});
+    if (next !== phaseRef.current) {phaseRef.current = next; setPhase(next);}
+  }, [ready, quietMs]);
+  // Content fade only: retargets from the current opacity when the policy changes.
+  useEffect(() => {
+    if (phase !== 'content') {entered.current = false; return;}
     stop();
-    if (cached.current) {opacity.setValue(1); return;}
-    if (!alreadyContent) opacity.setValue(0);
+    if (cached.current) {opacity.setValue(1); entered.current = true; return;}
+    if (!entered.current) {opacity.setValue(0); entered.current = true;}
     const easing = motion.reduce ? Easing.linear : Easing.bezier(...contentFadeEasing.out);
     const fade = Animated.timing(opacity, {toValue: 1, duration: contentFadeDuration(motion.reduce, contentFadeMs, motion.duration('standard')), easing, useNativeDriver: true});
     animation.current = fade;
-    fade.start(() => {animation.current = undefined;});
-  }, [ready, quietMs, contentFadeMs, motion, opacity]);
+    fade.start(() => {if (animation.current === fade) animation.current = undefined;});
+  }, [phase, motion, contentFadeMs, opacity]);
   if (phase === 'quiet') return null;
   return <Animated.View testID={testID} style={[style, phase === 'content' ? {opacity} : null]}>{phase === 'content' ? children : skeleton}</Animated.View>;
 }

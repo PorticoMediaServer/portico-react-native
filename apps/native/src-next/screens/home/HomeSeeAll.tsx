@@ -43,7 +43,7 @@ export function HomeSeeAll(props: HomeSeeAllProps) {
   useEffect(() => {void props.controller.load();}, [props.controller]);
   if (state.phase === 'error') return <StateView {...runtime.error(state.error, () => {void props.controller.load();})} variant="centered"/>;
   const loading = !state.row || !state.capabilities || !state.sort;
-  return <LoadingBoundary ready={!loading} immediate={!loading} skeleton={<View style={{flex: 1, padding: theme.isTV ? 200 : 20}}><SkeletonBlock width="65%" height={theme.isTV ? 62 : 32}/></View>}>
+  return <LoadingBoundary ready={!loading} immediate={!loading} style={{flex: 1}} skeleton={<View style={{flex: 1, padding: theme.isTV ? 200 : 20}}><SkeletonBlock width="65%" height={theme.isTV ? 62 : 32}/></View>}>
     {!loading && <HomeSeeAllReady {...props}/>}
   </LoadingBoundary>;
 }
