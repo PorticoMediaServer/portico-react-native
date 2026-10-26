@@ -22,7 +22,7 @@ const initials = (name: string) => name.split(/\s+/u).filter(Boolean).slice(0, 2
  * the drawn circle is the shared initials fallback; a real portrait wins. */
 export function TitlePeople({credits, artwork, onPerson, focus}: TitlePeopleProps) {
   const theme = useTheme();
-  if (theme.isTV) return <TVShelf focus={focus} items={credits} getKey={tvItemKey} itemWidth={200} itemHeight={167 + 80 * theme.textScale} gap={18} renderItem={(credit, slot) => {
+  if (theme.isTV) return <TVShelf focus={focus} items={credits} getKey={tvItemKey} isFocusable={credit => !!(onPerson && credit.personId)} itemWidth={200} itemHeight={167 + 80 * theme.textScale} gap={18} renderItem={(credit, slot) => {
     const portrait = artwork(credit.portraitUrl);
     const content = (focused: boolean) => <TVArtFocus focused={focused} width={200} faceSize={150} face={<View style={{width: 150, height: 150, borderRadius: 75, overflow: 'hidden'}}>
       <PersonCircle size={150} initials="" covers={[]} alt={credit.name}/>
