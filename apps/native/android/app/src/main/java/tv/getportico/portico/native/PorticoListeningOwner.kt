@@ -1100,7 +1100,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       if (!matchesTimer(occurrence) || ended || actions.isNotEmpty() || startPending != null || committed != null || audible != null || commitWanted || lostCommit != null || parkedCommit != null) return false
       val binding = controller.listeningSnapshot()["binding"] as? Map<*, *> ?: return false
       if(binding["sessionId"] != occurrence["sessionId"] || binding["itemId"] != occurrence["itemId"] || num(binding["generation"]) != num(occurrence["generation"])) return false
-      if (timer["choice"] == "book" && (((timer["bookBoundary"] as? Map<*, *>)?.get("items") as? List<*>)?.contains(heard()["itemId"]) != true) return false
+      val bookParts = (timer["bookBoundary"] as? Map<*, *>)?.get("items") as? List<*>
+      if (timer["choice"] == "book" && bookParts?.contains(heard()["itemId"]) != true) return false
       if (timer["choice"] != "book" && timer["itemId"] != occurrence["itemId"]) return false
       if (timer["choice"] == "chapter" && (timer["sessionId"] != occurrence["sessionId"] || num(timer["generation"]) != num(occurrence["generation"]))) return false
       if (timer["choice"] == "book" && metadata?.containsKey("bookId") == true && metadata?.get("bookId") != timer["bookId"]) return false
