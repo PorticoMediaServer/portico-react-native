@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, type ReactNode, type RefObject} from 'react';
+import React, {useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject} from 'react';
 import {Pressable, StyleSheet, Text, View, type PressableProps, type StyleProp, type TextStyle, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
@@ -39,18 +39,25 @@ export type CardNativeProps = Omit<PressableProps, 'children' | 'style' | 'onPre
   priority?: boolean;
   /** Draws the still "Playing" badge on a squared card (tv-player 9). */
   playing?: boolean;
+  /** TV sparse-slot composition may retain the one outer native host while replacing paint. */
+  frame?: ComponentType<CardFrameProps>;
 };
 export type CardProps = CardNativeProps & CardActions;
-type Interaction = {focused: boolean; hovered: boolean; pressed: boolean; holding: boolean};
+export type Interaction = {focused: boolean; hovered: boolean; pressed: boolean; holding: boolean};
+
+type ReadOnlyCardActions = Readonly<{primaryAction?: undefined; onNavigate?: undefined; onPlay?: undefined; onMore?: undefined; selection?: undefined}>;
+export type CardFrameSurfaceProps = CardNativeProps & (CardActions | ReadOnlyCardActions);
+export type CardFrameProps = CardFrameSurfaceProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode};
 
 /** One root TV focus target. Images and secondary affordances never register Menu. */
-export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, focusable, moreExpanded, pressableStyle, menuAnchorRef, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
+export function CardFrame({children, overlay, frame: _frame, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, focusable, moreExpanded, pressableStyle, menuAnchorRef, ...native}: CardFrameProps) {
   const theme = useTheme(), motion = useMotion();
   const eligible = !disabled && focusable !== false;
   const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: !eligible, ref: menuAnchorRef});
   const [focused, setFocused] = useState(false), [hovered, setHovered] = useState(false), [pressed, setPressed] = useState(false);
   const owner = useRef({}), menuRegistration = useRef<(() => void) | undefined>(undefined), tvHeld = useRef(false), scale = useSharedValue(1);
   const actions = {primaryAction, onNavigate, onPlay, onMore, selection} as CardActions;
+  const commandDisabled = !!disabled || waiting || !(primaryAction === 'play' ? onPlay : onNavigate);
   const touch = useTouchHold(() => {
     if (!selection?.active && onMore) void touchMenuHaptic();
     holdCard(actions, false);
@@ -68,7 +75,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
   const animated = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const label = waiting ? defaultI18n.t('next.selection.native.loading') : accessibilityLabel ?? title;
   const frame = <Animated.View style={[{width, flex: pressableStyle ? 1 : undefined}, theme.isTV && style, animated]}>
-    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} style={pressableStyle} testID={binding.testID} disabled={disabled} focusable={eligible} accessibilityRole="button" accessibilityLabel={label}
+    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} style={pressableStyle} testID={binding.testID} disabled={commandDisabled} focusable={eligible} accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{...native.accessibilityState, busy: waiting || native.accessibilityState?.busy, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
       accessibilityActions={waiting ? [] : [
         ...(native.accessibilityActions ?? []),
@@ -77,7 +84,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
         ...(selection ? [{name: 'select', label: defaultI18n.t('card.select', {title})}] : []),
       ]}
       onAccessibilityAction={event => {
-        if (disabled || waiting) return;
+        if (commandDisabled) return;
         const name = event.nativeEvent.actionName;
         if (name === 'play') onPlay?.();
         else if (name === 'more') onMore?.();
@@ -89,9 +96,9 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
       onTouchMove={event => {touch.handlers.onTouchMove(event); native.onTouchMove?.(event);}}
       onTouchEnd={event => {touch.handlers.onTouchEnd(); native.onTouchEnd?.(event);}}
       onTouchCancel={event => {touch.handlers.onTouchCancel(); native.onTouchCancel?.(event);}}
-      onPress={() => {if (!waiting && !tvHeld.current && !touch.consumePress()) activateCard(actions);}}
+      onPress={() => {if (!commandDisabled && !tvHeld.current && !touch.consumePress()) activateCard(actions);}}
       delayLongPress={native.delayLongPress}
-      onLongPress={theme.isTV ? () => {if (!waiting) {tvHeld.current = true; holdCard(actions, true);}} : undefined}
+      onLongPress={theme.isTV ? () => {if (!commandDisabled) {tvHeld.current = true; holdCard(actions, true);}} : undefined}
       onPressIn={() => {tvHeld.current = false; setPressed(true);}}
       onPressOut={() => {setPressed(false); touch.end();}}
       onFocus={() => {

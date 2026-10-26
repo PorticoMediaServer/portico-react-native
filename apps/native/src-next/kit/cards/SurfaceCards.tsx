@@ -97,7 +97,8 @@ function CollectionLink(props: CollectionCardProps) {
 export type GenreTileProps = CardProps & ArtCollection & {variant: 'video' | 'music'; backdrop?: ArtworkSource; height?: number};
 export function GenreTile(props: GenreTileProps) {
   const t = useTheme(), width = props.width ?? (t.isTV ? 320 : 174), height = props.height ?? (t.isTV ? 180 : 84);
-  return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={height} />}>
+  const Frame = props.frame ?? CardFrame;
+  return <Frame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={height} />}>
     {s => <ArtFrame height={height} radius={12} focused={s.focused} hovered={s.hovered} holding={s.holding} hoverScale={1.03} selected={props.selection?.selected}>
       <AmbientArt source={props.ambient} palette={props.palette} treatment="cover" visible={props.visible} priority={props.priority} />
       {props.variant === 'video' ? t.isTV ? <><MediaArt kind="wide" source={props.backdrop} width={width} height={height} visible={props.visible} priority={props.priority} /><Scrim start={0} opacity={0.75} /></>
@@ -108,7 +109,7 @@ export function GenreTile(props: GenreTileProps) {
         <Parts parts={props.caption} />
       </View>
     </ArtFrame>}
-  </CardFrame>;
+  </Frame>;
 }
 
 export type LibraryCardProps = CardProps & ArtCollection & {shape: CoverShape; height?: number; /** Deliberate fallback glyph when a personal library has no logo or covers. */ glyph?: string};
@@ -151,12 +152,13 @@ export function SeriesTile(props: SeriesTileProps) {
 export type PlaylistMosaicProps = CardProps & {covers: readonly ArtworkSource[]; shape?: CoverShape; renderCoverFallback?: (index: number) => ReactNode; create?: boolean};
 export function PlaylistMosaic(props: PlaylistMosaicProps) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.square[t.platform];
-  return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
+  const Frame = props.frame ?? CardFrame;
+  return <Frame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
     {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected} style={props.create ? {borderWidth: 2, borderStyle: 'dashed', borderColor: t.colors.lineStrong, backgroundColor: 'transparent'} : undefined}>
       {props.create ? <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}><View style={{width: 64, height: 64, borderRadius: 32, backgroundColor: alpha(t.colors.text, 0.08), alignItems: 'center', justifyContent: 'center'}}><Icon name="i-plus" size={30} color={t.colors.textSecondary} /></View></View>
         : <CoverMosaic covers={props.covers} shape={props.shape ?? 'square'} width={width} height={width} visible={props.visible} renderFallback={props.renderCoverFallback} />}
     </ArtFrame><Caption {...props} selected={props.selection?.selected} /></>}
-  </CardFrame>;
+  </Frame>;
 }
 
 export function NotInterestedButton({onPress, title, testID}: {onPress: () => void; title: string; testID?: string}) {

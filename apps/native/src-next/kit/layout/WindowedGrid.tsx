@@ -6,13 +6,17 @@ import {useTheme} from '../theme';
 import {useFocusAnchor} from './FocusAnchor';
 import {captureGridAnchor, gridAnchorOffset, gridWindow, type GridAnchor} from './model';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
+import {nativeSlotOwnerKey, projectNativeSlots, type NativeSlotProjection} from '../focus/windowed-slots';
 
 export type WindowedGridHandle = {scrollToIndex: (index: number) => void; scrollToLetter: (key: string) => void; scrollToOffset: (offset: number) => void};
+export type NativeGridSlotContext = LayoutItemContext & Readonly<{focusId: string; entityId?: string; waiting: boolean; source: string}>;
 export type WindowedGridProps<T> = {
   collection: WindowedCollection<T>;
   getKey: (item: T) => string;
   renderItem: (item: T, context: LayoutItemContext) => ReactNode;
   renderPlaceholder: (index: number) => ReactNode;
+  /** TV-only stable native host composition; defaults/touch retain the original render paths. */
+  renderNativeSlot?: (item: T | undefined, context: NativeGridSlotContext) => ReactNode;
   itemWidth: number;
   itemHeight: number;
   gap?: number;
@@ -38,8 +42,9 @@ export type WindowedGridProps<T> = {
   testID?: string;
 };
 
-function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativeSlot, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const theme = useTheme();
+  const committedSlots = useRef<NativeSlotProjection | undefined>(undefined);
   const columnGap = gap ?? (theme.isTV ? 28 : 12), verticalGap = rowGap ?? (theme.isTV ? 36 : 22);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
   const [viewport, setViewport] = useState({width: 0, height: 0});
@@ -135,6 +140,13 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   for (let index = firstMounted; index <= lastMounted; index++) indices.push(index);
   // Keep only the actually focused cell alive during an interrupted row scroll.
   if (theme.isTV && focused !== undefined && focused < total && !indices.includes(focused)) indices.push(focused);
+  const nativeRows = theme.isTV && renderNativeSlot ? indices.map(index => {
+    const slot = collection.slotAt(index);
+    return {slot, entityId: slot.kind === 'item' ? getKey(slot.item) : undefined};
+  }) : undefined;
+  const projectedSlots = nativeRows ? projectNativeSlots(committedSlots.current, collection, nativeSlotOwnerKey(collection), snapshot.generation,
+    nativeRows.map(({slot, entityId}) => ({index: slot.index, entityId, waiting: slot.kind !== 'item'}))) : undefined;
+  useLayoutEffect(() => {committedSlots.current = projectedSlots;}, [projectedSlots]);
   return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={[style, anchor.scrollStyle]}
     stickyHeaderIndices={stickyHeader ? [header ? 1 : 0] : undefined}
     onLayout={event => {captureBeforeLayout(); setViewport(event.nativeEvent.layout);}} onScroll={onScroll} scrollEventThrottle={16}
@@ -142,15 +154,18 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
     {header && <View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>{header}</View>}
     {stickyHeader && <View onLayout={event => setToolbarHeight(event.nativeEvent.layout.height)}>{stickyHeader}</View>}
     <View style={{height: Math.max(0, height - leadingHeight), position: 'relative'}}>
-      {indices.map(index => {
-        const slot = collection.slotAt(index), id = slot.kind === 'item' ? getKey(slot.item) : slot.key;
+      {indices.map((index, position) => {
+        const slot = nativeRows?.[position]?.slot ?? collection.slotAt(index), nativeSlot = projectedSlots?.slots[position], id = slot.kind === 'item' ? getKey(slot.item) : slot.key;
         const focus = () => {
           setFocused(index);
           anchor.anchor(paddingTop + Math.floor(index / columns) * stride, itemHeight, viewport.height, height, stickyOffset + (theme.isTV ? 24 : 0), theme.isTV ? 24 : 0);
           if (slot.kind === 'item') onItemFocus?.(slot.item, index);
         };
-        return <View key={id} testID={testID ? `${testID}-cell-${id}` : undefined} style={{position: 'absolute', top: contentPaddingTop + Math.floor(index / columns) * stride, left: leading + index % columns * (itemWidth + columnGap), width: itemWidth, height: itemHeight}}>
-          {slot.kind === 'item' ? renderItem(slot.item, {index, id, selection: itemSelection(selection, id), onFocus: focus, onBlur: () => setFocused(current => current === index ? undefined : current)}) : renderPlaceholder(index)}
+        return <View key={nativeSlot?.key ?? id} testID={testID ? `${testID}-cell-${id}` : undefined} style={{position: 'absolute', top: contentPaddingTop + Math.floor(index / columns) * stride, left: leading + index % columns * (itemWidth + columnGap), width: itemWidth, height: itemHeight}}>
+          {nativeSlot && renderNativeSlot ? renderNativeSlot(slot.kind === 'item' ? slot.item : undefined,
+            {index, id, focusId: nativeSlot.focusId, entityId: nativeSlot.entityId, source: nativeSlot.source, waiting: nativeSlot.waiting,
+              selection: slot.kind === 'item' ? itemSelection(selection, id) : undefined, onFocus: focus, onBlur: () => setFocused(current => current === index ? undefined : current)})
+            : slot.kind === 'item' ? renderItem(slot.item, {index, id, selection: itemSelection(selection, id), onFocus: focus, onBlur: () => setFocused(current => current === index ? undefined : current)}) : renderPlaceholder(index)}
         </View>;
       })}
     </View>

@@ -53,7 +53,8 @@ function Marks({progress, watched, isNew}: Media) {
 
 function Portrait({kind = 'poster', next, titleLines = 1, ...props}: PosterCardProps & {kind?: 'poster' | 'book' | 'periodical' | 'newspaper'; next?: boolean}) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.poster[t.platform], height = width / (kind === 'periodical' || kind === 'newspaper' ? 3 / 4 : 2 / 3);
-  return <CardFrame {...props} width={width} overlay={state => <Overlays props={props} hovered={state.hovered} holding={state.holding} height={height} />}>
+  const Frame = props.frame ?? CardFrame;
+  return <Frame {...props} width={width} overlay={state => <Overlays props={props} hovered={state.hovered} holding={state.holding} height={height} />}>
     {state => <>
       <ArtFrame height={height} focused={state.focused} hovered={state.hovered} holding={state.holding} selected={props.selection?.selected || next}>
         <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} source={props.artwork} fallback={props.artworkFallback} kind={kind} width={width} height={height} />
@@ -61,7 +62,7 @@ function Portrait({kind = 'poster', next, titleLines = 1, ...props}: PosterCardP
       </ArtFrame>
       <Caption {...props} selected={props.selection?.selected} lines={titleLines} />
     </>}
-  </CardFrame>;
+  </Frame>;
 }
 
 export function PosterCard(props: PosterCardProps) {return <Portrait {...props} />;}
@@ -73,7 +74,8 @@ export function CoverCard(props: CoverCardProps) {
 
 export function SquareCard(props: SquareCardProps) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.square[t.platform];
-  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
+  const Frame = props.frame ?? CardFrame;
+  return <Frame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
     {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected}>
       <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="square" source={props.artwork} fallback={props.artworkFallback} width={width} height={width} />
       <Scrim start={0.55} opacity={0.75} /><Marks watched={props.watched} isNew={props.isNew} />
@@ -86,7 +88,7 @@ export function SquareCard(props: SquareCardProps) {
         <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18 * t.textScale, lineHeight: 22 * t.textScale, fontWeight: '800', color: t.colors.text}}>{defaultI18n.t('player.miniPlaying')}</Text>
       </View>}
     </ArtFrame><Caption {...props} selected={props.selection?.selected} titleTextStyle={props.playing ? {color: t.colors.accentStrong} : props.titleTextStyle} /></>}
-  </CardFrame>;
+  </Frame>;
 }
 
 export function WideCard(props: WideCardProps) {
@@ -111,11 +113,12 @@ export function WideCard(props: WideCardProps) {
 
 export function CircleCard(props: CircleCardProps) {
   const t = useTheme(), width = props.width ?? (t.isTV ? t.spec.card.width.artist.tv : 104);
-  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
+  const Frame = props.frame ?? CardFrame;
+  return <Frame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
     {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected} circle>
       {props.person ? <PersonCircle {...props.art} visible={props.visible ?? props.art.visible} size={width} /> : <CircleArt {...props.art} visible={props.visible ?? props.art.visible} size={width} />}
     </ArtFrame><View style={{marginTop: t.isTV ? 0 : 1}}><Caption {...props} titleTextStyle={[titleStyle(t, t.isTV ? 22 : 14, 700), props.titleTextStyle]} captionTextStyle={[titleStyle(t, t.isTV ? 20 : 12.5, 600), props.captionTextStyle]} centered selected={props.selection?.selected} /></View></>}
-  </CardFrame>;
+  </Frame>;
 }
 
 export type EpisodeTileProps = CardProps & Media & {

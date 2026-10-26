@@ -7,7 +7,7 @@ import {useHostRef} from './useHostRef';
 
 const RegistryContext = createContext<FocusRegistry | null>(null);
 const RegionContext = createContext<string | undefined>(undefined);
-const ItemContext = createContext<Readonly<{focusId: string; testID?: string; waiting?: boolean; cell?: FocusCell}> | undefined>(undefined);
+const ItemContext = createContext<Readonly<{focusId: string; testID?: string; waiting?: boolean; cell?: FocusCell; entityId?: string}> | undefined>(undefined);
 export function FocusProvider({registry, children}: {registry?: FocusRegistry; children: React.ReactNode}) {
   const parent = useContext(RegistryContext), own = useRef<FocusRegistry | undefined>(undefined);
   if (!own.current) own.current = createFocusRegistry();
@@ -19,8 +19,8 @@ export function useFocusRegistry(): FocusRegistry {
   if (!registry) throw new Error('A FocusProvider must contain regions that share focus.');
   return registry;
 }
-export function FocusItem({focusId, testID, waiting, cell, children}: {focusId: string; testID?: string; waiting?: boolean; cell?: FocusCell; children: React.ReactNode}) {
-  return <ItemContext.Provider value={{focusId, testID, waiting, cell}}>{children}</ItemContext.Provider>;
+export function FocusItem({focusId, testID, waiting, cell, entityId, children}: {focusId: string; testID?: string; waiting?: boolean; cell?: FocusCell; entityId?: string; children: React.ReactNode}) {
+  return <ItemContext.Provider value={{focusId, testID, waiting, cell, entityId}}>{children}</ItemContext.Provider>;
 }
 export function useFocusWaiting(): boolean {return useContext(ItemContext)?.waiting ?? false;}
 export type FocusRegionProps = Omit<ViewProps, 'id' | 'onFocus' | 'onBlur'> & FocusRegionConfig & {onFocusChange?: (ownsFocus: boolean) => void};
@@ -67,27 +67,27 @@ export type FocusTargetOptions<T extends FocusHost = View> = {focusId?: string; 
 /** Bind the actual native host. No remote-key listener or per-key app decision. */
 export function useFocusTarget<T extends FocusHost = View>({focusId, testID, disabled, ref}: FocusTargetOptions<T>) {
   const registry = useOptionalFocusRegistry(), regionId = useContext(RegionContext), item = useContext(ItemContext);
-  const childId = focusId ?? item?.focusId ?? testID;
+  const childId = focusId ?? item?.focusId ?? testID, entityId = item?.entityId;
   const stableTestID = testID ?? item?.testID ?? (regionId && childId ? focusTestID(regionId, childId) : undefined);
   if (regionId && !childId && !disabled) throw new Error('A region child requires a stable focusId or testID from its caller.');
   const owner = useRef({}), cellKey = JSON.stringify(item?.cell);
   const cell = useMemo<FocusCell | undefined>(() => cellKey ? JSON.parse(cellKey) : undefined, [cellKey]);
-  const committed = useRef({registry, regionId, childId, disabled, cell});
+  const committed = useRef({registry, regionId, childId, disabled, cell, entityId});
   const onHost = useCallback((host: T | null) => {
     const c = committed.current;
-    if (c.registry && c.regionId && c.childId) c.registry.attach({regionId: c.regionId, childId: c.childId}, c.disabled ? null : host, owner.current, c.cell);
+    if (c.registry && c.regionId && c.childId) c.registry.attach({regionId: c.regionId, childId: c.childId}, c.disabled ? null : host, owner.current, c.cell, c.entityId);
   }, []);
   const {native, ref: setRef} = useHostRef<T>(ref ?? null, onHost);
   const emptySubscribe = useCallback(() => () => {}, []), zero = useCallback(() => 0, []);
   useSyncExternalStore(registry?.subscribe ?? emptySubscribe, registry?.getSnapshot ?? zero, registry?.getSnapshot ?? zero);
   useLayoutEffect(() => {
-    committed.current = {registry, regionId, childId, disabled, cell};
+    committed.current = {registry, regionId, childId, disabled, cell, entityId};
     if (!registry || !regionId || !childId) return;
     const address = {regionId, childId};
-    registry.attach(address, disabled ? null : native.current, owner.current, cell);
+    registry.attach(address, disabled ? null : native.current, owner.current, cell, entityId);
     const registrationOwner = owner.current;
     return () => {registry.attach(address, null, registrationOwner);};
-  }, [cell, childId, disabled, native, regionId, registry]);
+  }, [cell, childId, disabled, entityId, native, regionId, registry]);
   const config = regionId ? registry?.config(regionId) : undefined;
   const edgeProps: Pick<ViewProps, 'nextFocusUp' | 'nextFocusDown' | 'nextFocusLeft' | 'nextFocusRight'> = {};
   const order = regionId && (config?.orientation === 'horizontal' || config?.orientation === 'vertical') ? registry?.order(regionId) : undefined;
