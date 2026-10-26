@@ -1,6 +1,6 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {View} from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../theme';
 import {MediaBar} from './MediaBar';
@@ -39,11 +39,20 @@ export function DockHost({dock, snapshot, presentation, castView, onAction, bott
       && latest.remote?.id === wanted.remote?.id && latest.remote?.sequence === wanted.remote?.sequence;
   }, [readOccupant,visible,wanted]);
   const setTVExpanded = useCallback((value: boolean) => {setExpanded(value); onTVExpandedChange?.(value);}, [onTVExpandedChange]);
+  // The touch page dim fades in on the authored short duration instead of
+  // appearing with the dock insertion. TV keeps its own existing contract until
+  // the shared TV motion is supplied; the surface, safe areas and focus/input
+  // ownership are untouched.
+  const dim = useSharedValue(0), dimWanted = !theme.isTV && menu;
+  useEffect(() => {dim.value = withTiming(dimWanted ? 1 : 0, {duration: 180});}, [dim, dimWanted]);
+  const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const shown = presence.shown;
   if (!shown) return null;
   const tvOpen = tvExpanded ?? expanded;
   return <View pointerEvents="box-none" style={[dockStyles.fill, {zIndex: theme.layers.player}, style]}>
-    {(theme.isTV ? tvOpen : menu) && <View pointerEvents="none" style={[dockStyles.fill, {backgroundColor: alpha(theme.colors.ink, .5)}]}/>}
+    {theme.isTV
+      ? tvOpen && <View pointerEvents="none" style={[dockStyles.fill, {backgroundColor: alpha(theme.colors.ink, .5)}]}/>
+      : <Animated.View pointerEvents="none" style={[dockStyles.fill, dimStyle, {backgroundColor: alpha(theme.colors.ink, .5)}]}/>}
     <Animated.View pointerEvents={wanted ? 'box-none' : 'none'} style={[dockStyles.fill, presence.style]}>{theme.isTV ? <NowPlayingCard testID={testID} occupant={shown} onAction={action} visible={!!wanted && visible} expanded={!!wanted && tvOpen} onExpandedChange={setTVExpanded} returnFocusRef={returnFocusRef}
       style={{position: 'absolute', top: 44, right: theme.layout.gutter.tvRight}}/> :
       <MediaBar testID={testID} occupant={shown} onAction={action} visible={!!wanted && visible} onMenuOpenChange={setMenu} onVideoSlot={reportVideoSlot} slotAdmission={presence.slotAdmission} isCurrent={interactionCurrent} morph={morph}
