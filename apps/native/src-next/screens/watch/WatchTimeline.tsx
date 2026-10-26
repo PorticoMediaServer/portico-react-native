@@ -78,6 +78,9 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   // thread; the preview seconds, the time label and the single lift seek stay on
   // the existing callbacks below, so nothing here commits a position.
   const travel = useSharedValue(0), paintFraction = useSharedValue(0), dragFraction = useSharedValue<number | null>(null);
+  // A drag that belonged to a replaced fence, a disabled bar or a retired source
+  // stops painting at once; the callbacks above already refuse its command.
+  useEffect(() => {dragFraction.value = null;}, [dragFraction, fence, enabled, source.retired]);
   // No fraction, no span or no measured travel means no preview and no seek, exactly as the
   // previous unmeasured track behaved.
   const secondsAt = useCallback((fraction: number | undefined) => fraction === undefined || !(span > 0) ? undefined : Math.max(start, Math.min(end, start + fraction * span)), [start, end, span]);
