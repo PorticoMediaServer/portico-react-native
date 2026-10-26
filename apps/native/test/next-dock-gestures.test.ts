@@ -1,3 +1,4 @@
+import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
 import {nativeEqualizer} from '../platform/equalizer.ts';
 import {listeningNoticeKey} from '../../../packages/client-core/src/audio-effects.ts';
@@ -106,6 +107,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const signalFacts = await screenModule(new URL('../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {react, 'react-native': native});
   const signalView = await screenModule(new URL('../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
+    './listening-presentation': {expandedListeningOccupant},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},

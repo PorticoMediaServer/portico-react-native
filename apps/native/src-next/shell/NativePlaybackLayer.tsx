@@ -11,7 +11,7 @@ import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation,type CastDockBinding} from '../kit/dock';
-import {commandIsCurrent, currentOccupant, playbackPosition} from '../kit/dock/model';
+import {commandIsCurrent, playbackPosition} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {NowPlayingScreen, TVListeningRoute, type NowPlayingScreenProps} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
@@ -21,6 +21,7 @@ import {NativeListeningNotice} from '../screens/destinations/music/ListeningNoti
 import {NativePlayOnSheets} from '../screens/watch/PlayOnSheets';
 import {useListeningSong} from './use-listening-song';
 import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
+import {expandedListeningOccupant} from './listening-presentation';
 import {nativeEqualizer} from '../platform/playback/equalizer';
 import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects';
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
@@ -302,8 +303,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   // listening surface, drawn from the same dock occupant and the listening owner's
   // queue. The dock stays underneath; this never starts a second session.
   const dockedLocal = snapshot.dock.local;
-  const nowPlaying = presentation && dockedLocal?.expanded === true && (dockedLocal.kind === 'music' || dockedLocal.kind === 'audiobook')
-    && sameFence(dockedLocal.fence, presentation.fence) ? currentOccupant(adapter.dock, snapshot.dock, {local: presentation}) : null;
+  const nowPlaying = expandedListeningOccupant(adapter.dock, snapshot.dock, presentation);
   const listeningView: NowPlayingScreenProps | undefined = nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') ? {
     occupant: nowPlaying, queue: snapshot.queue?.view ?? undefined, artwork: runtime.artwork,
     width, height, topInset: insets.top, bottomInset: insets.bottom,

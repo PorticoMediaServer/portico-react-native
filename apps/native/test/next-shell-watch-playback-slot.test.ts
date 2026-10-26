@@ -1,3 +1,4 @@
+import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -58,6 +59,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../../../kit/theme': {useTheme: () => {throw Error('unexpected_music_signal_render');}, nativeType: () => {throw Error('unexpected_music_signal_render');}},
   });
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
+    './listening-presentation': {expandedListeningOccupant},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
