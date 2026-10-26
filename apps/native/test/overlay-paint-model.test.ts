@@ -137,3 +137,33 @@ test('an unlisted fragment or native host is rejected unless the caller lists it
   assert.equal(freezeOverlayPaint(child('Text', {children: 'hi'}), [View]), undefined);
   assert.ok(freezeOverlayPaint(child('Text', {children: 'hi'}), ['Text']));
 });
+
+test('a keyed React element keeps its key without reading the development key accessor', () => {
+  const root = child(View, {key: 'overlay-row', onPress: () => {}});
+  const frozen = freezeOverlayPaint(root, [View]);
+  assert.ok(frozen);
+  assert.equal(frozen.key, 'overlay-row');
+  assert.equal('key' in frozen.props, false, 'the reserved key never enters props');
+});
+
+test('an undefined optional style is valid while a functional one rejects', () => {
+  assert.ok(freezeOverlayPaint(child(View, {style: undefined}), [View]));
+  assert.equal(freezeOverlayPaint(child(View, {style: () => ({color: 'red'})}), [View]), undefined);
+});
+
+test('a __proto__ key and symbol overrides are refused without touching a prototype', () => {
+  const malicious = JSON.parse('{"__proto__": {"polluted": true}, "safe": 1}');
+  assert.equal(freezeOverlayPaint(child(View, {value: malicious}), [View]), undefined);
+  assert.equal(({} as {polluted?: boolean}).polluted, undefined);
+  const symbols = [1, 2];
+  Object.defineProperty(symbols, Symbol.iterator, {configurable: true, get() {throw new Error('iterator ran');}});
+  assert.equal(freezeOverlayPaint(child(View, {value: symbols}), [View]), undefined);
+});
+
+test('a shared readonly style alias is legal in two places', () => {
+  const style = {color: 'red'};
+  const frozen = freezeOverlayPaint(child(View, {style, children: child(Allowed, {style})}), [View, Allowed]);
+  assert.ok(frozen);
+  assert.equal(frozen.props.style, style);
+  assert.equal(kids(frozen.props.children)[0]!.props.style, style);
+});
