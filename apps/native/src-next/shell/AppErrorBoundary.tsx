@@ -18,13 +18,18 @@ type BoundaryState = {failedAt?: number; generation: number};
  * It never clears saved records or attempts to recover an identity or session itself. */
 export class AppErrorBoundary extends React.Component<{children: React.ReactNode}, BoundaryState> {
   state: BoundaryState = {generation: 0};
-  static getDerivedStateFromError(): Partial<BoundaryState> {return {failedAt: Date.now()};}
+  static getDerivedStateFromError(): Partial<BoundaryState> {
+    // Marks observation BEFORE subtree teardown; React may replay this callback.
+    homeActionDiagnostics.lifetime?.('boundary-render-error', AppErrorBoundary);
+    return {failedAt: Date.now()};
+  }
   componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    homeActionDiagnostics.lifetime?.('boundary-caught', this, AppErrorBoundary);
     // Reuse the bounded, allowlisted receipt: numeric bundle coordinates only,
     // without exception text, component names, URLs or account/session data.
     homeActionDiagnostics.error('app-render', error, info.componentStack);
   }
-  private retry = () => {this.setState(value => ({failedAt: undefined, generation: value.generation + 1}));};
+  private retry = () => {homeActionDiagnostics.lifetime?.('boundary-retry', this, AppErrorBoundary);this.setState(value => ({failedAt: undefined, generation: value.generation + 1}));};
   render() {
     return this.state.failedAt === undefined
       ? <React.Fragment key={this.state.generation}>{this.props.children}</React.Fragment>

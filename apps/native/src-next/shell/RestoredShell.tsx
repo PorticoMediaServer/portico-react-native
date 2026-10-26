@@ -54,12 +54,14 @@ export function RestoredShell() {
     const ticket: RootOpening = {attempt, active: true}; root.current = ticket;
     const abort = new AbortController(); let owned: RestoredNativeShellRuntime | undefined;
     const installation = beginNativeInstallation(abort.signal);
+    homeActionDiagnostics.lifetime?.('root-begin', ticket, installation);
     let alive = true;
     const rootCurrent = () => alive && ticket.active && root.current === ticket && !abort.signal.aborted && installation.current();
     ticket.current = rootCurrent;
     let clock: ReturnType<typeof setInterval> | undefined;
     ticket.retire = () => {
       if (!ticket.active) return;
+      homeActionDiagnostics.lifetime?.('root-retire', ticket, installation);
       ticket.active = false; alive = false;
       const previous = owned, previousSource = ticket.source; owned = undefined; ticket.source = undefined;
       if (root.current === ticket) viewOwner.current = undefined;
@@ -71,6 +73,7 @@ export function RestoredShell() {
     };
     const restart = () => {
       if (!rootCurrent()) return;
+      homeActionDiagnostics.lifetime?.('root-restart', ticket, installation);
       // The callback is captured now; a deferred updater cannot bump a newer root.
       setAttempt(value => root.current === ticket && value === ticket.attempt ? value + 1 : value);
       ticket.retire?.();
@@ -113,10 +116,10 @@ export function RestoredShell() {
           // A pending restore or a ready runtime must be fenced. Once the entry is settled
           // and owns sign-in, the new selection is its own publication: its onComplete
           // starts the restore, so aborting here would unmount it mid-publish.
-          if (!restored || owned) {restart(); return;}
+          if (!restored || owned) {homeActionDiagnostics.lifetime?.('root-selection-changed', ticket, installation);restart(); return;}
         }
         selection = key;
-      } catch (error) {if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); const previous = owned; owned = undefined; previous?.dispose(); if (rootCurrent()) publishState({phase: 'ended', error});}}
+      } catch (error) {if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-selection-read-failed', ticket, installation);homeActionDiagnostics.error('restore-error', error); const previous = owned; owned = undefined; previous?.dispose(); if (rootCurrent()) publishState({phase: 'ended', error});}}
     };
     const unsubscribe = subscribeNativeAppSessions(() => {if (rootCurrent()) void checkSelection();});
     // A ready shell refreshes when a publication settles. While an entry is publishing
@@ -129,12 +132,13 @@ export function RestoredShell() {
       // continuation until explicit completion or cancellation, just like an
       // entry mounted without a shell. Do not unmount it mid-publication.
       if (ticket.input?.current()) return;
-      if (owned || fenced) restart();
+      if (owned || fenced) {homeActionDiagnostics.lifetime?.('root-account-settled', ticket, installation);restart();}
     });
     // A fence retires the running shell runtime. With no runtime there is nothing to
     // abandon: the entry that is publishing stays mounted and reports completion itself.
     const unfence = nativeAccounts.onFence(() => {
       if (!rootCurrent() || !owned) return;
+      homeActionDiagnostics.lifetime?.('root-account-fence', ticket, installation);
       fenced = true; settledFence = false; const previous = owned; owned = undefined; previous.dispose();
       // Keep the original root waiting for the existing settled publication;
       // never start a replacement restore in the middle of account publication.
@@ -150,9 +154,9 @@ export function RestoredShell() {
     }}, () => {});
     if (rootCurrent()) clock = setInterval(() => {if (rootCurrent()) setElapsed(previous => rootCurrent() ? Date.now() - started : previous);}, 120);
     if (rootCurrent()) void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, installationOwner: installation, onSessionRenewed: () => {
-      if (rootCurrent()) restart();
+      if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-renewal', ticket, installation);restart();}
     }, onAuthorityEnded: error => {
-      if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
+      if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-authority-ended', ticket, installation);homeActionDiagnostics.error('restore-error', error); owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
     }}).then(runtime => {
       if (clock) clearInterval(clock);
       if (!rootCurrent()) {runtime?.dispose(); return;}

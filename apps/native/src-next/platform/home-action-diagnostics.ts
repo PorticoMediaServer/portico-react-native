@@ -122,7 +122,17 @@ const origins = new Set([
   'native-http',
   'app-render',
   'library-menu',
+  'shell-lifetime',
 ]);
+const shellLifetimeEvents = [
+  'root-begin', 'root-restart', 'root-retire', 'root-selection-changed', 'root-selection-read-failed',
+  'root-account-fence', 'root-account-settled', 'root-renewal', 'root-authority-ended',
+  'bootstrap-begin', 'bootstrap-dispose', 'bootstrap-owner-abort', 'bootstrap-authority-ended',
+  'bootstrap-accessor-retired', 'bootstrap-current-invalid', 'bootstrap-session-ended',
+  'boundary-render-error', 'boundary-caught', 'boundary-retry',
+] as const;
+export type ShellLifetimeEvent = typeof shellLifetimeEvents[number];
+const lifetimeEvents = new Set<string>(shellLifetimeEvents);
 type ErrorOrigin = 'assembly-error' | 'restore-error' | 'route-memory' | 'home-registration' | 'artwork-error' | 'app-render';
 type ActionOrigin = 'home-card' | 'home-assembly';
 type Operation = 'primary-play' | 'menu';
@@ -152,6 +162,9 @@ type SafeRecord = {
   frames?: readonly (readonly [number, number])[];
   componentFrames?: readonly (readonly [number, number])[];
   runtimeRef?: number;
+  ownerRef?: number;
+  parentRef?: number;
+  lifetimeOrder?: number;
   menuRef?: number;
   own?: boolean;
   enumerable?: boolean;
@@ -210,6 +223,7 @@ export function createHomeActionDiagnostics(
 ) {
   let sequence = 0,
     requestSequence = 0;
+  let lifetimeOrder = 0, pendingLifetime = 0;
   const counts = new Map<string, number>(),
     tickets = new WeakSet<Ticket>();
   const references = new WeakMap<object, number>();
@@ -226,8 +240,8 @@ export function createHomeActionDiagnostics(
       const count = counts.get(origin) ?? 0;
       if (
         !origins.has(origin) ||
-        sequence >= HOME_DIAGNOSTIC_LIMIT ||
-        count >= HOME_DIAGNOSTIC_ORIGIN_LIMIT
+        sequence + pendingLifetime >= HOME_DIAGNOSTIC_LIMIT ||
+        count + (origin === 'shell-lifetime' ? pendingLifetime : 0) >= HOME_DIAGNOSTIC_ORIGIN_LIMIT
       )
         return;
       counts.set(origin, count + 1);
@@ -240,6 +254,30 @@ export function createHomeActionDiagnostics(
     }
   };
   return {
+    /** Fixed event codes and private local reference ordinals only. Never inspect
+     * an owner, selection, token, error message or installation's contents. */
+    lifetime(event: ShellLifetimeEvent, owner: object, parent?: object): void {
+      let reserved = false;
+      try {
+        const object = (value: unknown): value is object => value !== null && (typeof value === 'object' || typeof value === 'function');
+        if (!lifetimeEvents.has(event) || !object(owner) || parent !== undefined && !object(parent)
+          || sequence + pendingLifetime >= HOME_DIAGNOSTIC_LIMIT
+          || (counts.get('shell-lifetime') ?? 0) + pendingLifetime >= HOME_DIAGNOSTIC_ORIGIN_LIMIT) return;
+        const record: SafeRecord = {operation: event, lifetimeOrder: ++lifetimeOrder, ownerRef: reference(owner),
+          ...(parent ? {parentRef: reference(parent)} : {}), frames: safeFrames(new Error().stack, true)};
+        pendingLifetime++;reserved = true;
+        // Console/ErrorJournal observers never run inside a render, guard,
+        // authority callback or disposal. The capture ordinal preserves ordering.
+        queueMicrotask(() => {
+          if (!reserved) return;
+          reserved = false;pendingLifetime--; // Consume this slot once, then honor all other reservations.
+          write('shell-lifetime', record);
+        });
+      } catch {
+        if (reserved) {reserved = false;pendingLifetime--;}
+        /* A diagnostic sink cannot change original lifetime or recovery. */
+      }
+    },
     /** Only local object/function reference numbers and fixed descriptor booleans.
      * Do not invoke getters, inspect runtime contents or stringify private objects. */
     libraryMenu(stage: MenuStage, runtime: unknown): void {

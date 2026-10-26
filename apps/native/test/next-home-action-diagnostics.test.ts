@@ -236,3 +236,50 @@ test('original native HTTP boundary preserves response, rejection and call argum
     console.warn = warning;
   }
 });
+
+
+test('shell lifetime receipts preserve original owner linkage using ordinals without reading private fields', async () => {
+  const f = records();let inspected = 0;
+  const owner = Object.defineProperty({}, 'accessToken', {get() {inspected++;throw Error('private-token');}});
+  const installation = {privateId: 'private-installation'}, successor = {};
+  f.logger.lifetime('root-begin', owner, installation);
+  f.logger.lifetime('bootstrap-begin', successor, installation);
+  f.logger.lifetime('root-retire', owner, installation);
+  assert.equal(f.lines.length, 0, 'no sink or journal callback runs inside the observed operation');
+  await Promise.resolve();
+  const [root, bootstrap, retired] = f.read();
+  assert.equal(root.ownerRef, retired.ownerRef);assert.notEqual(root.ownerRef, bootstrap.ownerRef);
+  assert.equal(root.parentRef, bootstrap.parentRef);assert.equal(inspected, 0);
+  assert.deepEqual([root.lifetimeOrder, bootstrap.lifetimeOrder, retired.lifetimeOrder], [1, 2, 3]);
+  assert.equal(root.origin, 'shell-lifetime');assert.equal(root.operation, 'root-begin');
+  assert.equal(JSON.stringify(f.read()).includes('private-'), false);
+  for (const frame of root.frames) assert.ok(frame.length === 2 && frame.every(Number.isSafeInteger));
+});
+
+test('shell lifetime events reject arbitrary values, remain bounded and cannot alter original recovery through a sink', async () => {
+  const f = records(), owner = {};
+  f.logger.lifetime('private-cause' as never, owner);f.logger.lifetime('root-begin', null as never);
+  f.logger.lifetime('root-begin', owner, 'private-parent' as never);assert.equal(f.lines.length, 0);
+  for (let i = 0; i < HOME_DIAGNOSTIC_ORIGIN_LIMIT + 10; i++) f.logger.lifetime('root-retire', owner);
+  await Promise.resolve();assert.equal(f.lines.length, HOME_DIAGNOSTIC_ORIGIN_LIMIT);
+  const broken = createHomeActionDiagnostics(() => {throw Error('broken-sink');});
+  assert.doesNotThrow(() => broken.lifetime('boundary-retry', owner));await Promise.resolve();
+});
+
+
+test('an accepted first lifetime receipt reserves shared capacity against intervening synchronous origins', async () => {
+  const f = records(), origins = ['assembly-error', 'restore-error', 'route-memory', 'home-registration', 'artwork-error'] as const;
+  for (let i = 0; i < HOME_DIAGNOSTIC_LIMIT - 1; i++) f.logger.error(origins[i % origins.length], {});
+  assert.equal(f.lines.length, HOME_DIAGNOSTIC_LIMIT - 1);
+  f.logger.lifetime('bootstrap-current-invalid', {});
+  // The one accepted pending slot plus written receipts fills the EXISTING global budget.
+  assert.equal(f.lines.length + 1, HOME_DIAGNOSTIC_LIMIT);
+  f.logger.error('app-render', {});f.logger.error('restore-error', {});
+  assert.equal(f.lines.length, HOME_DIAGNOSTIC_LIMIT - 1, 'synchronous writes cannot displace a reserved first-cause receipt');
+  await Promise.resolve();
+  assert.equal(f.lines.length, HOME_DIAGNOSTIC_LIMIT);
+  assert.equal(f.read().at(-1).operation, 'bootstrap-current-invalid');
+  assert.equal(f.read().at(-1).origin, 'shell-lifetime');
+  assert.equal(f.read().filter(record => record.operation === 'bootstrap-current-invalid').length, 1);
+  f.logger.error('app-render', {});assert.equal(f.lines.length, HOME_DIAGNOSTIC_LIMIT);
+});

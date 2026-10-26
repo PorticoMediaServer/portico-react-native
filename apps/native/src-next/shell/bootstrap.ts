@@ -107,7 +107,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let identityServer: NativeIdentityServer | undefined;
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
   const signal = new AbortController();
+  let accessorRetirementReported = false;
+  homeActionDiagnostics.lifetime?.('bootstrap-begin', signal.signal, installation);
   const dispose = () => {
+    if (alive) homeActionDiagnostics.lifetime?.('bootstrap-dispose', signal.signal, installation);
     alive = false; if (ownsInstallation) installation.dispose(); signal.abort(); refresher?.stop(); services?.dispose(); home?.dispose();
     watch?.dispose(); playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
@@ -116,11 +119,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     for (const listener of [...authorityListeners]) listener();
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
   };
-  const end = (error?: NativeIdentityFailure | NativeSignInEnded) => {if (alive) {dispose(); options.onAuthorityEnded(error);}};
-  const abort = () => dispose();
+  const end = (error?: NativeIdentityFailure | NativeSignInEnded) => {if (alive) {homeActionDiagnostics.lifetime?.('bootstrap-authority-ended', signal.signal, installation);dispose(); options.onAuthorityEnded(error);}};
+  const abort = () => {if (alive) homeActionDiagnostics.lifetime?.('bootstrap-owner-abort', signal.signal, installation);dispose();};
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
-  const assertCurrent = () => {if (!alive || !installation.current() || options.signal?.aborted || signal.signal.aborted) {dispose(); throw cancelled();}};
+  const assertCurrent = () => {if (!alive || !installation.current() || options.signal?.aborted || signal.signal.aborted) {if (!accessorRetirementReported) {accessorRetirementReported = true;homeActionDiagnostics.lifetime?.('bootstrap-accessor-retired', signal.signal, installation);} dispose(); throw cancelled();}};
   const currentPreferences = () => {assertCurrent(); if (!preferences) throw cancelled(); return preferences;};
   const currentAccount = () => {assertCurrent(); if (!account) throw cancelled(); return account;};
   try {
@@ -199,7 +202,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
           server: session?.viewer.serverId === authority.serverId, account: session?.viewer.accountId === authority.accountId,
           profile: session?.viewer.profileId === authority.profileId, generation: installation.generation}), new Error().stack);
       }
-      if (!valid && alive) end();
+      if (!valid && alive) {homeActionDiagnostics.lifetime?.('bootstrap-current-invalid', signal.signal, installation);end();}
       return valid;
     };
     const profileOption: ProfileOption = Object.freeze({id: profile.id, name: profile.name, initial: [...profile.name.trim()][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: profile.pinRequired});
@@ -304,7 +307,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();
-    }, onSignedOut: error => end(nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt))});
+    }, onSignedOut: error => {if (alive) homeActionDiagnostics.lifetime?.('bootstrap-session-ended', signal.signal, installation);end(nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt));}});
     let refreshing: Promise<void> | undefined;
     const refresh = () => refreshing ??= (async () => {
       assertCurrent();
