@@ -3,9 +3,16 @@ import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
  * The subtitle command and the server's cue document, read strictly (ENGINE-CONTRACT.md §7).
  * Nothing here touches the device, so it runs under test as it is.
  */
-export type CaptionBackground = 'none' | 'translucent' | 'opaque';
-export type CaptionStyle = Readonly<{scale: number; background: CaptionBackground}>;
-export const defaultCaptionStyle: CaptionStyle = Object.freeze({scale: 1, background: 'translucent'});
+export type CaptionBackground = 'none' | 'outline' | 'shadow' | 'translucent' | 'opaque';
+export type CaptionColor = 'white' | 'yellow' | 'cyan' | 'green' | 'pink';
+export type CaptionPosition = 'bottom' | 'raised' | 'top';
+export type CaptionFont = 'default' | 'serif' | 'mono' | 'rounded';
+/** The look the viewer chose, as the command carries it. `color`, `position` and `font`
+ * are read here and drawn by the app's own line; the command's `size` and its
+ * `keepStyling`/`useSystemCaptionStyle` are not carried, because this device has no
+ * styled-file path and cannot read the viewer's system caption style. */
+export type CaptionStyle = Readonly<{scale: number; background: CaptionBackground; color: CaptionColor; position: CaptionPosition; font: CaptionFont}>;
+export const defaultCaptionStyle: CaptionStyle = Object.freeze({scale: 1, background: 'translucent', color: 'white', position: 'bottom', font: 'default'});
 
 export type SubtitleCommand = Readonly<{
   binding?: unknown;
@@ -17,7 +24,7 @@ export type SubtitleCommand = Readonly<{
   /** A decimal string of microseconds, -600 s to +600 s; positive shows every line later. */
   offsetUs?: string;
   documentUrl?: string;
-  style?: Readonly<{scale?: unknown; background?: unknown}>;
+  style?: Readonly<{scale?: unknown; background?: unknown; color?: unknown; position?: unknown; font?: unknown}>;
 }>;
 
 export type Cue = Readonly<{start: number; end: number; text: string; italic: boolean; top: boolean}>;
@@ -39,11 +46,28 @@ export function decimalUs(value: unknown, maximum: number, signed: boolean): num
   return Math.abs(n) <= maximum ? n : null;
 }
 
-/** Portico's caption style from the command: a size multiplier (0.5 to 3) and a background. */
+const backgrounds = ['none', 'outline', 'shadow', 'translucent', 'opaque'] as const;
+const colors = ['white', 'yellow', 'cyan', 'green', 'pink'] as const;
+const positions = ['bottom', 'raised', 'top'] as const;
+const fonts = ['default', 'serif', 'mono', 'rounded'] as const;
+/** The value when it is one of `allowed`, else `fallback`: one unrecognised field never changes another. */
+const one = <T extends string>(allowed: readonly T[], value: unknown, fallback: T): T => allowed.includes(value as T) ? value as T : fallback;
+
+/**
+ * Portico's caption style from the command: a size multiplier (0.5 to 3), the background
+ * the line is drawn on, its colour, where it sits and the face it asks for. Each field
+ * falls back on its own, so an unknown value can neither be guessed at nor move another
+ * field; an unrecognised background stays the soft box rather than becoming a bare line.
+ */
 export function captionStyleOf(style: SubtitleCommand['style']): CaptionStyle {
   const scale = typeof style?.scale === 'number' && Number.isFinite(style.scale) ? Math.max(0.5, Math.min(3, style.scale)) : 1;
-  const background: CaptionBackground = style?.background === 'none' || style?.background === 'opaque' ? style.background : 'translucent';
-  return scale === 1 && background === 'translucent' ? defaultCaptionStyle : {scale, background};
+  const background = one(backgrounds, style?.background, 'translucent');
+  const color = one(colors, style?.color, 'white');
+  const position = one(positions, style?.position, 'bottom');
+  const font = one(fonts, style?.font, 'default');
+  return scale === 1 && background === 'translucent' && color === 'white' && position === 'bottom' && font === 'default'
+    ? defaultCaptionStyle
+    : {scale, background, color, position, font};
 }
 
 export type Selection = Readonly<{url: string; revision: number; offsetUs: number; refreshRevision: unknown; binding: string; style: CaptionStyle}>;

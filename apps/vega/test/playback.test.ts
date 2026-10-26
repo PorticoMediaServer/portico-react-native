@@ -290,7 +290,7 @@ test('subtitles: the session\'s own cue document is drawn in the profile\'s capt
   assert.equal(subtitleDisplay.current().display.text, '');
   player().currentTime = 1 + 12.5;
   await until(() => subtitleDisplay.current().display.text === 'Hello there');
-  assert.deepEqual(subtitleDisplay.current().style, {scale: 1.3, background: 'none'});
+  assert.deepEqual(subtitleDisplay.current().style, {scale: 1.3, background: 'none', color: 'white', position: 'bottom', font: 'default'});
   // The viewer changes the size: the same document, drawn anew, not fetched again.
   await engine.command(command({paused: true, subtitles: subtitles({style: {scale: 1.6, background: 'opaque'}})}));
   await until(() => subtitleDisplay.current().style.scale === 1.6);

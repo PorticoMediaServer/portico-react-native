@@ -14,7 +14,7 @@ test('a track is taken when its document is the session\'s own, over the scheme 
   assert.ok(!('error' in selection));
   assert.equal(selection.url, command().documentUrl);
   assert.equal(selection.offsetUs, -250000);
-  assert.deepEqual(selection.style, {scale: 1.3, background: 'opaque'});
+  assert.deepEqual(selection.style, {scale: 1.3, background: 'opaque', color: 'white', position: 'bottom', font: 'default'});
 });
 
 test('a document that is not this session\'s is refused', () => {
@@ -49,9 +49,9 @@ test('microseconds are a decimal string in one spelling', () => {
 });
 
 test('the caption style is bounded and falls back to the default', () => {
-  assert.deepEqual(captionStyleOf(undefined), {scale: 1, background: 'translucent'});
-  assert.deepEqual(captionStyleOf({scale: 9, background: 'none'}), {scale: 3, background: 'none'});
-  assert.deepEqual(captionStyleOf({scale: 0.1, background: 'purple'}), {scale: 0.5, background: 'translucent'});
+  assert.deepEqual(captionStyleOf(undefined), {scale: 1, background: 'translucent', color: 'white', position: 'bottom', font: 'default'});
+  assert.deepEqual(captionStyleOf({scale: 9, background: 'none'}), {scale: 3, background: 'none', color: 'white', position: 'bottom', font: 'default'});
+  assert.deepEqual(captionStyleOf({scale: 0.1, background: 'purple'}), {scale: 0.5, background: 'translucent', color: 'white', position: 'bottom', font: 'default'});
 });
 
 const cueDocument = (cues: unknown[], more: object = {}) => JSON.stringify({version: 1, timeDomain: 'source-relative', cues, ...more});

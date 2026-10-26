@@ -34,7 +34,9 @@ let report: (error: string) => void = () => {};
 
 function show(display: SubtitleDisplay, style: CaptionStyle = shown.style): void {
   const next = display.text ? display : NOTHING;
-  if (next.text === shown.display.text && next.italic === shown.display.italic && next.top === shown.display.top && style.scale === shown.style.scale && style.background === shown.style.background) return;
+  // A preference change to any field of the look repaints at once, not at the next cue.
+  if (next.text === shown.display.text && next.italic === shown.display.italic && next.top === shown.display.top && style.scale === shown.style.scale && style.background === shown.style.background &&
+    style.color === shown.style.color && style.position === shown.style.position && style.font === shown.style.font) return;
   if (next.text !== shown.display.text) trace(`subtitle ${next.text ? JSON.stringify(next.text.slice(0, 60)) : 'cleared'}`);
   shown = Object.freeze({display: next, style});
   for (const listener of [...listeners]) listener();
