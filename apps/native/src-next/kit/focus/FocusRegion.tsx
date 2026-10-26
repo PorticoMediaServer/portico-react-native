@@ -58,7 +58,7 @@ const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, en
   return isTV ? <TVFocusGuideView {...view} testID={testID ?? `portico.region.${encodeURIComponent(id)}`} ref={setRef} autoFocus
     focusable={enabled} trapFocusUp={hold || orientation === 'vertical' && !edges?.up}
     trapFocusDown={hold || orientation === 'vertical' && !edges?.down}
-    trapFocusLeft={hold} trapFocusRight={hold || orientation === 'horizontal'}>{body}</TVFocusGuideView>
+    trapFocusLeft={hold} trapFocusRight={hold || orientation === 'horizontal' && !edges?.right}>{body}</TVFocusGuideView>
     : <View {...view} testID={testID} ref={setRef}>{body}</View>;
 });
 

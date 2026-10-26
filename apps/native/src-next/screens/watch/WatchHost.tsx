@@ -127,7 +127,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // and an unmounted host answers false, so a retained chip cannot act for an abandoned render.
   const mounted = useRef(false), eligible = useRef(false);
   const [watchOnly, setWatchOnly] = useState(false);
-  const fullWindowRequest = useCallback(() => mounted.current && eligible.current, [watchOnly]);
+  const fullWindowRequest = useCallback(() => watchOnly && mounted.current && eligible.current, [watchOnly]);
   useLayoutEffect(() => {
     // Replay-safe: every setup restores the witness, every cleanup clears it synchronously.
     mounted.current = true;

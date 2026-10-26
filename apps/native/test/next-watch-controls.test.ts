@@ -92,3 +92,19 @@ test('Back from Playback info restores the actual Options opener and its retaine
   controls.open('playback-info', current); assert.equal(controls.getSnapshot().panelOffset, 93);
   controls.dispose();
 });
+
+
+test('a focused prompt consumes Back before the player and its stale cleanup cannot clear a successor', () => {
+  const controls = new NativeWatchControls(true), current = fence();
+  controls.source(current, expanded);
+  const old = controls.registerPromptDismiss(current, () => assert.fail('obsolete prompt'));
+  let shown = true;
+  const release = controls.registerPromptDismiss(current, () => {const active = shown; shown = false; return active;});
+  old();
+  assert.equal(controls.back(current), 'controls');
+  assert.equal(controls.getSnapshot().visible, false);
+  assert.equal(controls.back(current), 'player');
+  shown = true; controls.source(fence(2), expanded);
+  assert.equal(controls.back(fence(2)), 'player');
+  release(); controls.dispose();
+});

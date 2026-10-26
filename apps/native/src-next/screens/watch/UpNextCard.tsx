@@ -36,8 +36,8 @@ export function NativeUpNextCard({item, artwork, countdown, countdownTotal, scen
   const minutes = item.durationMs && item.durationMs > 0 ? t('next.kit.duration.minutes', {minutes: Math.round(item.durationMs / 60_000)}) : undefined;
   const still = compact ? {width: 112, height: 63} : {width: 256, height: 144};
   // tv-player 5 draws the card's own buttons smaller than the player's: 64 high, 22px.
-  const button = (id: string, variant: 'primary' | 'glass', icon: 'i-play' | 'i-next' | undefined, label: string, onPress: () => void, first = false) => <Button key={id} focusId={`watch-up-next-${id}`} testID={`watch-up-next-${id}`}
-    variant={variant} size={compact ? 'compact' : 'hero'} hasTVPreferredFocus={first && !compact} {...(icon ? {icon} : {})}
+  const button = (id: string, variant: 'primary' | 'glass', icon: 'i-play' | 'i-next' | undefined, label: string, onPress: () => void) => <Button key={id} focusId={`watch-up-next-${id}`} testID={`watch-up-next-${id}`}
+    variant={variant} size={compact ? 'compact' : 'hero'} hasTVPreferredFocus={false} {...(icon ? {icon} : {})}
     style={compact ? {height: 40, paddingHorizontal: 15, borderRadius: 10} : {height: 64, paddingHorizontal: 28}}
     textStyle={compact ? {fontSize: 14.5, fontWeight: '700'} : {fontSize: 22, fontWeight: '700'}} onPress={onPress}>{label}</Button>;
   // tv-player 5 draws the card as glass over the picture: a 24px backdrop blur with its own tint.
@@ -70,7 +70,7 @@ export function NativeUpNextCard({item, artwork, countdown, countdownTotal, scen
       <View style={{height: compact ? 3 : 4, borderRadius: 2, backgroundColor: '#fff', width: `${Math.max(0, Math.min(1, countdown.seconds / Math.max(1, countdownTotal))) * 100}%`}}/>
     </View>}
     <View style={{flexDirection: 'row', gap: compact ? 8 : 18, marginTop: compact ? 12 : 24}}>
-      {button('play', 'primary', 'i-play', t('player.post.playNow'), onPlayNow, true)}
+      {button('play', 'primary', 'i-play', t('player.post.playNow'), onPlayNow)}
       {sceneAfter && button('skip', 'glass', 'i-next', t('player.skip', {kind: 'credits'}), onSkipCredits)}
       {button('watch', 'glass', undefined, t('player.post.watchCredits'), onWatchCredits)}
     </View>

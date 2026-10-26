@@ -14,11 +14,14 @@ const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', ac
 let window = {width: 890, height: 626};
 let posture: any = {status: 'unavailable', window: null, folds: []};
 const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
-  react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => window, Dimensions: {get: () => window}},
+  '../settings-live/group-port': {groupPort: () => undefined, subscribeGroupPort: () => () => {}},
+  '../../kit/useScreenReader': {useScreenReader: () => false},
+  react: {...React, default: React}, 'react-native': {StatusBar: {pushStackEntry: () => ({}), popStackEntry() {}}, View: 'View', useWindowDimensions: () => window, Dimensions: {get: () => window}},
   '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
   '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
   '../../platform/platformPosture': {usePlatformPosture: () => posture},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+  '../../kit/overlays/TVPanelMotion': {TVPanelTransition: 'Transition', TVPanelSlide: 'Slide', TVPanelScrim: 'Scrim', useTVPanelPresence: (value: unknown) => ({value, open: value !== undefined})},
   './tv-presentation': {nativeWatchTVPresentation},
   'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
     withTiming: (value: any) => value, cancelAnimation: () => {}},
@@ -32,7 +35,8 @@ const child = (tree: any, id: string): any => {
   for (const node of React.Children.toArray(tree?.props?.children) as any[]) {
     if (!React.isValidElement<any>(node)) continue;
     if (node.props.testID === id) return node;
-    const found = child(node, id);
+    const rendered = typeof node.type === 'function' && node.props.context ? node.type(node.props) : node;
+    const found = child(rendered, id);
     if (found) return found;
   }
   return undefined;

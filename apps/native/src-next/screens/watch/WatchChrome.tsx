@@ -203,19 +203,21 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
   const segments: readonly SegmentMarker[] = markers.flatMap(marker => marker.type === 'intro' || marker.type === 'recap' || marker.type === 'credits'
     ? [{id: marker.id, kind: marker.type, startSeconds: marker.startMs / 1000, endSeconds: marker.endMs / 1000, automaticSafe: marker.automaticSafe}] : []);
-  const dismissed = useRef<Set<string>>(new Set());
-  const [notice, setNotice] = useState<{kind: SegmentMarkerKind; fromSeconds: number}>();
-  const seen = useRef(source.playback.positionSeconds), undoLine = useSharedValue(1);
+  const promptScope = JSON.stringify(fence);
+  const dismissed = useMemo(() => ({scope: promptScope, current: new Set<string>()}), [promptScope]);
+  const [noticeState, setNotice] = useState<{fence: PlaybackFence; kind: SegmentMarkerKind; fromSeconds: number}>();
+  const notice = fence && sameFence(noticeState?.fence, fence) ? noticeState : undefined;
+  const seen = useRef({scope: promptScope, at: source.playback.positionSeconds}), undoLine = useSharedValue(1);
   useEffect(() => {
-    const at = source.playback.positionSeconds, from = seen.current;
-    seen.current = at;
-    if (at === from) return;
+    const at = source.playback.positionSeconds, previous = seen.current, from = previous.at;
+    seen.current = {scope: promptScope, at};
+    if (previous.scope !== promptScope || at === from || !fence) return;
     const skipped = segments.find(marker => skipsAutomatically(marker, props.skipModes) && from >= marker.startSeconds && from < marker.endSeconds
       && at >= skipTarget(marker, source.playback.duration) - .5);
     if (!skipped) return;
     dismissed.current.add(skipped.id);
-    setNotice({kind: skipped.kind, fromSeconds: from});
-  }, [source.playback.positionSeconds, source.playback.duration, segments, props.skipModes]);
+    setNotice({fence, kind: skipped.kind, fromSeconds: from});
+  }, [source.playback.positionSeconds, source.playback.duration, segments, props.skipModes, fence, dismissed, promptScope]);
   useEffect(() => {
     if (!notice) return;
     undoLine.value = 1;
@@ -233,13 +235,44 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const sceneAfter = !!credits && followedByScene(credits, source.playback.duration);
   const offer = fence && fence.kind === 'queue' && view ? upNextOffer({markers: segments, positionSeconds: source.playback.positionSeconds,
     durationSeconds: source.playback.duration, kind: currentItem?.kind ?? source.entry?.kind, mode: props.skipModes.credits, nextAvailable: view.next.available, passoutDue: view.postPlay.passoutCheckDue}) : null;
-  const [, tick] = useState(0), dismissedOffer = useRef<string | undefined>(undefined), offerId = useRef<string | undefined>(undefined), offerSince = useRef(Date.now());
+  const dismissedOffer = useMemo(() => ({scope: promptScope, current: undefined as string | undefined}), [promptScope]);
+  const [, tick] = useState(0), offerId = useRef<string | undefined>(undefined), offerSince = useRef(Date.now());
   const currentOfferId = offer?.id;
   useEffect(() => {if (!currentOfferId) return; if (offerId.current !== currentOfferId) {offerId.current = currentOfferId; offerSince.current = Date.now();}}, [currentOfferId]);
   const countdown = offer && view ? upNextCountdown({offer, positionSeconds: source.playback.positionSeconds, durationSeconds: source.playback.duration,
     rate: source.effectiveRate, autoplay: view.postPlay.autoplay, countdownSeconds: view.postPlay.countdownSeconds,
     elapsedSeconds: (Date.now() - offerSince.current) / 1000, startDuringCredits: view.postPlay.startDuringCredits}) : null;
   useEffect(() => {if (!countdown?.automatic) return; const timer = setInterval(() => tick(value => value + 1), 1000); return () => clearInterval(timer);}, [countdown?.automatic]);
+  // Offers remain on the picture with chrome down. Arrival never replaces a focused control.
+  const [, refreshPrompt] = useState(0);
+  const promptEnabled = current() && source.dock.local?.expanded === true && !state.panel && !liveOverlayOpen;
+  const offered = promptEnabled && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
+  const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
+  const visibleOffer = promptEnabled && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
+  const promptEntry = !promptEnabled ? undefined : visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : prompt ? 'watch-skip-action' : undefined;
+  const promptLive = useRef<{entry: string | undefined; dismiss: () => boolean}>({entry: promptEntry, dismiss: () => false});
+  promptLive.current = {entry: promptEntry, dismiss: () => {
+    if (registry.capture()?.regionId !== 'watch-skip' || !promptLive.current.entry) return false;
+    if (visibleOffer) {dismissedOffer.current = visibleOffer.id; if (credits) dismissed.current.add(credits.id);}
+    else if (notice) setNotice(undefined);
+    else if (prompt) dismissed.current.add(prompt.id);
+    promptLive.current.entry = undefined; refreshPrompt(value => value + 1); return true;
+  }};
+  useEffect(() => {
+    if (!theme.isTV || !fence) return;
+    return controls.registerPromptDismiss(fence, () => promptLive.current.dismiss());
+  }, [theme.isTV, fence, controls]);
+  const previousPrompt = useRef<string | undefined>(undefined), promptOwned = useRef(false);
+  if (focus?.regionId === 'watch-skip') promptOwned.current = true;
+  else if (focus) promptOwned.current = false;
+  useEffect(() => {
+    if (!theme.isTV || !fence) return;
+    const previous = previousPrompt.current; previousPrompt.current = promptEntry;
+    if (promptEntry && !visible) registry.focus({regionId: 'watch-skip', childId: promptEntry});
+    else if (!promptEntry && previous && promptOwned.current) {
+      controls.hide(fence); picture.current?.requestTVFocus?.();
+    }
+  }, [theme.isTV, fence, controls, registry, promptEntry, visible]);
   const wasSeekFocused = useRef(false);
   useEffect(() => {
     if (seekFocused && !wasSeekFocused.current) setReturnAt(source.playback.positionSeconds);
@@ -267,22 +300,20 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       }
       return;
     }
+    if (!visible && promptLive.current.entry) {registry.focus({regionId: 'watch-skip', childId: promptLive.current.entry}); return;}
     const node = visible ? toggle.current : picture.current;
     node?.requestTVFocus?.();
   }, [visible, fence, theme.isTV, current, state.panel, liveOverlayOpen, registry]); // The native focus engine owns movement inside the region.
   useTVEventHandler(event => {
     if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || liveOverlayOpen || event.eventKeyAction === 1) return;
+    if (registry.capture()?.regionId === 'watch-skip' && event.eventType === 'select') return;
     if (['up', 'down', 'left', 'right', 'select', 'longLeft', 'longRight'].includes(event.eventType)) {
       if (!controls.key(fence)) controls.reveal(fence);
     }
   });
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (controlsCurrent()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
-  // A phone keeps offering Skip and Up next while its controls are down (phone-player 2 and 6).
-  const offered = (visible || !theme.isTV) && !state.panel && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
-  const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
-  const visibleOffer = (visible || !theme.isTV) && !state.panel && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
-  const skipSegment = (marker: SegmentMarker) => {dismissed.current.add(marker.id); setNotice(undefined); if (controlsCurrent()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
+  const skipSegment = (marker: SegmentMarker) => {if (!controlsCurrent()) return; dismissed.current.add(marker.id); setNotice(undefined); refreshPrompt(value => value + 1); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
   const panel = (value: NativeWatchPanel) => {if (controlsCurrent() && controls.open(value, fence)) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
@@ -413,8 +444,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // where the controls may be down and the note's line rides its bottom edge.
   const phone = !theme.isTV;
   const skipOfferNode = visibleOffer && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
-    countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter} onPlayNow={() => act(playback.next)}
-    onWatchCredits={() => {dismissedOffer.current = visibleOffer.id;}} onSkipCredits={() => {if (credits) skipSegment(credits);}}/> : undefined;
+    countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter} onPlayNow={() => {if (controlsCurrent()) {if (theme.isTV) controls.hide(fence); void playback.next(fence).catch(props.reportError);}}}
+    onWatchCredits={() => {if (!controlsCurrent()) return; dismissedOffer.current = visibleOffer.id; if (credits) dismissed.current.add(credits.id); refreshPrompt(value => value + 1); if (theme.isTV) controls.hide(fence);}} onSkipCredits={() => {if (credits) skipSegment(credits);}}/> : undefined;
   const skipNoticeNode = notice ? <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 28, paddingLeft: phone ? 16 : 30, paddingRight: 6, paddingVertical: phone ? 6 : 16,
     borderRadius: phone ? 12 : 22, overflow: 'hidden', backgroundColor: phone ? 'rgba(7,16,24,.76)' : 'rgba(9,19,27,.8)',
     boxShadow: `inset 0 0 0 1px rgba(237,245,250,.1), 0 14px 30px -12px rgba(0,0,0,.8)`}}>
@@ -427,15 +458,15 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <Animated.View style={[{height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
       </View>}
     </View>
-    <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant={phone ? 'glass' : 'glass'} size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={!phone} icon="i-back" iconSize={phone ? 18 : undefined}
+    <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant={phone ? 'glass' : 'glass'} size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={false} icon="i-back" iconSize={phone ? 18 : undefined}
       style={phone ? {height: 36, paddingHorizontal: 14, borderRadius: 8} : undefined} textStyle={phone ? {fontSize: 14.5, fontWeight: '700'} : undefined}
-      onPress={() => {const from = notice.fromSeconds; setNotice(undefined); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
+      onPress={() => {if (!controlsCurrent()) return; const from = notice.fromSeconds; setNotice(undefined); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
     {phone && <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, height: 2, backgroundColor: 'rgba(237,245,250,.45)'}, undoLineStyle]}/>}
   </View> : undefined;
   const skipPromptNode = prompt ? <>{prompt.kind === 'credits' && sceneAfter && !phone && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>
       <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.post.sceneAfter')}</Text>
     </View>}
-    <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={!phone} icon="i-next" iconSize={phone ? 18 : undefined}
+    <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={false} icon="i-next" iconSize={phone ? 18 : undefined}
       style={phone ? {height: 44, paddingHorizontal: 16, borderRadius: 10} : undefined} textStyle={phone ? {fontSize: 15, fontWeight: '700'} : undefined}
       onPress={() => skipSegment(prompt)}>{t('player.skip', {kind: prompt.kind})}</Button></> : undefined;
   const skipNodes = skipOfferNode ?? skipNoticeNode ?? skipPromptNode;
@@ -539,8 +570,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={4} gutter={22} available={width}/>}
   </View></GestureDetector>;
   return <GestureDetector gesture={minimizeSwipe}><View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
-    <Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
-      hasTVPreferredFocus={theme.isTV && !visible && !liveOverlayOpen} focusable={theme.isTV && !visible && !state.panel && !liveOverlayOpen} onPress={() => {if (!controlsCurrent()) return;if (theme.isTV) controls.key(fence); else controls.toggleVisibility(fence);}} style={{position: 'absolute', inset: 0}}/>
+    <FocusRegion id="watch-surface" entry="watch-picture" style={{position: 'absolute', inset: 0}}><Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
+      hasTVPreferredFocus={theme.isTV && !visible && !liveOverlayOpen && !promptEntry} focusable={theme.isTV && !visible && !state.panel && !liveOverlayOpen} onPress={() => {if (!controlsCurrent()) return;if (theme.isTV) controls.key(fence); else controls.toggleVisibility(fence);}} style={{position: 'absolute', inset: 0}}/></FocusRegion>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
       <Svg pointerEvents="none" width="100%" height="100%" style={{position: 'absolute', inset: 0}}><Defs>
         <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#03080c" stopOpacity={.82}/><Stop offset=".36" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
@@ -551,7 +582,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           <NativeTVGroupPill onHost={setGroupPillHost} onSheetChange={groupSheetChange}/>
         </FocusRegion>
       </View>}
-      <FocusRegion id="watch-controls" orientation="horizontal" entry={barEntry} {...(barUp ? {edges: {up: 'watch-failed'}} : {})} style={{position: 'absolute', inset: 0}}>
+      <FocusRegion id="watch-controls" orientation="horizontal" entry={barEntry} edges={{...(barUp ? {up: 'watch-failed'} : {}), ...(theme.isTV && promptEntry ? {right: 'watch-skip'} : {})}} style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
           {theme.isTV && linear && <>{channelMark}<View style={{flexShrink: 1, minWidth: 0}}>
@@ -690,7 +721,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: theme.isTV ? 96 : 60,
       bottom: theme.isTV ? 284 : visible ? 110 : 20}}>
       {theme.isTV
-        ? <FocusRegion id="watch-skip" orientation="horizontal" entry={visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : 'watch-skip-action'}>
+        ? <FocusRegion id="watch-skip" orientation="horizontal" entry={promptEntry} edges={visible ? {left: 'watch-controls'} : undefined} screenStart={{regionId: 'watch-surface', childId: 'watch-picture'}}>
             <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
           </FocusRegion>
         : <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>}

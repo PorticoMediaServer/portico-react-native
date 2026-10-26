@@ -44,6 +44,7 @@ export class NativeWatchControls {
   private gestureScrubbing = false;
   private overlayHeld = false;
   private scrubCancel?: {cancel: () => void};
+  private promptDismiss?: {dismiss: () => boolean};
   private readonly fullWindowOrientation: NativeFullWindowOrientation | undefined;
   private readonly reportError: ((error: unknown) => void) | undefined;
   /** The one exact request: owner, the page fence that asked, and the route it was made on. */
@@ -74,7 +75,7 @@ export class NativeWatchControls {
     if (this.fullWindowRequest && (!fence || changed || !context.expanded)) this.releaseFullWindow();
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
-      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false; this.scrubCancel = undefined;
+      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false; this.scrubCancel = undefined; this.promptDismiss = undefined;
       this.publish({fence, panel: undefined, panelFocus: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
     }
     if (!fence) {this.cancel(); this.publish({visible: false, panel: undefined, focus: 'surface'}); return;}
@@ -194,6 +195,18 @@ export class NativeWatchControls {
     const registration = {cancel}; this.scrubCancel = registration;
     return () => {if (this.scrubCancel === registration) this.scrubCancel = undefined;};
   }
+  /** A transient TV offer gets the first Back step only while it owns focus. */
+  registerPromptDismiss(fence: PlaybackFence, dismiss: () => boolean): () => void {
+    if (!this.current(fence)) return () => {};
+    const registration = {dismiss}; this.promptDismiss = registration;
+    return () => {if (this.promptDismiss === registration) this.promptDismiss = undefined;};
+  }
+  /** Completing or putting away a TV prompt returns to the retained picture. */
+  hide(fence: PlaybackFence): void {
+    if (!this.current(fence) || this.state.panel) return;
+    this.cancel(); this.deadline = 0; this.hiddenByBack = true;
+    this.publish({visible: false, focus: 'surface', hideReason: 'input'});
+  }
   open(panel: NativeWatchPanel, fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.context.expanded) return false;
     this.cancel(); this.deadline = 0;
@@ -211,6 +224,7 @@ export class NativeWatchControls {
   }
   back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'full-window' | 'stale' {
     if (!this.current(fence)) return 'stale';
+    if (this.isTV && !this.state.panel && this.promptDismiss?.dismiss()) {this.hide(fence); return 'controls';}
     if (!this.state.panel && this.scrubCancel) {this.scrubCancel.cancel(); return 'controls';}
     if (this.state.panel && this.state.panel !== 'options' && this.state.panel !== 'episodes') {
       const opener = this.state.panel;
@@ -226,6 +240,6 @@ export class NativeWatchControls {
     const owner = this.fullWindowRequest?.owner;
     this.fullWindowRequest = undefined;
     if (owner) this.fullWindowOrientation?.leave(owner);
-    this.cancel(); this.scrubCancel = undefined; this.disposed = true; this.offsets.clear(); this.listeners.clear();
+    this.cancel(); this.scrubCancel = undefined; this.promptDismiss = undefined; this.disposed = true; this.offsets.clear(); this.listeners.clear();
   }
 }
