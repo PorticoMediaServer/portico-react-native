@@ -26,6 +26,7 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   controller: NativeReadSeries; route: SeriesRoute; comic: boolean; runtime: NativeShellRuntime; onBack: () => void;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  const phone = theme.platform === 'phone';
   const [paneWidth, setPaneWidth] = useState<number>(), [heroHeight, setHeroHeight] = useState(0), [collapsed, setCollapsed] = useState(false);
   useLayoutEffect(() => {
     if (!controller.arm()) return;
@@ -48,7 +49,7 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   const progression = continuedRow ? Math.max(0, Math.min(1, continuedRow.progress.location.progression)) : undefined;
   const readLabel = continued ? t('next.cards.read')
     : comic && first?.series?.number !== undefined ? t('next.reader.readVolume', {number: defaultI18n.number(first.series.number, {maximumFractionDigits: 20})})
-      : t('next.reader.read');
+      : t(phone ? 'next.reader.readNext' : 'next.reader.read');
   const stack = state.items.slice(0, 3);
   return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
     const next = Math.round(event.nativeEvent.layout.width);
@@ -96,8 +97,8 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
               {cover ? <Artwork source={cover} width={128} height={192} priority/> : <GeneratedCover title={title} author={authors[0]} tint={tint} glyph={initial(title)} width={128} height={192}/>}
             </View>}
           </View>
-          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 34, 800, -.02), {color: theme.colors.text, textAlign: 'center', marginTop: 14}]}>{title}</Text>
-          {authors.length || total !== undefined ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: 4, marginTop: 10}}>
+          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 34, 800, -.02, phone ? 34 : 'normal'), {color: theme.colors.text, textAlign: 'center', marginTop: 14}]}>{title}</Text>
+          {authors.length || total !== undefined ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: phone ? 6 : 4, marginTop: 10}}>
             {authors.length ? <Text numberOfLines={2} style={[browseType(theme, 13, 700), {color: theme.colors.text, textAlign: 'center'}]}>{defaultI18n.list(authors)}</Text> : null}
             {total !== undefined ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(comic ? 'next.reader.volumeCount' : 'next.kit.books', {count: total})}</Text> : null}
           </View> : null}
@@ -139,12 +140,12 @@ export function VolumeCard({item, width, height, comic, theme, runtime, progress
   item: ReadingItem; width: number; height: number; comic: boolean; theme: ReturnType<typeof useTheme>;
   runtime: NativeShellRuntime; progression?: number; onOpen: () => void; variant?: 'default' | 'shelf';
 }) {
-  const number = item.series?.number, shelf = variant === 'shelf';
+  const number = item.series?.number, shelf = variant === 'shelf', phoneDefault = !shelf && theme.platform === 'phone';
   const numberLabel = number === undefined ? undefined : t(comic ? 'next.reader.volumeNumber' : 'next.reader.bookNumber', {number: defaultI18n.number(number, {maximumFractionDigits: 20})});
-  const numberText = numberLabel === undefined ? null : <Text numberOfLines={1} style={[browseType(theme, shelf ? 13 : 11.5, shelf ? 400 : 600), {color: theme.colors.textTertiary, marginTop: shelf ? 2 : 7}]}>
+  const numberText = numberLabel === undefined ? null : <Text numberOfLines={1} style={[browseType(theme, shelf ? 13 : 11.5, shelf ? 400 : phoneDefault ? 500 : 600), {color: theme.colors.textTertiary, marginTop: shelf ? 2 : phoneDefault ? 2 : 7}]}>
     {numberLabel}
   </Text>;
-  const titleText = <Text numberOfLines={shelf ? 1 : 2} style={[browseType(theme, shelf ? 13.5 : 13, 600), {color: theme.colors.text, marginTop: shelf ? 10 : number !== undefined ? 2 : 7}]}>{item.title}</Text>;
+  const titleText = <Text numberOfLines={shelf ? 1 : 2} style={[browseType(theme, shelf ? 13.5 : phoneDefault ? 12.5 : 13, 600), {color: theme.colors.text, marginTop: shelf ? 10 : phoneDefault ? 7 : number !== undefined ? 2 : 7}]}>{item.title}</Text>;
   return <Focusable accessibilityRole="button" accessibilityLabel={item.title} focusKind="row" focusRadius={10} onPress={onOpen} style={{width}}>
     <View style={{width, height, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {runtime.artwork(item.coverUrl) ? <Artwork source={runtime.artwork(item.coverUrl)} width={width} height={height}/>
@@ -153,7 +154,7 @@ export function VolumeCard({item, width, height, comic, theme, runtime, progress
         <View style={{width: `${progression * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
       </View> : null}
     </View>
-    {shelf ? <>{titleText}{numberText}</> : <>{numberText}{titleText}</>}
-    {item.author && !shelf ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
+    {shelf || phoneDefault ? <>{titleText}{numberText}</> : <>{numberText}{titleText}</>}
+    {item.author && !shelf && !phoneDefault ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
   </Focusable>;
 }
