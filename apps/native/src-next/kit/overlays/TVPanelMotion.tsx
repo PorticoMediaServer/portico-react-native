@@ -1,4 +1,4 @@
-import React, {createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
+import React, {createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {StyleSheet, TVFocusGuideView, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming, type SharedValue} from 'react-native-reanimated';
 import {useMotion} from '../useMotion';
@@ -20,6 +20,16 @@ export function useTVPanelPresence<T>(value: T | undefined, scope: unknown) {
   return {value: value ?? (present && retained && retained.scope === scope ? retained.value : undefined), open: value !== undefined, exited};
 }
 
+/** Completion ownership survives queued JS callbacks without extending any animation. */
+export function useTVPresentationCompletion() {
+  const generation = useRef(0);
+  return useMemo(() => ({
+    begin: () => ++generation.current,
+    current: (ticket: number) => generation.current === ticket,
+    cancel: (ticket: number) => {if (generation.current === ticket) generation.current++;},
+  }), []);
+}
+
 type PanelMotion = {progress: SharedValue<number>; reduced: boolean; interactive: boolean};
 const Context = createContext<PanelMotion | undefined>(undefined);
 export function useTVPanelInteractive() {return useContext(Context)?.interactive ?? true;}
@@ -28,16 +38,19 @@ export function useTVPanelInteractive() {return useContext(Context)?.interactive
 export function TVPanelTransition({open, onExited, children}: {open: boolean; onExited: () => void; children: ReactNode}) {
   const motion = useMotion(), progress = useSharedValue(0), [landed, setLanded] = useState(false);
   const exitRef = useRef(onExited); exitRef.current = onExited;
-  const finished = useCallback((arrived: boolean) => {
+  const completion = useTVPresentationCompletion();
+  const finished = useCallback((ticket: number, arrived: boolean) => {
+    if (!completion.current(ticket)) return;
     setLanded(arrived);
     if (!arrived) exitRef.current();
-  }, []);
+  }, [completion]);
   useEffect(() => {
+    const ticket = completion.begin();
     setLanded(false);
     progress.value = withTiming(open ? 1 : 0, {...motion.timing(open ? 'slow' : 'quick', open ? 'out' : 'in'),
-      duration: motion.reduce ? 160 : open ? 320 : 240}, done => {if (done) runOnJS(finished)(open);});
-    return () => cancelAnimation(progress);
-  }, [open, motion, progress, finished]);
+      duration: motion.reduce ? 160 : open ? 320 : 240}, done => {if (done) runOnJS(finished)(ticket, open);});
+    return () => {completion.cancel(ticket); cancelAnimation(progress);};
+  }, [open, motion, progress, finished, completion]);
   return <Context.Provider value={{progress, reduced: motion.reduce, interactive: open && landed}}>{children}</Context.Provider>;
 }
 

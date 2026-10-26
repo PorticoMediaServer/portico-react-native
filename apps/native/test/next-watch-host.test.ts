@@ -15,6 +15,7 @@ let window = {width: 890, height: 626};
 let posture: any = {status: 'unavailable', window: null, folds: []};
 const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
   '../settings-live/group-port': {groupPort: () => undefined, subscribeGroupPort: () => () => {}},
+  '../../kit/focus': {useOptionalFocusRegistry: () => undefined},
   '../../kit/useScreenReader': {useScreenReader: () => false},
   react: {...React, default: React}, 'react-native': {StatusBar: {pushStackEntry: () => ({}), popStackEntry() {}}, View: 'View', useWindowDimensions: () => window, Dimensions: {get: () => window}},
   '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},

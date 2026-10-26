@@ -14,7 +14,7 @@ import type {ArtworkSource} from '../../kit/artwork/types';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
-import {useTVPanelPresence} from '../../kit/overlays/TVPanelMotion';
+import {useTVPanelPresence, useTVPresentationCompletion} from '../../kit/overlays/TVPanelMotion';
 
 /** One supplied channel: the canonical channel row and the programmes the parent
  * proved for it. Nothing here is read, resolved or invented by this component. */
@@ -67,12 +67,14 @@ function MiniGuideSurface(props: NativeMiniGuideProps & {open: boolean; onExited
   const theme = useTheme(), window = useWindowDimensions(), t = defaultI18n.t, locale = defaultI18n.locale;
   const motion = useMotion(), opacity = useSharedValue(0), finished = useRef(props.onExited);
   finished.current = props.onExited;
-  const exited = useCallback(() => finished.current(), []), open = props.open;
+  const completion = useTVPresentationCompletion();
+  const exited = useCallback((ticket: number) => {if (completion.current(ticket)) finished.current();}, [completion]), open = props.open;
   useEffect(() => {
+    const ticket = completion.begin();
     opacity.value = withTiming(open ? 1 : 0, {...motion.timing(open ? 'standard' : 'quick', open ? 'out' : 'in'),
-      duration: motion.reduce ? 160 : open ? 180 : 120}, done => {if (done && !open) runOnJS(exited)();});
-    return () => cancelAnimation(opacity);
-  }, [open, motion, opacity, exited]);
+      duration: motion.reduce ? 160 : open ? 180 : 120}, done => {if (done && !open) runOnJS(exited)(ticket);});
+    return () => {completion.cancel(ticket); cancelAnimation(opacity);};
+  }, [open, motion, opacity, exited, completion]);
   const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
   // The frame's own limit; supplied rows are never stretched to fill it.
   const rows = props.rows.slice(0, 5);

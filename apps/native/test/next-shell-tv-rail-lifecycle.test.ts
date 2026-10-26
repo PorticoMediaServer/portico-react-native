@@ -24,7 +24,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {actions: []}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
   const navigations: unknown[] = [], tops: unknown[] = [], menuCapture: boolean[] = [];
-  const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
+  const runtime = {playback: {}, getSnapshot: () => snapshot, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
     onDestination: (destination: unknown) => navigations.push(destination), scrollToTop: (destination: unknown) => tops.push(destination),
     memory: {read: async () => undefined, remember: async () => {}},
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
@@ -39,7 +39,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {}, '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => motion},
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': focusModel, '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './model': shellModel,
     './PhoneTabBar': {}, './MediumRail': {MediumRail: 'MediumRail'}, './chrome': {nativeScreenChromeHidden: () => false, subscribeNativeScreenChrome: () => () => {}}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
-    './NativePlaybackLayer': {}, './DesktopHeader': {},
+    './NativePlaybackLayer': {NativePlaybackLayer: 'PlaybackLayer'}, './DesktopHeader': {},
   });
   const frames = new Map<number, FrameRequestCallback>(); let sequence = 0;
   const previousFrame = globalThis.requestAnimationFrame, previousCancel = globalThis.cancelAnimationFrame;
@@ -73,6 +73,19 @@ test('the real TV shell retains its exact page opener through rail, route and pl
       assert.equal(requests.at(-1), 'card');
       assert.equal(registry.capture()?.childId, row.childId);
     }
+    // A logical full-listening close keeps the existing sole return owner until actual paint exits.
+    registry.didFocus(row);
+    await act(() => {snapshot = {...snapshot, mediaExpanded: true}; sessionHost!.rerender();});
+    const listening = () => nodes(tree).find(node => node.type === 'PlaybackLayer');
+    await act(() => listening().props.onTVListeningPresenceChange(true));
+    registry.didBlur(row); await Promise.resolve();
+    const beforeExit = requests.length;
+    await act(() => {snapshot = {...snapshot, mediaExpanded: false}; sessionHost!.rerender();});
+    for (const [id, fn] of [...frames]) {frames.delete(id); fn(0);}
+    assert.equal(requests.length, beforeExit, 'logical close does not restore beneath retained listening paint');
+    await act(() => listening().props.onTVListeningPresenceChange(false));
+    for (const [id, fn] of [...frames]) {frames.delete(id); fn(0);}
+    assert.equal(requests.length, beforeExit + 1); assert.equal(requests.at(-1), 'card');
     const library = {regionId: 'actual-library-region', childId: 'actual-library-card'};
     registry.configure({id: library.regionId, entry: library.childId, order: [library.childId]});
     registry.attach(library, {requestTVFocus() {requests.push('library-card'); registry.didFocus(library);}});

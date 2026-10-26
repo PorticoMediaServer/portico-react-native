@@ -6,6 +6,7 @@ import {sameFence, type PlaybackFence} from '../../../../../packages/player-core
 import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {useMotion} from '../../kit/useMotion';
+import {useOptionalFocusRegistry} from '../../kit/focus';
 import {useScreenReader} from '../../kit/useScreenReader';
 import {TVPanelTransition, TVPanelSlide, TVPanelScrim, useTVPanelPresence} from '../../kit/overlays/TVPanelMotion';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
@@ -31,6 +32,8 @@ export type NativeWatchHostContext = Readonly<{
   backPanel: () => void;
   openPanel: (panel: NativeWatchPanel) => void;
   rememberPanel: (offset: number) => void;
+  panelCurrent: () => boolean;
+  panelExited: () => void;
 }>;
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
@@ -81,7 +84,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const window = useWindowDimensions(), posture = usePlatformPosture();
   const local = source.dock.local, fence = source.fence;
   const {scrubbing, focusHeld, presentation} = bindings;
-  const screenReader = useScreenReader();
+  const screenReader = useScreenReader(), registry = useOptionalFocusRegistry();
   const expanded = (!isTV || groupVisible) && !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
   const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
@@ -185,7 +188,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const context: NativeWatchHostContext = {source, fence, layout, state, runtime,
     renderer: {width: television?.canvas.width ?? window.width, height: television?.canvas.height ?? window.height, scale: television?.canvas.scale ?? 1,
       panel: television?.panel ?? (layout.mode === 'watch' ? layout.content : layout.panel)},
-    closePanel: () => {controls.closePanel(fence);}, backPanel: () => {controls.back(fence);}, openPanel: panel => {controls.open(panel, fence);}, rememberPanel: offset => controls.rememberPanel(fence, offset)};
+    closePanel: () => {controls.closePanel(fence);}, backPanel: () => {controls.back(fence);}, openPanel: panel => {controls.open(panel, fence, registry?.capture());}, rememberPanel: offset => controls.rememberPanel(fence, offset),
+    panelCurrent: () => mounted.current && !!state.panel && sameFence(controls.getSnapshot().fence, fence) && controls.getSnapshot().panel === state.panel,
+    panelExited: () => {if (state.panelExitRevision !== undefined) controls.panelExited(fence, state.panelExitRevision);}};
   // Tabletop controls live below the actual top surface. In book mode edge
   // chrome avoids the crease while transport remains centred in its full pane.
   const chromePane = layout.mode === 'tabletop' ? layout.controls : layout.surface;
@@ -237,7 +242,7 @@ function TVWatchPanel({context, render}: {context: NativeWatchHostContext; rende
   const shown = presence.value;
   if (!shown) return null;
   const pane = shown.renderer.panel;
-  return <TVPanelTransition open={presence.open} onExited={presence.exited}>
+  return <TVPanelTransition open={presence.open} onExited={() => {presence.exited(); context.panelExited();}}>
     <TVPanelScrim/>
     <View testID="watch-panel-pane" pointerEvents="box-none" style={pane ? positioned(pane) : {position: 'absolute', inset: 0}}>
       <TVPanelSlide width={pane?.width ?? shown.renderer.width}>{render(shown)}</TVPanelSlide>

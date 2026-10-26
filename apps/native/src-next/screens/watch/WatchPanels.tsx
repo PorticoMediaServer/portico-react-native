@@ -9,7 +9,7 @@ import type {NativePlaybackSubtitleControls} from '../../platform/playback/subti
 import {subtitleReason} from '../../../../../packages/client-core/src/subtitles';
 import {Artwork} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
-import {FocusRegion} from '../../kit/focus';
+import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Dialog} from '../../kit/overlays';
 import {useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useOverlayLifecycle} from '../../kit/overlays/OverlayHost';
@@ -72,7 +72,7 @@ type NativeUpNextOpening = Readonly<{
 /** The real Options/Audio/Subtitles/Quality/Speed/Chapters renderer. The host
  * positions it inside its accepted pane/canvas. It owns no Surface or engine. */
 export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes, subtitleControls, sleep, style}: NativeWatchPanelsProps) {
-  const {source, fence, state} = context, theme = useTheme(), t = defaultI18n.t;
+  const {source, fence, state} = context, theme = useTheme(), t = defaultI18n.t, registry = useFocusRegistry();
   const panelInteractive = useTVPanelInteractive();
   // tablet-play2b: an expanded-size-class device draws its choice rows at 48 pt
   // and its Timing buttons at 44 pt; the phone keeps 52 pt rows.
@@ -89,15 +89,15 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     reportPending = useRef<NativeReportAsk | undefined>(undefined), reportAlive = useRef(true);
   const reportOff = useRef<readonly (() => void)[]>([]);
   // Neither the page nor the route may have moved; never re-anchor to what is latest.
-  const reportOnPage = (opening: NativeReportOpening): boolean => {
+  const reportOnPage = useCallback((opening: NativeReportOpening): boolean => {
     const snapshot = playback.getSnapshot(), shell = latest.current.runtime.navigation;
     return !snapshot.retired && sameFence(snapshot.fence, opening.fence)
       && sameFence(latest.current.fence, opening.fence) && sameFence(latest.current.state.fence, opening.fence)
-      && latest.current.state.panel === 'options' && !!shell && shell.getSnapshot() === opening.navigation;
-  };
-  const reportHeld = (asked: NativeReportAsk | undefined): asked is NativeReportAsk => !!asked && reportAlive.current
-    && reportActive.current === asked && !asked.controller.signal.aborted;
-  const reportCurrent = (asked: NativeReportAsk | undefined): asked is NativeReportAsk => reportHeld(asked) && reportOnPage(asked);
+      && latest.current.state.panel === 'options' && latest.current.panelCurrent() && !!shell && shell.getSnapshot() === opening.navigation;
+  }, [playback]);
+  const reportHeld = useCallback((asked: NativeReportAsk | undefined): asked is NativeReportAsk => !!asked && reportAlive.current
+    && reportActive.current === asked && !asked.controller.signal.aborted, []);
+  const reportCurrent = useCallback((asked: NativeReportAsk | undefined): asked is NativeReportAsk => reportHeld(asked) && reportOnPage(asked), [reportHeld, reportOnPage]);
   const reportDetach = useCallback(() => {
     const stops = reportOff.current; reportOff.current = [];
     stops.forEach(stop => stop());
@@ -125,7 +125,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     if (!shell) return;
     const check = () => {if (reportActive.current === asked && !reportCurrent(asked)) reportDrop(asked, true);};
     reportOff.current = [shell.subscribe(check), playback.subscribe(check)];
-  }, [playback, reportDetach, reportDrop]);
+  }, [playback, reportDetach, reportDrop, reportCurrent]);
   // Dismiss and Cancel are bound to the object that sheet rendered, never to
   // whatever happens to be active when the handler runs.
   const closeReport = useCallback((asked: NativeReportAsk) => {reportDrop(asked, true);}, [reportDrop]);
@@ -140,7 +140,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     reportActive.current = asked;
     setReportAsk(asked); setReportBusy(false); setReportFailure(undefined); setReportSent(false);
     reportAttach(asked);
-  }, [context.runtime.reportPlaybackProblem, reportAttach, reportDetach]);
+  }, [context.runtime.reportPlaybackProblem, reportAttach, reportDetach, reportOnPage]);
   const sendReport = useCallback(() => {
     const port = context.runtime.reportPlaybackProblem, asked = reportAsk;
     // The same ticket cannot send twice; a later opening has its own ticket.
@@ -155,18 +155,24 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       if (reportPending.current === asked) reportPending.current = undefined;
       if (reportCurrent(asked)) setReportBusy(false);
     });
-  }, [context.runtime.reportPlaybackProblem, reportAsk, reportDetach]);
+  }, [context.runtime.reportPlaybackProblem, reportAsk, reportDetach, reportCurrent]);
   const fenceKey = JSON.stringify(fence);
+  const entered = useRef<{key: string; target: typeof state.returnTarget} | undefined>(undefined);
+  const entryKey = JSON.stringify([fence, state.panel]);
   const current = useCallback(() => !playback.getSnapshot().retired && sameFence(playback.getSnapshot().fence, fence)
     && sameFence(latest.current.fence, fence) && sameFence(latest.current.state.fence, fence)
-    && latest.current.state.panel === state.panel && !!state.panel, [playback, fence, state.panel]);
+    && latest.current.state.panel === state.panel && !!state.panel && latest.current.panelCurrent(), [playback, fence, state.panel]);
   const back = () => {if (current()) context.backPanel();};
-  useOverlayLifecycle(!!state.panel, true, back, theme.isTV ? undefined : first, undefined, 0, 'watch-panel');
+  useOverlayLifecycle(!!state.panel, true, back, theme.isTV ? undefined : first, undefined, 0, 'watch-panel', !theme.isTV);
   useEffect(() => {const expected = latest.current.fence; void options.load(expected); return () => options.clear();}, [options, fenceKey]);
   useEffect(() => {const epoch = commandEpoch.current + 1; commandEpoch.current = epoch; busy.current = false; setPending(false);
     return () => {commandEpoch.current = epoch + 1;};}, [fenceKey, state.panel]);
   useEffect(() => {scroll.current?.scrollTo({y: state.panelOffset, animated: false});}, [state.panel, state.panelOffset]);
-  useEffect(() => {if (panelInteractive) first.current?.requestTVFocus?.();}, [state.panel, state.panelFocus, choices.phase, panelInteractive]);
+  useEffect(() => {
+    if (!panelInteractive || !current() || entered.current?.key === entryKey && entered.current.target === state.returnTarget) return;
+    if (state.returnTarget && registry.focus(state.returnTarget)) {entered.current = {key: entryKey, target: state.returnTarget}; return;}
+    if (first.current?.requestTVFocus) {first.current.requestTVFocus(); entered.current = {key: entryKey, target: state.returnTarget};}
+  }, [entryKey, state.returnTarget, choices.phase, panelInteractive, current, registry]);
   useEffect(() => {setReportSent(false);}, [fenceKey]);
   // Unmount retirement writes no state at all, and the setup restores the mounted
   // witness if the effect replays; a passive cleanup would leave a window in which a
@@ -178,7 +184,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       const held = reportActive.current;
       if (held) reportDrop(held, false); else reportDetach();
     };
-  }, []);
+  }, [reportDrop, reportDetach]);
   // A panel or source change retires the exact opening, with its own rendered UI
   // state, before paint; navigation and playback publishes do the same from their own
   // subscriptions. Nothing else about the panel's commands is widened.
@@ -186,7 +192,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     const asked = reportActive.current;
     if (!asked || reportCurrent(asked)) return;
     reportDrop(asked, true);
-  }, [state.panel, fenceKey]);
+  }, [state.panel, fenceKey, reportCurrent, reportDrop]);
   const run = async (command: () => Promise<void>) => {
     if (busy.current || !current()) return;
     const epoch = commandEpoch.current;

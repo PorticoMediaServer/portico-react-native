@@ -108,3 +108,44 @@ test('a focused prompt consumes Back before the player and its stale cleanup can
   assert.equal(controls.back(fence(2)), 'player');
   release(); controls.dispose();
 });
+
+
+test('TV direct panel Back retains its real opener until the exact exit, with no fabricated Options parent', () => {
+  const controls = new NativeWatchControls(true), current = fence();
+  controls.source(current, expanded);
+  const opener = {regionId: 'watch-transport', childId: 'watch-option-audio'};
+  controls.open('audio', current, opener);
+  assert.equal(controls.back(current), 'panel');
+  const closing = controls.getSnapshot();
+  assert.equal(closing.panel, undefined); assert.equal(closing.panelReturning, true);
+  assert.equal(closing.visible, true); assert.deepEqual(closing.returnTarget, opener);
+  assert.equal(controls.key(current), false); assert.equal(controls.back(current), 'panel');
+  controls.panelExited(current, closing.panelExitRevision! + 1);
+  assert.equal(controls.getSnapshot().panelReturning, true);
+  controls.open('quality', current, {regionId: 'watch-transport', childId: 'watch-option-quality'});
+  controls.back(current); const successor = controls.getSnapshot();
+  controls.panelExited(current, closing.panelExitRevision!);
+  assert.equal(controls.getSnapshot().panelReturning, true, 'late old exit cannot release the successor');
+  controls.panelExited(current, successor.panelExitRevision!);
+  assert.equal(controls.getSnapshot().panelReturning, false);
+  controls.dispose();
+});
+
+test('TV nested panel Back restores the actual parent row and its scroll before the root opener', () => {
+  const controls = new NativeWatchControls(true), current = fence();
+  controls.source(current, expanded);
+  controls.open('options', current, {regionId: 'watch-transport', childId: 'watch-options'}); controls.rememberPanel(current, 470);
+  controls.open('subtitles', current, {regionId: 'watch-panel', childId: 'watch-action-subtitles'}); controls.rememberPanel(current, 130);
+  controls.open('style', current, {regionId: 'watch-panel', childId: 'watch-action-style'});
+  controls.back(current);
+  assert.equal(controls.getSnapshot().panel, 'subtitles'); assert.equal(controls.getSnapshot().panelOffset, 130);
+  assert.deepEqual(controls.getSnapshot().returnTarget, {regionId: 'watch-panel', childId: 'watch-action-style'});
+  controls.back(current);
+  assert.equal(controls.getSnapshot().panel, 'options'); assert.equal(controls.getSnapshot().panelOffset, 470);
+  assert.deepEqual(controls.getSnapshot().returnTarget, {regionId: 'watch-panel', childId: 'watch-action-subtitles'});
+  controls.back(current);
+  assert.deepEqual(controls.getSnapshot().returnTarget, {regionId: 'watch-transport', childId: 'watch-options'});
+  controls.source(fence(2), expanded);
+  assert.equal(controls.getSnapshot().returnTarget, undefined); assert.equal(controls.getSnapshot().panelReturning, false);
+  controls.dispose();
+});

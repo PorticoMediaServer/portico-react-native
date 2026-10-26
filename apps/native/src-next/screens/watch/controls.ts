@@ -1,4 +1,5 @@
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
+import type {FocusAddress} from '../../kit/focus/registry';
 import type {NativeFullWindowOrientation} from '../../platform/layout/full-window';
 
 export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'sleep' | 'style' | 'chapters' | 'episodes' | 'up-next' | 'playback-info';
@@ -8,6 +9,10 @@ export type NativeWatchControlState = Readonly<{
   panel?: NativeWatchPanel;
   panelOffset: number;
   panelFocus?: NativeWatchPanel;
+  /** Logical dismissal precedes retained TV paint removal; no input is admitted between them. */
+  panelReturning?: boolean;
+  panelExitRevision?: number;
+  returnTarget?: FocusAddress;
   focus: 'surface' | 'toggle' | 'panel';
   hideReason?: 'timer' | 'input';
   /** The real sideways request for this fence is active; the geometry is the wide rule. */
@@ -38,6 +43,9 @@ export class NativeWatchControls {
   private deadline = 0;
   private disposed = false;
   private offsets = new Map<NativeWatchPanel, number>();
+  private panelParents: {panel: NativeWatchPanel; offset: number; target?: FocusAddress}[] = [];
+  private panelOpener?: FocusAddress;
+  private panelExitSequence = 0;
   private readonly isTV: boolean;
   private readonly time: NativeWatchControlClock;
   private hiddenByBack = false;
@@ -75,8 +83,8 @@ export class NativeWatchControls {
     if (this.fullWindowRequest && (!fence || changed || !context.expanded)) this.releaseFullWindow();
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
-      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false; this.scrubCancel = undefined; this.promptDismiss = undefined;
-      this.publish({fence, panel: undefined, panelFocus: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
+      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false; this.overlayHeld = false; this.scrubCancel = undefined; this.promptDismiss = undefined; this.panelParents = []; this.panelOpener = undefined;
+      this.publish({fence, panel: undefined, panelFocus: undefined, panelReturning: false, panelExitRevision: undefined, returnTarget: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
     }
     if (!fence) {this.cancel(); this.publish({visible: false, panel: undefined, focus: 'surface'}); return;}
     if (this.suppressed()) {this.cancel(); this.deadline = 0; this.publish({visible: false, focus: this.state.panel ? 'panel' : 'surface'});}
@@ -86,7 +94,7 @@ export class NativeWatchControls {
   }
   private arm(): void {
     this.cancel();
-    if (!this.state.visible || this.suppressed() || this.pinned() || this.state.panel || !this.state.fence) return;
+    if (!this.state.visible || this.suppressed() || this.pinned() || this.state.panel || this.state.panelReturning || !this.state.fence) return;
     if (!this.deadline) this.deadline = this.time.now() + 4000;
     const expected = this.state.fence;
     this.timer = this.time.set(() => {
@@ -97,10 +105,10 @@ export class NativeWatchControls {
     }, Math.max(0, this.deadline - this.time.now()));
   }
   reveal(fence: PlaybackFence, deadline = this.time.now() + 4000): boolean {
-    if (!this.current(fence) || this.suppressed()) return false;
+    if (!this.current(fence) || this.suppressed() || this.state.panelReturning) return false;
     this.hiddenByBack = false;
     this.deadline = Math.max(this.time.now(), deadline);
-    this.publish({visible: true, focus: this.state.panel ? 'panel' : 'toggle', hideReason: undefined}); this.arm(); return true;
+    this.publish({visible: true, focus: this.state.panel ? 'panel' : 'toggle', hideReason: undefined, returnTarget: this.state.panel ? this.state.returnTarget : undefined}); this.arm(); return true;
   }
   /** Fold's geometry helper supplies its one-shot now+3000 deadline; panel close supplies none. */
   revealAfterLayout(fence: PlaybackFence, deadline: number): boolean {
@@ -203,14 +211,18 @@ export class NativeWatchControls {
   }
   /** Completing or putting away a TV prompt returns to the retained picture. */
   hide(fence: PlaybackFence): void {
-    if (!this.current(fence) || this.state.panel) return;
+    if (!this.current(fence) || this.state.panel || this.state.panelReturning) return;
     this.cancel(); this.deadline = 0; this.hiddenByBack = true;
     this.publish({visible: false, focus: 'surface', hideReason: 'input'});
   }
-  open(panel: NativeWatchPanel, fence: PlaybackFence): boolean {
+  open(panel: NativeWatchPanel, fence: PlaybackFence, opener?: FocusAddress): boolean {
     if (!this.current(fence) || !this.context.expanded) return false;
     this.cancel(); this.deadline = 0;
-    this.publish({panel, panelFocus: undefined, panelOffset: this.offsets.get(panel) ?? 0, visible: !this.context.hiddenByPanel, focus: 'panel'}); return true;
+    if (this.isTV) {
+      if (this.state.panel && this.state.panel !== panel) this.panelParents.push({panel: this.state.panel, offset: this.state.panelOffset, target: opener && {...opener}});
+      else if (!this.state.panel) {this.panelParents = []; this.panelOpener = opener && {...opener};}
+    }
+    this.publish({panel, panelFocus: undefined, panelReturning: false, panelExitRevision: undefined, returnTarget: undefined, panelOffset: this.offsets.get(panel) ?? 0, visible: !this.context.hiddenByPanel, focus: 'panel'}); return true;
   }
   rememberPanel(fence: PlaybackFence, offset: number): void {
     if (!this.current(fence) || !this.state.panel || !Number.isFinite(offset) || offset < 0) return;
@@ -219,14 +231,27 @@ export class NativeWatchControls {
   closePanel(fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.state.panel) return false;
     // No fold reveal on closing a panel alone. Keep its opener and its scroll memory.
-    this.publish({panel: undefined, panelFocus: undefined, panelOffset: 0, visible: this.pinned(), focus: this.pinned() ? 'toggle' : 'surface'});
+    this.panelParents = [];
+    const target = this.panelOpener; this.panelOpener = undefined;
+    this.publish({panel: undefined, panelFocus: undefined, panelOffset: 0, panelReturning: this.isTV, panelExitRevision: this.isTV ? ++this.panelExitSequence : undefined, returnTarget: target,
+      visible: this.isTV || this.pinned(), focus: this.isTV || this.pinned() ? 'toggle' : 'surface'});
     this.arm(); return true;
+  }
+  /** The same retained host reports its real exit; a later opening/fence ignores this. */
+  panelExited(fence: PlaybackFence, revision: number): void {
+    if (!this.current(fence) || this.state.panel || !this.state.panelReturning || this.state.panelExitRevision !== revision) return;
+    this.publish({panelReturning: false}); this.deadline = this.time.now() + 4000; this.arm();
   }
   back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'full-window' | 'stale' {
     if (!this.current(fence)) return 'stale';
+    if (this.state.panelReturning) return 'panel';
     if (this.isTV && !this.state.panel && this.promptDismiss?.dismiss()) {this.hide(fence); return 'controls';}
     if (!this.state.panel && this.scrubCancel) {this.scrubCancel.cancel(); return 'controls';}
-    if (this.state.panel && this.state.panel !== 'options' && this.state.panel !== 'episodes') {
+    if (this.isTV && this.state.panel && this.panelParents.length) {
+      const parent = this.panelParents.pop()!, closed = this.state.panel;
+      this.publish({panel: parent.panel, panelOffset: parent.offset, panelFocus: closed, returnTarget: parent.target, focus: 'panel'}); return 'panel';
+    }
+    if (!this.isTV && this.state.panel && this.state.panel !== 'options' && this.state.panel !== 'episodes') {
       const opener = this.state.panel;
       this.open('options', fence); this.publish({panelFocus: opener}); return 'panel';
     }

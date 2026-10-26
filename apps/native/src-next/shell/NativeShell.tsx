@@ -42,7 +42,8 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   useEffect(() => {const remember = () => {const saved = registry.capture();
     if (saved && (saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true)) pageFocus.current = saved;
   }; remember(); return registry.subscribe(remember);}, [ids, registry]);
-  const pageHold = snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
+  const [tvListeningPresent, setTVListeningPresent] = useState(false);
+  const pageHold = theme.isTV && tvListeningPresent || snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
   const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
@@ -56,7 +57,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const [homeScrolled, setHomeScrolled] = useState(false);
   const focused = registry.capture();
   const homeStart = destination.kind === 'home' && snapshot.homeVisible && !snapshot.homeObscured
-    && !snapshot.mediaExpanded && !homeScrolled && !accountOpen && !chromeHidden && snapshot.contentVisible !== false
+    && !snapshot.mediaExpanded && !tvListeningPresent && !homeScrolled && !accountOpen && !chromeHidden && snapshot.contentVisible !== false
     && focused?.regionId === ids.spotlight && focused.childId === 'play';
   useTVMenuCapture(theme.isTV && !homeStart);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
@@ -198,7 +199,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   </>;
   return <View testID="native-shell" style={{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}}>
     {theme.isTV ? <View style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height, transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{content}</View> : content}
-    {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority} contentInset={sideWidth}/>}
+    {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority} contentInset={sideWidth} onTVListeningPresenceChange={theme.isTV ? setTVListeningPresent : undefined}/>}
     {runtime.renderWatch && <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>{runtime.renderWatch()}</View>}
     {runtime.renderRoutes()}
     {runtime.renderSelection()}

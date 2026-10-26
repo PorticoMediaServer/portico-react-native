@@ -175,11 +175,16 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const actionsCurrent = theme.isTV && fence?.kind === 'channel' && sameFence(liveActions.fence, fence);
   const actionsOpen = actionsCurrent && !!liveActions.sheet;
   const liveOverlayOpen = miniOpen || actionsOpen;
-  const controlsEnabled = visible && !liveOverlayOpen;
+  const miniScope = fence ? JSON.stringify(fence) : undefined;
+  const [miniPresenceScope, setMiniPresenceScope] = useState<string>();
+  const miniPaintPresent = miniOpen || !!miniScope && miniPresenceScope === miniScope;
+  useLayoutEffect(() => {if (miniOpen) setMiniPresenceScope(miniScope);}, [miniOpen, miniScope]);
+  const miniExited = useCallback(() => {setMiniPresenceScope(value => value === miniScope ? undefined : value);}, [miniScope]);
+  const controlsEnabled = visible && !liveOverlayOpen && !miniPaintPresent && !state.panelReturning;
   const controlsCurrent = useCallback(() => {
     const live = props.liveGuide?.getSnapshot(), actions = props.liveActions?.getSnapshot();
-    return current() && !(theme.isTV && fence && (live?.open && sameFence(live.fence, fence) || actions?.sheet && sameFence(actions.fence, fence)));
-  }, [current, theme.isTV, fence, props.liveGuide, props.liveActions]);
+    return current() && !controls.getSnapshot().panelReturning && !miniPaintPresent && !(theme.isTV && fence && (live?.open && sameFence(live.fence, fence) || actions?.sheet && sameFence(actions.fence, fence)));
+  }, [current, theme.isTV, fence, props.liveGuide, props.liveActions, controls, miniPaintPresent]);
   useLayoutEffect(() => {
     if (!liveOverlayOpen || !fence) return;
     miniReturn.current = {fence, current: miniOpen ? miniRestoreProof : actionsRestoreProof, target: miniOpen ? 'guide' : 'more'};
@@ -292,8 +297,9 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     return () => cancelAnimation(opacity);
   }, [visible, motion, opacity, state.hideReason]);
   const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
+  const returnedPanelTarget = useRef<typeof state.returnTarget>(undefined);
   useEffect(() => {
-    if (!theme.isTV || !fence || !current() || state.panel || liveOverlayOpen) return;
+    if (!theme.isTV || !fence || !current() || state.panel || state.panelReturning || liveOverlayOpen || miniPaintPresent) return;
     const returning = miniReturn.current;miniReturn.current = undefined;
     if (returning) {
       if (visible && sameFence(returning.fence, fence) && returning.current()) {
@@ -302,12 +308,19 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       }
       return;
     }
+    if (visible && state.returnTarget && state.returnTarget !== returnedPanelTarget.current) {
+      if (registry.focus(state.returnTarget)) returnedPanelTarget.current = state.returnTarget;
+      else toggle.current?.requestTVFocus?.();
+      return;
+    }
+    const active = registry.capture();
+    if (visible && active && ['watch-controls', 'watch-transport', 'watch-seek-region', 'watch-group', 'watch-skip'].includes(active.regionId)) return;
     if (!visible && promptLive.current.entry) {registry.focus({regionId: 'watch-skip', childId: promptLive.current.entry}); return;}
     const node = visible ? toggle.current : picture.current;
     node?.requestTVFocus?.();
-  }, [visible, fence, theme.isTV, current, state.panel, liveOverlayOpen, registry]); // The native focus engine owns movement inside the region.
+  }, [visible, fence, theme.isTV, current, state.panel, state.panelReturning, state.returnTarget, liveOverlayOpen, miniPaintPresent, registry]); // The native focus engine owns movement inside the region.
   useTVEventHandler(event => {
-    if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || liveOverlayOpen || event.eventKeyAction === 1) return;
+    if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || state.panelReturning || liveOverlayOpen || miniPaintPresent || event.eventKeyAction === 1) return;
     if (registry.capture()?.regionId === 'watch-skip' && event.eventType === 'select') return;
     if (['up', 'down', 'left', 'right', 'select', 'longLeft', 'longRight'].includes(event.eventType)) {
       if (!controls.key(fence)) controls.reveal(fence);
@@ -316,7 +329,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (controlsCurrent()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
   const skipSegment = (marker: SegmentMarker) => {if (!controlsCurrent()) return; dismissed.current.add(marker.id); setNotice(undefined); refreshPrompt(value => value + 1); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
-  const panel = (value: NativeWatchPanel) => {if (controlsCurrent() && controls.open(value, fence)) props.onPanel?.(value, fence);};
+  const panel = (value: NativeWatchPanel) => {if (controlsCurrent() && controls.open(value, fence, registry.capture())) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
   // tv-player 11: a channel is the normal player with the guide's programme in it.
@@ -436,7 +449,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     {theme.isTV && fence.kind === 'channel' ? channelStep(-1) : queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
     {skip(false)}
     <TVControlLabel focused={controlsEnabled && focus?.childId === 'watch-toggle'} label={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} primary><Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
-      accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={theme.isTV && controlsEnabled}
+      accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={false}
       focusable={controlsEnabled} disabled={!controlsEnabled || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
       style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : compact && tablet ? 34 : 28}/></TVControlLabel>
     {skip(true)}
@@ -741,7 +754,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       <View style={{width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.record}}/>
       <Text numberOfLines={1} style={[nativeType({size: 23, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flexShrink: 1}]}>{liveConfirmation}</Text>
     </View>}
-    {theme.isTV && props.liveGuide && liveGuide.timezone && <NativeMiniGuide key={JSON.stringify(fence)} open={miniOpen} rows={liveGuide.rows.map(row => ({channel: row.channel, ...nowNext(row.programmes, now), watching: row.step === 0}))}
+    {theme.isTV && props.liveGuide && liveGuide.timezone && <NativeMiniGuide key={JSON.stringify(fence)} open={miniOpen} onExited={miniExited} rows={liveGuide.rows.map(row => ({channel: row.channel, ...nowNext(row.programmes, now), watching: row.step === 0}))}
       now={now} timezone={liveGuide.timezone} loading={liveGuide.phase === 'loading'} busy={liveGuide.busy} artwork={props.artwork}
       onSelect={channel => {const row = liveGuide.rows.find(value => value.channel === channel);if (current() && row) void props.liveGuide?.tune(row, liveGuide);}}
       onClose={() => {if (current()) props.liveGuide?.close(liveGuide);}} onFullGuide={() => {if (current()) props.liveGuide?.fullGuide(liveGuide);}}

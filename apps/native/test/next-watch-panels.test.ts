@@ -15,7 +15,11 @@ const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watc
   react: {...React, default: React}, 'react-native': {ActivityIndicator: 'Loading', ScrollView: 'Scroll', Text: 'Text', View: 'View'},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String},
-  '../../kit/controls': {Button: 'Button', Focusable: 'Row'}, '../../kit/focus': {FocusRegion: 'Focus'},
+  '../../../../../packages/client-core/src/playback-v1/v1-queue-player': {queueVideoKind: () => false},
+  '../../kit/overlays': {Dialog: 'Dialog'}, '../../kit/overlays/TVPanelMotion': {useTVPanelInteractive: () => true},
+  '../../shell/model': {sameAuthority: () => false},
+  '../../kit/artwork': {Artwork: 'Artwork'},
+  '../../kit/controls': {Button: 'Button', Focusable: 'Row'}, '../../kit/focus': {FocusRegion: 'Focus', useFocusRegistry: () => ({focus: () => false})},
   '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/overlays/surface': {PanelBackground: 'Background'},
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {bodyStrong: {}, caption: {}}})},
   './track-identity': {nativeWatchTracks}, './panel-model': {nativeWatchPanelRows},
@@ -30,10 +34,10 @@ const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(des
 test('real panel renderer sends exact selected-source track/quality commands, blocks stale actions and retains one focus owner', async () => {
   for (const tv of [false, true]) {
     isTV = tv; const calls: unknown[][] = [], listeners = new Set<() => void>();
-    let source: any = {retired: false, fence, dock: {local: {fence, expanded: true}}, options,
+    let source: any = {queue: {}, retired: false, fence, dock: {local: {fence, expanded: true}}, options,
       playback: {positionSeconds: 2}, supportedRates: [1, 1.5], effectiveRate: 1,
       session: {id: 'session', itemId: 'item', versionId: 'v2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'chosen', quality: {mode: 'original'}}}};
-    let context: any = {source, fence, state: {fence, panel: 'audio', panelOffset: 0}, layout: {mode: 'watch'}, runtime: {text: {locale: 'en-US'}},
+    let context: any = {panelCurrent: () => true, source, fence, state: {fence, panel: 'audio', panelOffset: 0}, layout: {mode: 'watch'}, runtime: {text: {locale: 'en-US'}, getSnapshot: () => ({serverName: 'Test server'})},
       renderer: {width: tv ? 1920 : 390, height: tv ? 1080 : 844, scale: 1},
       closePanel() {}, backPanel() {}, openPanel: (panel: string) => {context = {...context, state: {...context.state, panel}};}, rememberPanel() {}};
     const controller = {getSnapshot: () => snapshot, subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}, load: async () => {}, clear() {}};
@@ -62,9 +66,9 @@ test('a retiring panel command cannot keep a new source busy or report its old f
   isTV = true;
   let rejectOld!: (error: unknown) => void;
   const held = new Promise<void>((_, reject) => {rejectOld = reject;}), errors: unknown[] = [];
-  let source: any = {retired: false, fence, dock: {local: {fence, expanded: true}}, options, playback: {positionSeconds: 2},
+  let source: any = {queue: {}, retired: false, fence, dock: {local: {fence, expanded: true}}, options, playback: {positionSeconds: 2},
     session: {id: 'session', itemId: 'item', versionId: 'v2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'chosen', quality: {mode: 'original'}}}};
-  let context: any = {source, fence, state: {fence, panel: 'audio', panelOffset: 0}, runtime: {text: {locale: 'en-US'}}, layout: {mode: 'full-window'},
+  let context: any = {panelCurrent: () => true, source, fence, state: {fence, panel: 'audio', panelOffset: 0}, runtime: {text: {locale: 'en-US'}, getSnapshot: () => ({serverName: 'Test server'})}, layout: {mode: 'full-window'},
     renderer: {width: 1920, height: 1080, scale: 1}, backPanel() {}, closePanel() {}, openPanel() {}, rememberPanel() {}};
   let snapshot = {phase: 'ready', fence, options};
   const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, load: async () => {}, clear() {}};
