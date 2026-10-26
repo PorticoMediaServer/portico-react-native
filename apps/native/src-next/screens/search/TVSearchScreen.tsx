@@ -19,6 +19,7 @@ import {nativeDestinationFocusIds, type NativeDestinationActivationPort} from '.
 import {homeSubject} from '../home/model';
 import {NativeSearchDestination, nativeSearchEntryKey} from './model';
 import {SearchGridCard} from './SearchGridCard';
+import {TVLoadedGrid} from '../../tv/layout/TVLoadedGrid';
 import {NativeTVKeyboard} from './TVKeyboard';
 import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from './types';
 import {nativeSearchGenreTiles} from './genre-tiles';
@@ -55,6 +56,7 @@ export type NativeTVSearchScreenProps = Readonly<{
 export function TVSearchScreen({destination, runtime, activation, explore, actions, selection, copy}: NativeTVSearchScreenProps) {
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), dimensions = useWindowDimensions(), scroll = useRef<ScrollView>(null), [keyboardRow, setKeyboardRow] = useState<string>();
+  const contentRoot = useRef<View>(null), [viewport, setViewport] = useState({y: 0, height: 1016}), [contentHeight, setContentHeight] = useState(0);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot), authority = runtime.getSnapshot().authority;
   const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]), registry = useFocusRegistry();
@@ -104,12 +106,13 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
     </View>}
     <FocusRegion id={ids.searchResults} entry={firstResult} enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}}
       style={tvSearchR46.results}>
-      <ScrollView ref={scroll} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
+      <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
+        setViewport({y: event.nativeEvent.contentOffset.y, height: event.nativeEvent.layoutMeasurement.height});
         if (state.group === 'all' || state.search.phase !== 'ready') return;
         const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         const group = groups.find(value => value.id === state.group);
         if (group?.nextCursor && contentOffset.y + layoutMeasurement.height >= contentSize.height - 600) run(destination.next(group.id));
-      }}>
+      }}><View ref={contentRoot} collapsable={false}>
         {chipsDrawn && <View style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
           const group = groups.find(value => value.id === chip.id);
           const count = chip.id === 'all' ? groups.every(value => value.totalCountExact) ? groups.reduce((sum, value) => sum + value.totalCount, 0) : undefined : group?.totalCountExact ? group.totalCount : undefined;
@@ -134,11 +137,14 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
           <View style={tvSearchR46.heading}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
             {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>
           {group.status === 'error' && <StateView {...runtime.error({code: group.errorCode}, () => run(destination.retry()))}/>}
-          <View style={[tvSearchR46.track, {flexWrap: state.group === 'all' ? 'nowrap' : 'wrap'}]}>
-            {group.items.slice(0, state.group === 'all' ? 4 : group.items.length).map(entry => <SearchGridCard key={nativeSearchEntryKey(group.id, entry)} entry={entry} group={group.id} width={196}
-              runtime={runtime} actions={actions} selection={selection?.item(group.id, entry)} disabled={!active.visible}/>)}</View>
+          <TVLoadedGrid items={state.group === 'all' ? group.items.slice(0, 4) : group.items} getKey={entry => nativeSearchEntryKey(group.id, entry)}
+            itemWidth={196} itemHeight={group.id === 'episodes' ? 210 : ['movies', 'shows'].includes(group.id) ? 390 : 290}
+            gap={28} rowGap={40} scrollY={viewport.y} viewportHeight={viewport.height} coordinateRoot={contentRoot} initialWidth={resultsWidth} layoutRevision={contentHeight} singleRow={state.group === 'all'} style={{marginTop: 30}}
+            renderItem={(entry, cell) => <SearchGridCard entry={entry} group={group.id} width={196} onFocus={cell.onFocus}
+              runtime={runtime} actions={actions} selection={selection?.item(group.id, entry)} disabled={!active.visible}/>}/>
+
         </View>)}
-      </ScrollView>
+      </View></ScrollView>
     </FocusRegion>
     {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
   </View>;

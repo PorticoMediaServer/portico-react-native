@@ -1,3 +1,4 @@
+import {TVShelf, tvItemKey} from '../../tv/layout/TVShelf';
 import React, {useEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -105,20 +106,18 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
       </View>}
     </View>
     <View style={{flex: 1, minWidth: 0}}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28, paddingRight: 24, paddingBottom: 2}}
-        onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-          if (contentSize.width - contentOffset.x - layoutMeasurement.width < layoutMeasurement.width) props.onMoreEpisodes();}} scrollEventThrottle={64}>
-        {episodes.map(entry => {
+      <TVShelf items={episodes} getKey={tvItemKey} itemWidth={384} itemHeight={320}
+        onVisibleRange={(_first, last) => {if (last >= episodes.length - 10) props.onMoreEpisodes();}}
+        renderItem={(entry, slot) => {
           const model = cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title, episode: numbering(entry), durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', props.text);
           const upNext = nextUp?.id === entry.id;
           // tv-detail frames 5 to 8 draw one muted label under the title and the length as a badge on the still.
-          return <TVTile key={entry.id} entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={384}
+          return <TVTile entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={384}
             length={entry.duration === undefined ? undefined : durationText(entry.duration, t)} status={upNext ? t('player.post.upNext') : undefined}
             watched={entry.watched} progress={model.progress} artwork={props.artwork(entry.stillUrl ?? props.show.backdropUrl)} backdropFallback={!entry.stillUrl} more={props.more}
             primaryAction="play" onLayout={upNext ? event => setRowTag(event.target) : undefined} hasTVPreferredFocus={focus.kind === 'episode' && focus.entry.id === entry.id}
-            nextFocusLeft={listTag} onFocus={() => episodeFocus(entry)} onPlay={() => props.onPlayEpisode(entry)}/>;
-        })}
-      </ScrollView>
+            nextFocusLeft={listTag} onFocus={() => {slot.onFocus(); episodeFocus(entry);}} onBlur={slot.onBlur} onPlay={() => props.onPlayEpisode(entry)}/>;
+        }}/>
       <FocusBand focus={focus} show={props.show} open={props.open} nextUp={nextUp} text={props.text} onRetry={props.onRetryEpisode} renderError={props.renderError}/>
     </View>
     <Menu open={!!menu} onOpenChange={open => {if (!open) setMenu(undefined);}} title={menu ? menu.title || t('title.season', {number: menu.number}) : ''} items={seasonMenu}/>

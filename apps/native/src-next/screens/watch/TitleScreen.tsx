@@ -7,6 +7,7 @@ import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkSource} from '..
 import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} from '../../kit/cards';
 import {Button, Chip, Focusable, ResumeButton, Switch, Tabs} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
+import {TVShelf, tvItemKey} from '../../tv/layout/TVShelf';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {StateLayout, TitleSkeleton} from '../../kit/states';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -442,8 +443,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           })()}
         </>)}
         {selectedTab === 'related' && detail?.related?.rows.map((row, rowIndex) => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map((entry, entryIndex) => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (bodyWidth - 60) / 3}
-            onLayout={rowIndex === 0 && entryIndex === 0 ? captureTag('related') : undefined} nextFocusUp={rowIndex === 0 && entryIndex === 0 && theme.isTV ? tvFocus.play : undefined} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
+          {theme.isTV ? <TVShelf items={row.entries} getKey={tvItemKey} itemWidth={214} itemHeight={420} gap={10}
+            renderItem={(entry, slot) => <TitleRelated entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={214}
+              onFocus={slot.onFocus} onBlur={slot.onBlur} onLayout={rowIndex === 0 && slot.index === 0 ? captureTag('related') : undefined} nextFocusUp={rowIndex === 0 && slot.index === 0 ? tvFocus.play : undefined} onNavigate={() => props.navigate(entry)}/>}/>
+            : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={(bodyWidth - 60) / 3} onNavigate={() => props.navigate(entry)}/>)}</ScrollView>}</View>))}
         {selectedTab === 'details' && cell('details', <View style={{gap: 16}}>
           <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
           {theme.isTV && detail?.facts?.tagline ? <Text style={[theme.type.body, {color: theme.colors.textTertiary, fontStyle: 'italic'}]}>{detail.facts.tagline}</Text> : null}

@@ -14,6 +14,8 @@ import {itemSelection, type LayoutItemContext, type LayoutSelection} from './typ
 
 export type RowProps<T> = {
   title: string;
+  /** Existing TV compositions may already draw their authored heading. */
+  showHeading?: boolean;
   /** The drawn heading column for this composition; absent keeps the role's own rowHeading. */
   headingStyle?: StyleProp<TextStyle>;
   subtitle?: ReactNode;
@@ -55,7 +57,7 @@ export function Row<T>(props: RowProps<T>) {
   return <FocusProvider><RowContent {...props} /></FocusProvider>;
 }
 
-function RowContent<T>({title, headingStyle, subtitle, items, getKey, getFocusId = getKey, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
+function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
   const theme = useTheme();
   const [width, setWidth] = useState(initialViewportWidth), [offset, setOffset] = useState(0), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<string>();
   const registry = useOptionalFocusRegistry();
@@ -131,14 +133,14 @@ function RowContent<T>({title, headingStyle, subtitle, items, getKey, getFocusId
   });
   const controlStyle = (selected: boolean) => ({borderWidth: selected ? theme.spec.focus.ringWidth[theme.platform] : 0, borderColor: theme.colors.focus, borderRadius: theme.baseRadii.control});
   return <View testID={testID} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} style={style}>
-    <View style={{flexDirection: 'row', alignItems: 'baseline', gap: theme.spec.shelf.headingGap[theme.platform], paddingLeft: leading, paddingRight: trailing, marginBottom: theme.spec.shelf.headingMargin[theme.platform]}}>
+    {showHeading && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: theme.spec.shelf.headingGap[theme.platform], paddingLeft: leading, paddingRight: trailing, marginBottom: theme.spec.shelf.headingMargin[theme.platform]}}>
       {onSeeAll && !theme.isTV ? <Pressable testID={testID ? `${testID}-see-all` : undefined} accessibilityRole="button" accessibilityLabel={title} accessibilityHint={defaultI18n.t('shelf.seeAll')} onPress={onSeeAll}
         onFocus={() => setArrowFocus('all')} onBlur={() => setArrowFocus(undefined)} style={[{minHeight: 24, flexDirection: 'row', alignItems: 'center', flexShrink: 1}, controlStyle(arrowFocus === 'all')]}>
         <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, headingStyle, {color: theme.colors.text, flexShrink: 1, includeFontPadding: false}]}>{title}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary} />
       </Pressable> : <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, headingStyle, {color: theme.colors.text, flexShrink: 1, includeFontPadding: false}]}>{title}</Text>}
       {subtitle && <View style={{flexShrink: 1}}>{typeof subtitle === 'string' ? <Text numberOfLines={1} style={[theme.type.rowSubtitle, {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text> : subtitle}</View>}
 
-    </View>
+    </View>}
     <RowRegion focus={theme.isTV ? focus : undefined} order={rowIndex.order}>
     <Animated.ScrollView horizontal ref={anchor.scrollRef} style={[theme.isTV ? {marginTop: -top} : undefined, anchor.scrollStyle]} onLayout={event => setWidth(event.nativeEvent.layout.width)}
       onScroll={onScroll} scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onScrollBeginDrag={anchor.stop}

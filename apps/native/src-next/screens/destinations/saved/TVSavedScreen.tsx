@@ -18,6 +18,7 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
+import {TVLoadedGrid} from '../../../tv/layout/TVLoadedGrid';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
 import {SavedConfirmSheet} from '../../saved/SavedForms';
 import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
@@ -28,6 +29,7 @@ import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
 
 const t = defaultI18n.t;
+const itemID = (item: {id: string}) => item.id;
 const factLine = (text: string) => Object.freeze([{id: 'caption', text, role: 'value' as const}]);
 type Tab = NativeTVSavedTab;
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen' | 'play'>;
@@ -83,13 +85,13 @@ function Empty({tab, browseHome}: {tab: Tab; browseHome: () => void}) {
   return <StateView testID="saved-empty" variant="centered" title={t(copy.title)} body={body} primaryAction={{id: 'browse-home', label: t('saved.browseHome'), onPress: browseHome}}/>;
 }
 
-function HistoryRow({entry, updatedAt, positionSeconds, completed, runtime, actions, openEntry}: {
-  entry: ContentEntry; updatedAt?: string; positionSeconds?: number; completed?: boolean; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void;
+function HistoryRow({entry, updatedAt, positionSeconds, completed, runtime, actions, openEntry, onFocus}: {
+  entry: ContentEntry; updatedAt?: string; positionSeconds?: number; completed?: boolean; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onFocus?: () => void;
 }) {
   const theme = useTheme(), progress = entry.duration && positionSeconds !== undefined ? Math.max(0, Math.min(1, positionSeconds / entry.duration)) : undefined;
   const remaining = entry.duration && positionSeconds !== undefined ? durationText(Math.max(0, entry.duration - positionSeconds), runtime.text.t) : undefined;
   const video = ['movie', 'episode', 'show', 'season', 'extra'].includes(entry.kind), art = runtime.artwork(video ? entry.backdropUrl ?? entry.stillUrl : entry.posterUrl);
-  return <Focusable testID={`saved-history-${encodeURIComponent(entry.id)}`} accessibilityRole="button" accessibilityLabel={entry.show?.name ?? entry.displayTitle ?? entry.title}
+  return <Focusable onFocus={onFocus} testID={`saved-history-${encodeURIComponent(entry.id)}`} accessibilityRole="button" accessibilityLabel={entry.show?.name ?? entry.displayTitle ?? entry.title}
     onPress={() => entry.playback ? actions.play(entry) : openEntry(entry)} onLongPressAction={() => actions.menu(entry)} focusKind="row" focusRadius={16} style={{height: 104}}>
     {({focused}) => <View style={{height: 104, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 26, paddingLeft: 14, paddingRight: 28, borderRadius: 16, backgroundColor: focused ? theme.colors.raisedHigh : undefined}}>
       <View style={{width: 156, height: 88, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised, flexShrink: 0}}>
@@ -137,7 +139,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // loaded; nothing claims an index for a page it has not read. Every measurement is kept
   // relative to its own parent, so a parent's layout callback arriving later cannot bake a stale
   // offset into a card, and a sheet is retired with the scope that drew it.
-  const page = useRef<ScrollView>(null), [scrollY, setScrollY] = useState(0);
+  const page = useRef<ScrollView>(null), contentRoot = useRef<View>(null), [scrollY, setScrollY] = useState(0), [viewportHeight, setViewportHeight] = useState(1080), [contentHeight, setContentHeight] = useState(0);
   const measured = useRef({scope: '', region: 0, body: 0, grids: new Map<'posters' | 'squares', number>(),
     cards: new Map<string, Readonly<{section: 'posters' | 'squares'; y: number}>>()});
   type JumpOpening = Readonly<{token: number; scope: string}>;
@@ -168,10 +170,10 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     ? (snapshot.counts?.posters ?? 0) + (snapshot.counts?.squares ?? 0)
     : tab === 'playlists' ? snapshot.playlists?.sections.reduce((sum, section) => sum + section.totalCount, 0) ?? 0
       : tab === 'history' ? snapshot.entries.length : snapshot.resources.length;
-  const posters = (tab === 'watchlist' || tab === 'favorites' ? snapshot.posters?.sections.flatMap(section => section.entries) ?? [] : [])
-    .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry' && !['album', 'song', 'book', 'audiobook_file', 'artist'].includes(entry.kind));
-  const squares = (tab === 'watchlist' || tab === 'favorites' ? snapshot.squares?.sections.flatMap(section => section.entries) ?? [] : [])
-    .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
+  const posters = useMemo(() => (tab === 'watchlist' || tab === 'favorites' ? snapshot.posters?.sections.flatMap(section => section.entries) ?? [] : [])
+    .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry' && !['album', 'song', 'book', 'audiobook_file', 'artist'].includes(entry.kind)), [tab, snapshot.posters]);
+  const squares = useMemo(() => (tab === 'watchlist' || tab === 'favorites' ? snapshot.squares?.sections.flatMap(section => section.entries) ?? [] : [])
+    .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry'), [tab, snapshot.squares]);
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
   const list = useMemo(() => [...posters.map(entry => ({entry, section: 'posters' as const})), ...squares.map(entry => ({entry, section: 'squares' as const}))], [posters, squares]);
   // The key is the server's own bucket for this title, kept whole (#, a non-Latin letter, a
@@ -274,32 +276,39 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // The scope is part of the key: a successor query remounts its cards, so they lay their own
   // coordinates out instead of inheriting an old scope's. An appended page keeps every retained
   // card mounted.
-  const measure = (section: 'posters' | 'squares', entry: ContentEntry, child: React.ReactNode) => <View key={`${scope}:${entry.id}`} style={{width: 200}}
-    onLayout={event => {measurement.cards.set(entry.id, {section, y: event.nativeEvent.layout.y});}}>{child}</View>;
-  const card = (entry: ContentEntry) => measure('posters', entry, <PosterCard testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
-    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
+  const measure = (section: 'posters' | 'squares', entry: ContentEntry, child: React.ReactNode, top?: number) => <View key={`${scope}:${entry.id}`} style={{width: 200}}
+    onLayout={event => {measurement.cards.set(entry.id, {section, y: top ?? event.nativeEvent.layout.y});}}>{child}</View>;
+  const card = (entry: ContentEntry, onFocus?: () => void, top?: number) => measure('posters', entry, <PosterCard onFocus={onFocus} testID={`saved-poster-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
+    onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>, top);
   // tv-more3: on a saved album or audiobook, OK plays it; hold OK still opens its menu. A square
   // that has nothing to play keeps opening its own page.
-  const square = (entry: ContentEntry) => measure('squares', entry, <SquareCard testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
+  const square = (entry: ContentEntry, onFocus?: () => void, top?: number) => measure('squares', entry, <SquareCard onFocus={onFocus} testID={`saved-square-${encodeURIComponent(entry.id)}`} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
     {...(entry.playback ? {primaryAction: 'play' as const, onPlay: () => actions.play(entry)} : {onNavigate: () => openEntry(entry)})}
-    onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>);
+    onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>, top);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
   const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry).onEnter();} : undefined;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;
   const directoryView = tab === 'playlists' || tab === 'collections' || tab === 'views' ? tab : undefined;
+  const posterGeometry = useCallback((columns: number, stride: number) => posters.forEach((entry, index) => measurement.cards.set(entry.id, {section: 'posters', y: Math.floor(index / columns) * stride})), [posters, measurement]);
+  const squareGeometry = useCallback((columns: number, stride: number) => squares.forEach((entry, index) => measurement.cards.set(entry.id, {section: 'squares', y: Math.floor(index / columns) * stride})), [squares, measurement]);
+  const historyHeight = useCallback((index: number) => {
+    const row = snapshot.entries[index]!, day = dayLabel(row.updatedAt, runtime.text.locale), previous = index ? dayLabel(snapshot.entries[index - 1]?.updatedAt, runtime.text.locale) : undefined;
+    // An initial list estimate only; TVLoadedGrid adopts each native measured row.
+    return 104 + (day && day !== previous ? (index ? 30 : 6) + 10 + 22 * theme.textScale : 0);
+  }, [snapshot.entries, runtime.text.locale, theme.textScale]);
   const body = snapshot.phase === 'error' ? <StateView testID="saved-error" variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
     : snapshot.phase !== 'ready' ? null
-      : tab === 'history' ? (snapshot.entries.length ? <View>
-        {snapshot.entries.map((row, index) => {const day = dayLabel(row.updatedAt, runtime.text.locale), previous = index ? dayLabel(snapshot.entries[index - 1]?.updatedAt, runtime.text.locale) : undefined;
+      : tab === 'history' ? (snapshot.entries.length ? <TVLoadedGrid key={`${scope}:history:${period}`} items={snapshot.entries} getKey={itemID} itemWidth={1} itemHeight={104} gap={0} rowGap={0}
+        scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} getRowHeight={historyHeight}
+        renderItem={(row, cell) => {const index = cell.index;const day = dayLabel(row.updatedAt, runtime.text.locale), previous = index ? dayLabel(snapshot.entries[index - 1]?.updatedAt, runtime.text.locale) : undefined;
           return <React.Fragment key={row.id}>{day && day !== previous ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: index ? 30 : 6, marginBottom: 10}}><Text style={[browseType(theme, 22, 700), {color: theme.colors.textTertiary}]}>{day}</Text></View> : null}
-            {row.media ? <HistoryRow entry={row.media} updatedAt={row.updatedAt} positionSeconds={row.positionSeconds} completed={row.completed} runtime={runtime} actions={actions} openEntry={openEntry}/> : null}</React.Fragment>;})}
-      </View> : <Empty tab="history" browseHome={browseHome}/>)
+            {row.media ? <HistoryRow entry={row.media} updatedAt={row.updatedAt} positionSeconds={row.positionSeconds} completed={row.completed} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={cell.onFocus}/> : null}</React.Fragment>;}}/> : <Empty tab="history" browseHome={browseHome}/>)
         : tab === 'watchlist' || tab === 'favorites' ? ((posters.length || squares.length)
           ? <View>
-            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<View onLayout={event => {measurement.grids.set('posters', event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{posters.map(card)}</View></> : null}
-            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View onLayout={event => {measurement.grids.set('squares', event.nativeEvent.layout.y);}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
+            {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<TVLoadedGrid key={`${scope}:posters`} items={posters} getKey={itemID} itemWidth={200} itemHeight={380} gap={32} rowGap={40} scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} onLayout={event => {measurement.grids.set('posters', event.nativeEvent.layout.y);}} onGeometry={posterGeometry} renderItem={(entry, cell) => card(entry, cell.onFocus, cell.top)}/></> : null}
+            {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<TVLoadedGrid key={`${scope}:squares`} items={squares} getKey={itemID} itemWidth={200} itemHeight={280} gap={32} rowGap={40} scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} onLayout={event => {measurement.grids.set('squares', event.nativeEvent.layout.y);}} onGeometry={squareGeometry} renderItem={(entry, cell) => square(entry, cell.onFocus, cell.top)}/></> : null}
           </View> : <Empty tab={tab} browseHome={browseHome}/>)
         : null;
   // tv-more1/3 draw the server's own quick filters, with counts in the Filters menu; a server
@@ -319,7 +328,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView ref={page} onScroll={event => setScrollY(event.nativeEvent.contentOffset.y)} scrollEventThrottle={16} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={page} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewportHeight(event.nativeEvent.layout.height)} onScroll={event => setScrollY(event.nativeEvent.contentOffset.y)} scrollEventThrottle={16} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}><View ref={contentRoot} collapsable={false}>
       {/* LibraryHeader already carries the page's 200 inset; collections.html 15-17 draw the
           tabs row from there, with the six tab labels 34 apart. */}
       <SavedTVTabs destination={tabsDestination} reportError={runtime.reportError} authority={authority} activation={activation} contentRegionId={ids.savedGrid}/>
@@ -352,7 +361,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       <View onLayout={event => {measurement.body = event.nativeEvent.layout.y;}}
         style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
       </FocusRegion>}
-    </ScrollView>
+    </View></ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
     <Menu open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} title={t('filter.title')} placement="bottom-start" items={publishedFilters.length

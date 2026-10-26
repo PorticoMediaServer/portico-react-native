@@ -2,6 +2,7 @@ import React from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import type {DetailCredit} from '../../../../../packages/client-core/src/detail';
 import {PersonCircle, type ArtworkSource} from '../../kit/artwork';
+import {TVShelf, tvItemKey} from '../../tv/layout/TVShelf';
 import {Focusable} from '../../kit/controls';
 import {fontFamilies, useTheme} from '../../kit/theme';
 
@@ -18,9 +19,7 @@ const initials = (name: string) => name.split(/\s+/u).filter(Boolean).slice(0, 2
  * the drawn circle is the shared initials fallback; a real portrait wins. */
 export function TitlePeople({credits, artwork, onPerson}: TitlePeopleProps) {
   const theme = useTheme();
-  return <ScrollView horizontal showsHorizontalScrollIndicator={false}
-    contentContainerStyle={{gap: 12, alignItems: 'flex-start'}}>
-    {credits.map(credit => {
+  const render = (credit: DetailCredit, onFocus?: () => void, onBlur?: () => void) => {
       const face = <View accessibilityLabel={[credit.name, credit.role].filter(Boolean).join(', ')}
         style={{width: 78, alignItems: 'center'}}>
         <PersonCircle size={64} initials={initials(credit.name)} source={artwork(credit.portraitUrl)} covers={[]} alt={credit.name}/>
@@ -29,8 +28,9 @@ export function TitlePeople({credits, artwork, onPerson}: TitlePeopleProps) {
       </View>;
       const open = onPerson && credit.personId;
       return open ? <Focusable key={credit.id} testID={`watch-person-${credit.id}`} focusKind="card" focusRadius={78 / 2}
-        accessibilityRole="button" accessibilityLabel={credit.name} onPress={() => onPerson!(credit.personId!)}>{face}</Focusable>
+        accessibilityRole="button" accessibilityLabel={credit.name} onPress={() => onPerson!(credit.personId!)} onFocus={onFocus} onBlur={onBlur}>{face}</Focusable>
         : <View key={credit.id}>{face}</View>;
-    })}
-  </ScrollView>;
+  };
+  return theme.isTV ? <TVShelf items={credits} getKey={tvItemKey} itemWidth={78} itemHeight={125} gap={12} renderItem={(credit, slot) => render(credit, slot.onFocus, slot.onBlur)}/>
+    : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 12, alignItems: 'flex-start'}}>{credits.map(credit => render(credit))}</ScrollView>;
 }

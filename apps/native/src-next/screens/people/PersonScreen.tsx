@@ -8,6 +8,7 @@ import {PersonCircle} from '../../kit/artwork';
 import {PosterCard} from '../../kit/cards';
 import {Chip, Focusable} from '../../kit/controls';
 import {Menu, type MenuEntry} from '../../kit/overlays';
+import {TVShelf} from '../../tv/layout/TVShelf';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
@@ -21,6 +22,8 @@ export type NativePersonScreenProps = Readonly<{
   onRole: (role: PersonRole) => void; onBack: () => void;
 }>;
 const t = defaultI18n.t;
+const knownShelfKey = (entry: {kind: string; id: string}) => `${entry.kind}:${entry.id}`;
+const creditSlotKey = (index: number) => String(index);
 
 /** phone-detail frame7: one sparse credits scroller, with the genuine person,
  * biography and bounded known-for shelf as its header. */
@@ -118,8 +121,8 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
   onRole: (role: PersonRole) => void; onBack: () => void;
 }) {
   const theme = useTheme(), t = defaultI18n.t;
-  const [expanded, setExpanded] = useState(false), [filters, setFilters] = useState(false), [visible, setVisible] = useState(20);
-  const firstPage = collection.pageOf(0), lastPage = collection.pageOf(Math.max(0, visible - 1));
+  const [expanded, setExpanded] = useState(false), [filters, setFilters] = useState(false), [range, setRange] = useState({first: 0, last: 19});
+  const firstPage = collection.pageOf(range.first), lastPage = collection.pageOf(range.last);
   const subscribePages = useCallback((listener: () => void) => {
     const stops = [collection.subscribe(listener)];
     for (let index = firstPage; index <= lastPage; index++) stops.push(collection.subscribePage(index, listener));
@@ -131,7 +134,7 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
     return values.join('|');
   }, [collection, firstPage, lastPage]);
   useSyncExternalStore(subscribePages, version);
-  useEffect(() => {collection.ensureRange(0, Math.max(0, visible - 1));}, [collection, visible]);
+  useEffect(() => {collection.ensureRange(range.first, range.last);}, [collection, range]);
   useEffect(() => runtime.registerTVPageBack?.(() => {onBack(); return true;}), [runtime, onBack]);
   const state = collection.getSnapshot(), total = state.total ?? page.pageInfo.total;
   const person = page.person, born = person.birthDate ? defaultI18n.date(person.birthDate, 'long') : undefined;
@@ -139,7 +142,7 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
   const dates = born && died ? t('web.person.lived', {born, died}) : born ? t('web.person.born', {date: born}) : undefined;
   const initials = person.name.split(/\s+/u).filter(Boolean).slice(0, 2).map(word => [...word][0]).join('');
   const known = page.person.knownFor;
-  const items = Array.from({length: Math.min(total, Math.max(visible, 1))}, (_, index) => collection.itemAt(index));
+  const slots = useMemo(() => Array.from({length: total}, (_, index) => index), [total]);
   const filterItems: MenuEntry[] = ([['all', 'title.creditsAll'], ['cast', 'web.person.cast'], ['crew', 'web.person.crew']] as const).map(([value, label]) =>
     ({id: value, label: t(label), selected: role === value, onSelect: () => onRole(value)}));
   return <View testID="native-person" style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -162,10 +165,9 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
       </View>
       {!!known.length && <View style={{marginTop: 48}}>
         <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text, marginBottom: 22}]}>{t('web.person.knownFor')}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28}}>
-          {known.map((entry, index) => <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={214}
-            hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)}/>)}
-        </ScrollView>
+        <TVShelf items={known} getKey={knownShelfKey} itemWidth={214} itemHeight={420}
+          renderItem={(entry, slot) => <PosterCard testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={214}
+            onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={slot.index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)}/>}/>
       </View>}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 52, marginBottom: 24}}>
         <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text}]}>{t('web.person.credits')}</Text>
@@ -173,19 +175,17 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
         <View style={{flex: 1}}/>
         <Chip testID="person-role-filter" selected={role !== 'all'} onPress={() => setFilters(true)}>{t('next.browse.native.filters')}</Chip>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28}}
-        onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-          if (contentOffset.x + layoutMeasurement.width > contentSize.width - layoutMeasurement.width) setVisible(value => Math.min(total, value + 20));}} scrollEventThrottle={64}>
-        {items.map((credit, index) => {
-          const entry = credit?.media;
-          if (!entry) return <View key={`placeholder-${index}`} style={{width: 214, height: 321, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
-          return <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-credit-${index}`} title={entry.displayTitle || entry.title} width={214}
-            hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} watched={entry.watched} progress={entry.duration && entry.progressSeconds ? entry.progressSeconds / entry.duration : undefined}
+      <TVShelf items={slots} getKey={creditSlotKey} itemWidth={214} itemHeight={440}
+        onVisibleRange={(first, last) => setRange(current => current.first === first && current.last === last ? current : {first, last})}
+        renderItem={(index, slot) => {
+          const credit = collection.itemAt(index), entry = credit?.media;
+          if (!entry) return <View testID={`person-credit-placeholder-${index}`} style={{width: 214, height: 321, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
+          return <PosterCard testID={`person-credit-${index}`} title={entry.displayTitle || entry.title} width={214}
+            onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} watched={entry.watched} progress={entry.duration && entry.progressSeconds ? entry.progressSeconds / entry.duration : undefined}
             caption={[...(entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context' as const}]),
               ...(credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context' as const}] : [])]}
             onNavigate={() => actions.open(entry)}/>;
-        })}
-      </ScrollView>
+        }}/>
       {state.status === 'error' && <View style={{marginTop: 30, width: 900}}><StateView {...runtime.error(state.error, () => collection.retry())}/></View>}
     </ScrollView>
     <Menu open={filters} onOpenChange={setFilters} title={t('next.browse.native.filters')} items={filterItems}/>
