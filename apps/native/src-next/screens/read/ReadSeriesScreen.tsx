@@ -141,10 +141,10 @@ export function VolumeCard({item, width, height, comic, theme, runtime, progress
 }) {
   const number = item.series?.number, shelf = variant === 'shelf';
   const numberLabel = number === undefined ? undefined : t(comic ? 'next.reader.volumeNumber' : 'next.reader.bookNumber', {number: defaultI18n.number(number, {maximumFractionDigits: 20})});
-  const numberText = numberLabel === undefined ? null : <Text numberOfLines={1} style={[browseType(theme, shelf ? 13 : 11.5, shelf ? 400 : 600), {color: theme.colors.textTertiary, marginTop: shelf ? 2 : 7}]}>
+  const numberText = numberLabel === undefined ? null : <Text numberOfLines={1} style={[browseType(theme, shelf ? 13 : 11.5, shelf ? 400 : 500), {color: theme.colors.textTertiary, marginTop: 2}]}>
     {numberLabel}
   </Text>;
-  const titleText = <Text numberOfLines={shelf ? 1 : 2} style={[browseType(theme, shelf ? 13.5 : 13, 600), {color: theme.colors.text, marginTop: shelf ? 10 : number !== undefined ? 2 : 7}]}>{item.title}</Text>;
+  const titleText = <Text numberOfLines={shelf ? 1 : 2} style={[browseType(theme, shelf ? 13.5 : 12.5, 600), {color: theme.colors.text, marginTop: shelf ? 10 : 7}]}>{item.title}</Text>;
   return <Focusable accessibilityRole="button" accessibilityLabel={item.title} focusKind="row" focusRadius={10} onPress={onOpen} style={{width}}>
     <View style={{width, height, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {runtime.artwork(item.coverUrl) ? <Artwork source={runtime.artwork(item.coverUrl)} width={width} height={height}/>
@@ -153,7 +153,6 @@ export function VolumeCard({item, width, height, comic, theme, runtime, progress
         <View style={{width: `${progression * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
       </View> : null}
     </View>
-    {shelf ? <>{titleText}{numberText}</> : <>{numberText}{titleText}</>}
-    {item.author && !shelf ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
+    {titleText}{numberText}
   </Focusable>;
 }
