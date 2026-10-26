@@ -25,3 +25,9 @@ export const contentFadeEasing = Object.freeze({out: [0.2, 0.8, 0.2, 1] as const
 export function cachedAfterLoadingCycle(cached: boolean, ready: boolean): boolean {
   return ready ? cached : false;
 }
+
+/** A painted skeleton is only valid for the cycle it completed: a stale completion
+ * from the previous ready state can never flash over a new loading cycle. */
+export function paintSkeletonVisible(ready: boolean, doneCycle: number, cycle: number): boolean {
+  return !ready && doneCycle === cycle;
+}
