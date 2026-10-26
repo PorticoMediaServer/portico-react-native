@@ -70,6 +70,11 @@ export function TVNoServers(props: Props) {
   useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!joining || !current()) return false; back(); return true;});
     return () => subscription.remove();}, [joining, current, back]);
   const window = useWindowDimensions(), canvas = shellLayout(window.width, window.height, true);
+  // Frame 36 draws the keyboard at 604; the address field's five key rows make one row more
+  // than the invitation's, so the actions follow the active keyboard instead of a fixed slot.
+  const keyRows = (field === 'address' ? addressKeys : invitationKeys).length + 1;
+  const joinTop = 604 + keyRows * 72 + (keyRows - 1) * 10 + 16;
+  const footerTop = joinTop + 92;
   const noticeView = props.notice && <View accessibilityRole="alert" style={{gap: 12, padding: 20, borderRadius: 16, backgroundColor: theme.colors.raised}}>
     <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{props.notice.title}</Text>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{props.notice.body}</Text>
@@ -83,7 +88,7 @@ export function TVNoServers(props: Props) {
         the 860 keyboard at 604 and the code help at 1160/300. The frame leaves Join, Find and Sign out
         to the remote, so they sit below 1080 and this canvas scrolls rather than clipping them. */}
       <ScrollView keyboardShouldPersistTaps="handled" style={{width: canvas.width, height: canvas.height}}
-        contentContainerStyle={{width: canvas.width, minHeight: 1240, paddingBottom: 64}}>
+        contentContainerStyle={{width: canvas.width, minHeight: footerTop + 128, paddingBottom: 64}}>
         <Button variant="text" disabled={props.busy} onPress={back} style={{position: 'absolute', left: 200, top: 28}}>{t('action.back')}</Button>
         <View style={{position: 'absolute', left: 200, top: 96, width: 1300, gap: 12}}>
           <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong}]}>{t('services.start.ready')}</Text>
@@ -108,8 +113,8 @@ export function TVNoServers(props: Props) {
               activation={{visible: current() && !props.busy, intent: 'enter', revision: entryRevision * 2 + (field === 'address' ? 0 : 1)}}
               onChangeText={value => {if (owns()) {if (field === 'address') setAddress(value); else setInvitation(value);}}}/>
           </View>
-          <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}} style={{position: 'absolute', left: 200, top: 1020, width: 320}}>{t('services.start.joinAction')}</Button>
-          <View style={{position: 'absolute', left: 200, top: 1112, flexDirection: 'row', gap: 24}}>
+          <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}} style={{position: 'absolute', left: 200, top: joinTop, width: 320}}>{t('services.start.joinAction')}</Button>
+          <View style={{position: 'absolute', left: 200, top: footerTop, flexDirection: 'row', gap: 24}}>
             <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
             <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
           </View>
