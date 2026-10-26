@@ -1022,9 +1022,12 @@ internal class PorticoPlaybackController(private val context: Context) {
       committedToken = token
       preparedSent = true
       commitSent = true
-      fadeSeconds = number(settings()?.get("crossfadeSeconds")) ?: 0.0
+      val effects = settings()
+      fadeSeconds = PorticoAudioPlan.transitionSeconds(planOf(render), plan,
+          number(effects?.get("crossfadeSeconds")) ?: 0.0, wanted["sameAlbum"] == true,
+          effects?.get("smoothTransitions") == true)
       // Consecutive tracks of one album are joined, never crossfaded.
-      crossfade = fadeSeconds > 0 && wanted["sameAlbum"] != true
+      crossfade = fadeSeconds.isFinite() && fadeSeconds > 0
       if (!crossfade || heldAtEnd) {
         crossfade = false
         engine.pauseAtEndOfMediaItems = false

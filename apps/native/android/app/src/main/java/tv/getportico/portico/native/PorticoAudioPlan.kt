@@ -53,8 +53,14 @@ internal object PorticoAudioPlan {
     if (url.scheme != "http" && url.scheme != "https") return false
     if (url.scheme != origin.scheme || url.host?.lowercase() != origin.host?.lowercase() || url.port != origin.port || url.userInfo != null) return false
     val gain = plan["gain"] as? Map<*, *>
+    if (plan.containsKey("gain") && gain == null) return false
     for (key in listOf("trackDb", "albumDb")) if (gain?.get(key) != null && !inRange(gain[key], -60.0, 30.0)) return false
     for (key in listOf("trackPeak", "albumPeak")) if (gain?.get(key) != null && !inRange(gain[key], 0.000001, 64.0)) return false
+    if (plan.containsKey("sourceBitrateBps") && !integer(plan["sourceBitrateBps"], 0.0, MAX_INTEGER)) return false
+    for (key in listOf("conversionGainDb", "loudnessAppliedDb"))
+      if (plan.containsKey(key) && !inRange(plan[key], -60.0, 30.0)) return false
+    if (plan.containsKey("loudnessAppliedDb") && plan.containsKey("gain")) return false
+    if (plan.containsKey("loudnessEnvelope") && envelope(plan["loudnessEnvelope"]) == null) return false
     return true
   }
 
@@ -65,6 +71,8 @@ internal object PorticoAudioPlan {
     val settings = render["settings"] as? Map<*, *>
     if (settings == null || settings["gapless"] !is Boolean || !inRange(settings["crossfadeSeconds"], 0.0, 12.0) || settings["normalization"] !in NORMALIZATION ||
         !integer(render["epoch"], 0.0, MAX_INTEGER) || !inRange(render["startSeconds"], 0.0, 1e9)) return "Invalid audio render settings."
+    for (key in listOf("neverBoost", "smoothTransitions"))
+      if (settings.containsKey(key) && settings[key] !is Boolean) return "Invalid audio render settings."
     for (key in listOf("prepared", "committed")) {
       val value = render[key] ?: continue
       val next = value as? Map<*, *> ?: return "Invalid prepared audio."
@@ -76,15 +84,47 @@ internal object PorticoAudioPlan {
 
   /** `10^((dB + preamp)/20)`, limited so the peak stays at or under full scale. Amplification is applied by the PCM processor, never by player volume. */
   fun gain(plan: Map<*, *>?, settings: Map<*, *>?): Float {
+    // A measured server-applied amount is already in the received samples.
+    if (plan?.containsKey("loudnessAppliedDb") == true) return 1f
     val mode = settings?.get("normalization") as? String ?: "off"
     val gain = plan?.get("gain") as? Map<*, *>
-    if (gain == null || mode == "off") return 1f
+    if (gain == null || mode !in setOf("track", "album")) return 1f
     val album = mode == "album" && gain["albumDb"] != null
-    val db = number(if (album) gain["albumDb"] else gain["trackDb"]) ?: return 1f
-    val peak = number(if (album) (gain["albumPeak"] ?: gain["trackPeak"]) else gain["trackPeak"])
+    val db = number(if (album) gain["albumDb"] else gain["trackDb"])?.takeIf { it in -60.0..30.0 } ?: return 1f
+    val peak = number(if (album) (gain["albumPeak"] ?: gain["trackPeak"]) else gain["trackPeak"])?.takeIf { it in 0.000001..64.0 }
     var linear = Math.pow(10.0, (db + (number(settings?.get("preampDb")) ?: 0.0)) / 20)
     if (peak != null && peak * linear > 1) linear = 1 / peak
-    return linear.coerceIn(0.0, if (peak == null) 1.0 else 32.0).toFloat()
+    return linear.coerceIn(0.0, if (peak == null || settings?.get("neverBoost") == true) 1.0 else 32.0).toFloat()
+  }
+
+  /** Actual measured head/tail contrast shapes the overlap; an absent envelope
+   * keeps the fixed fade. This is the same rule as Apple and the canonical core. */
+  fun transitionSeconds(current: Map<*, *>?, next: Map<*, *>?, maximum: Double, sameAlbum: Boolean, smooth: Boolean): Double {
+    if (sameAlbum) return 0.0
+    if (!maximum.isFinite() || maximum < 0.0 || maximum > 12.0) return Double.NaN
+    if (!smooth) return maximum
+    val tail = envelope(current?.get("loudnessEnvelope"))?.second ?: return maximum
+    val head = envelope(next?.get("loudnessEnvelope"))?.first ?: return maximum
+    if (tail.isEmpty() || head.isEmpty()) return maximum
+    fun mean(values: List<Double>): Double = 10.0 * Math.log10(values.sumOf { Math.pow(10.0, it / 10.0) } / values.size)
+    val contrast = Math.abs(mean(tail) - mean(head))
+    return Math.min(maximum, Math.max(0.25, maximum / (1.0 + contrast / 12.0)))
+  }
+
+  private fun envelope(value: Any?): Pair<List<Double>, List<Double>>? {
+    val map = value as? Map<*, *> ?: return null
+    if (!integer(map["intervalMs"], 100.0, 100.0)) return null
+    fun points(key: String): List<Double>? {
+      val values = map[key] as? List<*> ?: return null
+      if (values.size > 30) return null
+      val out = ArrayList<Double>(values.size)
+      for (point in values) {
+        if (!inRange(point, -120.0, 10.0)) return null
+        out.add(number(point) ?: return null)
+      }
+      return out
+    }
+    return Pair(points("startLufs") ?: return null, points("endLufs") ?: return null)
   }
 
   fun durationSeconds(plan: Map<*, *>?): Double {
