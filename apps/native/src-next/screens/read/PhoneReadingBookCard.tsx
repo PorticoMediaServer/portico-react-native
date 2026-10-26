@@ -38,6 +38,6 @@ export function PhoneReadingBookCard({testID, title, author, width, artwork, per
       <PhoneReadingBookCover title={title} author={author} width={width} height={height} artwork={artwork} periodical={periodical}/>
     </View>
     <Text numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.text, marginTop: 7}]}>{title}</Text>
-    {author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{author}</Text> : null}
+    {author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 600), {color: theme.colors.textTertiary, marginTop: 2}]}>{author}</Text> : null}
   </Focusable>;
 }
