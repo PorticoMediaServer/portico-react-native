@@ -266,7 +266,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
       if (next > 0) onHeroHeight(next);
     }}>{coverArt}{copy}</View>{actions}</>;
   const opening = manifest.metadata.openingLines ? <View style={{marginHorizontal: rowHero ? (wide ? 32 : 28) : 20, marginTop: 18}}>
-    <Text style={[browseType(theme, 13, 700), {color: theme.colors.textTertiary}]}>{t('next.reader.openingLines')}</Text>
+    <Text style={[browseType(theme, 13, 700), {color: theme.colors.textTertiary}]}>{t('next.reader.firstLines')}</Text>
     <Text numberOfLines={4} style={[browseType(theme, 14.5, 400), {color: theme.colors.textSecondary, lineHeight: 23, marginTop: 6, paddingLeft: 14,
       borderLeftWidth: 2, borderLeftColor: alpha(theme.colors.text, .2)}]}>{manifest.metadata.openingLines}</Text>
   </View> : null;
