@@ -12,7 +12,7 @@ export class GestureCommitScope<T> {
     return this.active = ++this.issued;
   }
   retire(ticket: number): boolean {
-    if (ticket !== this.active) return false;
+    if (!(ticket > 0) || ticket !== this.active) return false;
     this.active = undefined; this.pair = undefined; return true;
   }
   bind(ticket: number, run: number, value: T | undefined): void {
@@ -20,7 +20,7 @@ export class GestureCommitScope<T> {
     this.lastRun = run; this.pair = value === undefined ? undefined : {run, value};
   }
   claim(ticket: number, run: number): T | undefined {
-    if (ticket !== this.active || this.pair?.run !== run) return;
+    if (!(ticket > 0) || ticket !== this.active || !this.pair || this.pair.run !== run) return;
     const value = this.pair.value; this.pair = undefined; return value;
   }
   discard(ticket: number, run: number): void {
