@@ -149,10 +149,18 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   // The drawn grid: seven across with 20/30 gaps; the docked pane's own four-across
   // drawing uses 14/22 and slightly narrower cards. Columns follow the real room and
   // never force a card wider than it, so a small landscape pane cannot overflow.
-  const tight = pane > 0, gap = tight ? 14 : 20, rowGap = tight ? 22 : 30, minimum = tight ? 112 : 120;
-  const right = alphabet ? 52 : theme.gutter, room = Math.max(0, width - theme.gutter - right - pane);
+  // tablet-read#1b draws the docked GRID with 28 left and a 52 right band
+  // (padding 20 52 0 28) against the page gutter of 64 at desktop width; the frame
+  // proves nothing about the list's gutters, so only the grid takes them. The tight
+  // gap/minimum rule is unchanged, and the tight card keeps its fractional width
+  // (492 room -> 112.5) instead of flooring to 112 or rounding up and overflowing.
+  const tight = pane > 0, tightGrid = tight && view === 'grid';
+  const gap = tight ? 14 : 20, rowGap = tight ? 22 : 30, minimum = tight ? 112 : 120;
+  const left = tightGrid ? 28 : theme.gutter;
+  const right = tightGrid ? 52 : alphabet ? 52 : theme.gutter;
+  const room = Math.max(0, width - left - right - pane);
   const columns = Math.max(1, Math.min(7, Math.floor((room + gap) / (minimum + gap))));
-  const cardWidth = Math.max(1, Math.floor((room - gap * (columns - 1)) / columns));
+  const cardWidth = Math.max(1, tightGrid ? (room - gap * (columns - 1)) / columns : Math.floor((room - gap * (columns - 1)) / columns));
   const cardHeight = cardWidth * 1.5 + 48;
   // The drawn grid/list pair: the same bounded collection, the same query and
   // the same open action; only the row height and cover change.
@@ -184,7 +192,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
           : <View style={{flex: 1}}>
             <WindowedGrid ref={grid} testID={list ? 'reading-books-list' : 'reading-books-grid'} collection={collection} getKey={nativeLibraryEntryKey}
               itemWidth={list ? rowWidth : cardWidth} itemHeight={list ? 70 : cardHeight}
-              gap={list ? 0 : gap} rowGap={list ? 0 : rowGap} gutter={theme.gutter} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
+              gap={list ? 0 : gap} rowGap={list ? 0 : rowGap} gutter={left} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
               onVisibleRange={changedRange}
               renderPlaceholder={() => list ? <View style={{width: rowWidth, height: 70, backgroundColor: theme.colors.raised}}/>
                 : <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
