@@ -223,19 +223,19 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   const copy = <>
     {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name}
       onPress={() => onSeries(series, manifest)} style={{marginTop: rowHero ? 0 : 14, paddingVertical: 4, maxWidth: '100%'}}>
-      <Text numberOfLines={2} style={[browseType(theme, 13.5, 600), {color: theme.colors.accentStrong, textAlign: rowHero ? 'left' : 'center'}]}>
+      <Text numberOfLines={2} style={[browseType(theme, rowHero ? 14.5 : 13.5, 600), {color: theme.colors.accentStrong, textAlign: rowHero ? 'left' : 'center'}]}>
         {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
       </Text>
     </Focusable> : null}
-    <Text accessibilityRole="header" numberOfLines={3} style={[browseType(theme, titleSize, 800, -.03), {color: theme.colors.text, textAlign: rowHero ? 'left' : 'center', marginTop: 6}]}>{title}</Text>
+    <Text accessibilityRole="header" numberOfLines={3} style={[browseType(theme, titleSize, 800, rowHero ? -.045 : -.03), {color: theme.colors.text, textAlign: rowHero ? 'left' : 'center', marginTop: 6}]}>{title}</Text>
     {author ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8}}>
-      <View style={{width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedHigh}}>
-        <Text style={[browseType(theme, 9.5, 800), {color: theme.colors.text}]}>{initials(author)}</Text>
+      <View style={{width: rowHero ? 28 : 22, height: rowHero ? 28 : 22, borderRadius: rowHero ? 14 : 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedHigh}}>
+        <Text style={[browseType(theme, rowHero ? 11 : 9.5, 800), {color: theme.colors.text}]}>{initials(author)}</Text>
       </View>
       <Text numberOfLines={1} style={[browseType(theme, 13, 700), {color: theme.colors.text, flexShrink: 1}]}>{author}</Text>
     </View> : null}
     {facts.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: rowHero ? 'flex-start' : 'center', columnGap: 12, rowGap: 6, marginTop: 8}}>
-      {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, 13, index === 0 ? 700 : 600), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
+      {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, rowHero ? (wide ? 14.5 : 14) : 13, index === 0 ? 700 : 600), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
     </View> : null}
   </>;
   const actions = <View style={{paddingHorizontal: rowHero ? 0 : 20, marginTop: 18}}>
