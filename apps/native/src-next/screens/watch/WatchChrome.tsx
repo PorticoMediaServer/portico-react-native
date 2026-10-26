@@ -272,6 +272,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // tv-player 11: a channel is the normal player with the guide's programme in it.
   const linear = fence?.kind === 'channel' ? source.playback.linear : undefined;
   const liveOffer = actionsCurrent ? liveActions.offer : undefined;
+  const channelNumber = liveOffer ? liveOffer.channel.number : source.channelGuide?.row.number;
   const recordState = liveActions.recording?.state ?? liveOffer?.programme.recording?.state;
   const recordingLabel = (value?: string): string => {
     switch (value) {
@@ -544,7 +545,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
             <View style={{flexDirection: 'row', alignItems: 'center', minWidth: 0}}>
               <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, color: theme.colors.text, flexShrink: 0}]}>{linear.name}</Text>
-              {!!source.channelGuide?.row.number && <Text style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, marginLeft: 18, color: theme.colors.textSecondary}]}>{source.channelGuide.row.number}</Text>}
+              {!!channelNumber && <Text style={[theme.type.bodyStrong, {fontSize: 24, lineHeight: 32, marginLeft: 18, color: theme.colors.textSecondary}]}>{channelNumber}</Text>}
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 18}}>
                 <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.record}}/>
                 <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('next.kit.live')}</Text>
