@@ -1,5 +1,5 @@
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
-import React, {useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
@@ -8,6 +8,7 @@ import {AudioRenditionUnavailable, HlsSource, type AudioSelection, type SourceEr
 import {uuid} from './random';
 import {applySubtitles, clearSubtitles, subtitleDisplay, tickSubtitles, type SubtitleCommand} from './subtitles';
 import {registerSystemMediaSource, TransportKeys, type SystemMediaRegistration} from './system-media';
+import {VegaSurfaceComposition} from './surface-composition';
 
 /**
  * `NativeModules.PorticoPlaybackModule` and the `PorticoPlayer` view, over the SDK's W3C media
@@ -746,11 +747,13 @@ function LeaseSurface({heldLease}: {heldLease: string}): React.ReactElement {
 export function PorticoPlayer({lease: viewLease, surfaceActive = true, pictureInPictureRequest: _request, pictureInPictureBinding: _pictureBinding, children: _children, onLayout, ...view}: ViewProps & {lease: string; surfaceActive?: boolean; pictureInPictureRequest?: number; pictureInPictureBinding?: unknown}): React.ReactElement {
   const app = useKeplerAppStateManager();
   component ??= app.getComponentInstance();
+  const composition = useContext(VegaSurfaceComposition);
+  const active = surfaceActive && (composition === undefined || composition && StyleSheet.flatten(view.style)?.display !== 'none');
   const [size, setSize] = useState({width: 0, height: 0});
   const laidOut = useCallback((event: LayoutChangeEvent) => { const {width, height} = event.nativeEvent.layout; setSize({width, height}); onLayout?.(event); }, [onLayout]);
   return React.createElement(View, {...view, onLayout: laidOut},
-    surfaceActive && viewLease ? React.createElement(LeaseSurface, {key: viewLease, heldLease: viewLease}) : null,
-    surfaceActive ? React.createElement(SubtitleLabel, size) : null);
+    active && viewLease ? React.createElement(LeaseSurface, {key: viewLease, heldLease: viewLease}) : null,
+    active ? React.createElement(SubtitleLabel, size) : null);
 }
 
 /**
