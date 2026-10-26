@@ -108,6 +108,11 @@ export function createFocusRegistry() {
     visited.add(saved.regionId);
     if (focus(saved)) return true;
     const currentRegion = regions.get(saved.regionId);
+    if (saved.cell?.pending && saved.cell.index !== undefined && currentRegion?.config.grid) {
+      const replacement = [...currentRegion.children.keys()].find(id => {const cell = cellOf(currentRegion, id);
+        return cell?.index === saved.cell!.index && !cell?.pending;});
+      if (replacement && focus({regionId: saved.regionId, childId: replacement})) return true;
+    }
     if (saved.cell?.kind === 'channel' && currentRegion?.config.timeGrid) {
       const replacement = [...currentRegion.children].find(([, child]) => child.cell?.row === saved.cell?.row && child.cell?.kind === 'channel');
       if (replacement && focus({regionId: saved.regionId, childId: replacement[0]})) return true;

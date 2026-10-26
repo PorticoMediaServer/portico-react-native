@@ -1,3 +1,4 @@
+import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {alpha, browseType} from '../src-next/kit/browse/presentation.ts';
@@ -54,10 +55,10 @@ async function screen(react: unknown) {
       SEARCH_CHIPS: [{id: 'all', label: 'search.chip.all'}, {id: 'movies', label: 'search.chip.movies'}], topSearchResult: () => top,
       searchGroupLabel: () => 'search.chip.movies', topResultKindLabel: () => 'search.kind.show'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
-    '../../kit/cards/primitives': {ArtFrame: 'ArtFrame', CardFrame: 'CardFrame', Parts: 'Parts', Progress: 'Progress'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({})},
+    '../../kit/cards/primitives': {ArtFrame: 'ArtFrame', CardFrame: 'CardFrame', Parts: 'Parts', Progress: 'Progress'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => createFocusRegistry()},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/browse/presentation': presentation,
     '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {homeSubject: (content: unknown) => content},
-    './model': {nativeSearchEntryKey}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
+    './model': {nativeSearchEntryKey}, './TVSearchSection': {TVSearchSection: 'TVSearchSection'}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
     './genre-tiles': {nativeSearchGenreTiles},
   });
 }
@@ -85,19 +86,12 @@ test('the drawn field, keyboard column and results column are tv.html#f5 geometr
   assert.deepEqual(keyboardFrame, {position: 'absolute', left: 200, top: 176});
   const results = elements(tree).find(node => node.type === 'FocusRegion')!;
   assert.deepEqual(style(results.props.style), {position: 'absolute', left: 780, right: 0, top: 64, bottom: 0});
-  assert.equal(results.props.entry, nativeSearchEntryKey('movies', movie));
-  assert.equal(results.props.edges.left, ids.searchKeyboard);
-  const section = style(elements(tree).find(node => style(node.props.style).marginTop === 46)!.props.style);
-  assert.deepEqual(section, {marginTop: 46});
-  const headingNode = elements(tree).find(node => style(node.props.style).alignItems === 'baseline' && style(node.props.style).gap === 14)!;
-  assert.deepEqual(style(headingNode.props.style), {flexDirection: 'row', alignItems: 'baseline', gap: 14});
-  // The drawn headings carry their count beside the label; the section count is the frame's <small>.
-  assert.deepEqual(textOf(headingNode), ['Movies', '4']);
-  const track = style(elements(tree).find(node => style(node.props.style).marginTop === 30 && style(node.props.style).gap === 28)!.props.style);
-  assert.deepEqual(track, {flexDirection: 'row', gap: 28, marginTop: 30, flexWrap: 'nowrap'});
-  const cards = elements(tree).filter(node => node.type === 'SearchGridCard');
-  assert.equal(cards.length, 2);
-  assert.equal(cards[0].props.width, 196);
+  assert.equal(results.props.entryRegion, ids.searchSection('movies'));
+  assert.equal(results.props.edges.left, ids.searchKeyboardRow(0));
+  const sections = elements(tree).filter(node => node.type === 'TVSearchSection');
+  assert.equal(sections[0]!.props.group.items[0], movie);
+  assert.equal(sections[0]!.props.width, 1044);
+  assert.equal(sections[0]!.props.keyboardRegion, ids.searchKeyboardRow(0));
   // A title nobody has started draws no progress track (.mprog only rides a resume).
   assert.equal(elements(tree).find(node => node.type === 'Progress'), undefined);
 });
@@ -121,7 +115,7 @@ test('the drawn top result keeps f5 meta at 24px with 26px gaps, season count as
   assert.deepEqual(style(meta.props.style), {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 26, rowGap: 10, marginBottom: 14});
   const facts = elements(meta).filter(node => node.type === 'Text').map(node => ({text: flatText(node.props.children), style: style(node.props.style)}));
   assert.deepEqual(facts[0], {text: '2023', style: {...browseType(theme, 24, 700), color: colors.text}});
-  assert.deepEqual(facts[1], {text: defaultI18n.t('search.kind.show'), style: {...browseType(theme, 24, 400), color: colors.textSecondary}});
+  assert.deepEqual(facts[1], {text: defaultI18n.t('next.search.tvShow'), style: {...browseType(theme, 24, 400), color: colors.textSecondary}});
   assert.equal(facts.filter(fact => fact.text === '2023').length, 1);
   // The season count is the drawn .tv .tag, drawn by the canonical tag spec.
   const tagElement = elements(meta).find(node => typeof node.type === 'function' && node.type.name === 'TVSearchTag')!;
@@ -131,9 +125,9 @@ test('the drawn top result keeps f5 meta at 24px with 26px gaps, season count as
   const tagText = style(elements(tag).find(node => node.type === 'Text')!.props.style);
   assert.deepEqual(tagText, {...theme.type.tag, color: colors.text});
   assert.equal(tagText.fontSize, 20);
-  const bar = elements(meta).find(node => style(node.props.style).width === 160)!;
+  const bar = elements(row).find(node => style(node.props.style).width === 160)!;
   assert.deepEqual(style(bar.props.style), {width: 160});
-  assert.equal(elements(meta).find(node => node.type === 'Progress')!.props.value, .22);
+  assert.equal(elements(row).find(node => node.type === 'Progress')!.props.value, .22);
   modelProgress = 0;
   const freshCard = host.render(() => TVSearchTopResult({entry: show, group: 'shows', runtime, actions: {}, disabled: false}));
   const renderFresh = (Array.isArray(freshCard.props.children) ? freshCard.props.children[0] : freshCard.props.children) as (state: any) => any;
@@ -182,7 +176,7 @@ test('the drawn keyboard is f5 six-column grid with Space, Delete and Clear and 
   const host = hooks();
   const {NativeTVKeyboard} = await screenModule(new URL('../src-next/screens/search/TVKeyboard.tsx', import.meta.url), {
     react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({})}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => createFocusRegistry()}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => theme},
     '../destinations/useEntryFocus': {useDestinationEntryFocus: (_activation: unknown, address: unknown) => {entryRequests.push(address);}},
     '../destinations/focus': {}, './keyboard': {applyNativeTVKeyboardKey, nativeTVKeyboardRows},
@@ -229,12 +223,12 @@ test('Left from a result returns to the last keyboard row, and that key returns 
   landing = {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}; top = undefined; modelProgress = undefined;
   let tree = host.render(() => TVSearchScreen(screenProps()));
   const results = () => elements(tree).find(node => node.type === 'FocusRegion')!;
-  assert.equal(results().props.edges.left, ids.searchKeyboard);
+  assert.equal(results().props.edges.left, ids.searchKeyboardRow(0));
   // F-SEARCH-4/27: the keyboard remembers its key, so the results point Left at the row that held it.
   elements(tree).find(node => node.type === 'NativeTVKeyboard')!.props.onRowFocus(`${ids.searchKeyboard}.row.1`);
   tree = host.render(() => TVSearchScreen(screenProps()));
   assert.equal(results().props.edges.left, `${ids.searchKeyboard}.row.1`);
   // F-SEARCH-28: the results region remembers its own element, so Right from that key returns to it.
-  assert.equal(results().props.entry, nativeSearchEntryKey('movies', movie));
+  assert.equal(results().props.entryRegion, ids.searchSection('movies'));
   assert.equal(results().props.entryPolicy, undefined);
 });

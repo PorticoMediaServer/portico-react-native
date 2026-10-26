@@ -4,7 +4,7 @@ import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core/src/search';
 import {cardText} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
+import {orderedSearchGroups, SEARCH_CHIPS, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork} from '../../kit/artwork';
 import {Chip, Focusable} from '../../kit/controls';
@@ -18,8 +18,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import {homeSubject} from '../home/model';
 import {NativeSearchDestination, nativeSearchEntryKey} from './model';
-import {SearchGridCard} from './SearchGridCard';
-import {TVLoadedGrid} from '../../tv/layout/TVLoadedGrid';
+import {TVSearchSection} from './TVSearchSection';
 import {NativeTVKeyboard} from './TVKeyboard';
 import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from './types';
 import {nativeSearchGenreTiles} from './genre-tiles';
@@ -80,24 +79,21 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   const typed = !!state.text.trim(), groups = orderedSearchGroups(state.groups);
   const genreTiles = nativeSearchGenreTiles(landing.genres, 'tv');
   const empty = typed && state.search.phase === 'ready' && groups.every(group => group.status === 'success' && group.totalCount === 0);
-  const top = state.group === 'all' ? topSearchResult(state.text, groups) : undefined;
+  // Top result is chosen from the actual preview read, never from a later continuation.
+  const preview = state.search.data?.groups ?? groups;
+  const top = state.group === 'all' ? topSearchResult(state.text, orderedSearchGroups(preview)) : undefined;
   const shown = groups.filter(group => (state.group === 'all' || state.group === group.id) && (group.items.length > 0 || group.status === 'error'));
   const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
   // The drawn row keeps every available type while one is selected; in All it
   // drops the types this answer proved empty (tv.html#f5 counts the rest).
-  const chips = SEARCH_CHIPS.filter(chip => chip.id === 'all' || state.search.data?.capabilities.groups.some(group => group.id === chip.id && group.available))
+  const chips = SEARCH_CHIPS.filter(chip => chip.id === 'all' || (state.search.data?.capabilities ?? state.capabilities)?.groups.some(group => group.id === chip.id && group.available))
     .filter(chip => chip.id === 'all' || state.group !== 'all' || !groups.some(group => group.id === chip.id && group.status === 'success' && group.totalCount === 0));
-  const chipsDrawn = typed && !empty && !problem && !!state.search.data;
+  const chipsDrawn = typed && !empty && !problem && !!(state.search.data?.capabilities ?? state.capabilities);
   // Each result section is its own region, so the surrounding region never names a result
   // entry: it delegates to the first drawn section and that section's own remembered row.
   const keyboard = keyboardRow ?? ids.searchKeyboardRow(0);
   const keyboardKey = registry.remembered(keyboard);
   const sections = typed && !empty && !problem ? shown : [];
-  // The entry is only ever a focusable this render draws: results land in their
-  // own time, and a Right press aimed at an unmounted child is a dead press.
-  const firstResult = typed && !empty && !problem && top ? tvTopResultFocusId(top.group, top.entry)
-    : (!typed || empty) && genreTiles[0] ? `genre:${genreTiles[0].id}` : chipsDrawn && chips[0] ? `chip:${chips[0].id}`
-    : !typed && state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
   useEffect(() => runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
   const run = (work: Promise<void>) => {void work.catch(runtime.reportError);};
   const resultsWidth = Math.max(0, dimensions.width - resultsLeft - theme.layout.gutter.tvRight);
@@ -115,7 +111,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
       <View style={{width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08)}}><Icon name="i-mic" size={28} color={theme.colors.textSecondary}/></View>
       <Text style={[browseType(theme, 20, 400, 0, 29), {color: theme.colors.textTertiary, flex: 1}]}><Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{t(copy.preferToTalk)}</Text>{' '}{t(copy.voiceHint)}</Text>
     </View>}
-    <FocusRegion id={ids.searchResults} entry={firstResult} entryRegion={sections[0] ? ids.searchSection(sections[0].id) : undefined}
+    <FocusRegion id={ids.searchResults} entryRegion={typed && !empty && !problem && top ? ids.searchTop : sections[0] ? ids.searchSection(sections[0].id) : genreTiles.length ? ids.searchLanding : state.recent.length ? ids.searchRecent : chipsDrawn ? ids.searchChips : undefined}
       enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}} style={tvSearchR46.results}>
       <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
         setViewport({y: event.nativeEvent.contentOffset.y, height: event.nativeEvent.layoutMeasurement.height});
@@ -124,53 +120,36 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
         const group = groups.find(value => value.id === state.group);
         if (group?.nextCursor && contentOffset.y + layoutMeasurement.height >= contentSize.height - 600) run(destination.next(group.id));
       }}><View ref={contentRoot} collapsable={false}>
-        {chipsDrawn && <View style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
+        {chipsDrawn && <FocusRegion id={ids.searchChips} enabled={active.visible} orientation="horizontal" entry={`chip:${state.group}`} stops={{up: true}}
+          edges={{left: keyboard, ...(top ? {down: ids.searchTop} : sections[0] ? {down: ids.searchSection(sections[0].id)} : {})}} style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
           const group = groups.find(value => value.id === chip.id);
           const count = chip.id === 'all' ? groups.every(value => value.totalCountExact) ? groups.reduce((sum, value) => sum + value.totalCount, 0) : undefined : group?.totalCountExact ? group.totalCount : undefined;
           return <Chip key={chip.id} focusId={`chip:${chip.id}`} testID={`tv-search-chip-${chip.id}`} selected={state.group === chip.id} count={count} retry={group?.status === 'error'}
             disabled={!active.visible} onPress={() => destination.selectGroup(chip.id)}>{t(chip.label)}</Chip>;
-        })}</View>}
-        {state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>}
+        })}</FocusRegion>}
+        {state.search.error && <StateView testID="tv-search-read-error" {...runtime.error(state.search.error, () => run(destination.retry()))}/>}
         {problem && <StateView variant="search" title={problem}/>}
         {empty && <View><Text accessibilityRole="header" style={[browseType(theme, 52, 800, -.04, 54.6), {color: theme.colors.text, marginBottom: 14}]}>{t('next.states.noMatches', {query: state.text.trim()})}</Text>
           <Text style={[browseType(theme, 26, 400), {color: theme.colors.textSecondary, marginBottom: 54}]}>{t('next.states.noMatchesBody')}</Text></View>}
         {(!typed || empty) && <>
           {!!genreTiles.length && <Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text, marginBottom: 22}]}>{t(empty ? landing.emptyHeading : landing.initialHeading)}</Text>}
-          {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 26}}>{genreTiles.map(genre => <TVSearchGenre key={genre.id} genre={genre} width={(resultsWidth - 26) / 2}
-            disabled={!active.visible} runtime={runtime} onPress={() => explore.openGenre(genre)}/>)}</View>
-          {!typed && !!state.recent.length && <View style={{marginTop: 36}}><Text accessibilityRole="header" style={[browseType(theme, 32, 700), {color: theme.colors.text, marginBottom: 16}]}>{t('web.search.recent')}</Text>
+          {landing.phase === 'error' && <StateView testID="tv-search-landing-error" {...runtime.error(landing.error, () => run(explore.load()))}/>}
+          <FocusRegion id={ids.searchLanding} enabled={active.visible} grid={{columns: 2, count: genreTiles.length}} order={genreTiles.map(genre => `genre:${genre.id}`)}
+            edges={{left: keyboard, ...(!typed && state.recent.length ? {down: ids.searchRecent} : {})}} stops={{up: true, right: true, ...(!typed && state.recent.length ? {} : {down: true})}} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 26}}>{genreTiles.map(genre => <TVSearchGenre key={genre.id} genre={genre} width={(resultsWidth - 26) / 2}
+            disabled={!active.visible} runtime={runtime} onPress={() => explore.openGenre(genre)}/>)}</FocusRegion>
+          {!typed && !!state.recent.length && <FocusRegion id={ids.searchRecent} enabled={active.visible} orientation="vertical" entry={`recent:${state.recent[0]?.q}`} edges={{left: keyboard, ...(genreTiles.length ? {up: ids.searchLanding} : {})}} style={{marginTop: 36}}><Text accessibilityRole="header" style={[browseType(theme, 32, 700), {color: theme.colors.text, marginBottom: 16}]}>{t('web.search.recent')}</Text>
             {state.recent.map(recent => <Focusable key={recent.q} focusId={`recent:${recent.q}`} focusKind="row" disabled={!active.visible} onPress={() => destination.useRecent(recent.q)}
-              style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</View>}
+              style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</FocusRegion>}
         </>}
-        {typed && !empty && !problem && top && <TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/>}
-        {sections.map((group, index) => <FocusRegion key={group.id} id={ids.searchSection(group.id)}
-          entry={group.items[0] ? nativeSearchEntryKey(group.id, group.items[0]) : undefined} enabled={active.visible}
-          // A grid keeps its own movement: only a leftmost card leaves for the keyboard row the
-          // viewer last used, and rows still move up and down inside the section.
-          orientation="horizontal" edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}}
-          // Where a section's own child goes when it is removed. The registry tries the lower
-          // section first and the upper one second, so `next` is only ever a real lower section -
-          // a keyboard row there would be tried before the section above it. The first section's
-          // upper neighbour is the surrounding region, which holds the Top result and the chips.
-          neighbors={{
-            ...(sections[index + 1] ? {next: ids.searchSection(sections[index + 1]!.id)} : {}),
-            previous: sections[index - 1] ? ids.searchSection(sections[index - 1]!.id) : ids.searchResults,
-          }}
-          // Where the last resort lands: the key the viewer actually left on that keyboard row,
-          // which the registry remembers; nothing is guessed when it has none yet.
-          screenStart={keyboardKey ? {regionId: keyboard, childId: keyboardKey} : undefined}
-          style={tvSearchR46.section}>
-          <View style={tvSearchR46.heading}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
-            {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>
-          {group.status === 'error' && <StateView {...runtime.error({code: group.errorCode}, () => run(destination.retry()))}/>}
-          <TVLoadedGrid items={state.group === 'all' ? group.items.slice(0, 4) : group.items} getKey={entry => nativeSearchEntryKey(group.id, entry)}
-            itemWidth={196} itemHeight={group.id === 'episodes' ? 210 : ['movies', 'shows'].includes(group.id) ? 390 : 290}
-            gap={28} rowGap={40} scrollY={viewport.y} viewportHeight={viewport.height} coordinateRoot={contentRoot} initialWidth={resultsWidth} layoutRevision={contentHeight} singleRow={state.group === 'all'} style={{marginTop: 30}}
-            renderItem={(entry, cell) => <SearchGridCard entry={entry} group={group.id} width={196} onFocus={cell.onFocus}
-              runtime={runtime} actions={actions} selection={selection?.item(group.id, entry)} disabled={!active.visible}/>}/>
-
-        </FocusRegion>)}
+        {typed && !empty && !problem && top && <FocusRegion id={ids.searchTop} enabled={active.visible} entry={tvTopResultFocusId(top.group, top.entry)} stops={{right: true}}
+          edges={{left: keyboard, ...(chipsDrawn ? {up: ids.searchChips} : {}), ...(sections[0] ? {down: ids.searchSection(sections[0].id)} : {})}}><TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/></FocusRegion>}
+        {sections.map((group, index) => <TVSearchSection key={group.id} group={group} destination={destination} runtime={runtime} actions={actions} selection={selection}
+          enabled={active.visible} singleRow={state.group === 'all'} regionId={ids.searchSection(group.id)} keyboardRegion={keyboard}
+          previousRegion={sections[index - 1] ? ids.searchSection(sections[index - 1]!.id) : top ? ids.searchTop : chipsDrawn ? ids.searchChips : undefined}
+          previousFallback={sections[index - 1] ? ids.searchSection(sections[index - 1]!.id) : top ? ids.searchTop : undefined}
+          nextRegion={sections[index + 1] ? ids.searchSection(sections[index + 1]!.id) : undefined}
+          screenStart={keyboardKey ? {regionId: keyboard, childId: keyboardKey} : undefined} scrollY={viewport.y} viewportHeight={viewport.height}
+          contentRoot={contentRoot} width={resultsWidth} layoutRevision={contentHeight} paging={state.group === 'all' ? state.paging?.[group.id] : {loading: state.search.phase === 'loading', error: state.search.error}}/>)}
       </View></ScrollView>
     </FocusRegion>
     {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}

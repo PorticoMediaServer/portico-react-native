@@ -117,3 +117,14 @@ test('an ordered action region uses the same native grid contract without caller
   assert.deepEqual(registry.destinations({regionId: 'actions', childId: 'series'}).down, {childId: 'favorite'});
   assert.equal(requests, 0);
 });
+
+test('a focused grid loading slot is filled by the real new card at that source index', async () => {
+  const registry = createFocusRegistry(), calls: string[] = [];
+  registry.configure({id: 'results', grid: {columns: 4, count: 5}, order: ['a', 'b', 'c', 'd', 'cursor']});
+  for (const [index, childId] of ['a', 'b', 'c', 'd', 'cursor'].entries()) registry.attach({regionId: 'results', childId},
+    {requestTVFocus() {calls.push(childId);}}, {}, {index, pending: childId === 'cursor'});
+  registry.didFocus({regionId: 'results', childId: 'cursor'});
+  registry.attach({regionId: 'results', childId: 'cursor'}, null);
+  registry.attach({regionId: 'results', childId: 'served-next-card'}, {requestTVFocus() {calls.push('served-next-card');}}, {}, {index: 4});
+  await Promise.resolve(); assert.deepEqual(calls, ['served-next-card']);
+});

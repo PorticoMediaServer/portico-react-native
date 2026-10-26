@@ -35,7 +35,7 @@ test('the actual TV Search caller binds genuine query, navigation activation and
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards/primitives': {},
     '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => registry}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {}, '../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
     '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {}, './model': {nativeSearchEntryKey},
-    './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'}, './genre-tiles': {nativeSearchGenreTiles},
+    './TVSearchSection': {TVSearchSection: 'TVSearchSection'}, './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'}, './genre-tiles': {nativeSearchGenreTiles},
   });
   const props = {destination: {subscribe() {}, getSnapshot: () => state, setText: (text: string) => calls.push(text)},
     runtime: {getSnapshot: () => ({authority}), registerScrollToTop: () => () => {},
@@ -47,16 +47,17 @@ test('the actual TV Search caller binds genuine query, navigation activation and
   assert.equal(keyboard.props.id, ids.searchKeyboard); assert.equal(keyboard.props.leftRegionId, ids.rail);
   assert.equal(keyboard.props.rightRegionId, ids.searchResults); keyboard.props.onChangeText('actual query a'); assert.deepEqual(calls, ['actual query a']);
   const resultRegion = elements(tree).find(node => node.type === 'FocusRegion')!;
-  assert.equal(resultRegion.props.entry, nativeSearchEntryKey('movies', entry)); assert.equal(resultRegion.props.edges.left, ids.searchKeyboard);
-  const card = elements(tree).find(node => node.type === 'SearchGridCard')!;
-  assert.equal(card.props.entry, entry); assert.equal(card.props.selection, undefined); assert.equal(card.props.group, 'movies');
+  assert.equal(resultRegion.props.entryRegion, ids.searchSection('movies')); assert.equal(resultRegion.props.edges.left, ids.searchKeyboardRow(0));
+  const section = elements(tree).find(node => node.type === 'TVSearchSection')!;
+  assert.equal(section.props.group.items[0], entry); assert.equal(section.props.selection, undefined); assert.equal(section.props.regionId, ids.searchSection('movies'));
+  registry.configure({id: ids.searchSection('movies'), parent: ids.searchResults});
   const row = ids.searchKeyboardRow(3), address = {regionId: row, childId: 't'};
   let focusRequests = 0;
   registry.configure({id: row, entry: 's'});
   registry.attach(address, {requestTVFocus: () => {focusRequests++; registry.didFocus(address);}});
   registry.didFocus(address); keyboard.props.onRowFocus(row);
   render(() => TVSearchScreen(props));
-  registry.didFocus({regionId: ids.searchResults, childId: nativeSearchEntryKey('movies', entry)});
+  registry.didFocus({regionId: ids.searchSection('movies'), childId: nativeSearchEntryKey('movies', entry)});
   assert.equal(pageBack!(), true, 'results Back requests the real previously focused key in row3');
   assert.equal(focusRequests, 1);
   assert.equal(pageBack!(), false, 'Back already on keyboard falls through instead of trapping');
@@ -64,7 +65,7 @@ test('the actual TV Search caller binds genuine query, navigation activation and
   assert.equal(pageBack!(), false, 'a menu owns its own Back');
   registry.didFocus({regionId: ids.rail, childId: 'search'});
   assert.equal(pageBack!(), false, 'rail keeps precedence');
-  registry.didFocus({regionId: ids.searchResults, childId: nativeSearchEntryKey('movies', entry)});
+  registry.didFocus({regionId: ids.searchSection('movies'), childId: nativeSearchEntryKey('movies', entry)});
   const prior = pageBack!;
   activation = {visible: false, intent: 'restore', revision: 6};
   assert.equal(prior(), false, 'hidden activation refuses even before React effect cleanup');
@@ -77,7 +78,7 @@ test('the actual TV Search caller binds genuine query, navigation activation and
   render(() => TVSearchScreen(props));
   assert.equal(pageBack!(), true, 'restored page retains the real remembered key');
   registry.attach(address, null);
-  registry.didFocus({regionId: ids.searchResults, childId: nativeSearchEntryKey('movies', entry)});
+  registry.didFocus({regionId: ids.searchSection('movies'), childId: nativeSearchEntryKey('movies', entry)});
   assert.equal(pageBack!(), false, 'missing key hosts never manufacture focus success');
   cleanups.splice(0).forEach(cleanup => cleanup());
   assert.equal(pageBack, undefined, 'unmount releases the handler');

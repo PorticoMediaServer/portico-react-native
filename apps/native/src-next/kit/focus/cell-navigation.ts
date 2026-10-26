@@ -1,5 +1,5 @@
 /** Semantic native destinations. No key handler or imperative focus movement lives here. */
-export type FocusCell = Readonly<{index?: number; row?: number; kind?: 'channel' | 'programme'; boundary?: boolean; start?: number; end?: number}>;
+export type FocusCell = Readonly<{index?: number; row?: number; kind?: 'channel' | 'programme'; boundary?: boolean; pending?: boolean; start?: number; end?: number}>;
 export type CellDirection = 'up' | 'down' | 'left' | 'right';
 export type CellMember = Readonly<{id: string; cell: FocusCell}>;
 export type CellEdges = Readonly<Partial<Record<CellDirection, string>>>;

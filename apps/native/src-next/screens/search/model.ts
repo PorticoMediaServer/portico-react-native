@@ -4,7 +4,16 @@ import {
 } from '../../../../../packages/client-core/src/search';
 import type {ContentScope, LibraryContentApi} from '../../../../../packages/client-core/src/library-content';
 
+export const nativeSearchTailKey = (group: SearchGroup, cursor: string): string => JSON.stringify(['search-tail', group, cursor]);
 export const nativeSearchEntryKey = (group: SearchGroup, entry: SearchEntry): string => JSON.stringify([group, entry.kind, entry.id]);
+
+export type NativeSearchPageIssue = NonNullable<SearchSnapshot['error']> | Readonly<{code: SearchGroupResult['errorCode']; retryable: true}>;
+export type NativeSearchPageState = Readonly<{loading: boolean; error: NativeSearchPageIssue | null; fulfilled?: Readonly<{waitingId: string; firstItemId?: string}>}>;
+
+const pageIssue = (search: SearchSnapshot, group: SearchGroup): NativeSearchPageIssue | null => {
+  const failed = search.phase === 'ready' ? search.groups.find(result => result.id === group && result.status === 'error') : undefined;
+  return search.error ?? (failed ? {code: failed.errorCode, retryable: true} : null);
+};
 
 export type NativeSearchSnapshot = Readonly<{
   text: string;
@@ -14,6 +23,8 @@ export type NativeSearchSnapshot = Readonly<{
   groups: readonly SearchGroupResult[];
   recent: readonly SearchHistoryEntry[];
   clearing: boolean;
+  capabilities?: NonNullable<SearchSnapshot['data']>['capabilities'];
+  paging?: Readonly<Partial<Record<SearchGroup, NativeSearchPageState>>>;
 }>;
 
 /** One genuine SearchService and its history for one restored viewer lifetime.
@@ -36,7 +47,10 @@ export class NativeSearchDestination {
   private paused = false;
   private selectionRevision = 0;
   private pageQuery = '';
+  private displayedData?: SearchSnapshot['data'];
+  private capabilityQuery = '';
   private pages = new Map<SearchGroup, SearchGroupResult>();
+  private groupReads = new Map<SearchGroup, {service: SearchService; unsubscribe: () => void; revision: number; base: NonNullable<SearchSnapshot['data']>}>();
 
   constructor(options: NativeSearchDestination['options']) {
     this.options = options;
@@ -60,9 +74,12 @@ export class NativeSearchDestination {
     if (!this.current()) return;
     const search = this.service.getSnapshot();
     const query = JSON.stringify([search.query?.q, search.query?.group]);
-    if (query !== this.pageQuery || !search.data) {this.pages.clear(); this.pageQuery = query;}
-    if (search.phase === 'ready') {
-      if (!search.pagination.cursor) this.pages.clear();
+    const arrived = search.phase === 'ready' && search.data !== this.displayedData;
+    const reset = query !== this.pageQuery || !search.data || arrived && !search.pagination.cursor;
+    if (reset) {this.pages.clear(); this.stopGroupReads(); this.pageQuery = query;}
+    if (!search.data) this.displayedData = undefined;
+    if (arrived) {
+      this.displayedData = search.data;
       for (const group of search.groups) {
         const previous = search.pagination.cursor ? this.pages.get(group.id) : undefined;
         const items = new Map<string, SearchEntry>();
@@ -70,25 +87,33 @@ export class NativeSearchDestination {
         this.pages.set(group.id, Object.freeze({...group, items: Object.freeze([...items.values()])}));
       }
     }
-    this.publish({search, groups: Object.freeze([...this.pages.values()])});
+    const denied = search.error?.code === 'unauthorized' || search.error?.code === 'forbidden';
+    const capabilities = !denied && search.data?.capabilities || (!denied && search.query?.q === this.capabilityQuery ? this.state.capabilities : undefined);
+    if (search.data && !denied) this.capabilityQuery = search.data.query.q;
+    else if (!capabilities) this.capabilityQuery = '';
+    this.publish({search, capabilities, groups: Object.freeze([...this.pages.values()]), ...(reset ? {paging: {}} : {})});
   };
+  private stopGroupReads(): void {
+    for (const read of this.groupReads.values()) {read.unsubscribe(); read.service.dispose();}
+    this.groupReads.clear();
+  }
   private stopTimer(): void {clearTimeout(this.timer); this.timer = undefined;}
   setText(text: string): void {
     if (!this.current() || this.paused) return;
-    this.selectionRevision++; this.stopTimer(); this.service.cancel();
+    this.selectionRevision++; this.stopTimer(); this.stopGroupReads(); this.service.cancel();
     const problem = searchQueryProblem(text);
-    this.publish({text, group: 'all', problem});
+    this.publish({text, group: 'all', problem, paging: {}});
     if (!text.trim() || problem) return;
     // notes/search.md: one260ms debounce; Enter commits immediately.
     this.timer = setTimeout(() => {this.timer = undefined; void this.select(false);}, 260);
   }
   selectGroup(group: SearchGroup | 'all'): void {
     if (!this.current() || this.paused) return;
-    this.stopTimer(); this.publish({group}); void this.select(false);
+    this.stopTimer(); this.stopGroupReads(); this.publish({group, paging: {}}); void this.select(false);
   }
   private async select(record: boolean): Promise<void> {
     if (!this.current() || this.paused || !this.state.text.trim() || this.state.problem) return;
-    const revision = ++this.selectionRevision;
+    const revision = ++this.selectionRevision; this.stopGroupReads(); this.publish({paging: {}});
     try {
       await this.service.select(this.state.text, {
         ...(this.state.group === 'all' ? {} : {group: this.state.group}),
@@ -99,13 +124,67 @@ export class NativeSearchDestination {
   }
   commit = async (): Promise<void> => {this.stopTimer(); await this.select(true);};
   useRecent = (query: string): void => {this.setText(query); void this.commit();};
-  next = (group: SearchGroup): Promise<void> => this.current() && !this.paused ? this.service.next(group) : Promise.resolve();
+  private groupChanged = (group: SearchGroup): void => {
+    const read = this.groupReads.get(group);
+    if (!read || !this.current() || this.paused || read.revision !== this.selectionRevision || this.state.group !== 'all'
+      || this.service.getSnapshot().data !== read.base) return;
+    const search = read.service.getSnapshot();
+    if (search.error?.code === 'unauthorized' || search.error?.code === 'forbidden'
+      || search.data && search.data.scope.viewerFence !== read.base.scope.viewerFence) {
+      // A known access/fence change retires all retained facts before the canonical All reread.
+      this.stopGroupReads(); this.service.cancel(); void this.select(false); return;
+    }
+    const pageError = pageIssue(search, group);
+    let fulfilled: Readonly<{waitingId: string; firstItemId?: string}> | undefined;
+    if (search.phase === 'ready' && search.data !== read.base) {
+      const result = search.groups.find(value => value.id === group);
+      if (result?.status === 'error') {
+        if (!search.pagination.cursor) this.pages.set(group, result);
+      } else if (result) {
+        const previous = search.pagination.cursor ? this.pages.get(group) : undefined;
+        if (previous && result.totalCountExact && result.totalCount < previous.items.length) {
+          // The authoritative count invalidates the retained projection, but cannot identify
+          // which old cards survived. Retire it and let the canonical All read answer.
+          this.stopGroupReads(); this.service.cancel(); void this.select(false); return;
+        }
+        const known = new Set(previous?.items.map(entry => nativeSearchEntryKey(group, entry)));
+        const firstAdded = result.items.find(entry => !known.has(nativeSearchEntryKey(group, entry)));
+        if (search.pagination.cursor) fulfilled = {waitingId: nativeSearchTailKey(group, search.pagination.cursor),
+          ...(firstAdded ? {firstItemId: nativeSearchEntryKey(group, firstAdded)} : {})};
+        const items = new Map<string, SearchEntry>();
+        for (const entry of [...(previous?.items ?? []), ...result.items]) items.set(nativeSearchEntryKey(group, entry), entry);
+        this.pages.set(group, Object.freeze({...result, items: Object.freeze([...items.values()])}));
+      }
+    }
+    this.publish({groups: Object.freeze([...this.pages.values()]), paging: {...this.state.paging,
+      [group]: {...this.state.paging?.[group], loading: search.phase === 'loading', error: pageError, ...(fulfilled ? {fulfilled} : {})}}});
+  };
+  next = (group: SearchGroup): Promise<void> => {
+    if (!this.current() || this.paused) return Promise.resolve();
+    if (this.state.group !== 'all') return this.service.next(group);
+    let read = this.groupReads.get(group);
+    if (!read) {
+      const base = this.service.getSnapshot().data, service = this.service.forkContinuation(group);
+      if (!base || !service) return Promise.resolve();
+      read = {service, base, revision: this.selectionRevision, unsubscribe: service.subscribe(() => this.groupChanged(group))};
+      this.groupReads.set(group, read);
+    }
+    return read.service.next(group);
+  };
+  retryGroup = (group: SearchGroup): Promise<void> => {
+    if (!this.current() || this.paused) return Promise.resolve();
+    const read = this.groupReads.get(group);
+    return read ? read.service.retry() : this.state.group === 'all' ? this.next(group) : this.service.retry();
+  };
   retry = (): Promise<void> => this.current() && !this.paused ? this.service.retry() : Promise.resolve();
   /** Stop hidden work without turning a real arrived query/page into a draft. */
   pause = (): void => {
     if (!this.current() || this.paused) return;
     this.paused = true; this.selectionRevision++; this.stopTimer(); this.historyRevision++; this.history?.abort(); this.history = undefined;
     this.service.pause();
+    for (const [group, read] of this.groupReads) {read.service.pause();
+      if (read.service.getSnapshot().phase === 'idle') {read.unsubscribe(); read.service.dispose(); this.groupReads.delete(group);}}
+    this.publish({paging: Object.fromEntries([...this.groupReads].map(([group, read]) => [group, {...this.state.paging?.[group], loading: false, error: pageIssue(read.service.getSnapshot(), group) ?? this.state.paging?.[group]?.error ?? null}]))});
     if (this.state.clearing) this.publish({recent: [], clearing: false});
   };
   /** A paused arrived page needs no synthetic reread. An interrupted draft
@@ -113,6 +192,7 @@ export class NativeSearchDestination {
   resume = (): void => {
     if (!this.current() || !this.paused) return;
     this.paused = false;
+    for (const read of this.groupReads.values()) read.revision = this.selectionRevision;
     if (this.state.search.phase === 'idle') void this.select(false);
   };
   refreshHistory = async (): Promise<void> => {
@@ -146,7 +226,7 @@ export class NativeSearchDestination {
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true; this.selectionRevision++; this.stopTimer(); this.history?.abort(); this.historyRevision++;
-    this.unsubscribe(); this.service.cancel(); this.service.dispose(); this.pages.clear(); this.listeners.clear();
-    this.state = Object.freeze({...this.state, text: '', search: this.service.getSnapshot(), groups: [], recent: [], clearing: false});
+    this.unsubscribe(); this.stopGroupReads(); this.service.cancel(); this.service.dispose(); this.pages.clear(); this.listeners.clear();
+    this.state = Object.freeze({...this.state, text: '', search: this.service.getSnapshot(), capabilities: undefined, paging: {}, groups: [], recent: [], clearing: false});
   };
 }
