@@ -19,21 +19,33 @@ export type NativeDownloadRequest = Readonly<{
 }>;
 
 let current: NativeDownloadRequest | undefined;
+const openingKeys = new WeakMap<NativeDownloadRequest, number>();
+let nextOpeningKey = 0;
 const listeners = new Set<() => void>();
 const publish = () => {for (const listener of [...listeners]) listener();};
 
 /** A newer intent replaces the sheet's request; the sheet is never stacked. */
 export function askNativeDownload(request: NativeDownloadRequest): void {
   if (!request.title || !(request.itemId || request.container?.id)) return;
-  current = Object.freeze({...request});
+  current = Object.freeze({...request,
+    ...(request.container ? {container: Object.freeze({...request.container})} : {}),
+    ...(request.lifetime ? {lifetime: Object.freeze({...request.lifetime})} : {}),
+  });
+  openingKeys.set(current, ++nextOpeningKey);
   publish();
 }
 
-export function closeNativeDownload(expected?: NativeDownloadRequest): void {
-  if (expected && current !== expected) return;
-  if (!current) return;
+/** Presentation keys distinguish repeated equal-valued requests; they confer no authority. */
+export function nativeDownloadRequestKey(request: NativeDownloadRequest): number | undefined {
+  return openingKeys.get(request);
+}
+
+export function closeNativeDownload(expected?: NativeDownloadRequest): boolean {
+  if (expected && current !== expected) return false;
+  if (!current) return false;
   current = undefined;
   publish();
+  return true;
 }
 
 export function getNativeDownloadSnapshot(): NativeDownloadRequest | undefined {
