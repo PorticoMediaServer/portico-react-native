@@ -16,3 +16,16 @@ export function tvTitleRegionMap(scope: string, rail: string | undefined, show: 
     people: sections.get(cast), collection: {id: collectionId, entry: 'watch-title-collection', orientation: 'horizontal' as const,
       stops: {up: true}, edges: {left: rail, down: actions}, screenStart: start}, start};
 }
+
+/** Seasons and tiles are native subregions; the compound section remembers either one. */
+export function tvEpisodeRegionMap(section: FocusRegionConfig, seasonId: string | null, entries: readonly string[], nextUp?: string) {
+  const seasons = `${section.id}.seasons`, row = `${section.id}.season.${JSON.stringify(seasonId)}`;
+  return {
+    section: {...section, orientation: 'free' as const, entryRegion: row},
+    seasons: {id: seasons, orientation: 'vertical' as const, entry: seasonId ?? undefined,
+      screenStart: section.screenStart, neighbors: section.neighbors,
+      edges: {left: section.edges?.left, right: row, down: section.edges?.down}},
+    row: {id: row, entry: nextUp && entries.includes(nextUp) ? nextUp : entries[0], screenStart: section.screenStart,
+      neighbors: section.neighbors, edges: {...section.edges, left: seasons}, stops: section.stops},
+  };
+}

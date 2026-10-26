@@ -391,7 +391,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   };
   const bodyNode = (
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
-        {(theme.isTV || selectedTab === 'episodes') && workspace && (theme.isTV ? <TitleRegion {...regions.episodes} orientation="free"><TVEpisodeBrowser seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
+        {(theme.isTV || selectedTab === 'episodes') && workspace && (theme.isTV ? <TVEpisodeBrowser focus={regions.episodes} requestedSeasonId={snapshot.workspace?.route?.selectedSeasonId} seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
           episodes={episodes} nextUp={workspace.nextUp} show={{title: workspace.show.title, overview: workspace.show.overview, backdropUrl: workspace.show.backdropUrl}}
           open={openEpisode} text={text} artwork={props.artwork} more={props.more}
           onSeasonFocus={() => controller.episode.close()} onEpisodeFocus={entry => controller.episode.open(entry)}
@@ -401,7 +401,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           onMarkSeason={(id, watched) => {void controller.markSeason(id, watched).catch(props.reportError);}}
           onMoreSeasons={() => {void controller.moreSeasons().catch(props.reportError);}}
           onMoreEpisodes={() => {void controller.moreEpisodes().catch(props.reportError);}}
-          onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/></TitleRegion>
+          onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/>
           : <>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
             <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" style={{flexShrink: 0}}

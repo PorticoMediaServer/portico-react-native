@@ -7,6 +7,8 @@ import {cardText, episodeLabel, type TextEnvironment} from '../../../../../packa
 import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Focusable} from '../../kit/controls';
+import {FocusRegion, type FocusRegionConfig} from '../../kit/focus';
+import {tvEpisodeRegionMap} from './tv-title-focus';
 import {EpisodeTile} from '../../kit/cards';
 import type {ArtworkSource} from '../../kit/artwork';
 import {Menu, type MenuEntry} from '../../kit/overlays';
@@ -16,6 +18,8 @@ import type {NativeTitleEpisodeSnapshot} from './title-episode';
 
 export type TVEpisodeBrowserProps = Readonly<{
   seasons: readonly WorkspaceSeason[];
+  focus?: FocusRegionConfig;
+  requestedSeasonId?: string;
   selectedSeasonId: string | null;
   episodes: readonly ContentEntry[];
   nextUp?: ContentEntry;
@@ -36,7 +40,7 @@ export type TVEpisodeBrowserProps = Readonly<{
   renderError: (error: unknown, retry: () => void) => React.ReactNode;
 }>;
 
-type Focus = Readonly<{kind: 'season'; season: WorkspaceSeason}> | Readonly<{kind: 'episode'; entry: ContentEntry}>;
+type Focus = Readonly<{kind: 'empty'}> | Readonly<{kind: 'season'; season: WorkspaceSeason}> | Readonly<{kind: 'episode'; entry: ContentEntry}>;
 
 const numbering = (entry: ContentEntry) => entry.absoluteNumber !== undefined ? {mode: 'absolute' as const, number: entry.absoluteNumber}
   : entry.dateBased && entry.airDate ? {mode: 'date' as const, day: entry.airDate}
@@ -48,43 +52,43 @@ const numbering = (entry: ContentEntry) => entry.absoluteNumber !== undefined ? 
 export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
   const theme = useTheme(), t = defaultI18n.t, {episodes, open, nextUp} = props;
   const fallback = nextUp && episodes.some(entry => entry.id === nextUp.id) ? nextUp : episodes[0];
-  const [focus, setFocus] = useState<Focus>(() => fallback ? {kind: 'episode', entry: fallback} : {kind: 'season', season: props.seasons[0]!});
+  const [focus, setFocus] = useState<Focus>(() => fallback ? {kind: 'episode', entry: fallback} : props.seasons[0] ? {kind: 'season', season: props.seasons[0]} : {kind: 'empty'});
   const [menu, setMenu] = useState<WorkspaceSeason>();
-  const [listTag, setListTag] = useState<any>(), [rowTag, setRowTag] = useState<any>();
-  const selectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => {if (selectTimer.current) clearTimeout(selectTimer.current);}, []);
   useEffect(() => {
-    const current = focus.kind === 'episode' ? episodes.some(entry => entry.id === focus.entry.id) : props.seasons.some(season => season.id === focus.season.id);
+    const current = focus.kind === 'episode' ? episodes.some(entry => entry.id === focus.entry.id) : focus.kind === 'season' && props.seasons.some(season => season.id === focus.season.id);
     if (current) return;
     const next = nextUp && episodes.some(entry => entry.id === nextUp.id) ? nextUp : episodes[0];
-    if (next) setFocus({kind: 'episode', entry: next}); else if (props.seasons[0]) setFocus({kind: 'season', season: props.seasons[0]});
+    if (next) setFocus({kind: 'episode', entry: next}); else if (props.seasons[0]) setFocus({kind: 'season', season: props.seasons[0]}); else if (focus.kind !== 'empty') setFocus({kind: 'empty'});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [episodes, props.seasons, nextUp]);
   const selectedSeason = focus.kind === 'season' ? focus.season : props.seasons.find(season => season.id === props.selectedSeasonId) ?? props.seasons[0];
   const seasonFocus = (season: WorkspaceSeason) => {
     setFocus({kind: 'season', season}); props.onSeasonFocus();
-    if (selectTimer.current) clearTimeout(selectTimer.current);
-    selectTimer.current = setTimeout(() => props.onSelectSeason(season.id), 250);
+    if (season.id !== props.selectedSeasonId) props.onSelectSeason(season.id);
   };
   const episodeFocus = (entry: ContentEntry) => {setFocus({kind: 'episode', entry}); props.onEpisodeFocus(entry);};
+  const section = props.focus ?? {id: 'tv.episodes'};
+  const regions = tvEpisodeRegionMap(section, props.selectedSeasonId, episodes.map(entry => entry.id), nextUp?.id);
+  const rowReady = (!props.requestedSeasonId || props.requestedSeasonId === props.selectedSeasonId)
+    && (focus.kind !== 'season' || focus.season.id === props.selectedSeasonId);
+  const rowLive = useRef(rowReady); rowLive.current = rowReady;
   const selected = (season: WorkspaceSeason) => season.id === props.selectedSeasonId;
   const seasonMenu: MenuEntry[] = menu ? [
     {id: 'play-season', label: t('title.playSeason'), icon: 'i-play', onSelect: () => props.onPlaySeason(menu.id)},
     {id: 'mark-season', label: t(menu.watchedCount !== undefined && menu.episodeCount !== undefined && menu.watchedCount >= menu.episodeCount ? 'title.markSeasonUnwatched' : 'title.markSeasonWatched'),
       icon: 'i-check', onSelect: () => props.onMarkSeason(menu.id, !(menu.watchedCount !== undefined && menu.episodeCount !== undefined && menu.watchedCount >= menu.episodeCount))},
   ] : [];
-  return <View style={{flexDirection: 'row', gap: 70}}>
-    <View style={{width: 330}}>
+  return <FocusRegion {...regions.section} style={{flexDirection: 'row', gap: 70}}>
+    <FocusRegion {...regions.seasons} order={props.seasons.map(season => season.id)} style={{width: 330}}>
       <ScrollView showsVerticalScrollIndicator={false} onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) props.onMoreSeasons();}} scrollEventThrottle={64}>
         {props.seasons.map(season => {
           const active = selected(season) || (focus.kind === 'season' && focus.season.id === season.id);
           const total = season.episodeCount, watched = season.watchedCount;
           const counted = watched !== undefined && total !== undefined && total > 0;
-          return <Focusable key={season.id} testID={`tv-season-${season.id}`} focusKind="row" focusRadius={14} accessibilityRole="button"
-            accessibilityState={{selected: selected(season)}} hasTVPreferredFocus={focus.kind === 'season' && focus.season.id === season.id}
-            nextFocusRight={rowTag} onLayout={active ? event => setListTag(event.target) : undefined}
-            onFocus={() => seasonFocus(season)} onPress={() => {props.onSelectSeason(season.id); props.onSeasonFocus();}}
+          return <Focusable key={season.id} testID={`tv-season-${season.id}`} focusId={season.id} focusKind="row" focusRadius={14} accessibilityRole="button"
+            accessibilityState={{selected: selected(season)}}
+            onFocus={() => seasonFocus(season)} onPress={() => {}}
             onLongPressAction={() => setMenu(season)} onLongPress={() => setMenu(season)}
             style={{minHeight: 84, marginBottom: 6, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 14, justifyContent: 'center',
               backgroundColor: active ? '#409fd429' : 'transparent', overflow: 'hidden'}}>
@@ -104,10 +108,10 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
           <Text style={[browseType(theme, 17, 800), {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text></View>
         <Text style={[browseType(theme, 19, 600, 0, 26.6), {color: theme.colors.textTertiary}]}>{t('next.watch.seasonOptions')}</Text>
       </View>}
-    </View>
+    </FocusRegion>
     <View style={{flex: 1, minWidth: 0}}>
-      <TVShelf items={episodes} getKey={tvItemKey} itemWidth={384} itemHeight={320}
-        onVisibleRange={(_first, last) => {if (last >= episodes.length - 10) props.onMoreEpisodes();}}
+      <TVShelf items={rowReady ? episodes : []} focus={{...regions.row, enabled: rowReady}} getFocusId={tvItemKey} getKey={tvItemKey} itemWidth={384} itemHeight={320}
+        onVisibleRange={(_first, last) => {if (rowLive.current && last >= episodes.length - 10) props.onMoreEpisodes();}}
         renderItem={(entry, slot) => {
           const model = cardText({id: entry.id, kind: entry.kind, title: entry.displayTitle ?? entry.title, episode: numbering(entry), durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', props.text);
           const upNext = nextUp?.id === entry.id;
@@ -115,13 +119,12 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
           return <TVTile entry={entry} title={entry.displayTitle ?? entry.title} label={model.caption} width={384}
             length={entry.duration === undefined ? undefined : durationText(entry.duration, t)} status={upNext ? t('player.post.upNext') : undefined}
             watched={entry.watched} progress={model.progress} artwork={props.artwork(entry.stillUrl ?? props.show.backdropUrl)} backdropFallback={!entry.stillUrl} more={props.more}
-            primaryAction="play" onLayout={upNext ? event => setRowTag(event.target) : undefined} hasTVPreferredFocus={focus.kind === 'episode' && focus.entry.id === entry.id}
-            nextFocusLeft={listTag} onFocus={() => {slot.onFocus(); episodeFocus(entry);}} onBlur={slot.onBlur} onPlay={() => props.onPlayEpisode(entry)}/>;
+            primaryAction="play" focusId={slot.focusId} onFocus={() => {slot.onFocus(); episodeFocus(entry);}} onBlur={slot.onBlur} onPlay={() => {if (rowLive.current) props.onPlayEpisode(entry);}}/>;
         }}/>
       <FocusBand focus={focus} show={props.show} open={props.open} nextUp={nextUp} text={props.text} onRetry={props.onRetryEpisode} renderError={props.renderError}/>
     </View>
     <Menu open={!!menu} onOpenChange={open => {if (!open) setMenu(undefined);}} title={menu ? menu.title || t('title.season', {number: menu.number}) : ''} items={seasonMenu}/>
-  </View>;
+  </FocusRegion>;
 }
 
 export function TVTile({entry, more, ...props}: React.ComponentProps<typeof EpisodeTile> & {entry: ContentEntry; more: TVEpisodeBrowserProps['more']}) {
@@ -134,6 +137,7 @@ export function FocusBand({focus, show, open, nextUp, text, onRetry, renderError
   onRetry: () => void; renderError: TVEpisodeBrowserProps['renderError'];
 }) {
   const theme = useTheme(), t = defaultI18n.t;
+  if (focus.kind === 'empty') return null;
   if (focus.kind === 'season') {
     const season = focus.season;
     // tv-detail frame 5 draws the season summary as one meta line over a two-line synopsis.
