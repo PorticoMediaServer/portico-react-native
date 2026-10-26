@@ -365,7 +365,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
       <View style={[expandedBar ? s.expanded : s.phone, !expandedBar && wide && s.video, !expandedBar && theme.platform === 'tablet' && s.medium, {paddingLeft: 0, paddingRight: 0, backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
         <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>
         <DockHandover occupant={occupant} allowedTypes={dockPaintTypes} takeVideoExit={takeOriginalVideo} row={<DockPaintRow opener={opener} art={artPaint} words={wordsPaint}
-          controls={terminal ? undefined : mid} tools={tools} expanded={expandedBar} artWidth={artWidth}
+          controls={terminal ? undefined : mid} tools={tools} expanded={expandedBar} listeningFence={!video && !remote && playback.fence.kind !== 'cast-view' ? playback.fence : undefined} artWidth={artWidth}
           openerGap={expandedBar ? 12 : theme.platform === 'tablet' ? mediumDockMetrics.gap : wide ? 11 : 12}
           rowGap={expandedBar ? 0 : theme.platform === 'tablet' ? mediumDockMetrics.gap : 12} textStyle={s.text}
           containerStyle={[expandedBar ? s.expanded : s.phone, !expandedBar && wide && s.video, !expandedBar && theme.platform === 'tablet' && s.medium, {height: undefined, borderRadius: 0, overflow: 'visible'}]}

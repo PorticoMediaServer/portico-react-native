@@ -6,7 +6,7 @@ import {OverlayPaintProvider, OVERLAY_PAINT_HIDDEN, OVERLAY_PAINT_INERT, OVERLAY
 
 type Subscribe = (listener: () => void) => () => void;
 export type OverlayPaintPermit = Readonly<{current: () => boolean; subscribe: Subscribe}>;
-type Entry = Readonly<{id: string; node: OverlayPaintNode; allowed: OverlayPaintTypes; permit?: OverlayPaintPermit; open: boolean; exitMs: number; closing?: object; superseded?: boolean}>;
+type Entry = Readonly<{id: string; node: OverlayPaintNode; allowed: OverlayPaintTypes; omitted?: OverlayPaintTypes; permit?: OverlayPaintPermit; open: boolean; exitMs: number; closing?: object; superseded?: boolean}>;
 type Host = Readonly<{put: (entry: Entry) => void; retire: (id: string) => void}>;
 const Context = createContext<Host | undefined>(undefined);
 const noop = () => {};
@@ -93,7 +93,7 @@ export function SurfacePaintHost({children}: {children: ReactNode}) {
   const retire = useCallback((id: string) => setEntries(current => {
     const entry = current.find(value => value.id === id);
     if (!entry?.open) return current;
-    const paint = allowed(entry.permit) ? freezeOverlayPaint(entry.node, entry.allowed, [RetainedOverlay]) : undefined;
+    const paint = allowed(entry.permit) ? freezeOverlayPaint(entry.node, entry.allowed, [RetainedOverlay, ...(entry.omitted ?? [])]) : undefined;
     const closing = {};
     if (!paint) return current.map(value => value.id === id ? {...entry, open: false, closing, superseded: true} : value);
     const node = React.cloneElement(paint, {open: false, onOpenChange: noop, initialFocusRef: undefined});
@@ -107,12 +107,12 @@ export function SurfacePaintHost({children}: {children: ReactNode}) {
 
 /** Caller supplies only a materialised kit surface and explicitly audited pure
  * UI types. No component body/controller is cached or called for outgoing paint. */
-export function RetainedOverlay({children, permit, allowedTypes}: {children: ReactElement; permit?: OverlayPaintPermit; allowedTypes: OverlayPaintTypes}) {
+export function RetainedOverlay({children, permit, allowedTypes, omitTypes}: {children: ReactElement; permit?: OverlayPaintPermit; allowedTypes: OverlayPaintTypes; omitTypes?: OverlayPaintTypes}) {
   const host = useContext(Context), id = useId(), theme = useTheme(), motion = useMotion();
   const exitMs = motion.reduce ? 160 : theme.isTV ? 240 : 500;
   useLayoutEffect(() => {
-    if (host) host.put({id, node: children as OverlayPaintNode, allowed: allowedTypes, permit, open: true, exitMs});
-  }, [host, id, children, permit, allowedTypes, exitMs]);
+    if (host) host.put({id, node: children as OverlayPaintNode, allowed: allowedTypes, omitted: omitTypes, permit, open: true, exitMs});
+  }, [host, id, children, permit, allowedTypes, omitTypes, exitMs]);
   useLayoutEffect(() => () => {host?.retire(id);}, [host, id]);
   return host ? null : children;
 }

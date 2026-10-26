@@ -123,7 +123,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     ...common, '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme},
     '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},
     '../kit/dock/model': model,
-    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview'},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground'},
     '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
     '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'ListeningNotice'},
     '../screens/destinations/music/MusicSignal': signalView, '../screens/destinations/music/signal-facts': signalFacts,
@@ -676,4 +676,21 @@ test('playback Back refuses the original retired shell before any accessor even 
       assert.equal(r.shellReads, 1);assert.equal(r.transitions.length, transitions);
     } finally {r.close();}
   }
+});
+
+
+test('retired passive chrome gate refuses queued begin/update/release and finalizes only its original visual run', async () => {
+  const r = await rig();
+  try {
+    const current = {value: true}, pan = r.controller().chromeGesture(true, current);
+    pan.callbacks.onBegin(); pan.callbacks.onUpdate({translationY: 200, velocityY: 100});
+    const at = r.controller().progress.value;
+    current.value = false;
+    pan.callbacks.onUpdate(vertical); assert.equal(r.controller().progress.value, at);
+    pan.callbacks.onEnd(vertical, true); pan.callbacks.onFinalize(vertical, true); await r.flushJS();
+    assert.equal(r.transitions.length, 0);
+    assert.equal(r.controller().dragging.value, false);
+    assert.equal(r.animations.at(-1)!.to, 0);
+    pan.callbacks.onBegin(); assert.equal(r.controller().dragging.value, false, 'a queued old begin cannot re-arm retired paint');
+  } finally {r.close();}
 });
