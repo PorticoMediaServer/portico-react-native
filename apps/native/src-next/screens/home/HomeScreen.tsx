@@ -14,6 +14,7 @@ import {ArtworkPlacementContext} from '../../platform/ArtworkPipeline';
 import {usePlatformPosture} from '../../platform/platformPosture';
 import {AmbientArt, Artwork} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
+import {useTVPageBack} from '../destinations/useTVPageBack';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {tvFocusIds, tvHomeRegionMap} from '../../shell/tv-focus';
 import {NativeHomePaging} from '../../shell/home-paging';
@@ -155,12 +156,13 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
-  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => {moveToTop(0, true); if (theme.isTV) {setFocus(undefined); registry.focus(ids.start);}}), [runtime, moveToTop, theme.isTV, registry, ids.start, setFocus]);
-  useEffect(() => {if (!theme.isTV) return; return runtime.registerTVPageBack?.(() => {
-    const selected = registry.capture();
-    if (vertical.offset.value <= 0 && selected?.regionId === ids.spotlight && selected.childId === 'play') return false;
-    moveToTop(0, true); setFocus(undefined); registry.focus(ids.start); return true;
-  });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, setFocus, theme.isTV, vertical.offset]);
+  useEffect(() => !theme.isTV ? runtime.registerScrollToTop({kind: 'home'}, () => moveToTop(0, true)) : undefined, [runtime, moveToTop, theme.isTV]);
+  useTVPageBack(runtime, {kind: 'home'}, theme.isTV, {
+    registerTop: true,
+    current: () => active && foreground && sameAuthority(authority, runtime.getSnapshot().authority),
+    start: () => ids.start, atTop: () => vertical.offset.value <= 0,
+    scrollTop: () => {moveToTop(0, true); setFocus(undefined);},
+  });
   const current = useCallback(() => {
     try {return sameAuthority(authority, runtime.getSnapshot().authority);}
     catch (error) {if (error instanceof Error && error.name === 'AbortError') return false; throw error;}

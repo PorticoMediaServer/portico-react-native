@@ -27,6 +27,7 @@ import type {NativeSettingsLivePorts} from './ports';
 import type {NativeLiveController} from './live-controller';
 import type {NativeRecordingsController} from './recordings-controller';
 import {NativeRecordingsScreen} from './RecordingsScreen';
+import {useTVPageBack} from '../destinations/useTVPageBack';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
@@ -203,6 +204,24 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     : <Select testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={sortOptions} onValueChange={chooseSort}/>;
   const hasRecordings = state.sources.some(value => value.recordAvailable);
   const controls = ids.surface('live.controls'), grid = ids.surface('live.grid');
+  useTVPageBack(runtime, {kind: 'live'}, theme.isTV, {
+    registerTop: true, scope: JSON.stringify([state.revision, view]),
+    current: () => controller.lifetime.current() && !recordingsOpen && !ownerOpen && !selected,
+    start: () => {
+      const channel = guide.channelAt(0); if (!channel) return undefined;
+      if (view === 'list') return {regionId: grid, childId: cellFocusId(channel, {kind: 'now'})};
+      const openingStart = floorTo(now, SLOT_MS) - SLOT_MS;
+      const offered = guide.programsFor(0, openingStart - overscan, openingStart + (end - start) + overscan);
+      const programme = offered.programs.find(value => value.start <= now && value.end > now) ?? offered.programs[0];
+      const cells = layoutRow(offered.programs, {viewStart: openingStart - overscan, viewEnd: openingStart + (end - start) + overscan,
+        pxPerMs: px, now, gapPx: 6, tiers: {full: 300, title2: 150, title: 32}});
+      const cell: GuideCellIdentity | undefined = programme ? {kind: 'programme', id: programme.id}
+        : (offered.complete || offered.failed) && cells[0] ? {kind: 'gap', start: cells[0].start} : undefined;
+      return cell ? {regionId: grid, childId: cellFocusId(channel, cell)} : undefined;
+    },
+    atTop: () => guideOffset.current <= 0 && start === floorTo(now, SLOT_MS) - SLOT_MS,
+    scrollTop: () => {list.current?.scrollToOffset({offset: 0, animated: false}); goNow();},
+  });
   const viewSwitch = <Segmented testID="live-view" variant="phone" style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 10}} value={view} onValueChange={value => setView(value as 'list' | 'guide')} itemProps={item => ({accessibilityLabel: t(item.value === 'list' ? 'channels.viewList' : 'channels.viewGuide'), style: {height: 32, borderRadius: 8, paddingLeft: 9, paddingRight: 11}})} items={(['list', 'guide'] as const).map(value => ({value, label: <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><Icon name={value === 'list' ? 'i-list' : 'i-timeline'} size={16} color={view === value ? theme.colors.text : theme.colors.textTertiary}/><Text style={[shellType(13.5, 700), {color: view === value ? theme.colors.text : theme.colors.textTertiary}]}>{t(value === 'list' ? 'channels.viewList' : 'channels.viewGuide')}</Text></View>}))}/>;
   const filterChips = <FlatList horizontal data={groups} keyExtractor={group => group} showsHorizontalScrollIndicator={false} initialNumToRender={10} maxToRenderPerBatch={10} windowSize={3} style={{flexGrow: landscape ? 1 : 0, flex: landscape ? 1 : undefined, height: theme.isTV ? 64 : phoneChrome ? 34 : 44}} contentContainerStyle={{gap: theme.isTV ? 12 : phoneChrome ? 8 : 10, paddingHorizontal: compact ? 20 : 0}}
           ListHeaderComponent={<View style={{flexDirection: 'row', gap: theme.isTV ? 12 : phoneChrome ? 8 : 10}}>{phoneChrome && sourcePicker}<Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="all" testID="live-filter-all" selected={!state.options.favorites && !state.options.group} onPress={() => select({favorites: false, group: undefined})}>{t('channels.filterAll')}</Chip><Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="favorites" testID="live-filter-favorites" selected={state.options.favorites === true} onPress={() => select({favorites: !state.options.favorites, group: undefined})}>{t('channels.favorites')}</Chip></View>}

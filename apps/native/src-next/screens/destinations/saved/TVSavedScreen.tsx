@@ -22,6 +22,7 @@ import {TVLoadedGrid} from '../../../tv/layout/TVLoadedGrid';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
 import {SavedConfirmSheet} from '../../saved/SavedForms';
 import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
+import {useTVPageBack} from '../useTVPageBack';
 import {useDestinationEntryFocus} from '../useEntryFocus';
 import {sameAuthority, type ShellAuthority} from '../../../shell/model';
 import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
@@ -326,6 +327,12 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
         : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
   useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
+  useTVPageBack(runtime, {kind: 'saved'}, theme.isTV, {
+    registerTop: true, scope: JSON.stringify([active.revision, tab, sort, filter, period]),
+    current: () => activation.getSnapshot().visible,
+    start: () => firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined,
+    atTop: () => scrollY <= 0, scrollTop: () => page.current?.scrollTo({y: 0, animated: false}),
+  });
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={page} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewportHeight(event.nativeEvent.layout.height)} onScroll={event => setScrollY(event.nativeEvent.contentOffset.y)} scrollEventThrottle={16} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}><View ref={contentRoot} collapsable={false}>

@@ -9,6 +9,7 @@ import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
 import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
 import {planHomeWindows} from '../src-next/shell/home-windows';
 import {homePlayTarget} from '../src-next/screens/home/model';
+import * as shellModel from '../src-next/shell/model';
 import * as readPlatform from '../src-next/screens/read/platform';
 import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime';
 import {NativeScreenServices} from '../src-next/screens/screen-services';
@@ -29,7 +30,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   let routeConsumes = false;
   let back: () => boolean = () => false, expanded = false, pageCalls = 0, pageConsumes = true;
   const screenServices = await screenModule(new URL('../src-next/screens/native-screen-services.tsx', import.meta.url), {
-    react: h.react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
+    react: h.react, 'react-native': {NativeModules: {}}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, '../kit/dock/DockClearance': {useDockClearance: () => 0, feedbackBottomOffset: () => 0}, './screen-services': {NativeScreenServices},
     '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
   });
   const {createNativeShellBindings} = await screenModule(new URL('../src-next/shell/assembly.tsx', import.meta.url), {
@@ -41,7 +42,14 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': {},
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}, nativeMenuRouteAvailable: () => true}, './library-scan': {libraryScanReadiness: () => ({ok: true})}, '../screens/downloads/DownloadSheet': {NativeDownloadSheet: 'NativeDownloadSheet'},
+    '../screens/home/HomeEmpty': {NativeHomeEmpty: 'NativeHomeEmpty'},
+    './model': shellModel,
     './home-windows': {planHomeWindows},
+    './listening-playlist': {createNativeListeningPlaylist: () => ({dispose() {}})},
+    './listening-queue-policy': {createNativeListeningQueuePolicy: () => ({dispose() {}})},
+    './listening-song-detail': {createNativeListeningSongDetail: () => ({dispose() {}})},
+    './music-discover-navigation': {createNativeMusicDiscoverNavigation: () => ({open() {}, render() {}, dispose() {}})},
+    '../screens/destinations/music/mixes': {createNativeMusicMixes: () => ({dispose() {}})},
     './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return ['retained'];}, renderOverlays: () => ['overlay'], back: () => routeConsumes, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
     '../screens/read/platform': readPlatform, '../screens/settings-live/NativeTVReceiver': {NativeTVReceiver: 'NativeTVReceiver'},
     '../screens/native-screen-services': screenServices,
@@ -117,6 +125,12 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   back(); assert.equal(searchCalls, beforeTitle, 'retained Search cannot consume Title Back');
   navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
   back(); assert.equal(searchCalls, beforeTitle, 'Search cannot consume another destination Back');
+  assert.deepEqual(navigation.getSnapshot().destination, {kind: 'home'}, 'rail Back goes Home rather than popping Search history');
+  let arrivedTop = 0;
+  const removeTop = bindings.registerScrollToTop({kind: 'home'}, () => {arrivedTop++;});
+  assert.equal(arrivedTop, 1, 'a newly attached Home scroll host receives the pending opening request');
+  assert.equal(back(), false, 'Home opening state yields to OS despite prior destinations');
+  removeTop();
   removeSearch();
   navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
   navigation.open(titleRoute(entry), authority);

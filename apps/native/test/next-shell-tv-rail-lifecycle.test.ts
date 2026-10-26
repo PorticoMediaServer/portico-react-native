@@ -20,6 +20,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   registry.attach(ids.start, {requestTVFocus() {requests.push('play'); registry.didFocus(ids.start);}});
   const theme = createTheme({isTV: true, width: 1920}), motion = {transforms: false, timing: () => ({duration: 0})};
   const useShared = (value: number) => React.useRef({value}).current;
+  let menuFallback: (() => void) | undefined;
   let railBack: (() => boolean) | undefined, tree: any, root: any;
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {actions: []}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
@@ -32,6 +33,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', usePlayerMorphPublication() {}},
+    '../platform/menu-key': {registerTVMenuFallback: (run: () => void) => {menuFallback = run; return () => {if (menuFallback === run) menuFallback = undefined;};}},
     '../platform/tv-menu': {useTVMenuCapture: (capture: boolean) => {menuCapture.push(capture);}},
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: useShared, withTiming: (v: unknown) => v},
@@ -106,10 +108,19 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     assert.equal(tops.length, topsBefore, 'hiding the chrome never scrolls the hidden origin');
     await act(() => {snapshot = {...snapshot, destination: {kind: 'home'}, contentVisible: true, homeVisible: true, homeObscured: false, mediaExpanded: false}; sessionHost!.rerender(); registry.didFocus(ids.start);});
     assert.equal(menuCapture.at(-1), false, 'Menu at the real Home opening focus returns to tvOS');
+    registry.attachRegion(ids.rail, {requestTVFocus() {requests.push('rail'); registry.didFocus({regionId: ids.rail, childId: 'home'});}});
+    await act(() => menuFallback!());
+    assert.equal(registry.capture()?.regionId, ids.rail, 'ordinary context Menu enters the current rail');
+    const beforeOpenRail = requests.length;
+    await act(() => menuFallback!());
+    assert.equal(requests.length, beforeOpenRail, 'context Menu consumes an already open rail');
     await act(() => {registry.didFocus(row);});
     assert.equal(menuCapture.at(-1), true, 'a focus move below Home captures Menu before Back returns to the top');
     await act(() => {snapshot = {...snapshot, mediaExpanded: true}; sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), true, 'playback retains Menu even if Home had the starting focus');
+    const beforePlayer = requests.length;
+    await act(() => menuFallback!());
+    assert.equal(requests.length, beforePlayer, 'full player context Menu does nothing');
   } finally {
     sessionHost?.unmount(); rootHost.unmount();
     globalThis.requestAnimationFrame = previousFrame; globalThis.cancelAnimationFrame = previousCancel;

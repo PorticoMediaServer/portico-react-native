@@ -27,6 +27,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
+import {useTVPageBack} from '../destinations/useTVPageBack';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 import {LibraryToolbar} from './LibraryToolbar';
@@ -499,10 +500,17 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const tvActivation = useMemo(() => ({...active, intent: resourceGrid && active.intent === 'restore' ? 'enter' as const : active.intent,
     visible: active.visible && theme.isTV && !entryCovered}), [active, entryCovered, resourceGrid, theme.isTV]);
   useDestinationEntryFocus(tvActivation, firstAddress, entered, entryRequest);
-  useEffect(() => runtime.registerScrollToTop({kind: 'library', libraryId: source.library.id}, () => {
+  useTVPageBack(runtime, {kind: 'library', libraryId: source.library.id}, theme.isTV, {
+    registerTop: true, scope: JSON.stringify([active.revision, source.queryRevision, source.tab.id]),
+    current: () => activation.getSnapshot().visible && !entryCovered,
+    start: () => {const entry = collection.itemAt(0), key = entry && nativeLibraryEntryKey(entry);
+      return key ? {regionId: ids.libraryCard(source.library.id, key), childId: key} : undefined;},
+    atTop: () => offset.current <= 0, scrollTop: top,
+  });
+  useEffect(() => !theme.isTV ? runtime.registerScrollToTop({kind: 'library', libraryId: source.library.id}, () => {
     top(); const entry = collection.itemAt(0), key = entry && nativeLibraryEntryKey(entry);
     if (key) registry.focus({regionId: ids.libraryCard(source.library.id, key), childId: key});
-  }), [collection, ids, registry, runtime, source.library.id, top]);
+  }) : undefined, [collection, ids, registry, runtime, source.library.id, top, theme.isTV]);
   const toolbar = useMemo(() => browseToolbarModel(source.capabilities!, source.library.kind, source.predicates, source.sort!, {...runtime.text, owner, textEntry: !theme.isTV}),
     [owner, runtime.text, source.capabilities, source.library.kind, source.predicates, source.sort, theme.isTV]);
   const [visible, setVisible] = useState({first: source.memory.firstVisibleIndex, last: source.memory.firstVisibleIndex});

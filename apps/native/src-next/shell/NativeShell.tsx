@@ -8,6 +8,7 @@ import {DockClearanceProvider} from '../kit/dock/DockClearance';
 import {AccountMenu} from '../kit/shell';
 import {useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
+import {registerTVMenuFallback} from '../platform/menu-key';
 import {useTVMenuCapture} from '../platform/tv-menu';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
@@ -38,11 +39,18 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const wideSidebar = dimensions.width >= 1024;
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
-  const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
-  useEffect(() => {const remember = () => {const saved = registry.capture();
-    if (saved && (saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true)) pageFocus.current = saved;
-  }; remember(); return registry.subscribe(remember);}, [ids, registry]);
   const [tvListeningPresent, setTVListeningPresent] = useState(false);
+  const pageFocus = useRef<FocusSnapshot | undefined>(undefined), pageFocusDestination = useRef<string | undefined>(undefined);
+  const railRelease = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {const remember = () => {
+    const now = runtime.getSnapshot(), saved = registry.capture();
+    if (now.contentVisible === false || now.mediaExpanded || tvListeningPresent || now.homeObscured
+      || now.destination.kind === 'home' && !now.homeVisible) return;
+    if (saved && saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true) {
+      pageFocus.current = saved; pageFocusDestination.current = JSON.stringify(now.destination);
+    }
+  }; remember(); return registry.subscribe(remember);}, [ids, registry, runtime, tvListeningPresent]);
+  const currentPageFocus = pageFocusDestination.current === JSON.stringify(destination) ? pageFocus.current : undefined;
   const pageHold = theme.isTV && tvListeningPresent || snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
   const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
@@ -148,22 +156,34 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   };
   const expanded = useCallback((value: boolean) => {
     setRailExpanded(value);
-    if (value && !railRelease.current && pageFocus.current) railRelease.current = registry.retain(pageFocus.current);
+    const saved = pageFocusDestination.current === JSON.stringify(runtime.getSnapshot().destination) ? pageFocus.current : undefined;
+    if (value && !railRelease.current && saved) railRelease.current = registry.retain(saved);
     if (!value) {railRelease.current?.(); railRelease.current = undefined;}
     // tv.html f2 moves the copy's left edge from200 to470. The frame wins the stale220 token.
     shift.value = motion.transforms ? withTiming(value ? 270 : 0, motion.timing('standard')) : value ? 270 : 0;
     dim.value = withTiming(value ? .42 : 0, motion.timing('standard'));
-  }, [dim, motion, registry, shift]);
+  }, [dim, motion, registry, runtime, shift]);
   useEffect(() => {
     if (!theme.isTV) return;
     return runtime.registerTVRailBack?.(() => {
       if (registry.capture()?.regionId !== ids.rail) return false;
-      const saved = pageFocus.current;
+      const saved = pageFocusDestination.current === JSON.stringify(runtime.getSnapshot().destination) ? pageFocus.current : undefined;
       expanded(false);
-      if (!registry.restore(saved)) registry.focus(ids.start);
+      if (!registry.restore(saved)) runtime.scrollToTop(runtime.getSnapshot().destination);
       return true;
     });
   }, [runtime, registry, ids, theme.isTV, expanded]);
+  useEffect(() => {
+    if (!theme.isTV) return;
+    return registerTVMenuFallback(() => {
+      const now = runtime.getSnapshot();
+      if (!current() || now.contentVisible === false || now.mediaExpanded || tvListeningPresent
+        || now.homeObscured || now.destination.kind === 'home' && !now.homeVisible || accountOpen || chromeHidden) return;
+      // Context Menu on an open rail is consumed without closing or navigating it.
+      if (registry.capture()?.regionId === ids.rail) return;
+      if (registry.focusRegion(ids.rail)) expanded(true);
+    });
+  }, [accountOpen, chromeHidden, current, expanded, ids.rail, registry, runtime, theme.isTV, tvListeningPresent]);
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
@@ -182,7 +202,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
         </View>}
     </Animated.View>
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
-    {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} unread={snapshot.unreadNotifications} dimmed={destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !!railDim && !railDim.retired} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
+    {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={currentPageFocus} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} unread={snapshot.unreadNotifications} dimmed={destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !!railDim && !railDim.retired} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
         {sideNavigation && <MediumRail expanded={layout.kind === 'desktop' && sidebarExpanded} onToggle={layout.kind === 'desktop' ? toggleSidebar : undefined} serverName={snapshot.serverName} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}

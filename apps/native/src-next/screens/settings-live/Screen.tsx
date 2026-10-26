@@ -4,6 +4,7 @@ import {useTheme} from '../../kit/theme';
 import {shellType} from '../../kit/shell/visual';
 import {useFocusRegistry} from '../../kit/focus';
 import type {FocusAddress} from '../../kit/focus/registry';
+import type {ShellDestination} from '../../shell/model';
 import type {NativeShellRuntime} from '../../shell/runtime';
 
 export function Screen({children, title, style}: {children: ReactNode; title?: string; style?: StyleProp<ViewStyle>}) {
@@ -29,8 +30,9 @@ export function useScreenEntry(target: FocusAddress | undefined, current: () => 
   return useCallback(() => {laidOut.current = true; request();}, [request]);
 }
 
-export function useScreenBack(runtime: NativeShellRuntime, handler: () => boolean, isTV: boolean) {
-  useEffect(() => isTV ? runtime.registerTVPageBack?.(handler) : undefined, [runtime, handler, isTV]);
+export function useScreenBack(runtime: NativeShellRuntime, handler: () => boolean, isTV: boolean, destination?: ShellDestination) {
+  const key = JSON.stringify(destination ?? runtime.getSnapshot().destination);
+  useEffect(() => isTV ? runtime.registerTVPageBack?.(handler, JSON.parse(key)) : undefined, [runtime, handler, isTV, key]);
 }
 
 export function ScreenText({children, secondary = false}: {children: ReactNode; secondary?: boolean}) {

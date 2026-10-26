@@ -218,7 +218,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     setNativeScreenChromeHidden('settings-sheet', compact);
     return () => setNativeScreenChromeHidden('settings-sheet', false);
   }, [compact]);
-  useScreenBack(runtime, back, theme.isTV || remoteSourcesPage);
+  useScreenBack(runtime, back, theme.isTV || remoteSourcesPage, {kind: 'settings'});
   if (!page) throw new Error('native_settings_structure_empty');
   // Libraries and Live TV draw their own pages and own their scrolling; they are not
   // stacks of rows inside the generic Settings body.

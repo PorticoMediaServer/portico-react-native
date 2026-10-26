@@ -73,6 +73,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
       };
       if (!current.visible || current.revision !== active.revision || !inResults(captured)) return false;
       // focusRegion uses only current enabled native key hosts and their real row memory.
+      scroll.current?.scrollTo({y: 0, animated: false});
       return registry.focusRegion(keyboardRow ?? ids.searchKeyboardRow(0));
     }, {kind: 'search'});
   }, [activation, active.visible, active.revision, ids, keyboardRow, registry, runtime]);

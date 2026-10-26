@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {NativeModules, Platform, emit} from './react-native-stub.mjs';
+import {Keyboard, NativeModules, Platform, emit} from './react-native-stub.mjs';
 import {dispatchRegisteredOverlayKey, registerOverlayKeys} from '../src-next/platform/overlay-keys.ts';
-import {dispatchMenuKey, registerFocusedMenu} from '../src-next/platform/menu-key.ts';
+import {dispatchMenuKey, registerFocusedMenu, registerTVMenuFallback} from '../src-next/platform/menu-key.ts';
 
 const modules = NativeModules as unknown as Record<string, unknown>;
 function installBridge() {
@@ -118,24 +118,40 @@ test('a synchronous overlay unmount acknowledges its key before disabling native
   } finally {remove(); bridge.restore();}
 });
 
-test('Menu-up runs the focused action first, otherwise the actual registered overlay Menu callback', () => {
+test('Menu owns keyboard, then top overlay, then focused Hold OK, then the shell rail fallback', () => {
   const calls: string[] = [];
-  const overlay = registerOverlayKeys(key => {calls.push(key); return true;});
+  const fallback = registerTVMenuFallback(() => calls.push('rail'));
   const focus = registerFocusedMenu({}, () => calls.push('focused'));
+  const overlay = registerOverlayKeys(key => {calls.push(key); return false;});
   const up = {eventType: 'menu', eventKeyAction: 1};
+  const visible = Keyboard.isVisible, dismiss = Keyboard.dismiss;
   try {
+    Keyboard.isVisible = () => true; Keyboard.dismiss = () => {calls.push('keyboard');};
     assert.equal(dispatchMenuKey(up, 'android', true), true);
-    assert.deepEqual(calls, ['focused']);
-    focus();
-    assert.equal(dispatchMenuKey(up, 'android', true), true);
-    assert.deepEqual(calls, ['focused', 'menu']);
-    for (const event of [{eventType: 'menu', eventKeyAction: 0}, {eventType: 'select', eventKeyAction: 1}, {eventType: 'back', eventKeyAction: 1}, {eventType: 'playPause', eventKeyAction: 1}]) assert.equal(dispatchMenuKey(event, 'android', true), false);
-    assert.equal(dispatchMenuKey(up, 'ios', true), false);
-    assert.equal(dispatchMenuKey(up, 'android', false), false);
-    assert.deepEqual(calls, ['focused', 'menu']);
+    assert.deepEqual(calls, ['keyboard']);
+    Keyboard.isVisible = () => false;
+    assert.equal(dispatchMenuKey(up, 'android', true), true, 'inert top overlay blocks underlying actions');
+    assert.deepEqual(calls, ['keyboard', 'menu']);
     overlay();
+    assert.equal(dispatchMenuKey(up, 'android', true), true);
+    assert.deepEqual(calls, ['keyboard', 'menu', 'focused']);
+    focus();
+    assert.equal(dispatchMenuKey({eventType: 'menu'}, 'android', true), true, 'Vega translates one completed Menu without an action field');
+    assert.deepEqual(calls, ['keyboard', 'menu', 'focused', 'rail']);
+    for (const event of [{eventType: 'menu', eventKeyAction: 0}, {eventType: 'select', eventKeyAction: 1}, {eventType: 'back', eventKeyAction: 1}, {eventType: 'playPause', eventKeyAction: 1}]) assert.equal(dispatchMenuKey(event, 'android', true), false);
+    assert.equal(dispatchMenuKey(up, 'ios', true), false, 'Apple Menu remains Back');
+    assert.equal(dispatchMenuKey(up, 'android', false), false);
+    fallback();
     assert.equal(dispatchMenuKey(up, 'android', true), false);
-  } finally {focus(); overlay();}
+  } finally {Keyboard.isVisible = visible; Keyboard.dismiss = dismiss; focus(); overlay(); fallback();}
+});
+
+test('a retired shell fallback cannot remove the current owner', () => {
+  const calls: string[] = [];
+  const old = registerTVMenuFallback(() => calls.push('old'));
+  const current = registerTVMenuFallback(() => calls.push('current'));
+  try {old(); dispatchMenuKey({eventType: 'menu', eventKeyAction: 1}, 'android', true); assert.deepEqual(calls, ['current']);}
+  finally {old(); current();}
 });
 
 test('missing native bridge leaves callback registration and Menu usable without pretending hardware capture exists', () => {

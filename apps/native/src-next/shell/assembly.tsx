@@ -49,6 +49,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined;
   const tvPageBack = new Map<string, () => boolean>();
+  let homeTopPending = false;
   let tvRailBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void; spotlight: HomeSpotlight; index: number; context: string}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
@@ -210,6 +211,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const management = context.account.account.role === 'owner' ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
   const cleanups = [context.home.subscribe(onDocument), controller.subscribe(() => {if (capturedMenu?.menu !== controller.getSnapshot().menu) capturedMenu = undefined; publish();}), context.navigation.subscribe(() => {
     controller.clear();
+    if (!currentHome()) homeTopPending = false;
     if (currentHome()) onDocument();
     publish();
   }), nativeShellRoutes.subscribe(publish)];
@@ -230,11 +232,14 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       const navigation = context.navigation.getSnapshot();
       if (Platform.isTV && navigation.route.kind === 'shell') {
         const pageBack = tvPageBack.get(JSON.stringify(navigation.destination));
-        if (pageBack) {
-          const consumed = pageBack();
-          // Home's opening state already delegates directly to the OS.
-          if (consumed || navigation.destination.kind === 'home') return consumed;
-        }
+        if (pageBack?.()) return true;
+        // Rail-page Back is a ladder, independent of the order pages were visited.
+        if (navigation.destination.kind === 'home') return false;
+        homeTopPending = true;
+        open({kind: 'shell', destination: {kind: 'home'}});
+        const homeTop = scroll.get(JSON.stringify({kind: 'home'}));
+        if (homeTop && currentHome()) {homeTopPending = false; homeTop();}
+        return true;
       }
       return context.navigation.back(context.authority());
     }
@@ -383,7 +388,9 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     error: (error, retry, context = 'home') => feedback.error(error, retry, context),
     reportError, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
-    registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
+    registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler);
+      if (homeTopPending && destination.kind === 'home' && currentHome()) {homeTopPending = false; handler();}
+      return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: (handler, destination = {kind: 'home'}) => {
       const key = JSON.stringify(destination); tvPageBack.set(key, handler);

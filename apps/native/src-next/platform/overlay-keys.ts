@@ -16,6 +16,8 @@ const registrations: Registration[] = [];
 let disconnect: (() => void) | undefined;
 let dispatching = 0;
 
+export const hasRegisteredOverlayKeys = () => registrations.length > 0;
+
 /** Only the current registration answers; false never falls through to a lower overlay. */
 export function dispatchRegisteredOverlayKey(key: OverlayKey, shift = false): boolean {
   return registrations[registrations.length - 1]?.handler(key, shift) === true;
