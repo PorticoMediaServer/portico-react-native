@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PlaybackDock, type DockPlayback, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
-import {expandedListeningOccupant} from '../src-next/shell/listening-presentation.ts';
+import {expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import type {DockPresentation} from '../src-next/kit/dock/types.ts';
 
 const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'};
@@ -41,4 +41,16 @@ test('stale snapshot, mismatched presentation and remote custody remain refused'
   assert.equal(expandedListeningOccupant(dock, original, presentation), null);
   dock.beginRemote({id: 'receiver', kind: 'cast', sequence: '1', phase: 'connecting', playback: playback('music'), positionSeconds: 31}, 0);
   assert.equal(expandedListeningOccupant(dock, dock.getSnapshot(), presentation), null);
+});
+
+
+for (const kind of ['music', 'audiobook'] as const) test(`mini ${kind} offers only its original read-only paint, without expanding the real dock`, () => {
+  const dock = new PlaybackDock(scope); dock.start(playback(kind));
+  const original = dock.getSnapshot(), paint = localListeningOccupant(dock, original, presentation);
+  assert.equal(paint?.playback, original.local);
+  assert.equal(paint?.playback.expanded, false);
+  assert.equal(paint?.presentation, presentation);
+  assert.equal(dock.getSnapshot(), original, 'projection publishes no model transition');
+  assert.equal(expandedListeningOccupant(dock, original, presentation), null);
+  assert.equal(localListeningOccupant(dock, original, {...presentation, fence: {...fence, generation: 2}}), null);
 });

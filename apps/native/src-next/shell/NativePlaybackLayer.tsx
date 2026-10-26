@@ -16,7 +16,7 @@ import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation,type CastDockBinding} from '../kit/dock';
 import {commandIsCurrent, playbackPosition} from '../kit/dock/model';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {NowPlayingScreen, TVListeningRoute, type NowPlayingScreenProps} from '../screens/destinations/music/NowPlayingScreen';
+import {ListeningPagePreview, NowPlayingScreen, TVListeningRoute, type NowPlayingScreenProps} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
 import type {LyricsTarget} from '../../../../packages/client-core/src/lyrics';
 import {musicSignalView} from '../screens/destinations/music/MusicSignal';
@@ -24,7 +24,7 @@ import {NativeListeningNotice} from '../screens/destinations/music/ListeningNoti
 import {NativePlayOnSheets} from '../screens/watch/PlayOnSheets';
 import {useListeningSong} from './use-listening-song';
 import {nativeMusicSignal} from '../screens/destinations/music/signal-facts';
-import {expandedListeningOccupant} from './listening-presentation';
+import {expandedListeningOccupant, localListeningOccupant} from './listening-presentation';
 import {nativeEqualizer} from '../platform/playback/equalizer';
 import {listeningNoticeKey} from '../../../../packages/client-core/src/audio-effects';
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
@@ -209,7 +209,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   }, [runtime.retirementSignal]);
   const audioArtwork = useMemo(() => audioFence && sameAuthority(snapshot.authority, authority) ? runtime.artwork(snapshot.entry?.posterUrl) : undefined,
     [audioFence, snapshot.authority, authority, runtime, snapshot.entry?.posterUrl]);
-  const coverPublication = useMemo(() => audioFence && audioArtwork ? {fence: audioFence, source: audioArtwork,
+  const coverPublication = useMemo(() => audioFence ? {fence: audioFence, source: audioArtwork,
     controller: morph, scope: navigationState, opening: coverOpeningKey, current: coverCurrent, subscribe: coverSubscribe} : undefined,
     [audioFence, audioArtwork, morph, navigationState, coverOpeningKey, coverCurrent, coverSubscribe]);
   useListeningCoverPublication(coverPublication);
@@ -420,6 +420,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   // queue. The dock stays underneath; this never starts a second session.
   const dockedLocal = snapshot.dock.local;
   const nowPlaying = expandedListeningOccupant(adapter.dock, snapshot.dock, presentation);
+  const previewListening = !theme.isTV && !nowPlaying ? localListeningOccupant(adapter.dock, snapshot.dock, presentation) : null;
   const listeningView: NowPlayingScreenProps | undefined = nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') ? {
     occupant: nowPlaying, queue: snapshot.queue?.view ?? undefined, artwork: runtime.artwork,
     width, height, topInset: insets.top, bottomInset: insets.bottom,
@@ -451,6 +452,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
           notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'web' ? 100 : theme.platform === 'tablet' ? 66 : 62) + 10}/>}
+        {previewListening && <ListeningPagePreview occupant={previewListening} queue={snapshot.queue?.view ?? undefined} width={width} height={height} topInset={insets.top} bottomInset={insets.bottom}/>}
         {theme.isTV ? <TVListeningRoute value={listeningView} scope={authorityKey(authority)} onPresenceChange={onTVListeningPresenceChange}/> : listeningView && <ListeningSongOpening adapter={adapter} detail={runtime.listeningSongDetail}
           fence={listeningView.occupant.playback.fence} lifetime={listeningLifetime}>{song => <NowPlayingScreen {...listeningView}
             song={{token: song.song, pending: song.pending, favorite: song.favorite}}/>}</ListeningSongOpening>}
