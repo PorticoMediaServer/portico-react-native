@@ -73,7 +73,6 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
         options={days.map((value, index) => ({value: String(value), label: label(`tabs.3.groups.0.rows.3.control.options.${index}.label`)}))}
         onValueChange={value => {const next = Number(value); if (days.includes(next)) set('fullRecheckDays', next);}}/>
       {switches.map(([key, copy]) => <Switch key={key} checked={values[key]} disabled={busy} onCheckedChange={value => set(key, value)}>{label(copy)}</Switch>)}
-      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.advWholeFileHint')}</Text>
       {settings.cacheSupported && <>
         <Select disabled={busy} label={label('tabs.1.groups.0.rows.1.label')} value={String(values.cacheBytes / GIB)}
           options={cache.map((value, index) => ({value: String(value), label: label(`tabs.1.groups.0.rows.1.control.options.${index}.label`)}))}

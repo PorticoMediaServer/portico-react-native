@@ -8,6 +8,7 @@ import {Switch} from '../../../kit/controls/Switch';
 import {Select} from '../../../kit/controls/Select';
 import {useTheme} from '../../../kit/theme';
 import type {NativeRemoteSourcesController} from './controller';
+import {SourceAnalysisConsent} from './SourceAnalysisConsent';
 
 type Translate = typeof defaultI18n.t;
 type Common = {controller: NativeRemoteSourcesController; t: Translate; onCancel: () => void; isCurrent: () => boolean};
@@ -123,10 +124,17 @@ export function sourceReadPresetLabel(t: Translate, preset: SourceReadPreset): s
 export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source: RemoteSource; onSaved: () => void}) {
   const current = useAttempt(isCurrent), inFlight = useRef(false);
   const [profile, setProfile] = useState<SourceReadSettings>(), [values, setValues] = useState<SourceReadValues>();
+  const profileOwner = useRef<SourceReadSettings | undefined>(undefined), draftRevision = useRef(0);
+  const renderedRevision = draftRevision.current;
+  const ownsDraft = () => current() && profileOwner.current === profile && draftRevision.current === renderedRevision;
+  const [analysisConsent, setAnalysisConsent] = useState<boolean>(), [consentEdited, setConsentEdited] = useState(false);
   const [connections, setConnections] = useState(''), [requests, setRequests] = useState(''), [speed, setSpeed] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>();
   const accept = (next: SourceReadSettings) => {
-    setProfile(next); setValues(next.values); setConnections(String(next.values.connections)); setRequests(String(next.values.requestsPerSecond)); setSpeed(String(next.values.bytesPerSecond / 1000000));
+    const {allowAdvancedMediaAnalysis, ...reading} = next.values;
+    profileOwner.current = next; draftRevision.current++;
+    setProfile(next); setValues(reading); setAnalysisConsent(allowAdvancedMediaAnalysis); setConsentEdited(false);
+    setConnections(String(reading.connections)); setRequests(String(reading.requestsPerSecond)); setSpeed(String(reading.bytesPerSecond / 1000000));
   };
   const load = async () => {
     if (inFlight.current || !current()) return;
@@ -140,17 +148,34 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const select = (preset: SourceReadPreset) => {
+    if (inFlight.current || !profile || !ownsDraft()) return;
+    draftRevision.current++;
+    // Presets change reading controls only. The independent consent draft and its
+    // explicit-edit fact survive, so no preset can grant or revoke consent.
     const next = sourceReadPreset(preset); setValues(next); setConnections(String(next.connections)); setRequests(String(next.requestsPerSecond)); setSpeed(String(next.bytesPerSecond / 1000000));
+  };
+  const edit = (setter: (value: string) => void) => (value: string) => {
+    if (inFlight.current || !current() || profileOwner.current !== profile) return;
+    draftRevision.current++; setter(value);
+  };
+  const changeConsent = (value: boolean) => {
+    if (inFlight.current || !ownsDraft() || typeof analysisConsent !== 'boolean') return;
+    draftRevision.current++; setAnalysisConsent(value); setConsentEdited(true);
   };
   const parsed = values && {...values, connections: Number(connections), requestsPerSecond: Number(requests), bytesPerSecond: Math.round(Number(speed) * 1000000)};
   const valid = !!parsed && connections.trim() !== '' && requests.trim() !== '' && speed.trim() !== '' && Number.isSafeInteger(parsed.connections) && parsed.connections > 0 && parsed.connections <= 32
     && Number.isSafeInteger(parsed.requestsPerSecond) && parsed.requestsPerSecond > 0 && parsed.requestsPerSecond <= 50 && Number.isSafeInteger(Number(speed)) && Number(speed) >= 0 && Number(speed) <= 1000 && Number.isSafeInteger(parsed.bytesPerSecond);
   const save = async () => {
-    if (inFlight.current || !profile || !parsed || !valid || !current()) return;
+    if (inFlight.current || !profile || !parsed || !valid || !ownsDraft()) return;
+    if (consentEdited && typeof analysisConsent !== 'boolean') return;
+    // Omission preserves the source's recorded consent. Only an explicit edit
+    // includes this field, beside the same original profile revision and values.
+    const consent = consentEdited ? analysisConsent : undefined;
+    const command = Object.freeze({...parsed, ...(typeof consent === 'boolean' ? {allowAdvancedMediaAnalysis: consent} : {})});
     inFlight.current = true;
     setBusy(true); setError(undefined);
-    try {await controller.saveProfile(profile, parsed, current); if (current()) onSaved();}
-    catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
+    try {await controller.saveProfile(profile, command, ownsDraft); if (ownsDraft()) onSaved();}
+    catch (problem) {if (ownsDraft()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
   const ambiguous = receiptCheckRequired(controller.getSnapshot().sources);
@@ -173,10 +198,10 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurre
       <Select accessibilityLabel={t('next.remoteSources.readingMode')} value={parsed ? sourceReadPresetName(parsed) ?? 'custom' : 'custom'}
         options={[...presets.map((value, i) => ({value, label: t(presetLabels[i])})), {value: 'custom', label: t('next.settingsSpec.server.remote-sources.panels.source.tabs.1.groups.0.rows.0.control.options.4.label'), disabled: true}]} disabled={busy}
         onValueChange={value => {if (presets.includes(value as SourceReadPreset)) select(value as SourceReadPreset);}}/>
-      <Switch variant="phone" checked={values.wholeFileReads} onCheckedChange={wholeFileReads => setValues({...values, wholeFileReads})} disabled={busy}>{t('next.settingsSpec.server.remote-sources.panels.source.tabs.3.groups.1.rows.1.label')}</Switch>
-      <TextField label={t('next.remoteSources.connections')} value={connections} onChangeText={setConnections} editable={!busy} keyboardType="number-pad"/>
-      <TextField label={t('next.remoteSources.requestsPerSecond')} value={requests} onChangeText={setRequests} editable={!busy} keyboardType="number-pad"/>
-      <TextField label={`${t('next.remoteSources.downloadSpeed')} (${t('next.remoteSources.megabytesPerSecond')})`} value={speed} onChangeText={setSpeed} editable={!busy} keyboardType="number-pad" description={Number(speed) === 0 ? t('next.remoteSources.noLimit') : undefined}/>
+      <SourceAnalysisConsent value={analysisConsent} disabled={busy || ambiguous} onChange={changeConsent} t={t}/>
+      <TextField label={t('next.remoteSources.connections')} value={connections} onChangeText={edit(setConnections)} editable={!busy} keyboardType="number-pad"/>
+      <TextField label={t('next.remoteSources.requestsPerSecond')} value={requests} onChangeText={edit(setRequests)} editable={!busy} keyboardType="number-pad"/>
+      <TextField label={`${t('next.remoteSources.downloadSpeed')} (${t('next.remoteSources.megabytesPerSecond')})`} value={speed} onChangeText={edit(setSpeed)} editable={!busy} keyboardType="number-pad" description={Number(speed) === 0 ? t('next.remoteSources.noLimit') : undefined}/>
     </>}
     {!profile && !busy && <Button variant="glass" onPress={() => {void load();}}>{t('next.remoteSources.retry')}</Button>}
     <Problem message={error}/>
