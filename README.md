@@ -93,6 +93,23 @@ codesign -d --entitlements :- <Portico.app>
 phones, tablets, and Android TV. The `firetv` flavor builds the same app for
 Fire OS without Google services. Use Android Studio or Gradle from that folder.
 
+A Fire TV store upload is built from that folder with the upload key, a version
+code the store has not seen, and only the architectures a Fire TV uses. Nothing
+is passed on the command line except the version and architectures: the key and
+its passwords come from the user's own protected Gradle properties
+(`~/.gradle/gradle.properties`) or from `ORG_GRADLE_PROJECT_porticoUpload*`
+variables already present in the build's environment. They are never committed,
+echoed or given as `-P` arguments, which would put them in shell history and the
+process list. Without them a release build uses the debug keystore, which is not
+a store signing identity.
+
+```sh
+cd apps/native/android
+./gradlew :app:assembleFiretvRelease \
+  -PreactNativeArchitectures=armeabi-v7a,arm64-v8a \
+  -PporticoVersionCode=<code> -PporticoVersionName=<name>
+```
+
 ## Feedback and contributions
 
 Bug reports and product feedback are welcome through [GitHub Issues](https://github.com/PorticoMediaServer/portico-react-native/issues). Portico does not accept external code contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).

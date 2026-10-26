@@ -17,6 +17,27 @@ react {
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// A store upload names its own signing key and version code when it is built; neither is in this
+// repository. The properties porticoUploadStoreFile, porticoUploadStorePassword, porticoUploadKeyAlias,
+// porticoUploadKeyPassword, porticoVersionCode and porticoVersionName (or the matching
+// ORG_GRADLE_PROJECT_* environment variables) are read here; README's Android builds section says
+// how a store build supplies them without putting a password in the command line. Absent, every
+// build keeps the debug keystore and version 1 / "1.0" below, so local, emulator and sideload
+// packaging is unchanged.
+def uploadStoreFile = project.findProperty("porticoUploadStoreFile")?.toString()
+def uploadStorePassword = project.findProperty("porticoUploadStorePassword")?.toString()
+def uploadKeyAlias = project.findProperty("porticoUploadKeyAlias")?.toString()
+def uploadKeyPassword = project.findProperty("porticoUploadKeyPassword")?.toString()
+def uploadSigning = [uploadStoreFile, uploadStorePassword, uploadKeyAlias, uploadKeyPassword].every { it }
+if (!uploadSigning && [uploadStoreFile, uploadStorePassword, uploadKeyAlias, uploadKeyPassword].any { it }) {
+    throw new GradleException("Portico upload signing needs all four of porticoUploadStoreFile, porticoUploadStorePassword, porticoUploadKeyAlias and porticoUploadKeyPassword.")
+}
+def storeVersionCode = project.findProperty("porticoVersionCode")?.toString()?.toInteger()
+def storeVersionName = project.findProperty("porticoVersionName")?.toString()
+if (storeVersionCode != null && storeVersionCode < 1) {
+    throw new GradleException("porticoVersionCode must be 1 or more.")
+}
+
 // The app's own C++ (React Native's app modules and the libraries' generated code) names source
 // files in its asserts. Those names are mapped to neutral ones, so a release library carries no
 // folder of the machine that built it: the checkout, node_modules (also through a link) and
@@ -44,8 +65,8 @@ android {
         applicationId "tv.getportico.portico"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode storeVersionCode ?: 1
+        versionName storeVersionName ?: "1.0"
         manifestPlaceholders += [
             porticoHostedUrl        : (project.findProperty("porticoHostedUrl") ?: ""),
             porticoCastApplicationId: (project.findProperty("porticoCastApplicationId") ?: ""),
@@ -76,6 +97,17 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // The store upload key is the machine's, not the repository's: when all four properties
+        // are supplied, release variants are signed with it (see the properties above). Without
+        // them this configuration does not exist, and release builds keep the debug keystore.
+        if (uploadSigning) {
+            release {
+                storeFile file(uploadStoreFile)
+                storePassword uploadStorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
@@ -86,8 +118,9 @@ android {
             buildConfigField "boolean", "PORTICO_EMBEDDED_JAVASCRIPT", embeddedJavaScript.toString()
         }
         release {
-            // Not signed for a store: release builds use the debug keystore until distribution is decided.
-            signingConfig signingConfigs.debug
+            // A store upload key when one was supplied; otherwise the debug keystore, which is
+            // not a store signing identity.
+            signingConfig uploadSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             buildConfigField "boolean", "PORTICO_EMBEDDED_JAVASCRIPT", "true"
