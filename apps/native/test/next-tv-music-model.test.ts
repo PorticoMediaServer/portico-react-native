@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {readListeningSimilar} from '../../../packages/client-core/src/library-content.ts';
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 
 const song = (id: string, track: number, duration: number, title: string) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
@@ -17,19 +18,23 @@ class Builder {
   build() { return {pivot: 'songs', ...this.body}; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?: any};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number}};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
-  const calls: any[] = [], browseBodies: any[] = [];
+  const calls:any[]=[],browseBodies:any[]=[],reads:string[]=[];
+  const similarScope={serverId:'server',authority:'local' as const,accountId:'account',profileId:'profile',controllerId:'v1',controllerEpoch:'v1',commandLaneId:'v1'};
+  const revision=options.entityRevision??{catalog:7,viewer:3};
+  const services:FakeLibraryContentService[]=[];
   class FakeLibraryContentService {
-    static entity: any;
-    select = async () => {};
-    getSnapshot = () => ({projection: FakeLibraryContentService.entity ? {entity: FakeLibraryContentService.entity} : null});
-    dispose = () => {};
+    projection:any;disposed=false;
+    constructor(){this.projection=options.entityMissing?null:{entity:options.artistDetails??entry,scope:{serverId:'server',libraryId:'music',libraryKind:'music',view:entry.kind,entityId:entry.id,viewerFence:'real-projection-viewer'},revision};services.push(this);}
+    select=async()=>{};
+    getSnapshot=()=>({phase:this.disposed?'error':'ready',projection:this.projection});
+    dispose=()=>{this.disposed=true;};
   }
-  FakeLibraryContentService.entity = options.artistDetails;
   const playback = {cataloguePlayback: () => ({playSegments: (segments: any, start: any) => {calls.push({segments, options: start}); return Promise.resolve({id: 'queue'});}})};
-  const api = {request: async (path: any, _method?: any, body?: any) => {
+  const api = {request: async (path:any,_method?:any,body?:any)=>{
+    reads.push(String(path));
     if (String(path).startsWith('cap:')) {
       const failure = options.capabilitiesError?.();
       if (failure) throw failure;
@@ -48,9 +53,10 @@ async function controller(entry: any, options: Fixture = {}) {
     }
     if (String(path).includes('albums')) return {albums, nextCursor: ''};
     if (String(path).includes('similar')) {
+      options.onSimilar?.();await options.waitSimilar;
       const failure = options.similarError?.();
       if (failure) throw failure;
-      return {data: {entries: similar}};
+      return options.similarResponse??{scope:{serverId:'server',authority:'local',accountId:'account',profileId:'profile'},data:{itemId:entry.id,libraryId:'music',revision,bySound:options.bySound??true,entries:similar}};
     }
     if (String(path).includes('/personal-state')) return {favorite: true};
     throw new Error(`unexpected ${path}`);
@@ -60,15 +66,15 @@ async function controller(entry: any, options: Fixture = {}) {
     '../../../shell/bootstrap': {default: {}},
     '../../../shell/playback': {default: {}},
     './lifetime': {default: {}, nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
-    '../../../../../../packages/client-core/src/library-content': {default: {}, validateContentEntry: (value: any) => value, LibraryContentService: FakeLibraryContentService},
+    '../../../../../../packages/client-core/src/library-content': {default: {}, readListeningSimilar,validateContentEntry:(value:any)=>value,LibraryContentService: FakeLibraryContentService},
     '../../../../../../packages/client-core/src/browse': {default: {}, BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library: string, pivot: string) => `cap:${library}:${pivot}`, browsePath: (library: string) => `browse:${library}`,
       parseBrowseCapabilities: (value: any) => value, parseBrowseResult: (value: any) => value},
     '../../../../../../packages/client-core/src/container-state': {default: {}, getContainerState: async (_api: any, _kind: any, _id: any) => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
     '../../../../../../packages/contracts/src/routes': {default: {}, encodedRoutePath: (id: string, values: {id: string}) => `/v1/${id}/${values.id}`},
     '../../../../../../packages/client-core/src/server-messages': {default: {}, unreadableServerResponse: 'unreadable'},
   });
-  const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => options.current?.() ?? true}, playback});
-  return {value, calls, browseBodies};
+  const value = new NativeTVMusicController({api, entry,similarScope,lifetime:{scope:{serverId:'server',viewerId:'opaque-content-scope'},current: () => options.current?.() ?? true}, playback});
+  return {value,calls,browseBodies,reads,replaceProjection:()=>{const service=services.at(-1)!;service.projection={...service.projection,revision:{catalog:8,viewer:3}};}};
 }
 
 test('album page reads its own songs, total, duration and similar albums', async () => {
@@ -148,10 +154,11 @@ test('a failed More like this read keeps its own stage code', async () => {
   const {value} = await controller(albumEntry, {songs: [song('song-1', 1, 180, 'Come Together')],
     similarError: () => new Error('rail failed')});
   await value.load();
-  assert.equal(value.getSnapshot().phase, 'error');
-  assert.equal((value.getSnapshot().error as any).code, 'music_album_similar_unavailable');
-  assert.equal((value.getSnapshot().error as any).musicRead.read, 'similar');
-  assert.equal((value.getSnapshot().error as any).musicRead.method, 'GET');
+  assert.equal(value.getSnapshot().phase,'ready');
+  assert.equal(value.getSnapshot().songs.length,1);
+  assert.equal((value.getSnapshot().similarError as any).code,'music_album_similar_unavailable');
+  assert.equal((value.getSnapshot().similarError as any).musicRead.read,'similar');
+  assert.equal((value.getSnapshot().similarError as any).musicRead.method,'GET');
   value.dispose();
 });
 
@@ -266,4 +273,40 @@ test('play starts the album or artist container through the shared queue player'
   assert.equal(typeof calls[0].options.isCurrent, 'function');
   assert.ok(calls[0].options.signal instanceof AbortSignal);
   value.dispose();
+});
+
+
+test('Sonic Similar requests sound explicitly and preserves the server fallback flag under the real entity revision',async()=>{
+ for(const bySound of [true,false]){
+  const f=await controller(albumEntry,{songs:[song('song-1',1,180,'Track')],similar:[{kind:'album',id:'other',libraryId:'music',title:'Other'}],bySound,revision:()=> 'opaque-browse-revision'});
+  await f.value.load();assert.equal(f.value.getSnapshot().phase,'ready');assert.equal(f.value.getSnapshot().similarBySound,bySound);
+  assert(f.reads.some(path=>path.includes('/similar?')&&new URL(path,'https://server.test').searchParams.get('by')==='sound'));
+  assert.deepEqual(f.value.getSnapshot().similarProjection.revision,{catalog:7,viewer:3});f.value.dispose();
+ }
+});
+test('wrong original scope, item, library or accepted entity revision cannot publish recommendations or block own songs',async()=>{
+ const scope={serverId:'server',authority:'local',accountId:'account',profileId:'profile'},data={itemId:'album-1',libraryId:'music',revision:{catalog:7,viewer:3},bySound:true,entries:[{kind:'album',id:'other',libraryId:'music',title:'Other'}]};
+ for(const response of [{scope:{...scope,profileId:'other'},data},{scope:{...scope,serverId:'other'},data},{scope,data:{...data,itemId:'other'}},{scope,data:{...data,libraryId:'other'}},{scope,data:{...data,revision:{catalog:8,viewer:3}}},{scope,data:{...data,revision:{catalog:7,viewer:4}}}]){
+  const f=await controller(albumEntry,{songs:[song('song-1',1,180,'Track')],similarResponse:response});await f.value.load();
+  assert.equal(f.value.getSnapshot().phase,'ready');assert.equal(f.value.getSnapshot().songs.length,1);assert.deepEqual(f.value.getSnapshot().similar,[]);assert.ok(f.value.getSnapshot().similarError);f.value.dispose();
+ }
+});
+test('a missing entity projection withholds Similar instead of manufacturing a revision from browse',async()=>{
+ const f=await controller(albumEntry,{songs:[song('song-1',1,180,'Track')],entityMissing:true});await f.value.load();
+ assert.equal(f.reads.some(path=>path.includes('similar')),false);assert.equal(f.value.getSnapshot().phase,'ready');assert.equal(f.value.getSnapshot().songs.length,1);assert.ok(f.value.getSnapshot().similarError);f.value.dispose();
+});
+test('retained same-ID recommendation actions retire with their original projection and destination',async()=>{
+ let current=true;const f=await controller(albumEntry,{similar:[{kind:'album',id:'other',libraryId:'music',title:'Other'}],current:()=>current});await f.value.load();
+ const first=f.value.getSnapshot(),entry=first.similar[0];assert.equal(f.value.similarCurrent(first,entry),true);assert.equal(f.value.contains(entry),true);
+ f.replaceProjection();assert.equal(f.value.similarCurrent(first,entry),false);assert.equal(f.value.contains(entry),false);
+ await f.value.load();assert.equal(f.value.similarCurrent(first,entry),false);assert.equal(f.value.contains(entry),false);
+ const next=f.value.getSnapshot();assert.equal(f.value.similarCurrent(next,next.similar[0]),true);current=false;assert.equal(f.value.similarCurrent(next,next.similar[0]),false);f.value.dispose();
+});
+test('held Similar responses cannot cross destination or entity-projection retirement',async()=>{
+ for(const retireProjection of [false,true]){
+  let release!:()=>void,started!:()=>void,current=true;const held=new Promise<void>(resolve=>{release=resolve;}),entered=new Promise<void>(resolve=>{started=resolve;});
+  const f=await controller(artistEntry,{waitSimilar:held,onSimilar:started,current:()=>current,similar:[{kind:'artist',id:'other',libraryId:'music',title:'Other'}]});
+  const loading=f.value.load();await entered;if(retireProjection)f.replaceProjection();else current=false;release();await loading;
+  assert.deepEqual(f.value.getSnapshot().similar,[]);f.value.dispose();
+ }
 });

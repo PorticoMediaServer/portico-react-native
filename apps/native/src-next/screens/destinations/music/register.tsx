@@ -11,24 +11,32 @@ import {createMusicPlaylistPicker, type MusicPlaylistPickerHandle} from './Music
 import {nativeDownloadRequest} from '../../watch/download-request';
 import {askNativeDownload} from '../../downloads/request';
 
-type Page = Readonly<{key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
+type Page = Readonly<{current:()=>boolean;key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; abort: AbortController}>;
 
 /** tv-more6–9: TV's album and artist pages. One route-owned controller per entry;
  * the shared queue player and the borrowed Watch menu do the work. */
 export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
-  const lifetime = nativeDestinationLifetime(context);
+  const lifetime = nativeDestinationLifetime(context),viewer=context.session()?.viewer;
+  if(!viewer||viewer.authority!=='local'&&viewer.authority!=='hosted')throw new Error('native_destination_authority_required');
+  // Canonical V1 read-scope labels, as in the native runtime; never a playback fence.
+  const similarScope=Object.freeze({serverId:viewer.serverId,authority:viewer.authority,accountId:viewer.accountId,profileId:viewer.profileId,
+    controllerId:'v1',controllerEpoch:'v1',commandLaneId:'v1'});
   let pages = new Map<string, Page>(), disposed = false;
   const close = (page: Page) => {page.abort.abort(); page.picker.dispose(); page.actions.dispose(); page.controller.dispose();};
   const current = () => !disposed && lifetime.current();
   const pageFor = (route: {kind: 'music'; entry: ContentEntry}): Page | undefined => {
     if (!current() || route.entry.kind !== 'album' && route.entry.kind !== 'artist') return;
-    const key = JSON.stringify([route.entry.kind, route.entry.id]);
+    const navigation=context.navigation.getSnapshot();
+    if(navigation.route!==route)return;
+    const revision=navigation.revision;
+    const pageCurrent=()=>current()&&context.navigation.getSnapshot().route===route&&context.navigation.getSnapshot().revision===revision;
+    const key=JSON.stringify([route.entry.kind,route.entry.id,route.entry.libraryId,revision]);
     let page = pages.get(key);
     if (!page) {
-      const controller = new NativeTVMusicController({api: context.api, entry: route.entry, lifetime, playback: context.playback});
-      const actions = createNativeEntryActions(context, {current: () => current() && context.navigation.getSnapshot().route === route,
+      const controller = new NativeTVMusicController({api: context.api, entry:route.entry,similarScope,lifetime:{scope:lifetime.scope,current:pageCurrent},playback: context.playback});
+      const actions = createNativeEntryActions(context, {current:pageCurrent,
         contains: entry => controller.contains(entry), subscribe: controller.subscribe});
-      page = Object.freeze({key, entry: route.entry, controller, actions, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
+      page = Object.freeze({current:pageCurrent,key,entry: route.entry, controller, actions, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
       pages.set(key, page);
       while (pages.size > 3) {
         const oldest = pages.entries().next().value as [string, Page] | undefined;
@@ -44,13 +52,10 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       if (route.kind !== 'music') return null;
       const page = pageFor(route);
       if (!page) return null;
-      const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open({kind: 'music', entry}, context.authority());};
-      const back = () => {if (current()) context.navigation.back(context.authority());};
-      const download = (entry: ContentEntry) => {const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);};
-      const pageCurrent = () => {
-        const active = context.navigation.getSnapshot().route;
-        return !!active && active.kind === 'music' && active.entry.kind === page.entry.kind && active.entry.id === page.entry.id;
-      };
+      const openEntry = (entry: ContentEntry) => {if(page.current()&&page.controller.contains(entry)) context.navigation.open({kind: 'music', entry}, context.authority());};
+      const back = () => {if(page.current()) context.navigation.back(context.authority());};
+      const download = (entry: ContentEntry) => {if(!page.current()||!page.controller.contains(entry))return;const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);};
+      const pageCurrent=page.current;
       const onPlaylist = page.entry.kind === 'album' ? () => page.picker.openAlbum(
         {albumId: page.entry.id, load: () => page.controller.albumMembership()},
         {signal: page.abort.signal, isCurrent: () => current() && pageCurrent()},
