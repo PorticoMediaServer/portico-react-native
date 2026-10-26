@@ -113,7 +113,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
     <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={source?.name ?? t('web.liveTv.sourceSettings')} description={t('web.liveSource.settingsLede')} initialFocusRef={cancel} footer={footer} testID="live-owner-source-settings">
       <View style={{gap: 22}}>
         {error !== undefined && <StateView testID="live-owner-source-settings-error" {...runtime.error(error, () => onOpenChange(false))}/>}
-        <LoadingBoundary ready={!loading} immediate={!loading} skeleton={<View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}>
+        <LoadingBoundary ready={!loading || !!(draft && document)} immediate={!loading || !!(draft && document)} skeleton={<View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}>
         {draft && document && <>
           <Section title={t('web.liveSource.provides')}>
             <Select testID="live-owner-provides" label={t('web.liveSource.provides')} value={draft.kind} options={document.availableKinds.map(kind => ({value: kind, label: t((kindKey[kind] ?? kind) as Parameters<typeof t>[0])}))}
