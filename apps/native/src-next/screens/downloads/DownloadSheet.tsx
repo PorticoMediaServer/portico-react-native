@@ -66,7 +66,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
       if (!request.itemId) return;
       const batch = await service().request({mediaId: request.itemId}, quality);
       await download().want(batch.items.map(value => value.itemId), batch.items[0] ? download().display(batch.items[0]) : undefined, service());
-      if (batch.accepted === 1 && !batch.duplicate) setAdded(1);
+      if (batch.accepted === 1 && !batch.rejected.length && !batch.duplicate) setAdded(1);
       setDone(batch.rejected.length
         ? batch.accepted ? t('downloads.addedMixed', {accepted: batch.accepted, rejected: batch.rejected.length, reason: downloadReasonMessage(batch.rejected[0].code)}) : downloadReasonMessage(batch.rejected[0].code) || t('downloads.nothingAdded')
         : !batch.accepted || batch.duplicate ? batch.items.length ? t('downloads.already') : t('downloads.nothingAdded') : t('downloads.willArrive'));
