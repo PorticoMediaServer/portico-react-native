@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useId, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
@@ -46,7 +46,6 @@ export type NowPlayingScreenProps = Readonly<{
   /** TV presentation only; no extra listening session or command lifetime. */
   tvOpen?: boolean;
   onTVExited?: () => void;
-  canTVReturn?: () => boolean;
   occupant: DockOccupant;
   queue?: QueuePlaybackView;
   artwork?: React.ComponentProps<typeof NowPlayingQueue>['artwork'];
@@ -89,8 +88,12 @@ export function NowPlayingScreen(props: NowPlayingScreenProps) {
 }
 
 /** This retained snapshot is paint only; the host's live adapters remain authoritative. */
-export function TVListeningRoute({value, scope}: {value?: NowPlayingScreenProps; scope: string}) {
+export function TVListeningRoute({value, scope, onPresenceChange}: {value?: NowPlayingScreenProps; scope: string; onPresenceChange?: (present: boolean) => void}) {
   const presence = useTVPanelPresence(value, scope);
+  const present = presence.value !== undefined, report = useRef(onPresenceChange);
+  report.current = onPresenceChange;
+  useLayoutEffect(() => {onPresenceChange?.(present);}, [onPresenceChange, present]);
+  useLayoutEffect(() => () => report.current?.(false), []);
   return presence.value ? <NowPlayingScreen {...presence.value} tvOpen={presence.open} onTVExited={presence.exited}/> : null;
 }
 

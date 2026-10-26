@@ -27,7 +27,7 @@ export function TVNowPlayingScreen(props: NowPlayingScreenProps & {equalizerCopy
   return <TVPageTransition open={props.tvOpen ?? true} onExited={props.onTVExited ?? (() => {})}><TVNowPlayingContent {...props}/></TVPageTransition>;
 }
 
-function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, onClose, signal, notice, canTVReturn,
+function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, onClose, signal, notice,
   reportError = () => {}, testID = 'now-playing', lyrics, equalizerCopy}: NowPlayingScreenProps & {equalizerCopy: NativeEqualizerCopy}) {
   const theme = useTheme(), t = defaultI18n.t, id = useId(), canvas = shellLayout(width, height, true);
   const page = useTVPageMotion();
@@ -69,7 +69,7 @@ function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction,
     && currentEntry.sourceContext.id === currentItem?.albumId ? currentItem.album : undefined;
   const act = (action: Parameters<typeof dockCommand>[1]) => {if (page.open && page.ready && commandAllowed(occupant, action)) onAction(dockCommand(occupant, action));};
   const close = () => setPanel(null);
-  return <TVMusicFocus id={id} visible={page.open && !panel && !more} interactive={page.ready} returnAllowed={canTVReturn} entry="toggle" onClose={onClose}>
+  return <TVMusicFocus id={id} visible={page.open && !panel && !more} interactive={page.ready} entry="toggle" onClose={onClose}>
     <View testID={testID} pointerEvents={page.ready ? 'auto' : 'none'} accessibilityElementsHidden={!page.ready} importantForAccessibility={page.ready ? 'auto' : 'no-hide-descendants'} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
       <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
         transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>

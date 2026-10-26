@@ -40,7 +40,7 @@ const noPlayOnState = () => undefined;
 const listeningRouteKey = (route: Readonly<{kind: string}> | undefined) => route ? JSON.stringify(route) : '';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
-export function NativePlaybackLayer({adapter, runtime, authority, contentInset}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority; contentInset?: number}) {
+export function NativePlaybackLayer({adapter, runtime, authority, contentInset, onTVListeningPresenceChange}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority; contentInset?: number; onTVListeningPresenceChange?: (present: boolean) => void}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme(), insets = useSafeAreaInsets();
   // A real server preparation can precede any output fence or session. Its
@@ -305,8 +305,6 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
     lyrics: lyricsOffered && lyricsTarget && runtime.lyrics ? <NowPlayingLyrics read={runtime.lyrics} target={lyricsTarget}
       positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}
       onSeek={seconds => {const current = adapter.getSnapshot(); if (current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.seek(current.fence, seconds).catch(runtime.reportError);}}/> : undefined,
-    canTVReturn: () => {const current = adapter.getSnapshot(); return !current.retired && sameAuthority(current.authority, authority)
-      && current.dock.local?.expanded !== true && sameFence(current.fence, nowPlaying.playback.fence);},
     onClose: () => {const current = adapter.getSnapshot(); if (current.dock.local?.expanded && current.fence && sameFence(current.fence, nowPlaying.playback.fence)) void adapter.onTransition(adapter.dock.collapse(current.fence)).catch(runtime.reportError);},
   } : undefined;
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
@@ -326,7 +324,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
           notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'web' ? 100 : theme.platform === 'tablet' ? 66 : 62) + 10}/>}
-        {theme.isTV ? <TVListeningRoute value={listeningView} scope={authorityKey(authority)}/> : listeningView && <ListeningSongOpening adapter={adapter} detail={runtime.listeningSongDetail}
+        {theme.isTV ? <TVListeningRoute value={listeningView} scope={authorityKey(authority)} onPresenceChange={onTVListeningPresenceChange}/> : listeningView && <ListeningSongOpening adapter={adapter} detail={runtime.listeningSongDetail}
           fence={listeningView.occupant.playback.fence} lifetime={listeningLifetime}>{song => <NowPlayingScreen {...listeningView}
             song={{token: song.song, pending: song.pending, favorite: song.favorite}}/>}</ListeningSongOpening>}
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}

@@ -10,17 +10,19 @@ export function useTVPageMotion() {return useContext(Page);}
 export function TVPageTransition({open, onExited, children}: {open: boolean; onExited: () => void; children: React.ReactNode}) {
   const motion = useMotion(), completion = useSharedValue(0), [ready, setReady] = useState(false);
   const latest = useRef({open, onExited}); latest.current = {open, onExited};
-  const finished = useCallback((entered: boolean) => {
-    if (latest.current.open !== entered) return;
+  const ticket = useRef(0);
+  const finished = useCallback((entered: boolean, run: number) => {
+    if (ticket.current !== run || latest.current.open !== entered) return;
     setReady(entered);
     if (!entered) latest.current.onExited();
   }, []);
   useEffect(() => {
+    const run = ++ticket.current;
     setReady(false);
     completion.value = 0;
     completion.value = withDelay(open ? motion.reduce ? 160 : 60 + 180 + 120 : 0,
-      withTiming(1, {...motion.timing('quick', 'in'), duration: open ? 0 : motion.reduce ? 160 : 120}, done => {if (done) runOnJS(finished)(open);}));
-    return () => cancelAnimation(completion);
+      withTiming(1, {...motion.timing('quick', 'in'), duration: open ? 0 : motion.reduce ? 160 : 120}, done => {if (done) runOnJS(finished)(open, run);}));
+    return () => {ticket.current = run + 1; cancelAnimation(completion);};
   }, [open, motion, completion, finished]);
   return <Page.Provider value={{open, ready: open && ready}}>{children}</Page.Provider>;
 }
