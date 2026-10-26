@@ -80,7 +80,9 @@ test('a retiring panel command cannot keep a new source busy or report its old f
   host.mount();
   try {
     await act(() => {descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.onPress();});
-    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.disabled, true);
+    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.disabled, false);
+    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.accessibilityState.disabled, true);
+    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.onPress, undefined);
     const next = {...fence, generation: 4};
     await act(() => {
       source = {...source, fence: next, dock: {local: {fence: next, expanded: true}}, session: {...source.session, presentation: {...source.session.presentation, generation: 4}}};
@@ -90,5 +92,39 @@ test('a retiring panel command cannot keep a new source busy or report its old f
     await act(async () => {rejectOld(new Error('retired source command')); await Promise.resolve();});
     assert.deepEqual(errors, []);
     assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.disabled, false);
+  } finally {host.unmount();}
+});
+
+
+for (const tv of [true, false]) test(`${tv ? 'TV' : 'phone'} unavailable choice is inert with platform-appropriate focus admission`, () => {
+  isTV = tv;
+  const source: any = {queue: {}, retired: false, fence, dock: {local: {fence, expanded: true}}, options, playback: {positionSeconds: 2},
+    session: {id: 'session', itemId: 'item', versionId: 'v2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'first', quality: {mode: 'original'}}}};
+  const context: any = {source, fence, state: {fence, panel: 'audio', panelOffset: 0}, panelCurrent: () => true,
+    runtime: {text: {locale: 'en-US'}, getSnapshot: () => ({serverName: 'Test server'})}, layout: {mode: 'full-window'}, renderer: {width: 1920, height: 1080, scale: 1},
+    closePanel() {}, backPanel() {}, openPanel() {}, rememberPanel() {}};
+  const snapshot = {phase: 'ready', fence, options};
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, load: async () => {}, clear() {}};
+  const playback = {getSnapshot: () => source, change: assert.fail};
+  const names = {audio: (track: any) => ({primary: track.id, unavailable: track.id === 'first'}), subtitle: (track: any) => ({primary: track.id}), quality: (choice: any) => ({primary: choice.mode}), audioFooter: () => [], qualityFooter: () => []};
+  let tree: any;
+  const host = createHookHost(() => {tree = NativeWatchPanels({context, options: controller, playback, names,
+    copy: {sessionLead: '', sessionDefaults: '', audioContinues: ''}, reportError: assert.fail, renderError: assert.fail});});
+  host.mount();
+  try {
+    const row = descendants(tree).find(node => node.props.testID === 'watch-choice-first');
+    assert.equal(row.props.disabled, !tv); assert.equal(row.props.onPress, undefined);
+    assert.equal(row.props.accessibilityState.disabled, true); assert.equal(row.props.accessibilityState.selected, true);
+    assert.ok(row.props.accessibilityLabel.includes(defaultI18n.t('player.opt.unavailable')));
+    if (tv) {
+      assert.ok(row.props.ref, 'current value remains the readable entry even when unavailable');
+      source.subtitles = {catalog: {provider: {enabled: false, reason: 'subtitle_provider_not_configured'}}};
+      context.state = {...context.state, panel: 'subtitles'}; host.rerender();
+      const search = descendants(tree).find(node => node.props.testID === 'watch-action-subtitle-search');
+      assert.ok(search, 'a real unconfigured provider keeps its explanatory row');
+      assert.equal(search.props.disabled, false); assert.equal(search.props.onPress, undefined);
+      assert.equal(search.props.accessibilityState.disabled, true);
+      assert.ok(search.props.accessibilityLabel.includes(subtitleReason('subtitle_provider_not_configured', defaultI18n.t)));
+    }
   } finally {host.unmount();}
 });

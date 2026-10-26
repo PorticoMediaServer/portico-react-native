@@ -241,8 +241,8 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const chooseRow = <T,>(row: NativeWatchChoiceRow<T>, action: (value: T) => Promise<void>, preferred: boolean) => <Focusable key={row.id} ref={preferred ? first : undefined}
     focusId={`watch-choice-${row.id}`} testID={`watch-choice-${row.id}`} focusKind="row" focusRadius={theme.isTV ? 12 : 0}
     accessibilityRole="button" accessibilityLabel={[row.primary, row.secondary, row.unavailable ? t('player.opt.unavailable') : undefined].filter(Boolean).join(', ')}
-    accessibilityState={{selected: row.selected, busy: pending}} disabled={!current() || pending || row.unavailable === true}
-    onPress={() => {if (!row.selected) void run(() => action(row.value));}}
+    accessibilityState={{selected: row.selected, busy: pending, disabled: pending || row.unavailable === true}} disabled={!current() || !theme.isTV && (pending || row.unavailable === true)}
+    onPress={pending || row.unavailable ? undefined : () => {if (!row.selected) void run(() => action(row.value));}}
     style={({focused}) => ({minHeight: theme.isTV ? 54 : tablet ? 48 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12,
       flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 14 : 12, borderRadius: theme.isTV ? 12 : 0,
       backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent', opacity: row.unavailable ? .5 : 1,
@@ -255,11 +255,12 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     </>}
   </Focusable>;
   const list = <T,>(values: readonly NativeWatchChoiceRow<T>[], action: (value: T) => Promise<void>) => <View style={theme.isTV ? {padding: 4, borderRadius: 14, backgroundColor: '#edf5fa0d'} : {marginHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
-    {values.map((row, index) => chooseRow(row, action, values.some(value => value.selected && !value.unavailable) ? row.selected && !row.unavailable : index === 0))}
+    {values.map((row, index) => chooseRow(row, action, values.some(value => value.selected && (theme.isTV || !value.unavailable)) ? row.selected && (theme.isTV || !row.unavailable) : index === 0))}
   </View>;
-  const actionRow = (id: string, primary: string, secondary: string | undefined, onPress: () => void, disabled = false) => <Focusable key={id} focusId={`watch-action-${id}`} testID={`watch-action-${id}`}
+  const actionRow = (id: string, primary: string, secondary: string | undefined, onPress: () => void, disabled = false, readable = false) => <Focusable key={id} focusId={`watch-action-${id}`} testID={`watch-action-${id}`}
     focusKind="row" focusRadius={theme.isTV ? 12 : 0} accessibilityRole="button" accessibilityLabel={[primary, secondary].filter(Boolean).join(', ')}
-    disabled={!current() || pending || disabled} onPress={onPress}
+    accessibilityState={{disabled: pending || disabled, busy: pending}}
+    disabled={!current() || !(theme.isTV && readable) && (pending || disabled)} onPress={pending || disabled ? undefined : onPress}
     style={({focused}) => ({minHeight: theme.isTV ? 54 : tablet ? 48 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
       borderRadius: theme.isTV ? 12 : 0, backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent', opacity: disabled ? .5 : 1,
       borderBottomWidth: theme.isTV ? 0 : 1, borderBottomColor: '#3b566873'})}>
@@ -376,7 +377,8 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       () => {const found = source.subtitles?.plan?.resources.find(resource => resource.discoveryId === track.id && resource.sourceId === track.sourceId);
         if (found) void run(() => playback.change(fence, {subtitleTrackId: found.id})); else if (track.reason) setSubtitleReasonText(subtitleReason(track.reason, id => t(id)));},
       !track.enabled))}
-    {subtitleProvider && !subtitleProvider.enabled && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10}}>
+    {theme.isTV && subtitleProvider && !subtitleProvider.enabled && actionRow('subtitle-search', t('player.opt.findSubtitles'), subtitleReason(subtitleProvider.reason, id => t(id)), () => {}, true, true)}
+    {!theme.isTV && subtitleProvider && !subtitleProvider.enabled && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10}}>
       <Text style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale), {color: theme.colors.textTertiary}]}>{subtitleReason(subtitleProvider.reason, id => t(id))}</Text>
     </View>}
     {subtitleProvider?.enabled && !subtitleSearching && actionRow('subtitle-search', t('player.opt.findSubtitles'), t('player.opt.providedByOpenSubtitles'),
