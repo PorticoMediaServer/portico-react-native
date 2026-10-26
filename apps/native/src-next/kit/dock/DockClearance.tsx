@@ -21,8 +21,3 @@ export function useDockClearanceReport(topFromBottom: number) {
   useLayoutEffect(() => report?.(owner.current, topFromBottom), [report, topFromBottom]);
 }
 export function useDockClearance(): number {return useContext(Clearance);}
-
-/** ToastHost itself adds safeBottom and its authored12pt gap. */
-export function feedbackBottomOffset(base: number, dockTop: number, safeBottom: number): number {
-  return Math.max(base, dockTop - safeBottom);
-}
