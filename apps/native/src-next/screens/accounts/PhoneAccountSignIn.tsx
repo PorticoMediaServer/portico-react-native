@@ -11,11 +11,11 @@ type Provider = IdentityOptions['providers'][number];
 
 /** auth.html frame 4. The direct phone/tablet/fold Portico Account surface. */
 export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, registration, recovery, username, password,
-  onUsernameChange, onPasswordChange, onContinue, onProvider, onForgot, onCreate, onLocal}: {
+  onUsernameChange, onPasswordChange, onContinue, onProvider, onForgot, onCreate, onLocal, onRetry}: {
   busy: boolean; error?: React.ReactNode; providers: readonly Provider[]; passwordEnabled: boolean;
   registration: boolean; recovery: boolean; username: string; password: string;
   onUsernameChange: (value: string) => void; onPasswordChange: (value: string) => void;
-  onContinue: () => void; onProvider: (id: Provider['id']) => void; onForgot: () => void; onCreate: () => void; onLocal: () => void;
+  onContinue: () => void; onProvider: (id: Provider['id']) => void; onForgot: () => void; onCreate: () => void; onLocal: () => void; onRetry?: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const ordered = [...providers].sort((a, b) => a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0);
@@ -31,6 +31,8 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
           {color: theme.colors.text, marginTop: 46, marginBottom: 8, includeFontPadding: false}]}>{t('web.signin.welcomeHome')}</Text>
         <Text style={[nativeType({size: 14.5, lineHeight: 21.75, weight: 400}, theme.textScale), {color: theme.colors.textSecondary, marginBottom: 20}]}>{t('auth.accountLead')}</Text>
         {error}
+        {onRetry && <Button testID="accounts-auth-retry" variant="glass" disabled={busy} style={{height: 48, borderRadius: 11, marginBottom: 10}}
+          textStyle={{fontSize: 16 * theme.textScale, fontWeight: '700'}} onPress={onRetry}>{t('action.tryAgain')}</Button>}
         {!!ordered.length && <View style={{gap: 10, marginBottom: 0}}>
           {ordered.map(value => <Button key={value.id} variant="text" icon={value.id === 'google' ? 'i-google' : 'i-apple'} iconSize={19} iconColor={value.id === 'google' ? undefined : '#fff'} testID={`accounts-auth-${value.id}`} disabled={busy}
             style={{height: 48, borderRadius: 11, borderWidth: 1, borderColor: value.id === 'google' ? '#5f6368' : 'rgba(237,245,250,.22)',
