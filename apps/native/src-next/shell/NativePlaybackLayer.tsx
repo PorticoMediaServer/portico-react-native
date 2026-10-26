@@ -291,21 +291,12 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
   const dockedLocal = snapshot.dock.local;
   const nowPlaying = presentation && dockedLocal?.expanded === true && (dockedLocal.kind === 'music' || dockedLocal.kind === 'audiobook')
     && sameFence(dockedLocal.fence, presentation.fence) ? currentOccupant(adapter.dock, snapshot.dock, {local: presentation}) : null;
-  // The song's Detail token lives only for this listening opening and fence: the issued read and
-  // its one command use the layer's own route/page lifetime, never a later occupant's.
-  const songCurrent = useCallback(() => {
-    if (!listeningLifetime || !nowPlaying) return false;
-    const current = adapter.getSnapshot();
-    return listeningLifetime.isCurrent() && !!current.fence && sameFence(current.fence, nowPlaying.playback.fence);
-  }, [adapter, listeningLifetime, nowPlaying]);
-  const song = useListeningSong(runtime.listeningSongDetail, nowPlaying?.playback.fence, listeningLifetime, songCurrent);
   const listeningView: NowPlayingScreenProps | undefined = nowPlaying && (nowPlaying.mode === 'music' || nowPlaying.mode === 'audiobook') ? {
     occupant: nowPlaying, queue: snapshot.queue?.view ?? undefined, artwork: runtime.artwork,
     width, height, topInset: insets.top, bottomInset: insets.bottom,
     onAction: command => {void action(command).catch(runtime.reportError);},
     onQueuePlay: adapter.queuePlay ? (queueId, entryId, revision) => {void adapter.queuePlay!(queueId, entryId, revision).catch(runtime.reportError);} : undefined,
     ...(listeningPorts ?? {}),
-    song: {token: song.song, pending: song.pending, favorite: song.favorite},
     onAddToPlaylist: theme.isTV && runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence) ? () => runtime.listeningPlaylist?.open(nowPlaying.playback.fence) : undefined,
     queuePolicy: runtime.listeningQueuePolicy, signal,
     notice: snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined, reportError: runtime.reportError,
@@ -333,7 +324,9 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
           notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'web' ? 100 : theme.platform === 'tablet' ? 66 : 62) + 10}/>}
-        {theme.isTV ? <TVListeningRoute value={listeningView} scope={authorityKey(authority)}/> : listeningView && <NowPlayingScreen {...listeningView}/>}
+        {theme.isTV ? <TVListeningRoute value={listeningView} scope={authorityKey(authority)}/> : listeningView && <ListeningSongOpening adapter={adapter} detail={runtime.listeningSongDetail}
+          fence={listeningView.occupant.playback.fence} lifetime={listeningLifetime}>{song => <NowPlayingScreen {...listeningView}
+            song={{token: song.song, pending: song.pending, favorite: song.favorite}}/>}</ListeningSongOpening>}
         {theme.isTV && nowPlaying && runtime.listeningPlaylist?.render(runtime)}
       </View>
     </Animated.View>
@@ -354,6 +347,24 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
         runtime.openServers(); runtime.playOn?.close();
       }}/>}
   </View>;
+}
+
+/** Conditional presentation mounts a child whose own hook order is fixed. The
+ * authority gate above stays before all listening presentation and reader work. */
+function ListeningSongOpening({adapter, detail, fence, lifetime, children}: {
+  adapter: NativeShellPlaybackAdapter;
+  detail: Parameters<typeof useListeningSong>[0];
+  fence: PlaybackFence;
+  lifetime: Parameters<typeof useListeningSong>[2];
+  children: (song: ReturnType<typeof useListeningSong>) => React.ReactNode;
+}) {
+  const current = useCallback(() => {
+    if (!lifetime) return false;
+    const live = adapter.getSnapshot();
+    return lifetime.isCurrent() && !!live.fence && sameFence(live.fence, fence);
+  }, [adapter, lifetime, fence]);
+  const song = useListeningSong(detail, fence, lifetime, current);
+  return <>{children(song)}</>;
 }
 
 /** The current song's lyric target, as a stable key string: the queue fence's session
