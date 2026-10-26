@@ -357,7 +357,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       const route = context.navigation.getSnapshot().route;
       // Instantiate the current module before asking it for retained native views.
       const active = route.kind === 'shell' ? null : render(route);
-      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
+      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', top: 0, right: 0, bottom: 0, left: 0}}>
         {Platform.isTV && <NativeTVReceiver context={context} runtime={runtime}/>}
         {(routes.renderRetained(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
         {active}
