@@ -140,7 +140,7 @@ function RowContent<T>({title, headingStyle, subtitle, items, getKey, getFocusId
 
     </View>
     <RowRegion focus={theme.isTV ? focus : undefined} order={rowIndex.order}>
-    <Animated.ScrollView horizontal ref={anchor.scrollRef} style={theme.isTV ? {marginTop: -top} : undefined} onLayout={event => setWidth(event.nativeEvent.layout.width)}
+    <Animated.ScrollView horizontal ref={anchor.scrollRef} style={[theme.isTV ? {marginTop: -top} : undefined, anchor.scrollStyle]} onLayout={event => setWidth(event.nativeEvent.layout.width)}
       onScroll={onScroll} scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onScrollBeginDrag={anchor.stop}
       snapToInterval={theme.isTV ? undefined : stride} decelerationRate="fast" disableIntervalMomentum={!theme.isTV}
       scrollAnimationEnabled={false} onTouchStart={anchor.stop} removeClippedSubviews={false}>

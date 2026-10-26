@@ -97,7 +97,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   for (let index = firstMounted; index <= lastMounted; index++) indices.push(index);
   // Keep only the actually focused cell alive during an interrupted row scroll.
   if (theme.isTV && focused !== undefined && focused < total && !indices.includes(focused)) indices.push(focused);
-  return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={style} contentOffset={initialOffset}
+  return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={[style, anchor.scrollStyle]} contentOffset={initialOffset}
     stickyHeaderIndices={stickyHeader ? [header ? 1 : 0] : undefined}
     onLayout={event => setViewport(event.nativeEvent.layout)} onScroll={onScroll} scrollEventThrottle={16}
     onScrollBeginDrag={anchor.stop} onTouchStart={anchor.stop} scrollAnimationEnabled={false} removeClippedSubviews={false}>

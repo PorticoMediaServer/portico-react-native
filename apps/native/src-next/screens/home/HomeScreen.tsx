@@ -290,7 +290,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     : <HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>;
   if (!document.spotlight.length && !rows.length) return <>{runtime.renderHomeEmpty()}</>;
 
-  return <Animated.ScrollView ref={vertical.scrollRef} testID="native-home" scrollEventThrottle={16} onScroll={onScroll}
+  return <Animated.ScrollView ref={vertical.scrollRef} testID="native-home" style={vertical.scrollStyle} scrollEventThrottle={16} onScroll={onScroll}
     refreshControl={theme.isTV ? undefined : <RefreshControl refreshing={refreshing} tintColor={theme.colors.text} onRefresh={() => {
       if (!current() || refreshing) return;
       setRefreshing(true);
