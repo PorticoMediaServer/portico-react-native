@@ -3,7 +3,7 @@ import {ScrollView, Text, View} from 'react-native';
 import type {DetailCredit} from '../../../../../packages/client-core/src/detail';
 import {PersonCircle, type ArtworkSource} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
-import {useTheme} from '../../kit/theme';
+import {fontFamilies, useTheme} from '../../kit/theme';
 
 export type TitlePeopleProps = Readonly<{
   credits: readonly DetailCredit[];
@@ -24,8 +24,8 @@ export function TitlePeople({credits, artwork, onPerson}: TitlePeopleProps) {
       const face = <View accessibilityLabel={[credit.name, credit.role].filter(Boolean).join(', ')}
         style={{width: 78, alignItems: 'center'}}>
         <PersonCircle size={64} initials={initials(credit.name)} source={artwork(credit.portraitUrl)} covers={[]} alt={credit.name}/>
-        <Text numberOfLines={2} style={{fontSize: 12.5, fontWeight: '700', lineHeight: 15.6, marginTop: 7, textAlign: 'center', color: theme.colors.text}}>{credit.name}</Text>
-        {credit.role ? <Text numberOfLines={1} style={{fontSize: 11.5, lineHeight: 14.4, marginTop: 2, textAlign: 'center', color: theme.colors.textTertiary}}>{credit.role}</Text> : null}
+        <Text numberOfLines={2} style={{fontFamily: fontFamilies[700], fontSize: 12.5, fontWeight: '700', lineHeight: 15.6, marginTop: 7, textAlign: 'center', color: theme.colors.text}}>{credit.name}</Text>
+        {credit.role ? <Text numberOfLines={1} style={{fontFamily: fontFamilies[400], fontSize: 11.5, lineHeight: 14.4, marginTop: 2, textAlign: 'center', color: theme.colors.textTertiary}}>{credit.role}</Text> : null}
       </View>;
       const open = onPerson && credit.personId;
       return open ? <Focusable key={credit.id} testID={`watch-person-${credit.id}`} focusKind="card" focusRadius={78 / 2}
