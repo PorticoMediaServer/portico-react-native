@@ -389,7 +389,7 @@ function ContentsList({entries, currentSection, onOpen, wide = false}: {
         onPress={() => onOpen(index)} focusKind="row" focusRadius={10}
         style={{minHeight: current ? 68 : 50, paddingHorizontal: 20, paddingVertical: current ? 10 : 0, flexDirection: 'row', alignItems: 'center', columnGap: 12,
           ...(current ? {backgroundColor: alpha(theme.colors.text, .07)} : {})}}>
-        <Text style={[browseType(theme, 13, 700), {width: 20, textAlign: 'center', color: current ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{index + 1}</Text>
+        <Text style={[browseType(theme, 13, 700), {width: 20, textAlign: 'center', color: theme.colors.textTertiary}]}>{index + 1}</Text>
         <Text numberOfLines={1} style={[browseType(theme, 15, current ? 700 : 600), {flex: 1, minWidth: 0, color: current ? theme.colors.accentStrong : theme.colors.textSecondary}]}>{entry.title}</Text>
       </Focusable>;
     })}
@@ -432,20 +432,21 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false, ins
     </View>)}
   </View>;
   const rowStyle = {position: 'relative' as const, flexDirection: 'row' as const, alignItems: 'baseline' as const, columnGap: 12, paddingVertical: 8, paddingHorizontal: 14};
-  const separator = <View style={{position: 'absolute', top: 0, left: 14, right: 0, height: 1, backgroundColor: alpha(theme.colors.line, .45)}}/>;
+  const detailType = browseType(theme, 14, 600, 0, 19.6);
+  const separator = <View style={{position: 'absolute', top: 0, left: 14, right: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>;
   return <View testID="native-read-book-details" style={{marginTop: 14, marginHorizontal: inset ? 16 : 0, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
     {series ? <View style={rowStyle}>
-      <Text style={[browseType(theme, 14, 600), {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
+      <Text style={[detailType, {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
       <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8} style={{flex: 1, minWidth: 0}}>
-        <Text numberOfLines={2} style={[browseType(theme, 14, 600), {color: theme.colors.accentStrong}]}>
+        <Text numberOfLines={2} style={[detailType, {color: theme.colors.accentStrong}]}>
           {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
         </Text>
       </Focusable>
     </View> : null}
     {rows.map((row, index) => <View key={row.label + row.value} style={rowStyle}>
       {(series || index > 0) ? separator : null}
-      <Text style={[browseType(theme, 14, 600), {width: 92, color: theme.colors.textTertiary}]}>{row.label}</Text>
-      <Text style={[browseType(theme, 14, 600), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
+      <Text style={[detailType, {width: 92, color: theme.colors.textTertiary}]}>{row.label}</Text>
+      <Text style={[detailType, {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
     </View>)}
   </View>;
 }
