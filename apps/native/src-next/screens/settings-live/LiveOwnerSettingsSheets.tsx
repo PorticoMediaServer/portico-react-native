@@ -5,7 +5,7 @@ import {liveSavedSettingsId} from '../../../../../packages/client-core/src/serve
 import type {MessageId} from '../../../../../packages/i18n/src';
 import {Button, Focusable, Segmented, Select, Switch, TextField} from '../../kit/controls';
 import {Dialog} from '../../kit/overlays';
-import {SkeletonBlock, StateView} from '../../kit/states';
+import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -113,7 +113,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
     <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={source?.name ?? t('web.liveTv.sourceSettings')} description={t('web.liveSource.settingsLede')} initialFocusRef={cancel} footer={footer} testID="live-owner-source-settings">
       <View style={{gap: 22}}>
         {error !== undefined && <StateView testID="live-owner-source-settings-error" {...runtime.error(error, () => onOpenChange(false))}/>}
-        {loading && !draft && <View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}
+        <LoadingBoundary ready={!!(draft && document)} skeleton={<View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}>
         {draft && document && <>
           <Section title={t('web.liveSource.provides')}>
             <Select testID="live-owner-provides" label={t('web.liveSource.provides')} value={draft.kind} options={document.availableKinds.map(kind => ({value: kind, label: t((kindKey[kind] ?? kind) as Parameters<typeof t>[0])}))}
@@ -181,6 +181,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
             </Section>
           </>}
         </>}
+        </LoadingBoundary>
         {saved && <Text testID="live-owner-source-saved" accessibilityLiveRegion="polite" style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{t(saved)}</Text>}
       </View>
     </Dialog>
@@ -220,6 +221,8 @@ function SourceChoiceSheet({controller, runtime, source, kind, open, onOpenChang
       <TextField testID="live-owner-choice-search" variant="search" leadingIcon="i-search" accessibilityLabel={t(kind === 'groups' ? 'server.live.searchGroups' : 'server.live.searchChannels')} placeholder={t(kind === 'groups' ? 'server.live.searchGroups' : 'server.live.searchChannels')} value={query} onChangeText={setQuery}/>
       {error !== undefined && <StateView testID="live-owner-choice-error" {...runtime.error(error, () => setQuery(value => value))}/>}
       <View style={{gap: 4}}>
+        <LoadingBoundary ready={!loading} skeleton={<SkeletonBlock height={44} radius={10}/>}>
+        <>
         {items.map(value => <Focusable key={value.id} testID={`live-owner-choice-${value.id}`} focusKind="row" onPress={() => toggle(value.id, !selected.includes(value.id))} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, borderRadius: 10, paddingHorizontal: 8}}>
           <Text style={[shellType(15), {color: theme.colors.text, flex: 1}]} numberOfLines={1}>{value.name || value.id}</Text>
           <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{kind === 'groups' ? t('server.live.channelCount', {count: value.channels}) : value.group}</Text>
@@ -229,8 +232,9 @@ function SourceChoiceSheet({controller, runtime, source, kind, open, onOpenChang
           <Text style={[shellType(15), {color: theme.colors.text, flex: 1}]} numberOfLines={1}>{id}</Text>
           <Switch accessibilityLabel={id} checked onCheckedChange={() => toggle(id, false)}/>
         </Focusable>)}
-        {loading && !items.length && <SkeletonBlock height={44} radius={10}/>}
         {!loading && !items.length && !gone.length && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('server.live.noMatches')}</Text>}
+        </>
+        </LoadingBoundary>
       </View>
       {cursor ? <Button variant="glass" size="small" loading={loading} onPress={() => void more()}>{t('action.showMore')}</Button> : null}
       <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{total ? `${t('server.live.choiceTotal', {count: total})} ` : ''}{t(kind === 'groups' ? 'server.live.pickGroupsHelp' : 'server.live.pickChannelsHelp')}</Text>
@@ -286,6 +290,8 @@ export function ChannelMapSheet({controller, runtime, source, open, onOpenChange
         : <StateView testID="live-owner-channel-map-error" {...runtime.error(error, () => {if (source) void load(source.id);})}/>)}
       <TextField testID="live-owner-channel-search" variant="search" leadingIcon="i-search" accessibilityLabel={t('web.live.findChannel')} placeholder={t('web.live.findChannel')} value={filter} onChangeText={setFilter}/>
       <ScrollView style={{maxHeight: 420}} contentContainerStyle={{gap: 10}} keyboardShouldPersistTaps="handled">
+        <LoadingBoundary ready={!loading} skeleton={<View style={{gap: 8}}><SkeletonBlock height={84} radius={12}/><SkeletonBlock height={84} radius={12}/></View>}>
+        <>
         {shown.map(entry => {
           const current = value(entry.channelId, entry), touched = edits[entry.channelId] !== undefined;
           return <View key={entry.channelId} testID={`live-owner-channel-${entry.channelId}`} style={{gap: 8, padding: 12, borderRadius: 12, backgroundColor: theme.colors.raisedHigh, borderWidth: touched ? 1.5 : 0, borderColor: theme.colors.accent, opacity: current.hidden ? .6 : 1}}>
@@ -302,8 +308,9 @@ export function ChannelMapSheet({controller, runtime, source, open, onOpenChange
             </View>
           </View>;
         })}
-        {loading && !shown.length && <View style={{gap: 8}}><SkeletonBlock height={84} radius={12}/><SkeletonBlock height={84} radius={12}/></View>}
         {!loading && page && !shown.length && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.liveSource.noChannels')}</Text>}
+        </>
+        </LoadingBoundary>
       </ScrollView>
       {page?.nextCursor ? <Button variant="glass" size="small" loading={loading} onPress={() => {if (source && page) void load(source.id, page.nextCursor);}}>{t('action.showMoreChannels')}</Button> : null}
     </View>
