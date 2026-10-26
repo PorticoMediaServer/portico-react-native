@@ -1,4 +1,4 @@
-import React, {useEffect, useId, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useId, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {clockText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
@@ -19,19 +19,25 @@ import {NowPlayingQueue, nowPlayingQueueRows} from './NowPlayingQueue';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import type {NowPlayingScreenProps} from './NowPlayingScreen';
 import {useTVQueuePolicy} from './TVQueuePolicy';
+import {TVPageGroup, TVPageTransition, useTVPageMotion} from '../../../tv/layout/TVPageMotion';
 
 /** tv7: one authored 1920×1080 canvas, including the queue. The window never
  * switches this television to the tablet composition at a lower render size. */
-export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, onClose, signal, notice,
+export function TVNowPlayingScreen(props: NowPlayingScreenProps & {equalizerCopy: NativeEqualizerCopy}) {
+  return <TVPageTransition open={props.tvOpen ?? true} onExited={props.onTVExited ?? (() => {})}><TVNowPlayingContent {...props}/></TVPageTransition>;
+}
+
+function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction, onQueuePlay, onAddToPlaylist, queuePolicy, onClose, signal, notice, canTVReturn,
   reportError = () => {}, testID = 'now-playing', lyrics, equalizerCopy}: NowPlayingScreenProps & {equalizerCopy: NativeEqualizerCopy}) {
   const theme = useTheme(), t = defaultI18n.t, id = useId(), canvas = shellLayout(width, height, true);
+  const page = useTVPageMotion();
   const [panel, setPanel] = useState<'signal' | 'eq' | 'lyrics' | null>(null), [more, setMore] = useState(false);
   const signalRef = useRef<View>(null), moreRef = useRef<View>(null), lyricsRef = useRef<View>(null);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const policy = useTVQueuePolicy({fence: occupant.playback.fence, queue, policy: queuePolicy, reportError, testID});
   const restoreFrame = useRef<number | undefined>(undefined), latest = useRef({panel, fence: occupant.playback.fence});
   latest.current = {panel, fence: occupant.playback.fence};
-  const closeEqualizer = () => {
+  const closeEqualizer = useCallback(() => {
     const fence = occupant.playback.fence;
     setPanel(null);
     if (restoreFrame.current !== undefined) cancelAnimationFrame(restoreFrame.current);
@@ -40,14 +46,14 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
         (moreRef.current as unknown as {requestTVFocus?: () => void} | null)?.requestTVFocus?.();
     });
     return true;
-  };
+  }, [occupant.playback.fence]);
   useEffect(() => () => {if (restoreFrame.current !== undefined) cancelAnimationFrame(restoreFrame.current);}, []);
   useEffect(() => {
     if (panel !== 'eq') return;
     const back = BackHandler.addEventListener('hardwareBackPress', closeEqualizer);
     const release = registerOverlayKeys(key => key === 'escape' || key === 'menu' ? closeEqualizer() : false);
     return () => {back.remove(); release();};
-  }, [panel, occupant.playback.fence]);
+  }, [panel, closeEqualizer]);
   const {presentation: p, playback} = occupant;
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400, tracking = 0) => nativeType({size, weight, tracking, lineHeight: 'normal'}, theme.textScale);
   const position = playbackPosition(occupant), bounds = seekBounds(occupant), span = bounds ? bounds.end - bounds.start : p.durationSeconds;
@@ -61,28 +67,29 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
   // An album in the metadata alone does not say where this queue came from.
   const fromAlbum = currentEntry && !currentEntry.hidden && currentEntry.sourceContext.kind === 'album'
     && currentEntry.sourceContext.id === currentItem?.albumId ? currentItem.album : undefined;
-  const act = (action: Parameters<typeof dockCommand>[1]) => {if (commandAllowed(occupant, action)) onAction(dockCommand(occupant, action));};
+  const act = (action: Parameters<typeof dockCommand>[1]) => {if (page.open && page.ready && commandAllowed(occupant, action)) onAction(dockCommand(occupant, action));};
   const close = () => setPanel(null);
-  return <TVMusicFocus id={id} visible={!panel && !more} entry="toggle" onClose={onClose}>
-    <View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
+  return <TVMusicFocus id={id} visible={page.open && !panel && !more} interactive={page.ready} returnAllowed={canTVReturn} entry="toggle" onClose={onClose}>
+    <View testID={testID} pointerEvents={page.ready ? 'auto' : 'none'} accessibilityElementsHidden={!page.ready} importantForAccessibility={page.ready ? 'auto' : 'no-hide-descendants'} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
       <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
         transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
         {p.ambient && <View pointerEvents="none" style={{position: 'absolute', inset: 0, overflow: 'hidden'}}>
           <AmbientArt source={p.ambient} treatment="title" style={{position: 'absolute', inset: 0}}/>
           <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>
         </View>}
-        {fromAlbum && <View style={{position: 'absolute', left: 200, top: 124, flexDirection: 'row', alignItems: 'center', gap: 14}}>
+        {fromAlbum && <TVPageGroup index={0} style={{position: 'absolute', left: 200, top: 124, flexDirection: 'row', alignItems: 'center', gap: 14}}>
           <Icon name="i-music" size={26} color={theme.colors.textSecondary}/>
           <Text style={[type(22), {color: theme.colors.textSecondary}]}>{t('next.music.playingFrom', {source: fromAlbum})}</Text>
-        </View>}
-        {p.artwork && <Artwork source={p.artwork} width={600} height={600} style={{position: 'absolute', left: 200, top: 230, borderRadius: 18,
-          borderWidth: 1, borderColor: 'rgba(237,245,250,.08)', boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0,0,0,.9)'}]}}/>}
+        </TVPageGroup>}
+        {p.artwork && <TVPageGroup index={0} style={{position: 'absolute', left: 200, top: 230}}><Artwork source={p.artwork} width={600} height={600} style={{borderRadius: 18,
+          borderWidth: 1, borderColor: 'rgba(237,245,250,.08)', boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0,0,0,.9)'}]}}/></TVPageGroup>}
         <ScrollView style={{position: 'absolute', left: 880, top: 280, width: 540, bottom: 96}} showsVerticalScrollIndicator={false}>
-        <View style={{minHeight: 230}}>
+        <TVPageGroup index={0} style={{minHeight: 230}}>
           <Text accessibilityRole="header" style={[type(96, 800, -0.045), {lineHeight: 94.08 * theme.textScale, color: theme.colors.text, marginBottom: 18}]}>{p.identity.title}</Text>
           {!!artist && <Text style={[type(34, 700), {color: theme.colors.textSecondary, marginBottom: 8}]}>{artist}</Text>}
           {!!album && <Text style={[type(24), {color: theme.colors.textTertiary}]}>{album}</Text>}
-        </View>
+        </TVPageGroup>
+        <TVPageGroup index={1}>
         {signal && <MusicFocusRegion id={`${id}.signal`} entry="music-signal-line" edges={{down: `${id}.progress`, right: queueRegion}}
           style={{height: 52, marginBottom: 18, maxWidth: 500}}>
           <MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/>
@@ -90,7 +97,7 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
         {!signal && <View style={{height: 70}}/>}
         <MusicFocusRegion id={`${id}.progress`} entry="seek" edges={{up: signal ? `${id}.signal` : undefined, down: `${id}.transport`, right: queueRegion}}
           style={{minHeight: 64, width: 500}}>
-          <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel && !more} testID={`${testID}-scrubber`}/>
+          <TVMusicSeek occupant={occupant} onAction={onAction} enabled={page.ready && !panel && !more} testID={`${testID}-scrubber`}/>
           <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
             <Text style={[type(20), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, position - (bounds?.start ?? 0)))}</Text>
             <Text style={[type(20), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span)}</Text>
@@ -117,12 +124,12 @@ export function TVNowPlayingScreen({occupant, queue, artwork, width, height, onA
           {equalizer.supported && <Button ref={moreRef} focusId="more" testID={`${testID}-more`} variant="glass" iconOnly icon="i-more" iconSize={28} style={{height: 64, width: 64, borderRadius: 32}}
             accessibilityLabel={t('next.controls.more')} onPress={() => setMore(true)}/>}
         </MusicFocusRegion>}
-        </ScrollView>
-        {queue && <View style={{position: 'absolute', left: 1440, right: 96, top: 230, height: 750}}>
+        </TVPageGroup></ScrollView>
+        {queue && <TVPageGroup index={2} style={{position: 'absolute', left: 1440, right: 96, top: 230, height: 750}}>
           <Text style={[type(32, 700, -0.019), {color: theme.colors.text, marginBottom: 6}]}>{t('next.music.upNext')}</Text>
           <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork}
             regionId={`${id}.queue`} edges={{left: `${id}.transport`}}/>
-        </View>}
+        </TVPageGroup>}
       </View>
       <Menu open={more} onOpenChange={setMore} title={t('next.controls.more')} presentation="sideSheet" returnFocusRef={moreRef}
         items={equalizer.supported ? [{id: 'eq', label: t('next.media.eq.title'), icon: 'i-gauge', onSelect: () => setPanel('eq')}] : []}/>

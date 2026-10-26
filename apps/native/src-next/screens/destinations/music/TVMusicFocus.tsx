@@ -3,7 +3,7 @@ import {BackHandler, findNodeHandle, View, useTVEventHandler} from 'react-native
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
 import {playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import {Focusable} from '../../../kit/controls';
-import {FocusRegion, type FocusRegionProps} from '../../../kit/focus';
+import {FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../../kit/focus';
 import {useTheme} from '../../../kit/theme';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {useDestinationEntryFocus} from '../../destinations/useEntryFocus';
@@ -21,8 +21,14 @@ function Entry({region, visible, child}: {region: string; visible: boolean; chil
 
 /** F-MUSIC-1: opening starts on Pause. Track changes never request focus again.
  * Back folds this occupant; its parent retains the original playback fence. */
-export function TVMusicFocus({id, visible, entry, onClose, children}: {id: string; visible: boolean; entry: string; onClose: () => void; children: React.ReactNode}) {
-  const theme = useTheme(), latest = useRef({visible, onClose}); latest.current = {visible, onClose};
+export function TVMusicFocus({id, visible, interactive = true, returnAllowed, entry, onClose, children}: {id: string; visible: boolean; interactive?: boolean; returnAllowed?: () => boolean; entry: string; onClose: () => void; children: React.ReactNode}) {
+  const theme = useTheme(), registry = useFocusRegistry(), opener = useRef(registry.capture());
+  const latest = useRef({visible, onClose, returnAllowed}); latest.current = {visible, onClose, returnAllowed};
+  useLayoutEffect(() => {
+    if (!theme.isTV || !opener.current) return;
+    const original = opener.current, release = registry.retain(original);
+    return () => {if (latest.current.returnAllowed?.()) registry.restore(original); release();};
+  }, [registry, theme.isTV]);
   useLayoutEffect(() => {
     if (!theme.isTV) return;
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -32,8 +38,8 @@ export function TVMusicFocus({id, visible, entry, onClose, children}: {id: strin
     return () => back.remove();
   }, [theme.isTV]);
   if (!theme.isTV) return <>{children}</>;
-  return <FocusRegion id={id} hold style={{position: 'absolute', inset: 0}}>
-    <Entry region={`${id}.transport`} child={entry} visible={visible}/>{children}
+  return <FocusRegion id={id} hold enabled={interactive} style={{position: 'absolute', inset: 0}}>
+    <Entry region={`${id}.transport`} child={entry} visible={visible && interactive}/>{children}
   </FocusRegion>;
 }
 

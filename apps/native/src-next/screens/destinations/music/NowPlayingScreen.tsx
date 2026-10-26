@@ -27,6 +27,7 @@ import {TVNowPlayingScreen} from './TVNowPlayingScreen';
 import type {NativeListeningQueuePolicy} from '../../../shell/listening-queue-policy';
 import type {NativePlaybackReadLifetime} from '../../../platform/playback/types';
 import type {NativeListeningSong} from '../../../shell/listening-song-detail';
+import {useTVPanelPresence} from '../../../kit/overlays/TVPanelMotion';
 
 const t = defaultI18n.t;
 const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title'), back: t('action.back'), thisDevice: t('device.thisDevice'),
@@ -42,6 +43,10 @@ const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title
  * beside the now-playing column at 366 pt (the main column never drops below a
  * usable cover); narrower ones stack it under the column, toggled by Up next. */
 export type NowPlayingScreenProps = Readonly<{
+  /** TV presentation only; no extra listening session or command lifetime. */
+  tvOpen?: boolean;
+  onTVExited?: () => void;
+  canTVReturn?: () => boolean;
   occupant: DockOccupant;
   queue?: QueuePlaybackView;
   artwork?: React.ComponentProps<typeof NowPlayingQueue>['artwork'];
@@ -81,6 +86,12 @@ const SIDE_BY_SIDE = 700;
 export function NowPlayingScreen(props: NowPlayingScreenProps) {
   const theme = useTheme();
   return theme.isTV ? <TVNowPlayingScreen {...props} equalizerCopy={equalizerCopy()}/> : <TouchNowPlayingScreen {...props}/>;
+}
+
+/** This retained snapshot is paint only; the host's live adapters remain authoritative. */
+export function TVListeningRoute({value, scope}: {value?: NowPlayingScreenProps; scope: string}) {
+  const presence = useTVPanelPresence(value, scope);
+  return presence.value ? <NowPlayingScreen {...presence.value} tvOpen={presence.open} onTVExited={presence.exited}/> : null;
 }
 
 function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
