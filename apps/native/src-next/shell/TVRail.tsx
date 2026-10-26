@@ -45,7 +45,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, unread = fal
   React.useEffect(() => {if (!motion.transforms) expanded.value = open ? 1 : 0;}, [expanded, motion.transforms, open]);
   const panel = useAnimatedStyle(() => ({transform: [{translateX: (expanded.value - 1) * (spec.openWidth - spec.width)}]}));
   const counter = useAnimatedStyle(() => ({transform: [{translateX: (1 - expanded.value) * (spec.openWidth - spec.width)}]}));
-  const labels = useAnimatedStyle(() => ({opacity: labelOpacity.value}));
+  const labels = useAnimatedStyle(() => ({opacity: labelOpacity.value, transform: motion.transforms ? [{translateX: -8 * (1 - labelOpacity.value)}] : []}));
   const entries: RailEntry[] = [
     {key: 'search', icon: 'i-search', label: defaultI18n.t('web.shell.search'), destination: {kind: 'search'}},
     {key: 'home', icon: 'i-home', label: defaultI18n.t('web.shell.home'), destination: {kind: 'home'}},
