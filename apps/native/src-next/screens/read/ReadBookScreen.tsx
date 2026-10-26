@@ -3,9 +3,9 @@ import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {ReadingItem, ReadingListMembership, ReadingManifest, ReadingReadMark} from '../../../../../packages/client-core/src';
+import type {ReadingItem, ReadingManifest, ReadingReadMark} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
-import {Button, Focusable, ResumeButton, Tabs} from '../../kit/controls';
+import {Button, Focusable, Tabs} from '../../kit/controls';
 import {Icon, type IconName} from '../../kit/Icon';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView, SkeletonBlock} from '../../kit/states';
@@ -22,6 +22,7 @@ import {VolumeCard} from './ReadSeriesScreen';
 import type {NativeReadVersion} from './read-book-model';
 import {ReadOwnerEditSheet} from './ReadOwnerEditSheet';
 import {ReadCollectionSheet} from './ReadCollectionSheet';
+import {BookDetailActions} from './book-detail-actions';
 import {nativeReadingCollectionCapability, type NativeReadingCollectionKind} from './read-collection-capability';
 import {nativeScreenServices} from '../native-screen-services';
 import {isReadingLibraryKind} from './platform';
@@ -111,9 +112,6 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   const read = (target: ReadingManifest, index?: number) => {
     void controller.read(target, index).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
-  const toggleList = (membership: ReadingListMembership) => {
-    void controller.toggleList(membership).then(ok => {if (!ok) return;}).catch(runtime.reportError);
-  };
   const toggleRead = (mark: ReadingReadMark) => {
     void controller.toggleRead(mark).then(ok => {if (!ok) return;}).catch(runtime.reportError);
   };
@@ -133,7 +131,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       : <ReadBookBody controller={controller} manifest={manifest} series={series} comic={comic} runtime={runtime} wide={wide} rowHero={rowHero}
         saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
         versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
-        listed={state.listed} onList={toggleList} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
+        readMark={state.read} onReadMark={toggleRead} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
         shelf={shelf} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
         onShelfRetry={() => {void controller.retrySeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
         onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>;
@@ -179,13 +177,13 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, readMark, onReadMark, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean; rowHero: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
   versions: readonly NativeReadVersion[]; sourceId?: string;
   onVersion: (manifest: ReadingManifest, versions: readonly NativeReadVersion[], sourceId: string) => void;
-  listed?: ReadingListMembership; onList: (membership: ReadingListMembership) => void;
+  readMark?: ReadingReadMark; onReadMark: (mark: ReadingReadMark) => void;
   canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>; onHeroHeight: (height: number) => void;
   shelf: NativeReadSeriesShelfState; onShelfMore: () => void; onShelfRetry: () => void; onShelfItem: (item: ReadingItem) => void;
 }) {
@@ -238,24 +236,19 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
       {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, rowHero ? (wide ? 14.5 : 14) : 13, rowHero ? 400 : index === 0 ? 700 : 600), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
     </View> : null}
   </>;
-  const actions = <View style={{paddingHorizontal: rowHero ? 0 : 20, marginTop: 18}}>
-    <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-      {saved === undefined
-        ? <Button icon="i-book" onPress={() => onRead(manifest)} style={{flex: 1}}>{t('next.reader.read')}</Button>
-        : <ResumeButton icon="i-book" progress={saved} onPress={() => onRead(manifest)} style={{flex: 1}}>{t('next.cards.read')}</ResumeButton>}
-      <Button variant="icon" icon={listed?.listed ? 'i-check' : 'i-plus'} iconOnly disabled={!listed}
-        accessibilityLabel={t(listed?.listed ? 'next.home.removeMyList' : 'next.home.addMyList')}
-        onPress={() => {if (listed) onList(listed);}} style={{height: 48, width: 48}}/>
-      <Button ref={downloadRef} variant="icon" icon="i-dl" iconOnly disabled={!canDownload}
-        accessibilityLabel={t('action.download')} onPress={() => onDownload(manifest)} style={{height: 48, width: 48}}/>
-    </View>
-    {versions.length > 1 ? <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
-      onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: rowHero ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
-      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
-      <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
-      <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
-    </Focusable> : null}
-  </View>;
+  const actions = <>
+    <BookDetailActions saved={saved} readMark={readMark} canDownload={canDownload} onRead={() => onRead(manifest)}
+      onReadMark={onReadMark} onDownload={() => onDownload(manifest)} downloadRef={downloadRef}
+      horizontalPadding={rowHero ? 0 : 20} roundSize={rowHero ? 48 : 46}/>
+    {versions.length > 1 ? <View style={{paddingHorizontal: rowHero ? 0 : 20}}>
+      <Focusable accessibilityRole="button" accessibilityLabel={t('next.reader.version')} focusKind="row"
+        onPress={() => setVersionsOpen(true)} style={{marginTop: 12, alignSelf: rowHero ? 'flex-start' : 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10}}>
+        <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t('next.reader.version')}</Text>
+        <Text style={[browseType(theme, 13, 700), {color: theme.colors.text}]}>{selectedVersion?.format.toUpperCase() ?? ''}</Text>
+        <Icon name="i-down" size={14} color={theme.colors.textTertiary}/>
+      </Focusable>
+    </View> : null}
+  </>;
   const hero = rowHero
     ? <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: wide ? 36 : 28, paddingHorizontal: wide ? 32 : 28}}>
       {coverArt}
