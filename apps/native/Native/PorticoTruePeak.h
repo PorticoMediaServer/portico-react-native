@@ -28,14 +28,21 @@ typedef struct PorticoTruePeak {
  float *delay,*peaks;
  uint64_t *indices;
  uint64_t limited;
+ unsigned quietFrames;
 } PorticoTruePeak;
 
 static inline double ptp_sinc(double x){return fabs(x)<1e-12?1.0:sin(PTP_PI*x)/(PTP_PI*x);}
 static inline double ptp_blackman(double x){return fabs(x)>=1?0:.42+.5*cos(PTP_PI*x)+.08*cos(2*PTP_PI*x);}
 static inline unsigned ptp_latency(const PorticoTruePeak *s){return s?16+(unsigned)s->lookahead/4+8:0;}
+/* Clock latency is the filter group delay. Finite EOS drainage also owes the complete FIR
+ * support behind the final nonzero input, not merely that group delay. */
+static inline unsigned ptp_drain_frames(const PorticoTruePeak *s){return s?
+ PTP_UP_TAPS-1+(unsigned)s->lookahead/4+(PTP_DOWN_TAPS-1+3)/4:0;}
+static inline int ptp_has_tail(const PorticoTruePeak *s){return s&&s->quietFrames<ptp_drain_frames(s);}
 static inline void ptp_destroy(PorticoTruePeak *s){if(s){free(s->delay);free(s->peaks);free(s->indices);free(s);}}
 static inline void ptp_reset(PorticoTruePeak *s){
  if(!s)return;s->at=0;s->gain=1;s->upAt=s->downAt=s->head=s->count=0;s->limited=0;
+ s->quietFrames=ptp_drain_frames(s);
  memset(s->upHistory,0,sizeof(s->upHistory));memset(s->downHistory,0,sizeof(s->downHistory));
  memset(s->delay,0,(size_t)s->capacity*s->channels*sizeof(float));
 }
@@ -69,9 +76,13 @@ static inline int ptp_process(PorticoTruePeak *s,float *pcm,unsigned frames){
  if(!s||!pcm||frames>8192)return 0;
  for(unsigned frame=0;frame<frames;frame++){
   float result[PTP_CHANNELS]={0};
+  int signal=0;
   for(int ch=0;ch<s->channels;ch++){
-   float x=pcm[(size_t)frame*s->channels+ch];s->upHistory[s->upAt][ch]=isfinite(x)?x:0;
+   float x=pcm[(size_t)frame*s->channels+ch];x=isfinite(x)?x:0;
+   if(x!=0)signal=1;s->upHistory[s->upAt][ch]=x;
   }
+  if(signal)s->quietFrames=0;
+  else if(s->quietFrames<ptp_drain_frames(s))s->quietFrames++;
   for(int phase=0;phase<4;phase++){
    float up[PTP_CHANNELS],peak=0;
    for(int ch=0;ch<s->channels;ch++){

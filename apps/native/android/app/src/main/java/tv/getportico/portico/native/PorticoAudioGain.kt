@@ -555,7 +555,8 @@ internal class PorticoMusicSink(
 }
 
 /** Only listening players use this sink; video keeps its normal output format and passthrough. */
-internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain, private val mix: PorticoMusicMix? = null) : DefaultRenderersFactory(context) {
+internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain,
+    private val mix: PorticoMusicMix? = null, private val playbackSpeed: Float = 1f) : DefaultRenderersFactory(context) {
   override fun buildAudioRenderers(
     context: Context, extensionRendererMode: Int, mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
     enableDecoderFallback: Boolean, audioSink: AudioSink, eventHandler: android.os.Handler,
@@ -590,8 +591,12 @@ internal class PorticoAudioRenderers(context: Context, private val gain: Portico
     val output = if (mix == null) PorticoAudioTrackOutput(context, gain) else null
     gain.output = output
     gain.deferFloatClipping = mix != null
-    val provider = if (mix != null) mix.client(gain) else PorticoObservedOutputProvider(context, checkNotNull(output))
-    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(true).setAudioOutputProvider(provider).build()
+    val provider = if (mix != null) mix.client(gain, playbackSpeed) else PorticoObservedOutputProvider(context, checkNotNull(output))
+    // Media3's built-in processor chain skips tempo when Float32 output is selected. The
+    // protected bus owns the pinned Float32 Sonic processor before its final sum/limiter;
+    // the virtual AudioOutput parameter/clock API keeps Media3 from applying tempo twice.
+    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(true)
+        .setEnableAudioOutputPlaybackParameters(mix != null).setAudioOutputProvider(provider).build()
     return PorticoMusicSink(sink, gain, route, preferred, output, headroom = mix != null)
   }
 }

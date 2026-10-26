@@ -370,7 +370,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     // adopted without touching the sound.
     val pipelineChanged = player?.let { audioGains.containsKey(it) != listeningUsesPCM() ||
         audioMixes.containsKey(it) != needsMusicMix() ||
-        audioGains.containsKey(it) && audioModes[it] != PorticoAudioSampleRate.mode } == true
+        audioGains.containsKey(it) && audioModes[it] != PorticoAudioSampleRate.mode ||
+        audioMixes.containsKey(it) && audioSpeeds[it] != desiredRate().toFloat() } == true
     if (pipelineChanged && sameBinding && !routeResume) {
       val retained = sourcePosition()
       if (retained.isFinite() && retained >= 0) { routePosition = retained; routeResume = true }
@@ -450,6 +451,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private val audioSources = java.util.WeakHashMap<ExoPlayer, PorticoAudioSourceTag>()
   private val audioMixes = java.util.WeakHashMap<ExoPlayer, PorticoMusicMix>()
   private val audioModes = java.util.WeakHashMap<ExoPlayer, String>()
+  private val audioSpeeds = java.util.WeakHashMap<ExoPlayer, Float>()
   private val retainedMixes = LinkedHashSet<PorticoMusicMix>()
   private var musicMix: PorticoMusicMix? = null
   private var audioThread: android.os.HandlerThread? = null
@@ -461,7 +463,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     }.looper
   }
   private fun needsMusicMix(): Boolean {
-    if (listeningOwner == null || planOf(command?.get("audioRender")) == null) return false
+    if (listeningOwner == null || !listeningUsesPCM()) return false
     val effects = settings()
     return effects?.get("normalization") in listOf("track", "album") ||
         (number(effects?.get("crossfadeSeconds")) ?: 0.0) > 0 ||
@@ -524,7 +526,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))
     val gain = if (listening) PorticoAudioGain() else null
     val mix = if (gain != null && needsMusicMix()) processedOutput() else null
-    val renderers = if (gain != null) PorticoAudioRenderers(context, gain, mix) else DefaultRenderersFactory(context)
+    val renderers = if (gain != null) PorticoAudioRenderers(context, gain, mix, desiredRate().toFloat()) else DefaultRenderersFactory(context)
     val builder = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
     if (mix != null) builder.setPlaybackLooper(audioLooper())
     val made = builder
@@ -547,7 +549,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (TelevisionDisplay.isTelevision) made.videoChangeFrameRateStrategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
     made.addAnalyticsListener(bandwidth)
     if (gain != null) { audioGains[made] = gain; audioModes[made] = PorticoAudioSampleRate.mode }
-    if (mix != null) audioMixes[made] = mix
+    if (mix != null) { audioMixes[made] = mix; audioSpeeds[made] = desiredRate().toFloat() }
     return made
   }
 
@@ -590,11 +592,13 @@ internal class PorticoPlaybackController(private val context: Context) {
     // The accepted ordinary replacement may cross between file rendering and a plain stream.
     // unload() has already stopped/cleared the original; do not reuse its incompatible sink.
     player?.takeIf { audioGains.containsKey(it) != listeningUsesPCM() || audioMixes.containsKey(it) != needsMusicMix() ||
-        audioGains.containsKey(it) && audioModes[it] != PorticoAudioSampleRate.mode }?.let { old ->
+        audioGains.containsKey(it) && audioModes[it] != PorticoAudioSampleRate.mode ||
+        audioMixes.containsKey(it) && audioSpeeds[it] != desiredRate().toFloat() }?.let { old ->
       old.removeListener(listener)
       audioSources.remove(old)
       audioGains.remove(old)
       audioModes.remove(old)
+      audioSpeeds.remove(old)
       old.release()
       player = null
       playerIsDeck = false

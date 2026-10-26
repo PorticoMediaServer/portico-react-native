@@ -3,6 +3,8 @@ package tv.getportico.portico.native
 import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioOutputProvider
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
@@ -40,13 +42,14 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
 
   fun hasHeard(gain: PorticoAudioGain): Boolean = current[gain]?.heard == true
 
-  fun client(gain: PorticoAudioGain): AudioOutputProvider {
+  fun client(gain: PorticoAudioGain, speed: Float): AudioOutputProvider {
+    require(speed.isFinite() && speed in .5f..3f)
     synchronized(this) { check(!closed); clients++ }
     gain.externalFade = true
     return object : AudioOutputProvider by delegate {
       private val listeners = LinkedHashSet<AudioOutputProvider.Listener>()
       private var released = false
-      override fun getAudioOutput(config: AudioOutputProvider.OutputConfig): AudioOutput = open(gain, config)
+      override fun getAudioOutput(config: AudioOutputProvider.OutputConfig): AudioOutput = open(gain, speed, config)
       override fun addListener(listener: AudioOutputProvider.Listener) { listeners.add(listener); delegate.addListener(listener) }
       override fun removeListener(listener: AudioOutputProvider.Listener) { listeners.remove(listener); delegate.removeListener(listener) }
       override fun release() {
@@ -61,8 +64,8 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
     }
   }
 
-  private fun open(gain: PorticoAudioGain, config: AudioOutputProvider.OutputConfig): Voice {
-    if (closed || voices.size >= 2 || config.isOffload || config.isTunneling || config.usePlaybackParameters ||
+  private fun open(gain: PorticoAudioGain, speed: Float, config: AudioOutputProvider.OutputConfig): Voice {
+    if (closed || stopped || voices.size >= 2 || config.isOffload || config.isTunneling || !config.usePlaybackParameters ||
         config.encoding != C.ENCODING_PCM_FLOAT || config.sampleRate !in 8000..768000 ||
         Integer.bitCount(config.channelMask) !in 1..32)
       throw AudioOutputProvider.InitializationException(IllegalArgumentException("audio_mix_format_unavailable"))
@@ -92,19 +95,30 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
         throw AudioOutputProvider.InitializationException(failure)
       }
     }
-    return Voice(gain, config, checkNotNull(physical)).also {
+    return Voice(gain, speed, config, checkNotNull(physical)).also {
       voices.add(it); current[gain] = it
       if (driver == null) driver = it
     }
   }
 
-  private inner class Voice(val gain: PorticoAudioGain, val config: AudioOutputProvider.OutputConfig,
+  private inner class Voice(val gain: PorticoAudioGain, private val speed: Float, val config: AudioOutputProvider.OutputConfig,
                             private val output: AudioOutput) : AudioOutput by output {
     private val channels = Integer.bitCount(config.channelMask)
     private val rate = checkNotNull(physicalConfig).sampleRate
     private val stage = PorticoRateStage(allowFloatHeadroom = true).also {
       it.configure(config.sampleRate, channels, C.ENCODING_PCM_FLOAT, rate)
     }
+    // The public pinned processor accepts Float32. No integer narrowing/clipping or platform
+    // speed interpolation is inserted after our limiter. A rate change rebuilds this voice at
+    // the original retained position, rather than reinterpreting held tempo/filter buffers.
+    private val tempo = if (speed == 1f) null else SonicAudioProcessor().also {
+      it.setSpeed(speed); it.setPitch(1f)
+      it.configure(AudioProcessor.AudioFormat(config.sampleRate, channels, C.ENCODING_PCM_FLOAT))
+      it.flush(AudioProcessor.StreamMetadata.DEFAULT)
+    }
+    private var tempoOutput: ByteBuffer? = null
+    private var stopRequested = false
+    private var sourceFrames = 0L
     private val queue = ArrayDeque<FloatArray>()
     private var offset = 0
     var queued = 0
@@ -138,20 +152,49 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
       }
       stage.accepted(piece)
     }
+    fun fill() {
+      if (retired || ended) return
+      repeat(32) {
+        var held = tempoOutput
+        if (held == null && tempo != null) {
+          held = tempo.output.takeIf { it.hasRemaining() }
+          tempoOutput = held
+        }
+        if (held == null) {
+          if (stopRequested && (tempo == null || tempo.isEnded)) {
+            enqueue(stage.takeTail()); ended = true
+          }
+          return
+        }
+        val room = maximum - reserve - queued
+        if (room <= 0) return
+        val count = minOf(1024, held.remaining() / (channels * 4),
+            maxOf(1, (room.toLong() * config.sampleRate / rate).toInt()))
+        val part = held.duplicate().order(ByteOrder.nativeOrder())
+        part.limit(part.position() + count * channels * 4)
+        enqueue(stage.process(part, 0L, 1))
+        held.position(held.position() + count * channels * 4)
+        if (!held.hasRemaining()) tempoOutput = null
+      }
+    }
     override fun write(buffer: ByteBuffer, encodedAccessUnitCount: Int, presentationTimeUs: Long): Boolean {
       check(!retired && buffer.isDirect && buffer.remaining() % (channels * 4) == 0 && encodedAccessUnitCount == 1)
-      if (ended) flush()
+      check(!stopRequested) { "audio_mix_write_after_end" }
       if (input == null) { input = buffer; inputTime = presentationTimeUs; inputCount = encodedAccessUnitCount }
       check(input === buffer && inputTime == presentationTimeUs && inputCount == encodedAccessUnitCount)
       pump()
       while (buffer.hasRemaining() && queued < maximum - reserve) {
+        fill()
+        if (tempoOutput != null) break
         val room = maximum - reserve - queued
         val frames = minOf(1024, buffer.remaining() / (channels * 4),
             maxOf(1, (room.toLong() * config.sampleRate / rate).toInt()))
         val part = buffer.duplicate().order(ByteOrder.nativeOrder())
         part.limit(part.position() + frames * channels * 4)
-        enqueue(stage.process(part, presentationTimeUs, 1))
+        if (tempo != null) tempo.queueInput(part) else enqueue(stage.process(part, presentationTimeUs, 1))
         buffer.position(buffer.position() + frames * channels * 4)
+        sourceFrames += frames
+        fill()
         pump()
       }
       val complete = !buffer.hasRemaining()
@@ -178,13 +221,20 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
       updatePositions()
       if (firstFrame < 0) return 0
       val at = maxOf(0L, playedFrames() - firstFrame).coerceAtMost(mixed)
-      return at * 1_000_000L / rate
+      val sourceUs = (sourceFrames * 1_000_000L + config.sampleRate - 1) / config.sampleRate
+      val complete = ended && rawPlayedFrames() >= firstFrame + mixed + (limiter?.drainFrames ?: 0)
+      if (complete) return sourceUs
+      val playoutUs = at * 1_000_000L / rate
+      // Do not let Media3 release the final voice while its actual FIR tail is still queued.
+      val end = if (ended) maxOf(0L, sourceFrames - 1) * 1_000_000L / config.sampleRate else sourceUs
+      return (tempo?.getMediaDuration(playoutUs) ?: playoutUs).coerceIn(0L, end)
     }
     override fun getSampleRate(): Int = config.sampleRate
     override fun getBufferSizeInFrames(): Long = output.bufferSizeInFrames * config.sampleRate / rate
-    override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters.DEFAULT
+    override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters(speed)
     override fun setPlaybackParameters(playbackParams: PlaybackParameters) {
-      check(playbackParams == PlaybackParameters.DEFAULT) { "audio_mix_output_rate_unavailable" }
+      check(playbackParams.pitch == 1f && (playbackParams.speed == speed ||
+          sourceFrames == 0L && playbackParams == PlaybackParameters.DEFAULT)) { "audio_mix_output_rate_unavailable" }
     }
     override fun isOffloadedPlayback(): Boolean = false
     override fun play() { check(!retired); playing = true; output.play(); pump() }
@@ -201,7 +251,8 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
     override fun flush() {
       if (retired) return
       queue.clear(); queued = 0; offset = 0; input = null; stage.flush()
-      firstFrame = -1; mixed = 0; heard = false; ended = false
+      tempoOutput = null; tempo?.flush(AudioProcessor.StreamMetadata.DEFAULT)
+      firstFrame = -1; mixed = 0; sourceFrames = 0; heard = false; advancing = false; ended = false; stopRequested = false
       if (driver === this) {
         // The owner retires its incoming deck before seeking/rebinding the driver.
         check(voices.none { it !== this && !it.retired }) { "audio_mix_flush_has_successor" }
@@ -211,14 +262,15 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
     }
     override fun stop() {
       if (retired) return
-      if (ended) { pump(); return }
-      enqueue(stage.takeTail()); ended = true
+      if (!stopRequested) { stopRequested = true; tempo?.queueEndOfStream() }
+      fill()
       pump()
     }
     override fun release() {
       if (retired) return
       retired = true; playing = false; heard = false
       queue.clear(); queued = 0; input = null; stage.reset()
+      tempoOutput = null; tempo?.reset()
       current.remove(gain, this); voices.remove(this)
       if (driver === this) { driver = voices.firstOrNull(); driver?.promote() }
       if (voices.isEmpty()) {
@@ -240,12 +292,12 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
     }
   }
 
-  private fun playedFrames(): Long {
+  private fun rawPlayedFrames(): Long {
     val actual = physical ?: return 0
     val config = physicalConfig ?: return 0
-    val latency = limiter?.latencyFrames ?: 0
-    return maxOf(0L, actual.positionUs * config.sampleRate / 1_000_000L - latency)
+    return maxOf(0L, actual.positionUs * config.sampleRate / 1_000_000L)
   }
+  private fun playedFrames(): Long = maxOf(0L, rawPlayedFrames() - (limiter?.latencyFrames ?: 0))
   private fun updatePositions() { val at = playedFrames(); voices.toList().forEach { it.updateHeard(at) } }
 
   /** Only this method writes the physical output. It owns a refused/partially consumed buffer
@@ -255,8 +307,10 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
     val config = physicalConfig ?: return
     val dsp = limiter ?: return
     val channels = Integer.bitCount(config.channelMask)
+    voices.toList().forEach { it.fill() }
     updatePositions()
     repeat(32) {
+      voices.toList().forEach { it.fill() }
       val held = pending
       if (held != null) {
         if (!actual.write(held, 1, pendingTimeUs)) return
@@ -268,7 +322,7 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
       if (waiting || ready.isEmpty()) {
         val finished = voices.isNotEmpty() && voices.all { it.ended && it.queued == 0 }
         if (!finished) return
-        if (tailLeft < 0) tailLeft = dsp.latencyFrames
+        if (tailLeft < 0) tailLeft = dsp.drainFrames
         if (tailLeft == 0) { if (!stopped && voices.any { it.playing }) { stopped = true; actual.stop() }; return }
         val count = minOf(1024, tailLeft)
         val zeros = ByteBuffer.allocateDirect(count * channels * 4).order(ByteOrder.nativeOrder())
@@ -280,6 +334,10 @@ internal class PorticoMusicMix(private val context: Context, private val onIdle:
       }
       val count = minOf(1024, ready.minOf { it.queued })
       val values = FloatArray(count * channels)
+      tailLeft = -1
+      // A late successor may follow already-written tail/silence frames. Its first frame is
+      // the actual physical buffer position, never the count of non-silent mix input alone.
+      mixedFrames = writtenFrames
       for (frame in 0 until count) {
         ready.forEach { it.frame(values, frame * channels) }
         mixedFrames++

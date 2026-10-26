@@ -21,7 +21,8 @@ int main(void){
  enum{Frames=8192,Channels=2};
  PorticoTruePeak *whole=ptp_create(48000,Channels),*split=ptp_create(48000,Channels);
  if(!whole||!split){ptp_destroy(whole);ptp_destroy(split);return 1;}
- unsigned latency=ptp_latency(whole),total=Frames+latency;
+ unsigned latency=ptp_latency(whole),drain=ptp_drain_frames(whole),total=Frames+drain;
+ check(drain>latency&&!ptp_has_tail(whole),"empty DSP versus distinct clock latency and full FIR drainage");
  float *input=calloc((size_t)total*Channels,sizeof(float));
  float *a=calloc((size_t)total*Channels,sizeof(float)),*b=calloc((size_t)total*Channels,sizeof(float));
  if(!input||!a||!b){free(input);free(a);free(b);ptp_destroy(whole);ptp_destroy(split);return 1;}
@@ -38,6 +39,7 @@ int main(void){
  for(unsigned at=0,n=0;at<total;n++){unsigned count=chunks[n%5];if(count>total-at)count=total-at;check(ptp_process(split,b+at*2,count),"split process");at+=count;}
  check(!memcmp(a,b,(size_t)total*Channels*sizeof(float)),"decoder/output chunking never changes DSP state or tail");
  check(whole->limited>0,"the linked limiter actually operated");
+ check(!ptp_has_tail(whole),"full EOS zero support retires the final mixed sample");
  check(reconstructed_peak(a+latency*2,Frames,Channels)<=1.0f,"four-phase reconstructed output peak");
  float peak=0;int ratio=1;
  for(unsigned n=0;n<total;n++){
@@ -49,6 +51,10 @@ int main(void){
  check(ptp_process(split,b,1024),"reset process");
  int quiet=1;for(unsigned n=0;n<1024*2;n++)if(b[n]!=0)quiet=0;
  check(quiet&&split->at==4096,"reset retains no retired mix/filter/lookahead sample");
+ check(!ptp_has_tail(split),"reset and silence carry no old output tail");
+ b[0]=.25f;check(ptp_process(split,b,1)&&ptp_has_tail(split),"a final input frame owns a real FIR tail");
+ memset(b,0,(size_t)drain*Channels*sizeof(float));
+ check(ptp_process(split,b,drain)&&!ptp_has_tail(split),"bounded exact tail drainage completes");
  check(!ptp_process(split,b,8193),"bounded render block refusal");
  free(input);free(a);free(b);ptp_destroy(whole);ptp_destroy(split);
  return failed?1:0;

@@ -969,7 +969,8 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
   NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;if(now-_lastFact>=.25){_lastFact=now;
    BOOL strict=[PorticoAudioProcessing.shared.sampleRateMatching isEqual:@"strict"];
    BOOL holding=!strict&&APDictionary(_command[@"audioRender"][@"prepared"])&&_committing;
-   if(_primary.ended&&!_incoming&&!holding){if(!_endedSent){_endedSent=YES;[self emit:@"ended" extra:@{}];}}
+   BOOL outputPending=_truePeak&&[(PorticoTruePeakUnit *)_truePeak.AUAudioUnit hasPendingTail];
+   if(_primary.ended&&!_incoming&&!holding&&!outputPending){if(!_endedSent){_endedSent=YES;[self emit:@"ended" extra:@{}];}}
    else if(_primary.started)[self emit:@"progress" extra:@{}];}
  }
 }

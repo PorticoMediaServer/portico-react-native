@@ -7,6 +7,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_tv_getportico_portico_native_PorticoTrue
 extern "C" JNIEXPORT jint JNICALL Java_tv_getportico_portico_native_PorticoTruePeakNative_latency(JNIEnv *,jobject,jlong handle){
  return (jint)ptp_latency((PorticoTruePeak *)(uintptr_t)handle);
 }
+extern "C" JNIEXPORT jint JNICALL Java_tv_getportico_portico_native_PorticoTruePeakNative_drain(JNIEnv *,jobject,jlong handle){
+ return (jint)ptp_drain_frames((PorticoTruePeak *)(uintptr_t)handle);
+}
 extern "C" JNIEXPORT jboolean JNICALL Java_tv_getportico_portico_native_PorticoTruePeakNative_process(JNIEnv *env,jobject,jlong handle,jobject buffer,jint frames){
  PorticoTruePeak *s=(PorticoTruePeak *)(uintptr_t)handle;
  if(!s||frames<0||frames>8192||!buffer)return JNI_FALSE;

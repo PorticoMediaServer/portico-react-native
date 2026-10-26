@@ -3,14 +3,18 @@
 #import <AudioToolbox/AudioToolbox.h>
 #include "PorticoTruePeak.h"
 #include <stddef.h>
+#include <stdatomic.h>
 
 /* One engine-local effect AFTER the main mixer. A stable C render state is configured only while
  * the engine is stopped; the real-time block allocates nothing and captures no owner/player. */
 typedef struct PorticoTruePeakRenderState {
  PorticoTruePeak *dsp;float *input,*output,*work;AudioBufferList *pull;
  AUAudioFrameCount capacity;AVAudioChannelCount channels;
+ atomic_bool pendingTail;
 } PorticoTruePeakRenderState;
-@interface PorticoTruePeakUnit : AUAudioUnit @end
+@interface PorticoTruePeakUnit : AUAudioUnit
+- (BOOL)hasPendingTail;
+@end
 @implementation PorticoTruePeakUnit {
  AUAudioUnitBus *_input,*_output;AUAudioUnitBusArray *_inputs,*_outputs;
  PorticoTruePeakRenderState *_state;
@@ -24,6 +28,7 @@ typedef struct PorticoTruePeakRenderState {
   _inputs=[[AUAudioUnitBusArray alloc]initWithAudioUnit:self busType:AUAudioUnitBusTypeInput busses:@[_input]];
   _outputs=[[AUAudioUnitBusArray alloc]initWithAudioUnit:self busType:AUAudioUnitBusTypeOutput busses:@[_output]];
   _state=calloc(1,sizeof(*_state));if(!_state)return nil;
+  atomic_init(&_state->pendingTail,false);
   self.maximumFramesToRender=8192;
  }return self;
 }
@@ -37,6 +42,11 @@ typedef struct PorticoTruePeakRenderState {
 - (NSTimeInterval)latency {
  double rate=_output.format.sampleRate;return rate>0?(16+ceil(rate*.005)+8)/rate:0;
 }
+- (NSTimeInterval)tailTime {
+ double rate=_output.format.sampleRate;
+ return rate>0?(PTP_UP_TAPS-1+ceil(rate*.005)+(PTP_DOWN_TAPS-1+3)/4)/rate:0;
+}
+- (BOOL)hasPendingTail {return _state&&atomic_load(&_state->pendingTail);}
 - (BOOL)allocateRenderResourcesAndReturnError:(NSError **)error {
  if(![super allocateRenderResourcesAndReturnError:error])return NO;
  AVAudioFormat *format=_output.format;
@@ -54,11 +64,11 @@ typedef struct PorticoTruePeakRenderState {
  return YES;
 }
 - (void)deallocateRenderResources {
- if(_state){ptp_destroy(_state->dsp);_state->dsp=NULL;free(_state->input);_state->input=NULL;
+ if(_state){atomic_store(&_state->pendingTail,false);ptp_destroy(_state->dsp);_state->dsp=NULL;free(_state->input);_state->input=NULL;
   free(_state->output);_state->output=NULL;free(_state->work);_state->work=NULL;free(_state->pull);_state->pull=NULL;}
  [super deallocateRenderResources];
 }
-- (void)reset {[super reset];if(_state)ptp_reset(_state->dsp);}
+- (void)reset {[super reset];if(_state){ptp_reset(_state->dsp);atomic_store(&_state->pendingTail,false);}}
 - (AUInternalRenderBlock)internalRenderBlock {
  PorticoTruePeakRenderState *state=_state;
  return ^AUAudioUnitStatus(AudioUnitRenderActionFlags *flags,const AudioTimeStamp *when,AUAudioFrameCount frames,
@@ -78,6 +88,7 @@ typedef struct PorticoTruePeakRenderState {
    for(unsigned f=0;f<frames;f++)state->work[(size_t)f*state->channels+ch]=silence?0:source[f];
   }
   if(!ptp_process(state->dsp,state->work,frames))return kAudioUnitErr_CannotDoInCurrentContext;
+  atomic_store(&state->pendingTail,ptp_has_tail(state->dsp));
   // Upstream silence does not imply output silence: a real retained lookahead/tail may remain.
   if(flags)*flags&=~kAudioUnitRenderAction_OutputIsSilence;
   for(unsigned ch=0;ch<state->channels;ch++){
