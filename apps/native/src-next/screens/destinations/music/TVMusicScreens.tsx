@@ -11,6 +11,7 @@ import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/bro
 import {browseType} from '../../../kit/browse/presentation';
 import {FocusItem, FocusRegion} from '../../../kit/focus';
 import {useTheme} from '../../../kit/theme';
+import {TVArtFocus} from '../../../tv/layout/TVArtFocus';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
@@ -217,10 +218,12 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
           <View style={{flexDirection: 'row', gap: 40, marginTop: 24}}>
             {snapshot.similar.filter(value => value.kind === 'artist').slice(0, 8).map(value => {
               const albumCovers = (value.artworkPaths ?? []).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];});
-              return <Focusable key={value.id} accessibilityRole="button" accessibilityLabel={value.displayTitle??value.title}
-                onPress={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} style={{width:200,alignItems:'center',gap:12}}>
-                <ArtistCircle covers={albumCovers} initials={[...value.title.trim()][0] ?? ''} alt={value.title} size={200} visible/>
-                <Text numberOfLines={1} style={[browseType(theme, 22, 700), {color: theme.colors.text, textAlign: 'center'}]}>{value.displayTitle ?? value.title}</Text>
+              return <Focusable key={value.id} accessibilityRole="button" accessibilityLabel={value.displayTitle??value.title} focusKind="card" focusTreatment="none"
+                onPress={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} style={{width:200}}>
+                {({focused}) => <TVArtFocus focused={focused} width={200} faceSize={200}
+                  face={<ArtistCircle covers={albumCovers} initials={[...value.title.trim()][0] ?? ''} alt={value.title} size={200} visible/>}>
+                  <Text numberOfLines={1} style={[browseType(theme, 22, 700), {color: theme.colors.text, textAlign: 'center', marginTop: 12}]}>{value.displayTitle ?? value.title}</Text>
+                </TVArtFocus>}
               </Focusable>;
             })}
           </View>

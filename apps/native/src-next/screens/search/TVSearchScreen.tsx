@@ -129,7 +129,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
           <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 26}}>{genreTiles.map(genre => <TVSearchGenre key={genre.id} genre={genre} width={(resultsWidth - 26) / 2}
             disabled={!active.visible} runtime={runtime} onPress={() => explore.openGenre(genre)}/>)}</View>
           {!typed && !!state.recent.length && <View style={{marginTop: 36}}><Text accessibilityRole="header" style={[browseType(theme, 32, 700), {color: theme.colors.text, marginBottom: 16}]}>{t('web.search.recent')}</Text>
-            {state.recent.map(recent => <Focusable key={recent.q} focusId={`recent:${recent.q}`} disabled={!active.visible} onPress={() => destination.useRecent(recent.q)}
+            {state.recent.map(recent => <Focusable key={recent.q} focusId={`recent:${recent.q}`} focusKind="row" disabled={!active.visible} onPress={() => destination.useRecent(recent.q)}
               style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</View>}
         </>}
         {typed && !empty && !problem && top && <TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/>}
@@ -152,7 +152,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
 
 export function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: NativeSearchGenre; runtime: NativeShellRuntime; width: number; disabled: boolean; onPress: () => void}) {
   const theme = useTheme(), gradient = useId();
-  return <Focusable focusId={`genre:${genre.id}`} testID={`tv-search-genre-${encodeURIComponent(genre.id)}`} disabled={disabled} onPress={onPress}
+  return <Focusable focusId={`genre:${genre.id}`} testID={`tv-search-genre-${encodeURIComponent(genre.id)}`} focusKind="card" disabled={disabled} onPress={onPress}
     accessibilityLabel={genre.name} focusRadius={16} style={{width, height: 200, borderRadius: 16, backgroundColor: theme.colors.raised}}>
     <View style={tvSearchR46.genreClip}>
       <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={200}/>
