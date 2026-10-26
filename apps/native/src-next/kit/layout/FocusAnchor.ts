@@ -34,11 +34,10 @@ export function useFocusAnchor(horizontal: boolean, ownsFocus = true, alignment:
   }, [horizontal]);
   const onScroll = useAnimatedScrollHandler(event => {offset.value = horizontal ? event.contentOffset.x : event.contentOffset.y;});
   const move = useCallback((next: number, immediate = false) => {
-    if (Math.abs(next - offset.value) < .5) return;
     destination.current = next;
     // Native focus and the destination move immediately; only the newly positioned
     // scrolling surface fades. Direct finger scrolling never enters this path.
-    if (motion.reduce) {opacity.value = 0; opacity.value = withTiming(1, motion.timing());}
+    if (motion.reduce && Math.abs(next - offset.value) >= .5) {opacity.value = 0; opacity.value = withTiming(1, motion.timing());}
     driving.value = false;
     cancelAnimation(target);
     target.value = offset.value;
