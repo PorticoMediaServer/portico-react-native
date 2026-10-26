@@ -20,12 +20,21 @@ import {transformSync} from 'rolldown/utils';
 import {act, createHookHost} from './hook-driver.ts';
 
 type Element = {type: unknown; props: Record<string, any>};
-type Timing = {config: {toValue: number; duration: number; easing: unknown}; value: {value: number}; stopped: boolean; started: boolean; completed: boolean; advance: (to?: number) => void};
+type PaintValue = {value: number};
+type Timing = {
+  config: {toValue: number; duration: number; easing: unknown};
+  value: PaintValue; stopped: boolean; started: boolean; completed: boolean;
+  /** Move the painted value without completing the animation. */
+  tick: (to: number) => void;
+  /** Complete to the configured target; the only path that calls the callback. */
+  finish: () => void;
+  /** Invoke the retired callback without touching the painted value. */
+  retire: () => void;
+};
 
 const stateKey = '__porticoLoadingPaintHostTest';
 const baseline = {reduce: false, duration: (name: string) => (name === 'standard' ? 180 : 0)};
 const state = {
-  values: [] as {value: number}[],
   setValues: [] as number[],
   timings: [] as Timing[],
   motion: baseline,
@@ -37,14 +46,16 @@ const native = dataModule(`
 export const View = 'View', Text = 'Text';
 export const Easing = {linear: 'linear', bezier: (...points) => ({bezier: points})};
 export class Value {
-  constructor(value) {this.value = value; globalThis.${stateKey}.values.push(this);}
+  constructor(value) {this.value = value;}
   setValue(value) {this.value = value; globalThis.${stateKey}.setValues.push(value);}
 }
 export const Animated = {
   View: 'AnimatedView', createAnimatedComponent: component => component, Value,
   timing: (value, config) => {
     const record = {config, value, stopped: false, started: false, completed: false};
-    record.advance = (to = config.toValue) => {value.value = to; record.completed = true; if (record.callback) record.callback({finished: !record.stopped});};
+    record.tick = to => {value.value = to;};
+    record.finish = () => {record.completed = true; value.value = config.toValue; if (record.callback) record.callback({finished: !record.stopped});};
+    record.retire = () => {if (record.callback) record.callback({finished: false});};
     globalThis.${stateKey}.timings.push(record);
     return {
       start(callback) {record.started = true; record.callback = callback;},
@@ -103,8 +114,15 @@ const child = {type: 'ChildHost', props: {}} as unknown as Element;
 function rendered(tree: Element): Element[] {
   return (tree.props.children as unknown[]).filter((node): node is Element => !!node && typeof node === 'object' && 'type' in (node as Element) && !!(node as Element).type);
 }
+function contentView(tree: Element): Element {
+  return rendered(tree).filter(node => node.type === 'AnimatedView')[0]!;
+}
 function overlay(tree: Element): Element | undefined {
   return rendered(tree).filter(node => node.type === 'AnimatedView')[1];
+}
+/** The Value actually rendered as the content opacity, not a discarded render-local one. */
+function paintValue(tree: Element): PaintValue {
+  return contentView(tree).props.style.opacity as PaintValue;
 }
 
 test('a cached initial ready mount paints immediately with no quiet timer', async () => {
@@ -112,7 +130,7 @@ test('a cached initial ready mount paints immediately with no quiet timer', asyn
   try {
     assert.equal(live().length, 0, 'cached ready queues no quiet timer');
     assert.equal(state.timings.length, 0, 'cached ready starts no fade');
-    assert.equal(state.values.at(-1)!.value, 1, 'cached ready paints at full opacity');
+    assert.equal(paintValue(paint.tree).value, 1, 'cached ready paints at full opacity');
     assert.equal(overlay(paint.tree), undefined);
 
     paint.update({ready: false, immediate: true, skeleton: shape, children: child});
@@ -128,10 +146,13 @@ test('a cached initial ready mount paints immediately with no quiet timer', asyn
     const fade = state.timings.at(-1)!;
     assert.equal(fade.config.duration, 180, 'cached is not sticky: later content fades');
     assert.equal(fade.started, true);
+    assert.equal(fade.value, paintValue(paint.tree), 'the fade drives the rendered opacity Value');
+    fade.finish();
+    assert.equal(paintValue(paint.tree).value, 1);
   } finally {paint.host.unmount();}
 });
 
-test('a retired quiet completion cannot paint in the next cycle, and a late one after unmount is inert', async () => {
+test('a retired quiet completion cannot paint in the next cycle, cannot hide the current shape, and is inert after unmount', async () => {
   const paint = mountPaint({ready: false, skeleton: shape, children: child});
   const retired = timers.get(liveTimer())!.fn;
   paint.update({ready: true, skeleton: shape, children: child});
@@ -144,6 +165,8 @@ test('a retired quiet completion cannot paint in the next cycle, and a late one 
   assert.equal(overlay(paint.tree), undefined, 'the retired completion reveals nothing');
   await act(() => {invoke(current);});
   assert.ok(overlay(paint.tree), 'only the current cycle completion paints');
+  await act(() => {retired();});
+  assert.ok(overlay(paint.tree), 'a late retired timer leaves the current shape visible');
   paint.host.unmount();
   assert.doesNotThrow(() => {retired();});
 });
@@ -163,7 +186,7 @@ test('changing the motion policy during quiet never restarts the 300 ms window',
   } finally {paint.host.unmount(); state.motion = baseline;}
 });
 
-test('a policy change retargets the painted value, and a retired completion leaves its successor active', async () => {
+test('a policy change retargets the painted value, and a retired completion leaves its successor live', async () => {
   const paint = mountPaint({ready: false, skeleton: shape, children: child});
   try {
     paint.update({ready: true, skeleton: shape, children: child});
@@ -171,7 +194,9 @@ test('a policy change retargets the painted value, and a retired completion leav
     const first = state.timings.at(-1)!;
     assert.equal(first.config.duration, 180);
     assert.deepEqual(first.config.easing, {bezier: [0.2, 0.8, 0.2, 1]}, 'default motion uses the out curve');
-    first.advance(0.42);
+    assert.equal(first.value, paintValue(paint.tree));
+    first.tick(0.42);
+    assert.equal(paintValue(paint.tree).value, 0.42, 'partial paint is the value the retarget must see');
     const resets = state.setValues.length;
 
     state.motion = {reduce: true, duration: (name: string) => (name === 'standard' ? 160 : 0)};
@@ -180,15 +205,19 @@ test('a policy change retargets the painted value, and a retired completion leav
     const second = state.timings.at(-1)!;
     assert.equal(second.config.duration, 160, 'reduced motion retargets at 160');
     assert.equal(second.config.easing, 'linear');
-    assert.equal(state.values.at(-1)!.value, 0.42, 'the retarget starts from the painted value');
+    assert.equal(second.value, paintValue(paint.tree), 'the retarget drives the same rendered Value');
+    assert.equal(paintValue(paint.tree).value, 0.42, 'the retarget starts from the painted value');
     assert.equal(state.setValues.length, resets, 'no reset to zero on a policy change');
     assert.equal(first.stopped, true);
 
-    // The retired completion is invoked even though it was stopped; the component's
-    // own handle check must keep the successor authoritative.
-    first.advance(1);
+    // The retired completion runs despite its stop and writes no value; the
+    // component's own handle check must keep the successor authoritative.
+    first.retire();
     assert.equal(second.stopped, false, 'the successor is still the live fade');
-    assert.equal(state.values.at(-1)!.value, 1, 'the successor reaches full opacity');
+    assert.equal(paintValue(paint.tree).value, 0.42, 'a retired callback writes no paint');
+    second.tick(0.9);
+    second.finish();
+    assert.equal(paintValue(paint.tree).value, 1, 'the successor itself reaches full opacity');
 
     state.motion = baseline;
     paint.update({ready: true, skeleton: shape, children: child});
@@ -196,5 +225,6 @@ test('a policy change retargets the painted value, and a retired completion leav
     const third = state.timings.at(-1)!;
     assert.equal(third.config.duration, 180, 'a later retarget still owns the fade');
     assert.deepEqual(third.config.easing, {bezier: [0.2, 0.8, 0.2, 1]});
+    assert.equal(second.stopped, true, 'the retarget stops the previous live fade');
   } finally {paint.host.unmount(); state.motion = baseline;}
 });
