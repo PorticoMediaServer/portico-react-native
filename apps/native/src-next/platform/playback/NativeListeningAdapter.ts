@@ -68,6 +68,16 @@ export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:strin
  return Object.freeze({...nativeListeningStatus(raw, serviceText),session,queue,transition,end,lastSeq:raw.lastSeq,durationSeconds:raw.durationSeconds});
 }
 
+/** Capture the caller's policy before a bridge can retain it; no later form/source mutation
+ * may change the timer occurrence or ordered book boundary being acknowledged. */
+function capturedPolicy(value:NativeListeningPolicy):NativeListeningPolicy {
+ const t=value.timer;
+ return Object.freeze({...value,effects:Object.freeze({...value.effects}),preferences:value.preferences?Object.freeze({...value.preferences}):null,
+  ...(value.audiobook?{audiobook:Object.freeze({...value.audiobook})}:{}),
+  timer:t?Object.freeze({...t,...(t.occurrence?{occurrence:Object.freeze({...t.occurrence,queue:t.occurrence.queue?Object.freeze({...t.occurrence.queue}):null})}:{}),
+   ...(t.bookBoundary?{bookBoundary:Object.freeze({...t.bookBoundary,revision:Object.freeze({...t.bookBoundary.revision}),items:Object.freeze([...t.bookBoundary.items])})}:{})}):null});
+}
+
 /** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are
  * acknowledged, which lets the owner forget a transition JS has seen. */
 export class NativeListeningV1Adapter implements NativeListeningV1Control {
@@ -78,7 +88,7 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
  constructor(options:{route?:{getSnapshot:()=>RouteSnapshot;subscribe:(listener:()=>void)=>()=>void};bridge:NativeListeningBridge;principal:ListeningPrincipal;bearer:()=>string;id:()=>string;subscribe:(sink:(event:unknown)=>void)=>()=>void}){this.route=options.route;this.bridge=options.bridge;this.principal=listeningPrincipal(options.principal);this.bearer=options.bearer;this.id=options.id;this.subscribe=options.subscribe;}
  async adopt(context:NativeListeningV1Context,sink:(event:NativeListeningV1Event)=>void){
   if(!this.bridge.adoptListeningSession)throw new Error('This app version can’t hand audio to the system player.');
-  const epoch=++this.epoch,previous=this.current;this.current=undefined;
+  const playbackRun=context.playbackRun,epoch=++this.epoch,previous=this.current;this.current=undefined;
   if(previous){previous.unsubscribe();await this.bridge.retireListening(previous.owner,false);}
   if(this.epoch!==epoch)return;
   const active:NonNullable<NativeListeningV1Adapter['current']>={owner:this.id(),sessionId:context.session.id,sink,sequence:0,unsubscribe:()=>{}};this.current=active;
@@ -86,7 +96,7 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
   const route=this.route?.getSnapshot();
   try{
    const raw=await this.bridge.adoptListeningSession({owner:active.owner,origin:this.principal.origin,transport:route?{ready:route.phase==='ready',origin:route.origin,revision:route.revision}:undefined,principalKey:principalKey(this.principal),
-    session:context.session,...(context.playbackRun===undefined?{}:{playbackRun:context.playbackRun}),queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
+    session:context.session,...(playbackRun===undefined?{}:{playbackRun}),queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
    if(this.current!==active)return;
    this.accept(active,raw);
    if(this.route){const update=()=>{if(this.current!==active)return;const r=this.route!.getSnapshot();if(!this.bridge.listeningRoute){this.fail(active,new Error('Native route handoff is unavailable.'));return;}void this.bridge.listeningRoute(active.owner,{ready:r.phase==='ready',origin:r.origin,revision:r.revision}).catch(error=>this.fail(active,error));};const off=this.route.subscribe(update),offEvent=active.unsubscribe;active.unsubscribe=()=>{off();offEvent();};update();}
@@ -136,9 +146,12 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
  }
  async deadlines(value:ListeningDeadlines){const active=this.current;if(!active)return;await this.refresh();if(this.current===active)await this.bridge.listeningDeadlines(active.owner,value);}
  async configure(policy:NativeListeningPolicy){
-  this.policy=policy;const active=this.current;if(!active)return;
+  const original=capturedPolicy(policy);this.policy=original;const active=this.current;if(!active)return;
   if(!this.bridge.listeningPolicy)throw new Error('This native host does not implement unified listening policy.');
-  await this.bridge.listeningPolicy(active.owner,policy);
+  const accepted=await this.bridge.listeningPolicy(active.owner,original);
+  // An accepted policy may itself pause/advance playback. Keep its owner, not the live header;
+  // replacement ownership or a newer policy must never acknowledge this older command.
+  if(accepted!==true||this.current!==active||this.policy!==original)throw new Error('This listening policy is no longer current.');
  }
  async detach(stop:boolean){++this.epoch;const active=this.current;this.current=undefined;if(active){active.unsubscribe();await this.bridge.retireListening(active.owner,stop);}}
  async sessionUpdated(sessionId:string){const active=this.current;if(!active||active.sessionId!==sessionId||!this.bridge.listeningSessionUpdated)return;await this.bridge.listeningSessionUpdated(active.owner,sessionId);}
