@@ -53,8 +53,10 @@ function ReadingSearchHost({entry, runtime, navigation, onBack}: Readonly<{
   entry: Entry; runtime: NativeShellRuntime; navigation: NativeShellBootstrapContext['navigation']; onBack: () => void;
 }>) {
   const visible = useSyncExternalStore(navigation.subscribe, () => navigation.getSnapshot().route === entry.route);
-  // The carried words run only once the person can actually see this surface.
-  useEffect(() => {if (visible) entry.port.seed();}, [entry, visible]);
+  useEffect(() => {entry.port.attachReporter(runtime.reportError);}, [entry, runtime]);
+  // A committed visible opening is the only authority the page acts under: it runs the
+  // carried words the first time, and re-witnesses the new navigation commit on Back.
+  useEffect(() => {if (visible) entry.port.admit();}, [entry, visible]);
   return <View pointerEvents={visible ? 'auto' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: visible ? 'flex' : 'none'}}>
     <ReadingSearchScreen port={entry.port} runtime={runtime} query={entry.route.query} onBack={onBack}/>
