@@ -48,7 +48,7 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   const progression = continuedRow ? Math.max(0, Math.min(1, continuedRow.progress.location.progression)) : undefined;
   const readLabel = continued ? t('next.cards.read')
     : comic && first?.series?.number !== undefined ? t('next.reader.readVolume', {number: defaultI18n.number(first.series.number, {maximumFractionDigits: 20})})
-      : t('next.reader.read');
+      : t('next.reader.readNext');
   const stack = state.items.slice(0, 3);
   return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
     const next = Math.round(event.nativeEvent.layout.width);
@@ -96,8 +96,8 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
               {cover ? <Artwork source={cover} width={128} height={192} priority/> : <GeneratedCover title={title} author={authors[0]} tint={tint} glyph={initial(title)} width={128} height={192}/>}
             </View>}
           </View>
-          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 34, 800, -.02), {color: theme.colors.text, textAlign: 'center', marginTop: 14}]}>{title}</Text>
-          {authors.length || total !== undefined ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: 4, marginTop: 10}}>
+          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 34, 800, -.02, 34), {color: theme.colors.text, textAlign: 'center', marginTop: 14}]}>{title}</Text>
+          {authors.length || total !== undefined ? <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12, rowGap: 6, marginTop: 10}}>
             {authors.length ? <Text numberOfLines={2} style={[browseType(theme, 13, 700), {color: theme.colors.text, textAlign: 'center'}]}>{defaultI18n.list(authors)}</Text> : null}
             {total !== undefined ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(comic ? 'next.reader.volumeCount' : 'next.kit.books', {count: total})}</Text> : null}
           </View> : null}
