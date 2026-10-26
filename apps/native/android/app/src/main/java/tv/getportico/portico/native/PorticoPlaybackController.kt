@@ -440,6 +440,8 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
   private val audioSources = java.util.WeakHashMap<ExoPlayer, PorticoAudioSourceTag>()
+  private var outputUntilMs = 0L
+  fun retireAudioOutput() { audioGains.values.forEach { it.outputAllowed = false; it.output?.invalidate() } }
 
   /** Capture the validated binding at source creation, before any index/network await. */
   private fun originalAudioSource(): PorticoAudioSourceTag? {
@@ -452,12 +454,16 @@ internal class PorticoPlaybackController(private val context: Context) {
     val planId = plan["id"] as? String ?: return null
     val originalLease = bound["lease"] as? String ?: return null
     val intent = number(bound["intentId"])?.toLong() ?: return null
-    return PorticoAudioSourceTag(session, generation, item, planId, originalLease, intent)
+    return PorticoAudioSourceTag(session, generation, item, planId, originalLease, intent, outputUntilMs,
+        number(plan["sampleRate"])?.toInt() ?: 0, number(plan["bitDepth"])?.toInt() ?: 0)
   }
   private fun musicGain(engine: ExoPlayer, normalization: Float, fade: Double = 1.0, known: Boolean = false) {
     val processor = audioGains[engine]
     if (processor != null) {
       val original = audioSources[engine]?.takeIf { it.matches(currentBinding, planOf(command?.get("audioRender"))) }
+      processor.outputAllowed = original != null && engine === player && incoming == null &&
+          listeningAllowed && listeningRouteReady && !routeSuspended && !routeResume && !routeSeeking && !routeFailed &&
+          !seeking && command?.get("pendingSeek") == null
       processor.components(normalization, fade, known, original)
       engine.volume = 1f
     }
@@ -1106,6 +1112,7 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   /** The next track starts on a second player under the end of this one; when the fade is done it is the player. */
   private fun startCrossfade(seconds: Double) {
+    retireAudioOutput() // never leave a UID-owned BIT_PERFECT preference installed for an overlap
     val plan = nextPlan ?: return
     // Built like the player itself (the memory limit on a small device, the cap at the screen's
     // size): when the fade is done it is the player.
@@ -1217,8 +1224,26 @@ internal class PorticoPlaybackController(private val context: Context) {
     return snapshot
   }
 
+  /** Main-thread accepting fence around a renderer-originated, actually opened track fact. */
+  fun audioOutputFacts(): Map<String, Any>? {
+    val engine = player ?: return null
+    val plan = planOf(command?.get("audioRender")) ?: return null
+    val bound = currentBinding ?: return null
+    val original = audioSources[engine] ?: return null
+    if (!original.matches(bound, plan) || enginePlan != plan["id"] || !listeningAllowed ||
+        !listeningRouteReady || incoming != null || !engine.isPlaying || seeking || routeSuspended ||
+        routeResume || routeSeeking || routeFailed || command?.get("pendingSeek") != null) return null
+    val gain = audioGains[engine] ?: return null
+    val facts = gain.output?.snapshot(original) ?: return null
+    if (player !== engine || audioSources[engine] !== original || !original.matches(currentBinding, plan)) return null
+    return facts + mapOf("binding" to bound.toMap(), "instanceId" to instanceId)
+  }
+
   /** The owner's whole intent for the engine: what plays, whether it may, where it starts, and its audio plan. */
-  fun listeningOwner(owner: String, state: Map<String, Any?>, origin: String, allowed: Boolean, seek: Map<String, Any?>?, render: Map<String, Any?>?) {
+  fun listeningOwner(owner: String, state: Map<String, Any?>, origin: String, allowed: Boolean, seek: Map<String, Any?>?, render: Map<String, Any?>?, originalOutputUntilMs: Long) {
+    outputUntilMs = originalOutputUntilMs
+    audioGains.values.forEach { it.output?.checkOriginal() }
+    if (!allowed || listeningOwner != owner) retireAudioOutput()
     if (listeningOwner != owner) {
       player?.playWhenReady = false; incoming?.playWhenReady = false
       // A prior video player's sink cannot apply the listening PCM gain.
@@ -1240,6 +1265,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (listeningOwner != owner) return
     player?.playWhenReady = false
     listeningAllowed = false
+    retireAudioOutput()
     listeningOwner = null
     listeningAttachment = null
     listeningState = null

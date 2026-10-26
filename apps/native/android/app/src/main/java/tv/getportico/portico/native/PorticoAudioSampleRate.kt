@@ -17,11 +17,10 @@ import android.media.AudioTrack
  *   arbitrary.
  * - The platform's preferred rate (`PROPERTY_OUTPUT_SAMPLE_RATE`) is reported as a separate
  *   configured/preferred fact, never as the routed device's support.
- * - A match is only ever `opened rate == source rate`. The opened rate is not recorded here yet:
- *   this object is process-global, and an opened rate belongs to one owner, item, mode and route,
- *   so until the sink can name that association the reported output stays 0/unknown. Even when it
- *   is recorded, `AudioTrack.getSampleRate()` is the track's configured rate, *not* proof of the
- *   physical output or DAC rate, and no bit-perfect state is inferred.
+ * - This object holds no opened rate. The sink's PorticoAudioTrackOutput carries the actual
+ *   original decoded-source/control/track/route association. AudioTrack.sampleRate is configured
+ *   track rate, not measured physical DAC rate. Only the exact admitted API34 USB mixer readback
+ *   supplies a framework matching/bit-perfect observation; no process-global rate supplies one.
  *
  * Smart: the file's rate when the routed device lists it or the route is unknown, the device's
  * preferred rate only when the route is known and lacks the file's rate.
@@ -29,7 +28,7 @@ import android.media.AudioTrack
  * Off: the device's preferred rate, whatever the file is.
  *
  * This file holds the decision and the reported facts; the sink itself is configured by
- * [PorticoRateStage] inside the media3 adapter, which cannot read its routed AudioTrack.
+ * [PorticoRateStage] inside the media3 adapter; PorticoAudioTrackOutput owns opened observations.
  */
 object PorticoAudioSampleRate {
   const val SMART = "smart"
@@ -113,9 +112,8 @@ object PorticoAudioSampleRate {
     }
   }
 
-  /** Observed facts for the bridge and the signal path, in the native contract's own names.
-   * `openedSampleRate` is 0 and `openedSampleRateKnown` false: nothing here is bound to one owner,
-   * item, mode and route yet, so no open is reported and `modeImplemented` stays false. */
+  /** Unbound baseline only. The owner overlays a current original-source-bound sink snapshot;
+   * absent that proof, opened rate and implementation remain explicitly unknown. */
   fun facts(context: Context, mode: String, sourceRate: Int, routed: AudioDeviceInfo?, openedSampleRate: Int): Map<String, Any> {
     val opened = openedSampleRate
     val route = routeFacts(context, routed)

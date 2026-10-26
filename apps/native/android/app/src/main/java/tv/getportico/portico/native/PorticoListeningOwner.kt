@@ -258,11 +258,10 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val url = plan["url"] as String
     return if (url.startsWith("/")) HashMap(plan).apply { put("url", origin + url) } else plan
   }
-  // Music Match sample rate (23 Oct ruling): this device's own value. Reviewable WIP for Media: the
-  // mode is held and reported here; the sink configures its delegate at the stage's chosen rate, but
-  // no opened or configured rate is recorded process-wide, so audioProcessingFacts can never answer
-  // sampleRateMatched = true.
+  // Device preference only. An actual sink observation is separately source/track/route bound;
+  // changing this value immediately retires the previous mode's output proof and USB preference.
   fun setSampleRateMatching(mode: String) {
+    controller.retireAudioOutput()
     PorticoAudioSampleRate.mode = PorticoAudioSampleRate.parse(mode)
   }
 
@@ -277,7 +276,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   fun audioProcessingFacts(context: android.content.Context): Map<String, Any> {
     val owner = activeOwner
     val rate = if (owner == null) 0 else num(decodePlan(presentation(heard()))?.get("sampleRate"))?.toInt() ?: 0
-    return PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, rate, null, 0)
+    val facts = PorticoAudioSampleRate.facts(context, PorticoAudioSampleRate.mode, rate, null, 0)
+    return if (owner == null || !allowed()) facts else facts + (controller.audioOutputFacts() ?: emptyMap())
   }
 
   private fun renders(presentation: Map<String, Any?>?): Boolean = PorticoAudioPlan.playable(decodePlan(presentation))
@@ -359,7 +359,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val state = engineState()
     val absolute = (state["media"] as? Map<*, *>)?.get("absolute") == true
     controller.listeningRoute(owner, routeReady, Math.max(0, routeRevision))
-    controller.listeningOwner(owner, state, if (absolute) "" else origin, allowed(), if (audible != null) null else nativeSeek, renderCommand())
+    controller.listeningOwner(owner, state, if (absolute) "" else origin, allowed(), if (audible != null) null else nativeSeek, renderCommand(), (leaseUntil * 1000).toLong())
     onSystemChange?.invoke()
   }
 

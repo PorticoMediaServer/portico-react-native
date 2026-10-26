@@ -174,6 +174,7 @@ fun main() {
   check(sixteen.encoding == C.ENCODING_PCM_16BIT && sixteen.bytePassthrough && !sixteen.bitPerfect)
   gainProvenanceFoundations()
   bandlimitedRateFoundations()
+  outputProvenanceFoundations()
 }
 
 /** Test-only stream stamps. Production must obtain them from the renderer, never these fixtures. */
@@ -269,6 +270,64 @@ private fun gainProvenanceFoundations() {
   pipeline.configure(format(C.ENCODING_PCM_FLOAT, 48000, 1))
   check(pipeline.handle(provenancePcm(8), 0L, 1) { _, _, _ -> true })
   check(pipeline.acceptedWitness == null)
+}
+
+/** This pins only original decoded-buffer provenance, never a fabricated platform grant. */
+private fun outputProvenanceFoundations() {
+  val savedMode = PorticoAudioSampleRate.mode
+  PorticoAudioSampleRate.mode = PorticoAudioSampleRate.SMART
+  try {
+    val tag = PorticoAudioSourceTag("own", 7L, "song", "plan", "lease", 3L, 9000L, 44100, 16)
+    val other = PorticoAudioSourceTag("next", 8L, "song-next", "plan-next", "lease", 4L)
+    val stream = PorticoDecodedStreamStamp(tag, Any())
+    val next = PorticoDecodedStreamStamp(other, Any())
+    val gain = PorticoAudioGain()
+    gain.components(1f, 1.0, false, tag) // normalization OFF still has an actual original source
+    gain.reset(); gain.outputStream = stream; gain.outputAllowed = true
+    val queue = PorticoGainQueue(gain)
+    val raw = provenancePcm(96)
+    check(queue.bufferFor(raw, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 44100, 0L, 1, stream) === raw)
+    check(queue.witness == null) // no normalization observation was invented
+    val proof = queue.outputWitness!!
+    check(proof.stream === stream && proof.unchanged && gain.currentOutput(proof))
+    check(proof.sampleRate == 44100 && proof.channels == 1 && proof.mode == "smart")
+    gain.components(0.5f, 1.0, true, tag)
+    check(!gain.currentOutput(proof)) // a retained old buffer cannot inherit the new control
+    check(queue.bufferFor(raw, C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 44100, 0L, 1, next) === raw)
+    check(queue.outputWitness === proof) // retry identity keeps original provenance
+    queue.accepted()
+    gain.components(1f, 1.0, false, tag); gain.reset()
+    queue.bufferFor(provenancePcm(96), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 44100, 0L, 1, next)
+    check(queue.outputWitness == null) // current source/control cannot stamp a different decoder
+    queue.accepted()
+    queue.bufferFor(provenancePcm(96), C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_FLOAT, 1, 44100, 0L, 1, stream)
+    val fresh = queue.outputWitness!!
+    check(gain.currentOutput(fresh))
+    gain.outputAllowed = false
+    check(!gain.currentOutput(fresh))
+    gain.outputAllowed = true
+    PorticoAudioSampleRate.mode = "off"
+    check(!gain.currentOutput(fresh)) // mode is original, not looked up and rewritten at publication
+    PorticoAudioSampleRate.mode = "smart"
+    gain.outputStream = PorticoDecodedStreamStamp(tag, stream.periodUid)
+    check(!gain.currentOutput(fresh)) // same tag/period values still require this decoded incarnation
+    queue.accepted()
+
+    val stage = PorticoRateStage()
+    stage.configure(44100, 1, C.ENCODING_PCM_FLOAT, 48000)
+    val first = stage.process(provenancePcm(96), 0L, 1, outputWitness = fresh)
+    check(first.witness == null && first.outputWitness?.stream === stream)
+    check(first.outputWitness?.unchanged == false && first.outputWitness?.sampleRate == 48000)
+    stage.accepted(first)
+    val mixed = stage.process(provenancePcm(96), 2000L, 1)
+    check(mixed.outputWitness == null) // unknown contributors in the full FIR support suppress proof
+    stage.accepted(mixed)
+    stage.flush()
+    val empty = stage.process(provenancePcm(3), 4000L, 1, outputWitness = fresh)
+    check(empty.frames == 0 && empty.outputWitness == null)
+    stage.accepted(empty)
+    check(stage.takeTail()?.outputWitness?.stream === stream)
+  } finally { PorticoAudioSampleRate.mode = savedMode }
 }
 
 /** Exercise the actual stage, including split input, backpressure, finite tail and channel identity.

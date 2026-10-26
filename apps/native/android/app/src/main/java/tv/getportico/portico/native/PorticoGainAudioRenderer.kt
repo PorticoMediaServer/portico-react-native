@@ -53,6 +53,7 @@ internal class PorticoGainAudioRenderer(
     // One call per actual setOutputStreamInfo, even if several changes are processed in one loop.
     // Do not compare offsets; different streams may have exactly the same value.
     output = pending.pollFirst()
+    gain.output?.invalidate()
     gain.outputStream = output?.stamp()
     gain.acceptedWitness = null
     super.onOutputStreamOffsetUsChanged(outputStreamOffsetUs)
@@ -64,6 +65,7 @@ internal class PorticoGainAudioRenderer(
     val resetOrigin = pending.peekLast() ?: output
     pending.clear()
     output = resetOrigin
+    gain.output?.invalidate()
     gain.outputStream = null
     gain.acceptedWitness = null
     super.onPositionReset(positionUs, joining, sampleStreamIsResetToKeyFrame)
@@ -88,6 +90,7 @@ internal class PorticoGainAudioRenderer(
 
   private fun retire() {
     pending.clear(); output = null
+    gain.output?.invalidate()
     gain.outputStream = null; gain.acceptedWitness = null
     musicSink.decodedAccepted()
   }

@@ -38,12 +38,12 @@ internal class PorticoRateStage {
    * before returning false, so its position is never rewound here. [frames] is captured at creation
    * because the position no longer describes the piece once the delegate has touched it. */
   data class Piece(val buffer: ByteBuffer, val timeUs: Long, val count: Int, val frames: Int,
-                   val witness: PorticoGainWitness? = null)
+                   val witness: PorticoGainWitness? = null, val outputWitness: PorticoOutputWitness? = null)
 
   /** Source-frame runs survive interpolation, deferred formats and draining tails.
    * Unknown or unlike contributors suppress the whole output piece; they never acquire
    * the stamp of the next input, the current format or the binding at acceptance. */
-  private class Run(var frames: Int, val witness: PorticoGainWitness?)
+  private class Run(var frames: Int, val witness: PorticoGainWitness?, val outputWitness: PorticoOutputWitness?)
   private val provenance = java.util.ArrayDeque<Run>()
 
   private var sourceRate = 0
@@ -125,16 +125,18 @@ internal class PorticoRateStage {
           targetRate == this.targetRate
 
   /** One decoder buffer in; the piece the delegate must accept (same identity on a retry). */
-  fun process(input: ByteBuffer, presentationTimeUs: Long, count: Int, witness: PorticoGainWitness? = null): Piece {
+  fun process(input: ByteBuffer, presentationTimeUs: Long, count: Int, witness: PorticoGainWitness? = null,
+              outputWitness: PorticoOutputWitness? = null): Piece {
     retained?.let { return it }
     lastCount = count
     if (startTimeUs < 0) startTimeUs = presentationTimeUs
     if (!resampling) {
       val frames = if (frame > 0) input.remaining() / frame else 0
       return Piece(input, presentationTimeUs, count, frames,
-          witness.takeIf { frames > 0 && input.remaining() % frame == 0 }).also { retained = it }
+          witness.takeIf { frames > 0 && input.remaining() % frame == 0 },
+          outputWitness.takeIf { frames > 0 && input.remaining() % frame == 0 }).also { retained = it }
     }
-    copy(input, witness)
+    copy(input, witness, outputWitness)
     return produce(eos = false).also { retained = it }
   }
 
@@ -211,7 +213,7 @@ internal class PorticoRateStage {
     if (startTimeUs < 0 || targetRate <= 0) startTimeUs.coerceAtLeast(0)
     else startTimeUs + Math.round(framesBefore * 1_000_000.0 / targetRate)
 
-  private fun copy(input: ByteBuffer, witness: PorticoGainWitness?) {
+  private fun copy(input: ByteBuffer, witness: PorticoGainWitness?, outputWitness: PorticoOutputWitness?) {
     val source = input.duplicate().order(ByteOrder.nativeOrder())
     val frames = if (frame > 0) source.remaining() / frame else 0
     if (frames <= 0) return
@@ -227,9 +229,11 @@ internal class PorticoRateStage {
       }
     }
     val proof = witness.takeIf { source.remaining() == 0 }
+    val outputProof = outputWitness.takeIf { source.remaining() == 0 }
     val last = provenance.peekLast()
-    if (last != null && (last.witness?.sameAs(proof) == true || last.witness == null && proof == null)) last.frames += frames
-    else provenance.addLast(Run(frames, proof))
+    if (last != null && (last.witness?.sameAs(proof) == true || last.witness == null && proof == null) &&
+        (last.outputWitness?.sameAs(outputProof) == true || last.outputWitness == null && outputProof == null)) last.frames += frames
+    else provenance.addLast(Run(frames, proof, outputProof))
     pendingCount += frames
   }
 
@@ -247,6 +251,23 @@ internal class PorticoRateStage {
       }
       offset = end
       if (offset > last) return proof
+    }
+    return null
+  }
+
+  private fun outputWitnessFor(first: Int, last: Int): PorticoOutputWitness? {
+    if (first < 0 || last < first) return null
+    var offset = 0
+    var proof: PorticoOutputWitness? = null
+    for (run in provenance) {
+      val end = offset + run.frames
+      if (end > first && offset <= last) {
+        val contributor = run.outputWitness ?: return null
+        if (proof != null && !proof.sameAs(contributor)) return null
+        proof = contributor
+      }
+      offset = end
+      if (offset > last) return proof?.atRate(targetRate)
     }
     return null
   }
@@ -295,6 +316,7 @@ internal class PorticoRateStage {
     // Resolve proof BEFORE removing history. Unlike/unknown frames anywhere in the FIR support
     // suppress this entire piece, including an old source's contribution to a new source's edge.
     val proof = if (produced > 0) witnessFor(firstContributor, lastContributor) else null
+    val outputProof = if (produced > 0) outputWitnessFor(firstContributor, lastContributor) else null
     val consumed = minOf(maxOf(0L, position - kernel.radius), pendingCount.toLong()).toInt()
     if (consumed > 0) {
       consumeProvenance(consumed)
@@ -302,7 +324,7 @@ internal class PorticoRateStage {
       pendingCount -= consumed
       position -= consumed
     }
-    return Piece(encode(produced, out), timeFor(outputFrames), lastCount, produced, proof)
+    return Piece(encode(produced, out), timeFor(outputFrames), lastCount, produced, proof, outputProof)
   }
 
   /** Bounded polyphase FIR. Adjacent normalized phases are interpolated, not rounded to a phase.
