@@ -52,12 +52,13 @@ export function ReadPeriodicalScreen({controller, route, runtime, onBack}: {
       onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         if (!magazine && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) more();}}>
       {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/> : null}
-      {state.phase !== 'ready' && state.phase !== 'error' ? <SkeletonBlock width="100%" height={360}/> : null}
+      <LoadingBoundary ready={state.phase === 'ready'} immediate={state.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={360}/>}>
       {state.phase === 'ready' ? <View style={{width: '100%', maxWidth: magazine ? 1180 : 900, alignSelf: 'center'}}>
         <PeriodicalHero state={state} magazine={magazine} runtime={runtime} theme={theme} onOpen={open}/>
         {magazine ? <MagazineIssues state={state} theme={theme} runtime={runtime} onOpen={open} onYear={selectYear} onNext={more}/>
           : <NewspaperEditions state={state} theme={theme} runtime={runtime} onOpen={open} onMonth={selectMonth} onDate={selectDate} onMonths={moreMonths}/>}
       </View> : null}
+      </LoadingBoundary>
     </ScrollView>
   </View>;
 }
