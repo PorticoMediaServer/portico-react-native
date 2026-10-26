@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNativeDownloadOpening} from '../src-next/screens/downloads/download-opening';
+import {captureNativeDownloadPaintCurrent, createNativeDownloadOpening} from '../src-next/screens/downloads/download-opening';
 import {askNativeDownload, closeNativeDownload, getNativeDownloadSnapshot, nativeDownloadRequestKey, subscribeNativeDownload} from '../src-next/screens/downloads/request';
 
 function fixture() {
@@ -202,4 +202,31 @@ test('a refused resident request constructor never closes an equal-valued succes
   assert.equal(refused.close(), false);
   assert.equal(getNativeDownloadSnapshot(), successor);
   closeNativeDownload(successor);
+});
+
+
+test('a Reading paint permit keeps the original page after local disposal and request removal only', () => {
+  const f = fixture();let page = true;
+  const paint = captureNativeDownloadPaintCurrent(f.context, f.request, () => page);
+  assert.equal(paint(), true);f.opening.close();assert.equal(f.opening.current(), false);
+  assert.equal(getNativeDownloadSnapshot(), undefined);assert.equal(paint(), true);
+  page = false;assert.equal(paint(), false);page = true;assert.equal(paint(), false, 'original page retirement is monotonic');
+});
+
+test('a Reading constructor cannot use the same resident request for successor context or API paint', () => {
+  for (const change of ['context', 'api', 'route', 'family', 'generation'] as const) {
+    const f = fixture();const paint = captureNativeDownloadPaintCurrent(f.context, f.request);f.opening.retire();
+    let context = f.context;
+    if (change === 'context') context = f.contextCopy();
+    else if (change === 'api') (context as unknown as {api: object}).api = {};
+    else f[change]();
+    const successor = captureNativeDownloadPaintCurrent(context, f.request);let io = 0;
+    if (successor()) io++;assert.equal(io, 0, change);assert.equal(successor(), false);assert.equal(paint(), false);
+    assert.equal(getNativeDownloadSnapshot(), f.request);closeNativeDownload(f.request);
+  }
+});
+
+test('a reentrant original page check cannot lend its paint permit to a changed family', () => {
+  const f = fixture();const paint = captureNativeDownloadPaintCurrent(f.context, f.request, () => {f.family();return true;});
+  assert.equal(paint(), false);closeNativeDownload(f.request);
 });

@@ -16,9 +16,10 @@ import {createNativeDownloadsDevice} from './device';
 import {getNativeDownloadSnapshot, closeNativeDownload, type NativeDownloadRequest} from './request';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {linkNativeAbortSignals} from '../../platform/abort-signals';
+import {captureNativeDownloadPaintCurrent} from './download-opening';
 
 type Version = Readonly<{sourceId: string; format: string; size: number; inventoryAvailable: boolean; policy: DownloadOptionsView}>;
-type Opening = {current: () => boolean; retire: () => void; dispose: () => void; pending: boolean; lease: ReturnType<typeof createNativeDownloadsDevice>; versions: readonly Version[]; abort: AbortController; signal: AbortSignal};
+type Opening = {current: () => boolean; paintCurrent: () => boolean; retire: () => void; dispose: () => void; pending: boolean; lease: ReturnType<typeof createNativeDownloadsDevice>; versions: readonly Version[]; abort: AbortController; signal: AbortSignal};
 type Family = {retired: boolean; active?: Opening};
 type State = Readonly<{opening?: Opening; versions?: readonly Version[]; policy?: DownloadOptionsView; busy?: string; error?: unknown}>;
 
@@ -35,19 +36,24 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
     if (!itemId || !nativePublicationReadsAvailable()) return;
     const viewer = context.session()?.viewer; if (!viewer) return;
     const lifetime = nativeDestinationLifetime(context), route = context.navigation.getSnapshot();
+    const paintCurrent = captureNativeDownloadPaintCurrent(context, request, lifetime.current);
+    // Reuse the same resident request's first original binding; remounting in a
+    // successor context must not reacquire Reading IO or an exit-paint permit.
+    if (!paintCurrent()) {closeNativeDownload(request);return;}
     const abort = new AbortController(), lease = createNativeDownloadsDevice(context);
     const requestLifetime = request.lifetime;
     const linked = requestLifetime ? linkNativeAbortSignals([abort.signal, requestLifetime.signal]) : undefined;
     const signal = linked?.signal ?? abort.signal;
     let alive = true, disposed = false, client: ReadingClient | undefined; let offDevice = () => {};
     const current = () => alive && !family.retired && family.active === opening && rendered.current === family && !signal.aborted && lifetime.current()
+      && paintCurrent()
       && (!requestLifetime || (!requestLifetime.signal.aborted && requestLifetime.isCurrent()))
       && getNativeDownloadSnapshot() === request && context.navigation.getSnapshot().revision === route.revision && context.navigation.getSnapshot().route === route.route;
     const stop = () => {if (!current()) abort.abort();};
     const closeOnRetire = () => {if (getNativeDownloadSnapshot() === request) closeNativeDownload(request);};
     requestLifetime?.signal.addEventListener('abort', closeOnRetire);
     const offAuthority = context.subscribeAuthority(stop), offRoute = context.navigation.subscribe(stop);
-    const opening: Opening = {current, pending: false, lease, versions: Object.freeze([]), abort, signal,
+    const opening: Opening = {current, paintCurrent, pending: false, lease, versions: Object.freeze([]), abort, signal,
       retire: () => {if (!alive) return; alive = false; abort.abort(); linked?.dispose(); requestLifetime?.signal.removeEventListener('abort', closeOnRetire);},
       dispose: () => {opening.retire(); if (disposed) return; disposed = true; offAuthority(); offRoute(); offDevice(); client?.dispose(); lease.dispose();}};
     family.active = opening;

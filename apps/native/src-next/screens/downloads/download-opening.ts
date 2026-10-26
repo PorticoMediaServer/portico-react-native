@@ -35,16 +35,13 @@ function bindingFor(context: Context, request: NativeDownloadRequest): Binding |
   } catch {return undefined;}
 }
 
-/** Business lifetime for exactly one shell sheet opening. Retained exit paint
- * must not retain this object as an interactive controller or restart it. */
-export function createNativeDownloadOpening(context: Context, request: NativeDownloadRequest) {
-  const abort = new AbortController(), binding = bindingFor(context, request);
-  let retired = false, pending: object | undefined;
-  const paintCurrent = () => {
+function paintFor(context: Context, binding: Binding | undefined, pageCurrent?: () => boolean): () => boolean {
+  return () => {
     if (!binding || binding.retired) return false;
     try {
       const lifetime = binding.lifetime;
       if (context !== binding.context || lifetime && (lifetime.signal.aborted || lifetime.isCurrent() !== true)
+        || pageCurrent && pageCurrent() !== true
         || !binding.principal || !context.current() || context.navigation !== binding.navigation
         || context.api !== binding.api || authorityKey(context.authority()) !== binding.authority || principalOf(context) !== binding.principal) {
         binding.retired = true; return false;
@@ -54,6 +51,21 @@ export function createNativeDownloadOpening(context: Context, request: NativeDow
       return !binding.retired;
     } catch {binding.retired = true; return false;}
   };
+}
+
+/** Capture during the original layout only. The returned read-only permit may
+ * outlive ordinary sheet disposal; it never claims commands or reads a latest
+ * request/context, and shares the resident request's first original binding. */
+export function captureNativeDownloadPaintCurrent(context: Context, request: NativeDownloadRequest, pageCurrent?: () => boolean): () => boolean {
+  return paintFor(context, bindingFor(context, request), pageCurrent);
+}
+
+/** Business lifetime for exactly one shell sheet opening. Retained exit paint
+ * must not retain this object as an interactive controller or restart it. */
+export function createNativeDownloadOpening(context: Context, request: NativeDownloadRequest) {
+  const abort = new AbortController(), binding = bindingFor(context, request);
+  let retired = false, pending: object | undefined;
+  const paintCurrent = paintFor(context, binding);
   // Check store identity again after supplied callbacks: they may replace an
   // equal-valued request while this original opening is being inspected.
   const current = () => !retired && !abort.signal.aborted && getNativeDownloadSnapshot() === request && paintCurrent()
