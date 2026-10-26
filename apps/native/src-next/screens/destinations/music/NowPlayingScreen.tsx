@@ -18,7 +18,7 @@ import {Button} from '../../../kit/controls';
 import {GestureCommitScope} from '../../../kit/controls/gesture-commit';
 import {Icon} from '../../../kit/Icon';
 import {useTheme} from '../../../kit/theme';
-import {ListeningGroup, useListeningCoverSlot, useListeningPageOwner, useListeningPageHeight, useListeningPagePresent, useListeningPaintPermit, useListeningPageStyle} from '../../../kit/dock/ListeningCoverBridge';
+import {ListeningSeekPaint, useListeningScrubberPublication, ListeningGroup, useListeningCoverSlot, useListeningPageOwner, useListeningPageActive, useListeningPageHeight, useListeningPagePresent, useListeningPaintPermit, useListeningPageStyle} from '../../../kit/dock/ListeningCoverBridge';
 import {browseType} from '../../../kit/browse/presentation';
 import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
@@ -91,7 +91,7 @@ export type NowPlayingScreenProps = Readonly<{
 const QUEUE_WIDTH = 366;
 const SIDE_BY_SIDE = 700;
 const ListeningChromeGate = createContext(false);
-const listeningPaintTypes = [ListeningSurface, ListeningSwipeArea, ListeningColumn, ListeningPageBackground, ListeningGroup, MusicFocusRegion, MusicSignalLine, MusicSignalSheet, ListeningFavoritePaint, View, Text, ScrollView, Artwork, AmbientArt, Button, Icon, React.Fragment];
+const listeningPaintTypes = [ListeningSurface, ListeningSwipeArea, ListeningColumn, ListeningPageBackground, ListeningGroup, ListeningSeekPaint, MusicFocusRegion, MusicSignalLine, MusicSignalSheet, ListeningFavoritePaint, View, Text, ScrollView, Artwork, AmbientArt, Button, Icon, React.Fragment];
 const listeningPaintOmissions = [GestureDetector, NowPlayingQueue, NowPlayingLyrics, ListeningSongActions, NativeWatchEqualizer];
 
 export function NowPlayingScreen(props: NowPlayingScreenProps) {
@@ -111,7 +111,7 @@ export function TVListeningRoute({value, scope, onPresenceChange}: {value?: NowP
 
 function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, backgroundHosted = false, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
-  const paintPermit = useListeningPaintPermit(playback.fence);
+  const paintPermit = useListeningPaintPermit(playback.fence), paintActive = useListeningPageActive(playback.fence);
   // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
   // and revision this screen drew, so a queue that moved on refuses it.
@@ -134,7 +134,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     void queuePolicy.apply(drawnFence, {queueId: drawnQueue.id, expectedRevision: drawnQueue.revision, intent}, lifetime).catch(reportError);
   };
   const focus = useId();
-  const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
+  const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null);
   // music-plus 6/6b and listening-notices 8: the signal sheet (like the EQ panel) is the top
   // surface while it is open, so Back closes it rather than folding the player, and focus returns
   // to the line that opened it.
@@ -152,6 +152,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const wide = width >= SIDE_BY_SIDE, side = wide && !!(queue || lyrics), position = playbackPosition(occupant), bounds = seekBounds(occupant);
   const span = bounds ? Math.max(0, bounds.end - bounds.start) : 0;
+  const inputActive = paintActive && !panel && !!bounds && p.capabilities.seek && span > 0;
   const fraction = bounds && span > 0 ? Math.min(1, Math.max(0, (position - bounds.start) / span)) : 0;
   const act = (type: Parameters<typeof dockCommand>[1]) => {if (commandAllowed(occupant, type)) onAction(dockCommand(occupant, type));};
   // The touch bar previews on the UI thread. The gesture binds at BEGIN to the
@@ -164,31 +165,32 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const scopeGeneration = useRef(0);
   const scopes = useRef<Readonly<{key: string; start?: number; end?: number; enabled: boolean; span: number; generation: number; value: GestureCommitScope<BeginSeek>}> | undefined>(undefined);
   const prior = scopes.current;
-  if (!prior || prior.key !== fenceKey || prior.start !== bounds?.start || prior.end !== bounds?.end || prior.enabled !== p.capabilities.seek || prior.span !== span) {
-    scopes.current = {key: fenceKey, start: bounds?.start, end: bounds?.end, enabled: p.capabilities.seek, span, generation: ++scopeGeneration.current, value: new GestureCommitScope<BeginSeek>()};
+  if (!prior || prior.key !== fenceKey || prior.start !== bounds?.start || prior.end !== bounds?.end || prior.enabled !== inputActive || prior.span !== span) {
+    scopes.current = {key: fenceKey, start: bounds?.start, end: bounds?.end, enabled: inputActive, span, generation: ++scopeGeneration.current, value: new GestureCommitScope<BeginSeek>()};
   }
   const seekScope = scopes.current!.value, drawnScope = scopes.current!.generation;
   const scopeTicket = useSharedValue(0), activeScope = useSharedValue(0), dragRun = useSharedValue(0), dragTicket = useSharedValue(0), dragArmed = useSharedValue(false);
   useEffect(() => {if (dragFraction.value === null) paintFraction.value = fraction;}, [dragFraction, paintFraction, fraction]);
   useLayoutEffect(() => {
+    if (!inputActive) {scopeTicket.value = 0; activeScope.value = 0; dragArmed.value = false; dragFraction.value = null; return;}
     const ticket = seekScope.activate(); scopeTicket.value = ticket; activeScope.value = drawnScope;
     dragArmed.value = false; dragFraction.value = null;
     return () => {
       if (!seekScope.retire(ticket)) return;
       scopeTicket.value = 0; activeScope.value = 0; dragArmed.value = false; dragFraction.value = null;
     };
-  }, [seekScope, drawnScope, activeScope, scopeTicket, dragArmed, dragFraction]);
+  }, [seekScope, drawnScope, inputActive, activeScope, scopeTicket, dragArmed, dragFraction]);
   const bindSeek = (valid: boolean, ticket: number, run: number) => {
     seekScope.bind(ticket, run, valid && bounds && span > 0 ? {occupant, start: bounds.start, span, onAction} : undefined);
   };
   const commitSeek = (at: number, success: boolean, ticket: number, run: number) => {
     const bound = seekScope.claim(ticket, run);
-    if (success !== true || !Number.isFinite(at) || !bound) return;
+    if (success !== true || !Number.isFinite(at) || !bound || paintPermit && !paintPermit.current()) return;
     const command = seekTo(bound.occupant, bound.start + Math.min(1, Math.max(0, at)) * bound.span);
     if (command) bound.onAction(command);
   };
   const discardBound = (ticket: number, run: number) => {seekScope.discard(ticket, run);};
-  const scrub = Gesture.Pan().enabled(!!bounds && p.capabilities.seek && span > 0).minDistance(0)
+  const scrub = Gesture.Pan().enabled(inputActive).minDistance(0)
     .onBegin(event => {
       if (activeScope.value !== drawnScope) return;
       const valid = travel.value > 0 && Number.isFinite(event.x);
@@ -209,10 +211,10 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       runOnJS(commitSeek)(Math.min(1, Math.max(0, event.x / travel.value)), true, dragTicket.value, dragRun.value);
     })
     .onFinalize(() => {if (activeScope.value !== drawnScope) return; dragArmed.value = false; dragFraction.value = null; runOnJS(discardBound)(dragTicket.value, dragRun.value);});
-  const fillPaint = useAnimatedStyle(() => {
-    const at = dragFraction.value ?? paintFraction.value;
-    return {transform: [{translateX: -(1 - at) * travel.value / 2}, {scaleX: at}]};
-  });
+  const scrubber = useMemo(() => inputActive ? {fence: playback.fence, gesture: scrub, scope: drawnScope, activeScope,
+    ticket: scopeTicket, drag: dragFraction, base: paintFraction, travel} : undefined,
+    [inputActive, playback.fence, scrub, drawnScope, activeScope, scopeTicket, dragFraction, paintFraction, travel]);
+  const hostedScrubber = useListeningScrubberPublication(scrubber);
   const favoritePaint = song ? listeningSongFavorite(song.token, song.pending) : undefined;
   const facts = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
@@ -231,14 +233,8 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     <View style={{width: '100%', maxWidth: 520, marginTop: 24}}>
       {theme.isTV ? <MusicFocusRegion id={`${focus}.progress`} entry="seek" edges={{up: signal ? `${focus}.signal` : undefined, down: `${focus}.transport`}}>
         <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel} testID={`${testID}-scrubber`}/>
-      </MusicFocusRegion> : <GestureDetector gesture={scrub}><View testID={`${testID}-scrubber`} accessibilityRole="adjustable" accessibilityLabel={t('player.queue')}
-        accessibilityValue={{min: 0, max: Math.round(span), now: Math.round(Math.max(0, Math.min(span, position - (bounds?.start ?? 0))))}}
-        onLayout={event => {track.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}}
-        style={{height: 28, justifyContent: 'center'}}>
-        <View style={{height: 4, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
-          <Animated.View style={[{position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, fillPaint]}/>
-        </View>
-      </View></GestureDetector>}
+      </MusicFocusRegion> : <ListeningSeekPaint fence={playback.fence} fraction={fraction} span={span} seconds={position - (bounds?.start ?? 0)}
+        label={t('player.queue')} testID={`${testID}-scrubber`} fallbackGesture={hostedScrubber ? undefined : scrub}/>}
       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, position - (bounds?.start ?? 0)))}</Text>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span || p.durationSeconds)}</Text>
@@ -280,7 +276,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     </View> : null}
     </ListeningGroup>
   </ListeningColumn>;
-  return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><RetainedOverlay permit={paintPermit} allowedTypes={listeningPaintTypes} omitTypes={listeningPaintOmissions}><ListeningSurface fence={playback.fence} testID={testID} blocked={!!panel || !!sheet}>
+  return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><RetainedOverlay permit={panel ? undefined : paintPermit} allowedTypes={listeningPaintTypes} omitTypes={listeningPaintOmissions}><ListeningSurface fence={playback.fence} testID={testID} blocked={!!panel || !!sheet}>
     {!backgroundHosted && <ListeningPageBackground fence={playback.fence} height={height} ambient={p.ambient}/>}
     <View style={{flex: 1, paddingTop: topInset, paddingBottom: bottomInset}}>
       {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={closePanel} contextTitle={p.identity.title} returnFocusRef={signalRef}/></View> : null}
@@ -289,7 +285,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       </View> : null}
       {side ? <View style={{flex: 1, flexDirection: 'row'}}>
         {column}
-        <View style={{width: QUEUE_WIDTH, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: 'rgba(9,19,27,.66)'}}>
+        <ListeningGroup fence={playback.fence} index={2} height={height} style={{width: QUEUE_WIDTH, alignItems: 'stretch'}}><View style={{flex: 1, width: QUEUE_WIDTH, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: 'rgba(9,19,27,.66)'}}>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 20, paddingBottom: 6}}>
             {queue && lyrics ? <>
               <Button testID={`${testID}-tab-queue`} variant={panelTab === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"
@@ -302,7 +298,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
             </View>}
           </View>
           {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : lyrics}
-        </View>
+        </View></ListeningGroup>
       </View> : column}
     </View>
     {theme.isTV && notice && <NativeListeningNotice notice={notice} persistent/>}
@@ -342,11 +338,11 @@ export function ListeningPageBackground({fence, height, ambient, fallbackVisible
 }
 /** Paint only from the admitted mini descriptor. No full screen, queue/lyrics,
  * song read, guarded callback, controller or output is created by this preview. */
-export function ListeningPagePreview({occupant, queue, width, height, topInset, bottomInset}: {
-  occupant: DockOccupant; queue?: QueuePlaybackView; width: number; height: number; topInset: number; bottomInset: number;
+export function ListeningPagePreview({occupant, queue, sidePane = false, width, height, topInset, bottomInset}: {
+  occupant: DockOccupant; queue?: QueuePlaybackView; sidePane?: boolean; width: number; height: number; topInset: number; bottomInset: number;
 }) {
   const present = useListeningPagePresent(occupant.playback.fence);
-  const wide = width >= SIDE_BY_SIDE, side = wide && !!queue;
+  const wide = width >= SIDE_BY_SIDE, side = wide && sidePane;
   const window = queue ? nowPlayingQueueWindow(queue) : undefined;
   const current = queue?.queue?.currentEntryId ? nowPlayingQueueEntry(window, queue.queue.currentEntryId) : undefined;
   const segment = current?.available === true ? window?.segments.find(value => value.id === current.segmentId && value.label)?.label : undefined;
@@ -363,9 +359,9 @@ export function ListeningPagePreview({occupant, queue, width, height, topInset, 
 /** Only static audited UI outlives its publisher. This root owns no reader,
  * command, playback lease, queue or song controller. */
 function ListeningSurface({fence, testID, children, blocked = false}: {fence: PlaybackFence; testID?: string; children: React.ReactNode; blocked?: boolean}) {
-  const mode = useOverlayPaintMode(), theme = useTheme();
+  const mode = useOverlayPaintMode(), theme = useTheme(), active = useListeningPageActive(fence);
   useListeningPageOwner(fence);
-  if (!mode.visible) return null;
+  if (!mode.visible || !active) return null;
   return <ListeningChromeGate.Provider value={blocked}><View testID={testID} pointerEvents={mode.interactive ? 'box-none' : 'none'} accessible={false}
     accessibilityElementsHidden={!mode.interactive} importantForAccessibility={mode.interactive ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>{children}</View></ListeningChromeGate.Provider>;

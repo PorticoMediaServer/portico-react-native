@@ -1,3 +1,4 @@
+import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN source vectors. Actual presenter hooks with controlled shared
  * values and manually supplied child hooks; no reconciler, native image, frame
  * scheduling, native file transfer or physical glass acceptance is claimed. */
@@ -10,7 +11,7 @@ import {sameDockFence} from '../src-next/kit/dock/model.ts';
 import {freezeOverlayPaint} from '../src-next/kit/overlays/overlay-paint-model.ts';
 
 const INERT = Object.freeze({visible: true, interactive: false, root: true});
-const fence = (id: string) => ({kind: 'local', playId: id, sessionId: id, itemId: id, generation: 1});
+const fence = dockFence;
 const occupant = (id: string, mode = 'music', remote?: any) => ({mode, playback: {fence: fence(id)}, remote});
 async function rig() {
   let motion = policy(false), tree: any, props: any;

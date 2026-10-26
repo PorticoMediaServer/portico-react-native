@@ -1,6 +1,6 @@
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
-import {expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
+import {captureListeningOpening, expandedListeningOccupant, localListeningOccupant} from '../src-next/shell/listening-presentation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -61,7 +61,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../../../kit/theme': {useTheme: () => {throw Error('unexpected_music_signal_render');}, nativeType: () => {throw Error('unexpected_music_signal_render');}},
   });
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
-    './listening-presentation': {expandedListeningOccupant, localListeningOccupant},
+    './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
