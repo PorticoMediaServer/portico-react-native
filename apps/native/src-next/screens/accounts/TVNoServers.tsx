@@ -22,23 +22,26 @@ type Ticket = {live: boolean; scope: object};
 
 /** Frames 35 and 38 draw two native focus stops. Setup is informational:
  * OK keeps its existing QR/steps focused and invokes no command. */
-function DoorTiles({busy, revision, onJoin}: {busy: boolean; revision: number; onJoin: () => void}) {
+function DoorTiles({busy, onJoin}: {busy: boolean; onJoin: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
-  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision}, {regionId: 'accounts.empty.door', childId: 'join'});
+  // Entry is once per actual mount of these tiles: no busy ticket, so a busy turn that has nothing
+  // to do with them cannot advance the entry and put focus back on Join.
+  useDestinationEntryFocus({visible: true, intent: 'enter', revision: 0}, {regionId: 'accounts.empty.door', childId: 'join'});
   const tile = {flex: 1, minHeight: 440, paddingVertical: 44, paddingHorizontal: 48, borderRadius: 28,
     backgroundColor: 'rgba(13, 27, 37, 0.78)', borderWidth: 1.5, borderColor: 'rgba(237, 245, 250, 0.10)'} as const;
   const heading = [nativeType({size: 44, lineHeight: 46.2, weight: 800, tracking: -.035}, theme.textScale), {color: theme.colors.text, marginBottom: 14}];
   const body = [nativeType({size: 26, lineHeight: 37.7, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary}];
   const chip = (icon: 'i-link' | 'i-server') => <View style={{width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center',
     marginBottom: 26, backgroundColor: `${theme.colors.accent}29`}}><Icon name={icon} size={34} color={theme.colors.accentStrong}/></View>;
-  return <FocusRegion id="accounts.empty.door" entry="join" order={['join', 'setup']} orientation="horizontal" enabled={!busy} style={{flexDirection: 'row', gap: 40, alignItems: 'stretch'}}>
-    <Focusable focusId="join" focusKind="card" focusRadius={28} hasTVPreferredFocus disabled={busy} onPress={onJoin} accessibilityRole="button"
+  // The guides stay through busy: the controls remain real native stops, read-only while busy.
+  return <FocusRegion id="accounts.empty.door" entry="join" order={['join', 'setup']} orientation="horizontal" style={{flexDirection: 'row', gap: 40, alignItems: 'stretch'}}>
+    <Focusable focusId="join" focusKind="card" focusRadius={28} disabled={busy} focusableWhenDisabled onPress={onJoin} accessibilityRole="button"
       style={{...tile, boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0, 0, 0, 0.9)'}]}}>
       {chip('i-link')}
       <Text style={heading}>{t('services.start.join')}</Text>
       <Text style={body}>{t('services.start.joinBody')}</Text>
     </Focusable>
-    <Focusable focusId="setup" focusKind="card" focusRadius={28} disabled={busy} accessibilityRole="button" accessibilityLabel={t('services.start.setup')} style={tile}>
+    <Focusable focusId="setup" focusKind="card" focusRadius={28} disabled={busy} focusableWhenDisabled accessibilityRole="button" accessibilityLabel={t('services.start.setup')} style={tile}>
       {chip('i-server')}
       <Text style={heading}>{t('services.start.setup')}</Text>
       <Text style={[...body, {maxWidth: 380}]}>{t('services.start.phoneSetupBody')}</Text>
@@ -139,7 +142,7 @@ export function TVNoServers(props: Props) {
         {props.error}
       </View>}
       <View style={{position: 'absolute', left: 200, right: 96, top: props.notice || props.error ? 460 : 400}}>
-        <DoorTiles busy={props.busy} revision={entryRevision} onJoin={() => {if (owns()) setJoining(true);}}/>
+        <DoorTiles busy={props.busy} onJoin={() => {if (owns()) setJoining(true);}}/>
       </View>
       <View style={{position: 'absolute', left: 200, bottom: 64, flexDirection: 'row', gap: 36}}>
         <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
