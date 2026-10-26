@@ -1,5 +1,6 @@
 import {createContext, useContext, useEffect, useState} from 'react';
 import {ArtworkScheduler, artworkWidthBucket, type ArtworkScreenStats} from '../../../../packages/client-core/src/artwork/index';
+import {beginArtworkArrivalScreen} from './artwork-arrival';
 
 /**
  * PERF-03 / APL-SYS-11: one queue for every card image on Apple, driven by client-core's
@@ -88,6 +89,7 @@ function describe(s: ArtworkScreenStats): string {
 
 /** Call on navigation, before the new screen's cards ask for artwork. */
 export function beginArtworkScreen(label: string) {
+  beginArtworkArrivalScreen();
   scheduler.beginScreen(label);
   timing = {label, startedAt: Date.now(), loads: 0};
 }

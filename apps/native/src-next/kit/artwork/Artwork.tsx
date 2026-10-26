@@ -2,6 +2,7 @@ import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Animated, Image, PixelRatio, StyleSheet, View, type LayoutChangeEvent} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {sizedUri, useArtworkPlacement, useArtworkSlot} from '../../platform/ArtworkPipeline';
+import {artworkArrivalScreen, type createArtworkArrivals} from '../../platform/artwork-arrival';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
 import {artworkArrivalDuration, artworkAttemptSource, artworkFrame} from './model';
@@ -17,7 +18,13 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   const slot = useArtworkSlot(source.cacheKey, placement, priority);
   const reduced = useReducedMotion();
   const theme = useTheme();
+  const arrivalMotion = useRef({arrivalDurationMs, standard: theme.motion.standard, reduced});
+  arrivalMotion.current = {arrivalDurationMs, standard: theme.motion.standard, reduced};
   const [decoded, setDecoded] = useState(false);
+  const [admitted, setAdmitted] = useState(slot.cached);
+  const cachedAtMount = useRef(slot.cached).current;
+  const arrivalQueue = useRef(artworkArrivalScreen()).current;
+  const arrival = useRef<ReturnType<ReturnType<typeof createArtworkArrivals>['register']> | undefined>(undefined);
   const [intrinsic, setIntrinsic] = useState<{width: number; height: number} | null>(null);
   const displayedAttempt = useRef(slot.attempt);
   if (!decoded) displayedAttempt.current = slot.attempt;
@@ -27,7 +34,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   const live = useRef(true);
   const reportedFailure = useRef(false);
   callbacks.current = {source, onReady, onLoad, onError, onStatusChange};
-  const status = slot.gaveUp ? 'error' : decoded && !slot.recovering ? 'ready' : slot.active ? 'loading' : 'queued';
+  const status = slot.gaveUp ? 'error' : decoded && admitted && !slot.recovering ? 'ready' : slot.active ? 'loading' : 'queued';
   useEffect(() => {
     callbacks.current.onStatusChange?.(status);
     if (status === 'error' && !reportedFailure.current) {reportedFailure.current = true; callbacks.current.onError?.(callbacks.current.source);}
@@ -46,6 +53,18 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   const attemptIdentity = JSON.stringify([uri, requestAttempt]);
   const currentAttempt = useRef(attemptIdentity);
   currentAttempt.current = attemptIdentity;
+  const order = placement ? placement.row * 1000 + (placement.column ?? 0) : undefined;
+  const ordered = order !== undefined, arrivalOrder = useRef(order);
+  arrivalOrder.current = order;
+  useLayoutEffect(() => {
+    // Standalone art and cached pictures are immediate. Siblings with a declared
+    // visual placement share decode admission, independently of network slots.
+    if (cachedAtMount || !ordered || slot.gaveUp) return;
+    const ticket = arrivalQueue.register(arrivalOrder.current!);
+    arrival.current = ticket;
+    return () => {ticket.retire(); if (arrival.current === ticket) arrival.current = undefined;};
+  }, [attemptIdentity, cachedAtMount, ordered, slot.gaveUp, arrivalQueue]);
+  useEffect(() => {if (order !== undefined) arrival.current?.move(order);}, [order]);
   const mode = resizeMode ?? fit;
   const crop = mode === 'cover' || mode === 'contain';
   const frame = intrinsic && crop ? artworkFrame(boxWidth, boxHeight, intrinsic.width, intrinsic.height, mode, position, zoom) : {width: boxWidth, height: boxHeight};
@@ -56,10 +75,16 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     slot.loaded();
     reportedFailure.current = false;
     setDecoded(true);
-    callbacks.current.onReady?.(source);
-    callbacks.current.onLoad?.(source);
-    opacity.stopAnimation();
-    Animated.timing(opacity, {toValue: 1, duration: artworkArrivalDuration(arrivalDurationMs, theme.motion.standard, reduced, slot.cached), useNativeDriver: true}).start();
+    const reveal = () => {
+      if (!live.current || currentAttempt.current !== attemptIdentity) return;
+      setAdmitted(true);
+      callbacks.current.onReady?.(source);
+      callbacks.current.onLoad?.(source);
+      opacity.stopAnimation();
+      const policy = arrivalMotion.current;
+      Animated.timing(opacity, {toValue: 1, duration: artworkArrivalDuration(policy.arrivalDurationMs, policy.standard, policy.reduced, cachedAtMount), useNativeDriver: true}).start();
+    };
+    if (arrival.current) arrival.current.ready(reveal); else reveal();
   };
   return slot.active ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {opacity, filter: filter ?? (saturation !== 1 || brightness !== 1 ? [{saturate: saturation}, {brightness}] : undefined)}]}>
     <DecodedImage key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt)}
@@ -73,6 +98,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
       onLoad={loaded} onError={() => {
         if (!live.current || currentAttempt.current !== attemptIdentity) return;
         setDecoded(false); opacity.stopAnimation(); opacity.setValue(0);
+        setAdmitted(false); arrival.current?.retire(); arrival.current = undefined;
         slot.failed();
         if (!reportedFailure.current) {reportedFailure.current = true; callbacks.current.onError?.(source);}
       }}/>
