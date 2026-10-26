@@ -11,7 +11,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 test('the grid reports actual offsets within one row and restores that exact measured offset through its anchor', async () => {
   const host = hooks(), offset = {value: 0}, moved: {offset: number; immediate: boolean}[] = [], measured: number[] = [];
   const anchor = {offset, scrollRef: {current: null}, move: (value: number, immediate: boolean) => moved.push({offset: value, immediate}), anchor() {}, stop() {}};
-  const react = {...host.react, forwardRef: (render: unknown) => render, useImperativeHandle: (ref: {current: unknown}, create: () => unknown) => {ref.current = create();}};
+  const react = {...host.react, useLayoutEffect: host.react.useEffect, forwardRef: (render: unknown) => render, useImperativeHandle: (ref: {current: unknown}, create: () => unknown) => {ref.current = create();}};
   const collection = createWindowedCollection({fetchPage: async () => ({items: ['actual-item'], total: 1}), pageSize: 40, maxResidentPages: 4, keyOf: (value: string) => value});
   collection.ensureRange(0, 0); await new Promise<void>(resolve => setImmediate(resolve));
   const {WindowedGrid} = await screenModule(new URL('../src-next/kit/layout/WindowedGrid.tsx', import.meta.url), {

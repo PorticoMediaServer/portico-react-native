@@ -11,6 +11,22 @@ export function gridWindow(total: number, columns: number, rowHeight: number, of
     startRow: Math.max(0, firstRow - margin), endRow: Math.min(rows - 1, lastRow + margin), height: rows * stride};
 }
 
+
+export type GridAnchor = Readonly<{index: number; offset: number}>;
+
+/** The first visible slot and its position below the sticky edge, O(1). */
+export function captureGridAnchor(scroll: number, columns: number, stride: number, paddingTop: number, stickyOffset: number, total: number): GridAnchor | undefined {
+  const local = scroll + stickyOffset - paddingTop;
+  if (local < 0 || total <= 0) return undefined;
+  const row = Math.floor(local / stride), index = Math.min(total - 1, row * columns);
+  return {index, offset: row * stride - local};
+}
+
+/** Restore the same slot's top relative to that edge after columns/size change. */
+export function gridAnchorOffset(anchor: GridAnchor, columns: number, stride: number, paddingTop: number, stickyOffset: number, extent: number, viewport: number): number {
+  return Math.max(0, Math.min(Math.max(0, extent - viewport), paddingTop + Math.floor(anchor.index / columns) * stride - stickyOffset - anchor.offset));
+}
+
 /** Keep the focused item inside the drawn safe edges, without moving focus itself. */
 export function anchoredOffset(itemStart: number, itemSize: number, viewport: number, offset: number, extent: number, leading = 0, trailing = 0): number {
   const low = itemStart - leading, high = itemStart + itemSize - viewport + trailing;

@@ -1,10 +1,10 @@
-import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState, useSyncExternalStore, type ReactNode} from 'react';
+import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
 import {View, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react-native-reanimated';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {useTheme} from '../theme';
 import {useFocusAnchor} from './FocusAnchor';
-import {gridWindow} from './model';
+import {captureGridAnchor, gridAnchorOffset, gridWindow, type GridAnchor} from './model';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
 
 export type WindowedGridHandle = {scrollToIndex: (index: number) => void; scrollToLetter: (key: string) => void; scrollToOffset: (offset: number) => void};
@@ -84,7 +84,42 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
     const index = collection.indexOfLetter(key);
     if (index !== undefined) moveToIndex(index);
   }}), [collection, moveToIndex, moveToOffset]);
-  const initialOffset = useMemo(() => ({x: 0, y: initialIndex === 0 && leadingHeight > 0 ? 0 : Math.max(0, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset)}), [columns, initialIndex, leadingHeight, paddingTop, stickyOffset, stride]);
+  const geometry = useRef<{collection: WindowedCollection<T>; generation: number; columns: number; stride: number; paddingTop: number; stickyOffset: number} | undefined>(undefined);
+  const retained = useRef<{collection: WindowedCollection<T>; generation: number; anchor: GridAnchor; id?: string} | undefined>(undefined);
+  const moveAnchor = anchor.move, measuredOffset = anchor.offset;
+  const captureBeforeLayout = () => {
+    const previous = geometry.current;
+    if (!previous) return;
+    const captured = captureGridAnchor(measuredOffset.value, previous.columns, previous.stride, previous.paddingTop, previous.stickyOffset, total);
+    if (!captured) return;
+    const slot = previous.collection.slotAt(captured.index);
+    retained.current = {collection: previous.collection, generation: previous.generation, anchor: captured, id: slot.kind === 'item' ? getKey(slot.item) : undefined};
+  };
+  useLayoutEffect(() => {
+    if (!viewport.width || !viewport.height) return;
+    const previous = geometry.current;
+    const witness = retained.current;
+    retained.current = undefined;
+    geometry.current = {collection, generation: snapshot.generation, columns, stride, paddingTop, stickyOffset};
+    if (!previous) {
+      const opening = initialIndex === 0 ? 0 : Math.max(0, Math.min(height - viewport.height, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset));
+      if (opening) {moveAnchor(opening, true); setScroll(opening);}
+      return;
+    }
+    // A new result generation owns its own restoration. Never carry an old
+    // library/filter anchor into it, and never scan the collection to find one.
+    if (previous.collection !== collection || previous.generation !== snapshot.generation
+      || previous.columns === columns && previous.stride === stride && previous.paddingTop === paddingTop && previous.stickyOffset === stickyOffset) return;
+    const captured = witness?.collection === collection && witness.generation === snapshot.generation ? witness.anchor
+      : captureGridAnchor(measuredOffset.value, previous.columns, previous.stride, previous.paddingTop, previous.stickyOffset, total);
+    if (!captured) return; // The viewport is still in the header, not the grid.
+    if (witness?.id) {
+      const current = collection.slotAt(captured.index);
+      if (current.kind !== 'item' || getKey(current.item) !== witness.id) return;
+    }
+    const next = gridAnchorOffset(captured, columns, stride, paddingTop, stickyOffset, height, viewport.height);
+    moveAnchor(next, true); setScroll(next); onScrollOffset?.(next);
+  }, [collection, columns, getKey, height, initialIndex, measuredOffset, moveAnchor, onScrollOffset, paddingTop, snapshot.generation, stickyOffset, stride, total, viewport.height, viewport.width]);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
@@ -97,9 +132,9 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   for (let index = firstMounted; index <= lastMounted; index++) indices.push(index);
   // Keep only the actually focused cell alive during an interrupted row scroll.
   if (theme.isTV && focused !== undefined && focused < total && !indices.includes(focused)) indices.push(focused);
-  return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={[style, anchor.scrollStyle]} contentOffset={initialOffset}
+  return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={[style, anchor.scrollStyle]}
     stickyHeaderIndices={stickyHeader ? [header ? 1 : 0] : undefined}
-    onLayout={event => setViewport(event.nativeEvent.layout)} onScroll={onScroll} scrollEventThrottle={16}
+    onLayout={event => {captureBeforeLayout(); setViewport(event.nativeEvent.layout);}} onScroll={onScroll} scrollEventThrottle={16}
     onScrollBeginDrag={anchor.stop} onTouchStart={anchor.stop} scrollAnimationEnabled={false} removeClippedSubviews={false}>
     {header && <View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>{header}</View>}
     {stickyHeader && <View onLayout={event => setToolbarHeight(event.nativeEvent.layout.height)}>{stickyHeader}</View>}

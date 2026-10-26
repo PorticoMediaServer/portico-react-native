@@ -1,3 +1,4 @@
+import {captureGridAnchor, gridAnchorOffset} from '../src-next/kit/layout/model.ts';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {alphabetAnchors, alphabetBand, anchoredOffset, createArtworkReadiness, createPreviewDebounce, createRotationClock, flowSectionWidth, gridWindow, type PreviewScheduler} from '../src-next/kit/layout/model';
@@ -160,4 +161,15 @@ test('overscan input cannot turn a sparse grid into a full-collection render', (
     assert.ok(window.startRow <= window.endRow);
     assert.ok((window.endRow - window.startRow + 1) * 3 <= 63);
   }
+});
+
+// Source coverage for foldable frame9: identity index survives column changes,
+// and the fractional offset is measured relative to the sticky edge.
+test('grid reflow preserves a far-visible slot and its fractional offset', () => {
+  const captured = captureGridAnchor(4063.25, 4, 400, 100, 60, 5_000_000)!;
+  assert.deepEqual(captured, {index: 40, offset: -23.25});
+  assert.equal(gridAnchorOffset(captured, 6, 340, 120, 80, 300_000_000, 900), 2103.25);
+  assert.equal(gridAnchorOffset(captured, 2, 400, 100, 60, 1_000, 900), 100, 'clamp at the real end');
+  assert.equal(captureGridAnchor(0, 4, 400, 500, 60, 5_000_000), undefined, 'header has no grid identity');
+  assert.equal(captureGridAnchor(0, 4, 400, 0, 0, 0), undefined, 'empty collection has no identity');
 });
