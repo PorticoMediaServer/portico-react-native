@@ -201,3 +201,75 @@ test('conversion outranks baked loudness, and applied leveling reports its own m
   assert.equal(levelled.state, t('player.signal.line.loudness', {gain: '−2.0'}));
   assert.equal(levelled.steps.find(step => step.id === 'leveling')?.value, t('player.signal.leveling.applied', {mode: 'track', gain: '−2.0'}));
 });
+
+const stereo96 = {codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 2} as const;
+
+test('observed passthrough shows while nothing altered the signal, and each contrary fact removes it', () => {
+  const base: MusicSignalInput = {...layoutInput(stereo96), output: {platform: 'apple', device: 'receiver', passthrough: true}};
+  const passed = nativeSignalPath(base, t);
+  assert.equal(passed.rule, 5);
+  assert.equal(passed.healthy, true);
+  assert.equal(passed.state, t('player.signal.line.passthrough'));
+  assert.equal(passed.steps.find(step => step.id === 'output')?.value, t('player.signal.line.passthrough'));
+  assert.equal(passed.steps.find(step => step.id === 'leveling')?.value, t('player.signal.notApplied'));
+  assert.equal(passed.steps.find(step => step.id === 'eq')?.value, t('player.signal.notApplied'));
+  const contrary: MusicSignalInput[] = [
+    {...base, server: {route: 'converted', delivered: {codec: 'flac'}}},
+    {...base, eqOn: true, eqApplied: true},
+    {...base, normalization: 'track', levelingApplied: true, levelingGainDb: -3},
+    {...base, server: {route: 'original', atmosLost: true}},
+    {...base, output: {platform: 'apple', device: 'receiver', passthrough: true, atmosLost: true}},
+  ];
+  for (const input of contrary) {
+    const view = nativeSignalPath(input, t);
+    assert.equal(view.healthy, false, JSON.stringify(input.server ?? input.output));
+    assert.notEqual(view.rule, 5);
+    assert.notEqual(view.state, t('player.signal.line.passthrough'));
+    // The shared signal model still labels the output step "passed through" when the route
+    // was converted or EQ was applied; that wording lives in client-core and is Media's to
+    // correct, so it is recorded here rather than asserted as intended behaviour.
+  }
+});
+
+test('Android USB bit-perfect needs the whole measured tuple, and Apple matched stays matched', () => {
+  const output = {platform: 'android' as const, device: 'phone' as const, bitPerfect: true as const, bitPerfectMode: 'android14-usb' as const,
+    usbDac: true, sampleRate: 96000, bitDepth: 24};
+  const perfect = nativeSignalPath({...layoutInput(stereo96), output}, t);
+  assert.equal(perfect.rule, 5);
+  assert.equal(perfect.healthy, true);
+  assert.equal(perfect.pill, t('player.signal.pill.bitPerfect'));
+  assert.equal(perfect.state, t('player.signal.line.bitPerfect', {output: t('player.signal.output.usbDac')}));
+  assert.equal(perfect.steps.find(step => step.id === 'output')?.value, t('player.signal.output.bitPerfect', {bits: 24, rate: t('player.signal.rate', {khz: 96})}));
+  const single: MusicSignalInput['output'][] = [
+    {...output, bitPerfectMode: undefined},
+    {...output, usbDac: undefined},
+    {...output, sampleRate: 48000},
+    {...output, bitDepth: 16},
+  ];
+  for (const partial of single) {
+    const view = nativeSignalPath({...layoutInput(stereo96), output: partial}, t);
+    assert.equal(view.healthy, false);
+    assert.notEqual(view.pill, t('player.signal.pill.bitPerfect'));
+  }
+  const matched = nativeSignalPath({...layoutInput(stereo96), output: {platform: 'apple', device: 'appleTv', sampleRate: 96000, bitDepth: 24, sampleRateMatched: true, bitPerfect: true}}, t);
+  assert.equal(matched.rule, 5);
+  assert.equal(matched.pill, t('player.signal.pill.rateMatched'));
+  assert.notEqual(matched.pill, t('player.signal.pill.bitPerfect'));
+});
+
+test('absent, zero or nonfinite measurements and a bare channel count fabricate nothing', () => {
+  const unknown = nativeSignalPath(layoutInput({codec: 'flac', lossless: true, bitDepth: 0, sampleRate: 0, channels: 2}), t);
+  for (const text of [unknown.state ?? '', unknown.accessibleName ?? '', JSON.stringify(unknown.steps)]) {
+    assert.ok(!/kHz|\d+-bit/i.test(text), `no invented rate or depth in: ${text}`);
+  }
+  assert.equal(unknown.accessibleName?.split('FLAC').length, 2);
+  const nonfinite = nativeSignalPath(layoutInput({codec: 'flac', lossless: true, bitDepth: Number.POSITIVE_INFINITY, sampleRate: Number.NaN, channels: 2}), t);
+  assert.ok(!/kHz/.test(JSON.stringify(nonfinite.steps)));
+  const eightChannels = fileValue(layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 8}));
+  assert.ok(!/5\.1|7\.1|6\.0|8\.0|receiver/i.test(eightChannels), `a bare 8-channel count names no layout: ${eightChannels}`);
+  assert.ok(fileValue(layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 1})).includes('mono'));
+  assert.ok(fileValue(layoutInput(stereo96)).includes('stereo'));
+  const deliveredUnknown = nativeSignalPath({...layoutInput({codec: 'flac', lossless: true, bitDepth: 24, sampleRate: 96000, channels: 8}),
+    server: {route: 'converted', delivered: {codec: 'eac3', channels: 8}}}, t);
+  assert.ok(!/5\.1|7\.1|kHz/.test(deliveredUnknown.state ?? '') && !/5\.1|7\.1/.test(JSON.stringify(deliveredUnknown.steps)));
+});
