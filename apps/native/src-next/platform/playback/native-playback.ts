@@ -38,6 +38,7 @@ import {requireSessionChangeCurrent} from '../../../../../packages/client-core/s
 import {toPlaybackSession} from '../../../../../packages/client-core/src/playback-v1/session-shape';
 import type {DiscTitleRef, Session} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {QueueSessionTransport} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import type {NativeStartRegistration} from './preparing-start';
 
 /** What the binding tells the player screen in words (the screen owns the wording). */
 export type NativePlaybackNotice = Readonly<{type: 'qualityLowered' | 'qualityRaised'; step?: FixedQuality}>;
@@ -63,6 +64,8 @@ export type NativePlaybackHost = Readonly<{
   http: V1Http;
   key?: () => string;
   timers?: Timers;
+  preparingStarts?: NativeStartRegistration;
+  captureStartCurrent?: () => (() => boolean);
 }>;
 
 /**
@@ -161,6 +164,7 @@ export class NativePlayback {
   private lease?: () => LeaseOwner | undefined;
   private attached = '';
   private disposed = false;
+  private startSerial = 0;
   private lastState?: PlayerState;
   private automatic?: AutomaticQuality;
   private automaticConfig?: AutomaticConfig;
@@ -201,6 +205,7 @@ export class NativePlayback {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.host.preparingStarts?.dispose();
     for (const off of this.offs.splice(0)) off();
     this.controller.dispose();
     this.engine.dispose();
@@ -322,7 +327,10 @@ export class NativePlayback {
     const held = this.controller.getSnapshot().session, service = this.service;
     if (!held || !service) return;
     const before = this.known.get(held.id);
-    if (before !== held) { this.registrations.changed(held.id); this.known.set(held.id, held); this.sessionsChanged(); }
+    if (before !== held) {
+      if (this.host.preparingStarts?.remember(held.id) === false) return;
+      this.registrations.changed(held.id); this.known.set(held.id, held); this.sessionsChanged();
+    }
     const shown = service.getSnapshot().session;
     if (shown?.id === held.id && held.presentation.generation > shown.generation) service.installPresentation(toPlaybackSession(held, shown.duration));
   }
@@ -334,6 +342,7 @@ export class NativePlayback {
     if (OWN_ENDS.includes(end.reason)) return;
     this.registrations.changed(sessionId);
     this.known.delete(sessionId);
+    this.host.preparingStarts?.forget(sessionId);
     for (const l of [...this.endedListeners]) l(sessionId, end);
   }
 
@@ -399,11 +408,15 @@ export class NativePlayback {
   // ── PlaybackApi and the queue player's transport ────────────────────────
 
   private keep(session: Session, registered?: () => void): Session {
+    if (this.host.preparingStarts?.remember(session.id) === false) throw Object.assign(new Error('Original preparation cleanup is settling'), {name: 'AbortError'});
     this.registrations.changed(session.id);
     this.known.set(session.id, session);
     registered?.();
     // Bounded: sessions leave by retire, forget and stop; this is the backstop.
-    if (this.known.size > 16) this.known.delete(this.known.keys().next().value!);
+    if (this.known.size > 16) {
+      const oldest = this.known.keys().next().value!;
+      this.known.delete(oldest); this.host.preparingStarts?.forget(oldest);
+    }
     this.sessionsChanged();
     return session;
   }
@@ -420,6 +433,7 @@ export class NativePlayback {
   }
 
   private dropped(id: string): void {
+    this.host.preparingStarts?.forget(id);
     this.registrations.changed(id);
     this.known.delete(id);
     this.positions.delete(id);
@@ -437,9 +451,33 @@ export class NativePlayback {
         return v ? v.durationMs / 1000 : 0;
       } catch { return 0; } // The engine reports the duration once it has the media.
     };
-    const start = async (target: StartTarget, options: StartOptions, key: string = (self.host.key ?? idempotencyKey)(), durationSeconds?: number, signal?: AbortSignal,
+    const start = async (target: StartTarget, options: StartOptions, key?: string, durationSeconds?: number, signal?: AbortSignal,
       context: Pick<StartContext, 'isCurrent' | 'capturePreparing' | 'onPreparing'> = {}) => {
-      const session = self.keep(await self.client.start(target, options, key, {...context, signal}));
+      // Claim the original invocation before a supplied context/key callback can
+      // reenter and start a successor. Key generation belongs to this opening.
+      const serial = ++self.startSerial, service = self.service, drawn = service?.getSnapshot();
+      const sameOpening = () => serial === self.startSerial && !self.disposed && self.service === service
+        && (!drawn || service?.getSnapshot().intentId === drawn.intentId && service.getSnapshot().playbackRun === drawn.playbackRun);
+      const callerCurrent = context.isCurrent, callerPreparing = context.onPreparing;
+      const originalCurrent = self.host.captureStartCurrent?.();
+      const current = () => sameOpening() && (!originalCurrent || originalCurrent()) && (!callerCurrent || callerCurrent()) && sameOpening();
+      if (!current() || signal?.aborted) throw Object.assign(new Error('Original playback start retired'), {name: 'AbortError'});
+      const originalKey = key ?? (self.host.key ?? idempotencyKey)();
+      if (!current() || signal?.aborted) throw Object.assign(new Error('Original playback start retired'), {name: 'AbortError'});
+      const original = self.host.preparingStarts?.begin(target, options, originalKey, signal, current);
+      const lifetime = original?.context ?? {...context, signal, isCurrent: current};
+      let session: Session;
+      try {
+        session = self.keep(await self.client.start(original?.body ?? target, original ? {} : options, original?.key ?? originalKey,
+          {...lifetime, onPreparing: (wait, notice) => {
+            if (!current()) return;
+            if (callerPreparing) callerPreparing(wait, notice);
+            else if (service && drawn) service.reportStartPreparation(drawn.intentId, notice);
+          }}));
+      } finally {
+        original?.finish();
+        if (!callerPreparing && service && drawn && current()) service.reportStartPreparation(drawn.intentId, undefined);
+      }
       return {session, playback: toPlaybackSession(session, session.discTitle
         ? await duration(session.itemId ?? '', session.versionId, signal, session.discTitle)
         : durationSeconds ?? await duration(session.itemId ?? '', session.versionId, signal))};
