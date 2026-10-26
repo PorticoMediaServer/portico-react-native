@@ -4,7 +4,7 @@ import {MetadataRepairService, type RepairData} from '../../../../../packages/cl
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable, TextField} from '../../kit/controls';
 import {BottomSheet} from '../../kit/overlays';
-import {SkeletonBlock, StateView} from '../../kit/states';
+import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import {linkNativeAbortSignals} from '../../platform/abort-signals';
@@ -299,8 +299,8 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       <Button variant="glass" onPress={() => {if (owned()) close();}} disabled={busy}>{t('action.cancel')}</Button>
       <Button onPress={() => {void save();}} loading={busy} disabled={!exact(data) || busy || coverBusy || rereadBusy}>{t('action.save')}</Button>
     </View>}>
-    {snapshot.phase === 'idle' || snapshot.phase === 'loading' ? <SkeletonBlock width="100%" height={220}/> : null}
     {snapshot.phase === 'error' || failed ? <StateView variant="inline" title={t('error.unknown')}/> : null}
+    <LoadingBoundary ready={exact(data) || snapshot.phase !== 'idle' && snapshot.phase !== 'loading'} immediate={exact(data)} skeleton={<SkeletonBlock width="100%" height={220}/>}>
     {exact(data) ? <View style={{gap: 12}}>
       {data.schema.map(spec => {
         const field = data.snapshot.fields[spec.field];
@@ -314,6 +314,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
         </View>;
       })}
     </View> : null}
+    </LoadingBoundary>
     {exact(data) && manifest && version ? <View style={{marginTop: 16, gap: 8}}>
       <Button variant="glass" onPress={() => {void reread();}} loading={rereadBusy} disabled={busy || coverBusy || rereadBusy}>{t('next.reader.readFileAgain')}</Button>
       {rereadFailed ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
@@ -332,8 +333,8 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
       description={t('next.reader.ownerOnly')} testID="native-read-cover-page" keyboardAvoiding>
       <View style={{gap: 10}}>
         <Text style={[browseType(theme, 13, 500), {color: theme.colors.textSecondary}]}>{t('next.reader.pageCount', {count: coverOpening.pageCount})}</Text>
-        {coverPages?.opening === coverOpening && coverPages.phase === 'loading' ? <SkeletonBlock width="100%" height={132}/> : null}
         {coverPages?.opening === coverOpening && coverPages.phase === 'failed' ? <Text style={[browseType(theme, 12, 500), {color: theme.colors.record}]}>{t('error.unknown')}</Text> : null}
+        <LoadingBoundary ready={!(coverPages?.opening === coverOpening && coverPages.phase === 'loading')} immediate={coverPages?.opening === coverOpening && coverPages.phase === 'ready'} skeleton={<SkeletonBlock width="100%" height={132}/>}>
         {coverPages?.opening === coverOpening && coverPages.phase === 'ready' && coverPages.pages.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={{gap: 8, paddingRight: 4}}>
           {coverPages.pages.map(page => {
@@ -347,6 +348,7 @@ export function ReadOwnerEditSheet({context, lease, owner, itemId, libraryId, ma
             </Focusable>;
           })}
         </ScrollView> : null}
+        </LoadingBoundary>
         <TextField value={pageInput.value} onChangeText={setPage} editable={!coverBusy} keyboardType="number-pad"
           accessibilityLabel={t('next.reader.page')} maxLength={4}/>
         <Button onPress={() => {void choosePage(coverOpening, pageInput);}} loading={coverBusy} disabled={coverBusy || !pageInput.value.trim()}>{t('web.metadata.useIt')}</Button>
