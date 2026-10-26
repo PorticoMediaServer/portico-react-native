@@ -332,7 +332,7 @@ const playerEngineHints: Readonly<Record<string, MessageId>> = Object.freeze({
  * this identity, so no retained opener or late item can write or close a successor. */
 type EngineChooser = Readonly<{
   token: number; page: string; revision: number;
-  snapshot: unknown; controller: unknown; preferences: unknown; mount: object;
+  route: unknown; controller: unknown; preferences: unknown; mount: object;
   value: string;
   choices: readonly Readonly<{value: string | number | boolean; label: MessageId; labelValues?: unknown}>[];
   options: readonly Readonly<{value: string; label: string; description?: string}>[];
@@ -371,13 +371,19 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
   const [engineOpen, setEngineOpen] = useState<EngineChooser>();
   const engineRef = useRef<EngineChooser | undefined>(undefined), engineToken = useRef(0);
   const engineMounted = useRef(true), engineRetired = useRef(false);
-  const engineLive = useRef<Readonly<{page: string; controller: unknown; preferences: unknown; mount: object}>>(undefined);
-  engineLive.current = {page: page.id, controller, preferences: devicePreferences, mount: engineMount};
+  const engineLive = useRef<Readonly<{page: string; controller: unknown; preferences: unknown; mount: object; route: unknown}>>(undefined);
+  // The committed owner is published in the layout turn, never during render: an abandoned
+  // render cannot replace the witness, and the cleanup clears only the owner it published.
+  useLayoutEffect(() => {
+    const owner = {page: page.id, controller, preferences: devicePreferences, mount: engineMount, route};
+    engineLive.current = owner;
+    return () => {if (engineLive.current === owner) engineLive.current = undefined;};
+  }, [page.id, controller, devicePreferences, engineMount, route]);
   const engineOwnerAlive = (opening: EngineChooser) => {
     const live = engineLive.current;
     return engineMounted.current && !!live && live.page === opening.page && live.controller === opening.controller
-      && live.preferences === opening.preferences && live.mount === opening.mount
-      && opening.snapshot === navigation.getSnapshot() && controller.lifetime.current();
+      && live.preferences === opening.preferences && live.mount === opening.mount && live.route === opening.route
+      && opening.route === navigation.getSnapshot() && controller.lifetime.current();
   };
   const engineAlive = (opening: EngineChooser | undefined) => !!opening && engineRef.current === opening && engineOwnerAlive(opening);
   const engineShown = engineOpen && engineAlive(engineOpen) ? engineOpen : undefined;
@@ -393,7 +399,7 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
   // A page, source, route or unmount change retires the exact opening in the same layout turn.
   useLayoutEffect(() => {
     if (engineOpen && !engineAlive(engineOpen)) retireEngine();
-  }, [engineOpen, page.id, controller, devicePreferences, route.revision]);
+  }, [engineOpen, page.id, controller, devicePreferences, route]);
   const openConfirm = (kind: AccountConfirm['kind']) => {
     // A delayed row action from an old page may not reopen its modal on the successor page.
     if (confirmScope.current !== scope || confirmOwner.current !== controller) return;
@@ -543,22 +549,22 @@ type AccountConfirm = Readonly<{kind: 'signOut' | 'resetRecommendations'; token:
             const hint = playerEngineHints[String(choice.value)];
             return {value: String(choice.value), label: t(choice.label, choice.labelValues), description: hint ? t(hint) : undefined};
           });
-          const owner = {page: page.id, controller, preferences: devicePreferences, mount: engineMount};
-          const snapshot = navigation.getSnapshot();
+          const owner = {page: page.id, controller, preferences: devicePreferences, mount: engineMount, route};
           return <SettingsRow key={id} testID={id} {...copy} value={options.find(option => option.value === String(value))?.label}
             onPress={() => {
-              // Prove the committed page, source and mount before storing the opening; never the
-              // latest route or refs.
+              // Prove the committed page, source, mount and route before storing the opening;
+              // never a render-side owner or the latest refs.
               const live = engineLive.current;
               if (!engineMounted.current || !live || live.page !== owner.page || live.controller !== owner.controller
-                || live.preferences !== owner.preferences || live.mount !== owner.mount
-                || snapshot !== navigation.getSnapshot() || !controller.lifetime.current()) return;
-              const opening: EngineChooser = {token: ++engineToken.current, ...owner, revision: snapshot.revision, snapshot,
+                || live.preferences !== owner.preferences || live.mount !== owner.mount || live.route !== owner.route
+                || owner.route !== navigation.getSnapshot() || !controller.lifetime.current()) return;
+              const opening: EngineChooser = {token: ++engineToken.current, ...owner, revision: owner.route.revision,
                 value: String(value), choices: offered, options,
                 apply: next => {
                   const held = engineLive.current;
                   if (!engineMounted.current || !held || held.mount !== owner.mount || held.page !== owner.page
-                    || held.controller !== owner.controller || held.preferences !== owner.preferences || !controller.lifetime.current()) return;
+                    || held.controller !== owner.controller || held.preferences !== owner.preferences || held.route !== owner.route
+                    || !controller.lifetime.current()) return;
                   const choice = offered.find(choice => String(choice.value) === next); if (choice) change(row, choice.value);
                 }};
               engineRef.current = opening;
