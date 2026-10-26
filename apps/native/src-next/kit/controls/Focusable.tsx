@@ -18,6 +18,9 @@ export type FocusableProps = Omit<PressableProps, 'children'> & {
   focusInset?: boolean;
   /** Custom face/art layers may draw the focus look from the real render-prop state. */
   focusTreatment?: 'default' | 'none';
+  /** A specifically drawn press may override the ordinary quick press. */
+  pressDurationMs?: number;
+  pressScale?: number;
   /** Same context action for touch/Apple long press and Android TV Menu-up. */
   onLongPressAction?: () => void;
 };
@@ -47,7 +50,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter
 /** The platform moves focus; this primitive only draws it and owns its Menu registration. */
 export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   children, style, disabled, focusable, focusId, testID, focusKind = 'button', focusRadius = 10,
-  focusInset = false, focusTreatment = 'default', onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
+  focusInset = false, focusTreatment = 'default', pressDurationMs, pressScale, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
   onLongPressAction, accessibilityState, ...props
 }, ref) {
   const {isTV, colors, layers, platform} = useTheme();
@@ -69,7 +72,7 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   }, [focused, disabled, isTV, focusKind, focusTreatment, motion, scale, halo]);
   useFocusedMenu(isTV, focused, disabled, waiting ? undefined : onLongPressAction);
 
-  const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV ? 1 : 1 - pressed.value * .03) : 1}]}));
+  const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV && pressScale === undefined ? 1 : 1 - pressed.value * (1 - (pressScale ?? .97))) : 1}]}));
   const ring = useAnimatedStyle(() => ({opacity: halo.value}));
   const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
@@ -80,8 +83,8 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     onBlur={event => {binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event); observation.recordFocus(event, false);}}
     onHoverIn={event => {setHovered(true); onHoverIn?.(event);}}
     onHoverOut={event => {setHovered(false); onHoverOut?.(event);}}
-    onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}
-    onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
+    onPressIn={event => {pressed.value = withTiming(1, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressIn?.(event);}}
+    onPressOut={event => {pressed.value = withTiming(0, {...motion.timing('quick'), ...(pressDurationMs !== undefined && !motion.reduce ? {duration: pressDurationMs} : {})}); onPressOut?.(event);}}
     onLongPress={disabled || waiting ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
     pressableStyleInput={typeof style === 'function' ? style : undefined}
     observeResolvedStyle={typeof __DEV__ !== 'undefined' && __DEV__ ? observation.recordDeclaredStyle : undefined}

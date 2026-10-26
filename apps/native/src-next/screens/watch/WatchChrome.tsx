@@ -20,6 +20,7 @@ import {nativeType, useTheme} from '../../kit/theme';
 import {useMotion, useReducedMotion} from '../../kit/useMotion';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
+import {useSkipPromptMotion} from './useSkipPromptMotion';
 import {NativeUpNextCard} from './UpNextCard';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 import type {NativeWatchNotice} from './playback-info';
@@ -249,6 +250,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const offered = promptEnabled && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
   const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
   const visibleOffer = promptEnabled && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
+  const promptMotion = useSkipPromptMotion(!visibleOffer && !notice ? prompt : undefined, current() && source.dock.local?.expanded === true ? JSON.stringify(fence) : undefined, visible, !theme.isTV && !props.bar && !props.tabletop ? 90 : 0);
   const promptEntry = !promptEnabled ? undefined : visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : prompt ? 'watch-skip-action' : undefined;
   const promptLive = useRef<{entry: string | undefined; dismiss: () => boolean}>({entry: promptEntry, dismiss: () => false});
   promptLive.current = {entry: promptEntry, dismiss: () => {
@@ -463,12 +465,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       onPress={() => {if (!controlsCurrent()) return; const from = notice.fromSeconds; setNotice(undefined); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
     {phone && <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, height: 2, backgroundColor: 'rgba(237,245,250,.45)'}, undoLineStyle]}/>}
   </View> : undefined;
-  const skipPromptNode = prompt ? <>{prompt.kind === 'credits' && sceneAfter && !phone && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>
+  const paintedPrompt = promptMotion.value;
+  const skipPromptNode = paintedPrompt ? <Animated.View pointerEvents={promptMotion.interactive ? 'box-none' : 'none'} accessibilityElementsHidden={!promptMotion.interactive} importantForAccessibility={promptMotion.interactive ? 'auto' : 'no-hide-descendants'} style={[{flexDirection: 'row', alignItems: 'center', gap: 22}, promptMotion.bodyStyle]}>{paintedPrompt.kind === 'credits' && sceneAfter && !phone && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>
       <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, fontWeight: '600', color: theme.colors.text}}>{t('player.post.sceneAfter')}</Text>
     </View>}
-    <Button focusId="watch-skip-action" testID="watch-skip-action" variant="primary" size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={false} icon="i-next" iconSize={phone ? 18 : undefined}
-      style={phone ? {height: 44, paddingHorizontal: 16, borderRadius: 10} : undefined} textStyle={phone ? {fontSize: 15, fontWeight: '700'} : undefined}
-      onPress={() => skipSegment(prompt)}>{t('player.skip', {kind: prompt.kind})}</Button></> : undefined;
+    <Button focusId="watch-skip-action" testID="watch-skip-action" disabled={!promptMotion.interactive} focusable={promptMotion.interactive} pressDurationMs={90} pressScale={.96} variant="primary" size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={false} icon="i-next" iconSize={phone ? 18 : undefined}
+      style={phone ? {height: 44, paddingHorizontal: 16, borderRadius: 10, opacity: 1} : {opacity: 1}} textStyle={phone ? {fontSize: 15, fontWeight: '700'} : undefined}
+      onPress={promptMotion.interactive && prompt ? () => skipSegment(prompt) : undefined}>{t('player.skip', {kind: paintedPrompt.kind})}</Button></Animated.View> : undefined;
   const skipNodes = skipOfferNode ?? skipNoticeNode ?? skipPromptNode;
   // tablet-play1: an expanded window draws the desktop player's two bars — a top
   // bar with the way out, the title and the tools, and a bottom bar with the seek,
@@ -718,14 +721,14 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       </FocusRegion>
     </Animated.View>
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={theme.isTV ? 168 : 64} gutter={theme.isTV ? 96 : 54} available={width}/>}
-    {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: theme.isTV ? 96 : 60,
-      bottom: theme.isTV ? 284 : visible ? 110 : 20}}>
+    {skipNodes && <Animated.View pointerEvents="box-none" style={[{position: 'absolute', right: theme.isTV ? 96 : 60,
+      bottom: theme.isTV ? 284 : skipNodes === skipPromptNode && !motion.reduce ? 20 : visible ? 110 : 20}, skipNodes === skipPromptNode ? promptMotion.positionStyle : undefined]}>
       {theme.isTV
         ? <FocusRegion id="watch-skip" orientation="horizontal" entry={promptEntry} edges={visible ? {left: 'watch-controls'} : undefined} screenStart={{regionId: 'watch-surface', childId: 'watch-picture'}}>
             <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
           </FocusRegion>
         : <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>}
-    </View>}
+    </Animated.View>}
     {theme.isTV && visible && actionsCurrent && liveActions.confirmed && liveConfirmation && !liveOverlayOpen && <View testID="watch-live-confirmation" pointerEvents="none"
       accessibilityRole="alert" accessibilityLiveRegion="polite" style={{position: 'absolute', right: 96, top: 168, maxWidth: width - 192, flexDirection: 'row', alignItems: 'center', gap: 14,
         paddingVertical: 16, paddingHorizontal: 24, borderRadius: 16, backgroundColor: 'rgba(16,33,45,.94)',
