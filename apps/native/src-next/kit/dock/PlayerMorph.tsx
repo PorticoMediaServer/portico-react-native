@@ -123,7 +123,7 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
           progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}, finish) : withTiming(source.docked ? 1 : 0, timing, finish);
         }
       });
-    return {gesture: pan(false), dockGesture: pan(true)};
+    return {gesture: pan(false), dockGesture: pan(true), chromeGesture: (enabled: boolean) => pan(false).enabled(enabled && !!source.fence && !source.docked)};
   }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, timing, released, source, epoch, run, started, completionFor]);
   return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, gestures]);
 }

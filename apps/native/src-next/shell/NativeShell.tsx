@@ -3,6 +3,7 @@ import {View, useWindowDimensions} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {OverlaysProvider} from '../kit/overlays';
+import {PlayerMorphProvider} from '../kit/dock/PlayerMorphBridge';
 import {AccountMenu} from '../kit/shell';
 import {useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
@@ -23,7 +24,7 @@ import {NativePlaybackLayer} from './NativePlaybackLayer';
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   // Permission/profile/server changes cannot reuse component state, focus, selections or images.
-  return <OverlaysProvider key={authorityKey(snapshot.authority)}><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></OverlaysProvider>;
+  return <OverlaysProvider key={authorityKey(snapshot.authority)}><PlayerMorphProvider><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></PlayerMorphProvider></OverlaysProvider>;
 }
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {

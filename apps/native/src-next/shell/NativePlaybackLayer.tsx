@@ -1,3 +1,4 @@
+import {usePlayerMorphPublication} from '../kit/dock/PlayerMorphBridge';
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, Image, Platform, View, useWindowDimensions} from 'react-native';
 import {GestureDetector} from 'react-native-gesture-handler';
@@ -155,6 +156,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset}:
       || !current.dock.local || (!current.dock.local.expanded) !== fromDocked) return;
     void adapter.onTransition(collapse ? adapter.dock.collapse(original) : adapter.dock.expand(original)).catch(runtime.reportError);
   }});
+  usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV && expandedReady ? pictureFence : undefined);
   const {dockX, dockFade} = morph;
   const prepareLayout = useCallback(async (fence: PlaybackFence) => {
     if (!['android', 'ios'].includes(Platform.OS) || theme.isTV) return;

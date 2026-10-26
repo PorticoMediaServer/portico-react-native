@@ -78,6 +78,8 @@ export type PlayerMorphController = {
   /** Each physical detector owns a distinct RNGH instance. */
   gesture: PanGesture;
   dockGesture: PanGesture;
+  /** Distinct physical handler, same progress/velocity and original release guard. */
+  chromeGesture: (enabled: boolean) => PanGesture;
 };
 export type DockHostProps = {
   testID?: string;
