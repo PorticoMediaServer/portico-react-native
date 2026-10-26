@@ -31,11 +31,11 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
           {color: theme.colors.text, marginTop: 46, marginBottom: 8, includeFontPadding: false}]}>{t('web.signin.welcomeHome')}</Text>
         <Text style={[nativeType({size: 14.5, lineHeight: 21.75, weight: 400}, theme.textScale), {color: theme.colors.textSecondary, marginBottom: 20}]}>{t('auth.accountLead')}</Text>
         {error}
-        {onRetry && <Button testID="accounts-auth-retry" variant="glass" disabled={busy} style={{height: 48, borderRadius: 11, marginBottom: 10}}
+        {onRetry && <Button testID="accounts-auth-retry" variant="glass" disabled={busy} style={{width: '100%', alignSelf: 'stretch', height: 48, borderRadius: 11, marginBottom: 10}}
           textStyle={{fontSize: 16 * theme.textScale, fontWeight: '700'}} onPress={onRetry}>{t('action.tryAgain')}</Button>}
         {!!ordered.length && <View style={{gap: 10, marginBottom: 0}}>
           {ordered.map(value => <Button key={value.id} variant="text" icon={value.id === 'google' ? 'i-google' : 'i-apple'} iconSize={19} iconColor={value.id === 'google' ? undefined : '#fff'} testID={`accounts-auth-${value.id}`} disabled={busy}
-            style={{height: 48, borderRadius: 11, borderWidth: 1, borderColor: value.id === 'google' ? '#5f6368' : 'rgba(237,245,250,.22)',
+            style={{width: '100%', alignSelf: 'stretch', height: 48, borderRadius: 11, borderWidth: 1, borderColor: value.id === 'google' ? '#5f6368' : 'rgba(237,245,250,.22)',
               backgroundColor: value.id === 'google' ? '#131314' : '#000'}}
             textStyle={{fontSize: 16 * theme.textScale, fontWeight: '700', color: value.id === 'google' ? '#e3e3e3' : '#fff'}}
             onPress={() => {if (!busy) onProvider(value.id);}}>{t(value.id === 'google' ? 'auth.signInWithGoogle' : 'auth.signInWithApple')}</Button>)}
@@ -54,7 +54,7 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
               secureTextEntry textContentType="password" autoComplete="current-password" autoCapitalize="none" autoCorrect={false}
               fieldStyle={{height: 48, borderRadius: 11, paddingHorizontal: 14}}/>
           </View>
-          <Button testID="accounts-auth-continue" variant="primary" disabled={busy || !username || !password} style={{height: 48, borderRadius: 11, marginTop: 12}}
+          <Button testID="accounts-auth-continue" variant="primary" disabled={busy || !username || !password} style={{width: '100%', alignSelf: 'stretch', height: 48, borderRadius: 11, marginTop: 12}}
             textStyle={{fontSize: 16 * theme.textScale, fontWeight: '700'}} onPress={() => {if (!busy && username && password) onContinue();}}>{t('action.continue')}</Button>
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 14}}>
             {recovery && <Button testID="accounts-auth-forgot" variant="text" size="compact" disabled={busy} textStyle={{fontSize: 14 * theme.textScale, fontWeight: '700'}} onPress={onForgot}>{t('auth.forgotPassword')}</Button>}
