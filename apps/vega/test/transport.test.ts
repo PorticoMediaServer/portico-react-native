@@ -12,7 +12,8 @@ class Request {
   constructor() { Request.made.push(this); }
   open(method: string, url: string) { this.method = method; this.url = url; }
   setRequestHeader(name: string, value: string) { this.headers[name] = value; }
-  getResponseHeader(_name: string) { return null; }
+  contentLength: string | null = null;
+  getResponseHeader(_name: string) { return this.contentLength; }
   getAllResponseHeaders() { return 'Content-Type: application/json'; }
   send(body?: string) { this.body = body; }
   abort() { this.aborted = true; this.onabort?.(); }
@@ -125,6 +126,56 @@ test('revocation uses only the issuer, no cookies, five-second deadline and no r
   const redirected = revokeExposedSessions({origin: 'https://issuer.test', sessions: [{accessToken: 'old', refreshToken: 'hosted-refresh', hosted: true}]});
   assert.equal(last().url, 'https://issuer.test/v1/sessions/revoke'); assert.equal(last().body, '{"refreshToken":"hosted-refresh"}');
   last().respond(200, '{}', 'https://capture.test/revoke'); assert.equal(await redirected, false);
+});
+
+test('revocation waits for SDK URL metadata, then still requires the final exact issuer URL', async () => {
+  const count = Request.made.length;
+  const pending = revokeExposedSessions({origin: 'https://revoke-order.test', sessions: [{accessToken: 'fixture-token', hosted: false}]});
+  const request = last(); let settled = false;
+  void pending.then(() => {settled = true;});
+  request.receiveHeaders(204);
+  await Promise.resolve();
+  assert.equal(settled, false); assert.equal(request.aborted, false);
+  request.readyState = 4; request.onreadystatechange?.(); request.onload?.();
+  assert.equal(await pending, true); assert.equal(Request.made.length, count + 1);
+  for (const [status, url] of [[204, ''], [200, 'https://other.test/v1/sessions/current'],
+    [200, 'https://revoke-order.test/v1/other'], [302, 'https://revoke-order.test/v1/sessions/current']] as const) {
+    const before = Request.made.length;
+    const refusal = revokeExposedSessions({origin: 'https://revoke-order.test', sessions: [{accessToken: 'fixture-token', hosted: false}]});
+    const rejected = last(); rejected.respond(status, '', url);
+    assert.equal(await refusal, false); assert.equal(rejected.aborted, true);
+    assert.equal(Request.made.length, before + 1, 'containment never follows or retries a redirect');
+  }
+  // Even a load event while the SDK has supplied no URL must not substitute the requested URL.
+  const missing = revokeExposedSessions({origin: 'https://revoke-final.test', sessions: [{accessToken: 'fixture-token', hosted: false}]});
+  last().readyState = 2; last().onreadystatechange?.(); last().status = 204; last().onload?.();
+  assert.equal(await missing, false);
+});
+
+test('revocation keeps the body cap and refuses network, timeout and abort without a second request', async () => {
+  for (const failure of ['declared-body', 'streamed-body', 'network', 'timeout', 'abort'] as const) {
+    const before = Request.made.length;
+    const pending = revokeExposedSessions({origin: 'https://revoke-limits.test', sessions: [{accessToken: 'fixture-token', hosted: false}]});
+    const request = last();
+    if (failure === 'declared-body') {request.contentLength = '65537'; request.respond(204, '');}
+    else if (failure === 'streamed-body') {request.receiveHeaders(); request.responseText = 'x'.repeat(65537); request.onprogress?.();}
+    else if (failure === 'network') request.onerror?.();
+    else if (failure === 'timeout') request.ontimeout?.();
+    else request.abort();
+    assert.equal(await pending, false); assert.equal(request.aborted, true);
+    assert.equal(Request.made.length, before + 1);
+  }
+});
+
+test('revocation retains its independent five-second deadline while response metadata is incomplete', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const pending = revokeExposedSessions({origin: 'https://revoke-deadline.test', sessions: [{accessToken: 'fixture-token', hosted: false}]});
+  const request = last(); request.readyState = 2; request.onreadystatechange?.();
+  let settled = false; void pending.then(() => {settled = true;});
+  t.mock.timers.tick(4999); await Promise.resolve();
+  assert.equal(settled, false); assert.equal(request.aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(await pending, false); assert.equal(request.aborted, true); assert.equal(request.timeout, 5000);
 });
 
 test('a fresh signed nonce proof may admit the same server at an alternate exact origin', () => {

@@ -21,6 +21,8 @@ export async function revokeExposedSessions(exposure: Exposure): Promise<boolean
       if (!session.hosted || !session.refreshToken) xhr.setRequestHeader('Authorization', 'Bearer ' + session.accessToken);
       xhr.onreadystatechange = () => {
         if (xhr.readyState < 2) return;
+        // Kepler publishes HEADERS_RECEIVED before assigning responseURL; final validation stays mandatory.
+        if (xhr.readyState === 2 && !xhr.responseURL) return;
         try { checkResponse(url, xhr.responseURL, xhr.status, false); } catch { finish(false); return; }
         if (Number(xhr.getResponseHeader('Content-Length')) > 65536 || (xhr.responseText?.length ?? 0) > 65536) finish(false);
       };
