@@ -29,6 +29,7 @@ class FakeRuntime {
   change = () => {};
   chooseQuality = () => {};
   setRate = () => {};
+  setForcedOnly = (...args: unknown[]) => {calls.push({name: 'setForcedOnly', args, self: this}); return true;};
   subtitleControls = () => ({});
   readSession = () => {};
   prepareExternalPresentation = () => {};
@@ -105,6 +106,7 @@ test('Apple factory forwards the five existing runtime ports without substitutio
   assert.strictEqual(adapter.selectQueuedEntry, runtime.selectQueuedEntry);
   assert.strictEqual(adapter.setQueuePolicy, runtime.setQueuePolicy);
   assert.strictEqual(adapter.editQueue, runtime.editQueue);
+  assert.strictEqual(adapter.setForcedOnly, runtime.setForcedOnly);
   assert.notStrictEqual(adapter.queuePlay, runtime.queue.playEntry);
 });
 
@@ -143,4 +145,18 @@ test('queuePlay keeps the queue receiver and forwards the exact three strings', 
   assert.equal(calls[0]?.name, 'queuePlay');
   assert.strictEqual(calls[0]?.self, runtime.queue);
   assert.deepEqual(calls[0]?.args, ['queue', 'entry', '7']);
+});
+
+test('setForcedOnly forwards the original fence and boolean to the exact runtime', () => {
+  calls.length = 0;
+  const fence: PlaybackFence = {kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account',
+    profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1},
+  sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1};
+  const result = adapter.setForcedOnly!(fence, true);
+  assert.equal(result, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.name, 'setForcedOnly');
+  assert.strictEqual(calls[0]?.self, runtime);
+  assert.strictEqual(calls[0]?.args[0], fence);
+  assert.strictEqual(calls[0]?.args[1], true);
 });
