@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
+import type {NativePlaybackReadLifetime} from '../src-next/platform/playback/types';
+import type {PlaybackFence} from '../../../packages/player-core/src';
+import type {V1QueuedEntrySelection, V1QueueEditIntent, V1QueuePolicyIntent} from '../../../packages/client-core/src/playback-v1/v1-queue-player';
 
 // Contract source for BLK-PLAY-001: the Apple factory must forward the five
 // already-installed runtime commands unchanged. This drives the real native.ios
@@ -107,31 +110,37 @@ test('Apple factory forwards the five existing runtime ports without substitutio
 
 test('forwarded commands dispatch to the exact runtime with original arguments', () => {
   calls.length = 0;
-  const signal = new AbortController().signal;
-  adapter.retry('fence' as never, 7 as never, 'request' as never, signal as never);
-  adapter.selectQueuedEntry('fence' as never, 'entry' as never, 7 as never, signal as never);
-  adapter.setQueuePolicy('fence' as never, 'repeat-all' as never, 7 as never);
-  adapter.editQueue('fence' as never, 'entry' as never, 7 as never);
-  assert.equal(calls[0]?.name, 'retry');
-  assert.equal(calls[0]?.self, runtime);
-  assert.deepEqual(calls[0]?.args, ['fence', 7, 'request', signal]);
-  assert.equal(calls[1]?.name, 'selectQueuedEntry');
-  assert.equal(calls[1]?.self, runtime);
-  assert.deepEqual(calls[1]?.args, ['fence', 'entry', 7, signal]);
-  assert.equal(calls[2]?.name, 'setQueuePolicy');
-  assert.equal(calls[2]?.self, runtime);
-  assert.deepEqual(calls[2]?.args, ['fence', 'repeat-all', 7]);
-  assert.equal(calls[3]?.name, 'editQueue');
-  assert.equal(calls[3]?.self, runtime);
-  assert.deepEqual(calls[3]?.args, ['fence', 'entry', 7]);
+  const fence: PlaybackFence = {kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account',
+    profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1},
+  sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1};
+  const lifetime: NativePlaybackReadLifetime = {signal: new AbortController().signal, isCurrent: () => true};
+  const selection: V1QueuedEntrySelection = {queueId: 'queue', expectedRevision: '7', entryId: 'entry'};
+  const editRequest = {queueId: 'queue', expectedRevision: '7', intent: {action: 'remove', entryId: 'entry'} as V1QueueEditIntent};
+  const policyRequest = {queueId: 'queue', expectedRevision: '7', intent: {action: 'repeat', repeat: 'all'} as V1QueuePolicyIntent};
+  adapter.retry!(fence, lifetime);
+  adapter.selectQueuedEntry!(fence, selection, lifetime);
+  adapter.setQueuePolicy!(fence, policyRequest, lifetime);
+  adapter.editQueue!(fence, editRequest, lifetime);
+  assert.deepEqual(calls.map(call => call.name), ['retry', 'selectQueuedEntry', 'setQueuePolicy', 'editQueue']);
+  for (const call of calls) assert.strictEqual(call.self, runtime);
+  assert.strictEqual(calls[0]!.args[0], fence);
+  assert.strictEqual(calls[0]!.args[1], lifetime);
+  assert.strictEqual(calls[1]!.args[0], fence);
+  assert.strictEqual(calls[1]!.args[1], selection);
+  assert.strictEqual(calls[1]!.args[2], lifetime);
+  assert.strictEqual(calls[2]!.args[0], fence);
+  assert.strictEqual(calls[2]!.args[1], policyRequest);
+  assert.strictEqual(calls[2]!.args[2], lifetime);
+  assert.strictEqual(calls[3]!.args[0], fence);
+  assert.strictEqual(calls[3]!.args[1], editRequest);
+  assert.strictEqual(calls[3]!.args[2], lifetime);
 });
 
-test('queuePlay keeps the queue receiver and forwards the exact arguments', () => {
+test('queuePlay keeps the queue receiver and forwards the exact three strings', () => {
   calls.length = 0;
-  const signal = new AbortController().signal;
-  adapter.queuePlay('entry' as never, 7 as never, signal as never);
+  adapter.queuePlay!('queue', 'entry', '7');
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.name, 'queuePlay');
-  assert.equal(calls[0]?.self, runtime.queue);
-  assert.deepEqual(calls[0]?.args, ['entry', 7, signal]);
+  assert.strictEqual(calls[0]?.self, runtime.queue);
+  assert.deepEqual(calls[0]?.args, ['queue', 'entry', '7']);
 });
